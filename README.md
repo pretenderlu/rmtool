@@ -75,7 +75,3 @@
 ## 贡献
 
 欢迎提出建议和改进意见！如果您发现了 bug 或有新功能建议，请创建一个 issue 或提交 pull request。
-
-## 许可证
-
-[MIT License](LICENSE)
