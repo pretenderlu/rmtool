@@ -75,3 +75,25 @@
 ## 贡献
 
 欢迎提出建议和改进意见！如果您发现了 bug 或有新功能建议，请创建一个 issue 或提交 pull request。
+
+## 常见问题
+
+### 问题1：报“ModuleNotFoundError: No module named 'pkg_resources'”
+解释：这个错误通常发生在尝试导入pkg_resources模块时，但Python找不到这个模块。pkg_resources是setuptools库的一部分，它用于处理Python包的安装和分发。
+解决方法：
+1. 检查setuptools是否已安装
+你需要确认setuptools是否已经在你的Python环境中安装，你可以使用pip工具来查看已安装的库：
+`pip list`
+如果你看到setuptools在列表中，那么它已经被安装，如果没有，你需要安装它。
+2. 安装setuptools
+如果setuptools没有被安装，你可以使用pip来安装它：
+`pip install setuptools`
+这将下载并安装setuptools库。
+
+### 问题2：报“ModuleNotFoundError: No module named 'paramiko'”
+解释：
+ModuleNotFoundError: No module named 'paramiko' 表示Python解释器无法找到名为paramiko的模块。paramiko是一个用于实现SSH连接和操作远程服务器的Python库。
+解决方法：
+安装paramiko模块。可以通过pip命令安装：
+`pip install paramiko`
+
