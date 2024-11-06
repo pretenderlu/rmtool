@@ -243,48 +243,95 @@ def restart_device(client):
     return False
 
 def check_device_time(client):
-    out, err = execute_command(client, "timedatectl")
-    if err:
-        print(f"获取设备时间失败: {err}")
-    else:
-        print("设备当前时间信息:")
-        print(out)
-
-def set_device_time(client):
-    print("设置设备时间...")
+    """检查设备时间信息"""
+    print("\n当前时间信息")
+    print("=====================================")
     
-    out, err = execute_command(client, "timedatectl set-ntp 0")
+    # 检查系统时间
+    sys_time, err = execute_command(client, "date")
     if err:
-        print(f"禁用NTP失败: {err}")
-        return
-
-    new_time = input("请输入新的时间 (格式: YYYY-MM-DD HH:MM:SS): ")
-    out, err = execute_command(client, f"timedatectl set-time '{new_time}'")
-    if err:
-        print(f"设置时间失败: {err}")
+        print("× 获取系统时间失败")
     else:
-        print("时间设置成功")
-
-    out, err = execute_command(client, "timedatectl set-ntp 1")
-    if err:
-        print(f"重新启用NTP失败: {err}")
+        print(f"系统时间: {sys_time.strip()}")
     
-    check_device_time(client)
+    # 检查硬件时钟
+    hw_time, err = execute_command(client, "hwclock -r")
+    if err:
+        print("× 获取硬件时钟失败")
+    else:
+        print(f"硬件时钟: {hw_time.strip()}")
+    
+    # 检查时区设置
+    tz_info, err = execute_command(client, "timedatectl")
+    if err:
+        print("× 获取时区信息失败")
+    else:
+        print("\n时区信息:")
+        print(tz_info.strip())
+
+def sync_time_from_local(client):
+    """使用本地时间更新设备时间"""
+    print("\n开始更新设备时间...")
+    
+    if set_rw_mode(client):
+        try:
+            # 获取本地时间
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"本地时间: {current_time}")
+            
+            print("\n步骤 1/2: 更新系统时间")
+            out, err = execute_command(client, f'date -s "{current_time}"')
+            if not err:
+                print("✓ 系统时间已更新")
+            else:
+                print("× 系统时间更新失败")
+                return False
+
+            print("\n步骤 2/2: 同步到硬件时钟")
+            out, err = execute_command(client, "hwclock -w")
+            if not err:
+                print("✓ 硬件时钟已更新")
+            else:
+                print("× 硬件时钟更新失败")
+
+            print("\n时间更新完成！当前设备时间信息：")
+            check_device_time(client)
+            
+        finally:
+            set_ro_mode(client)
+
+    return True
+
+def set_timezone(client):
+    """设置时区为东八区"""
+    print("\n设置时区...")
+    if set_rw_mode(client):
+        out, err = execute_command(client, "timedatectl set-timezone Asia/Shanghai")
+        if err:
+            print(f"设置时区失败: {err}")
+        else:
+            print("✓ 时区已设置为东八区")
+        set_ro_mode(client)
 
 def manage_device_time(client):
+    """时间管理主菜单"""
     while True:
         print("\n设备时间管理")
-        print("1. 查看当前时间")
-        print("2. 设置设备时间")
-        print("3. 返回主菜单")
+        print("=====================================")
+        print("1. 更新设备时间（使用本地时间）")
+        print("2. 查看当前时间信息")
+        print("3. 设置时区为东八区")
+        print("4. 返回主菜单")
         
-        choice = input("请选择操作 (1-3): ")
+        choice = input("\n请选择操作 (1-4): ")
         
         if choice == '1':
-            check_device_time(client)
+            sync_time_from_local(client)
         elif choice == '2':
-            set_device_time(client)
+            check_device_time(client)
         elif choice == '3':
+            set_timezone(client)
+        elif choice == '4':
             break
         else:
             print("无效的选择，请重试")
@@ -293,12 +340,12 @@ def enable_ssh_over_wlan(client):
     logging.info("启用SSH over WLAN")
     print("正在启用SSH over WLAN...")
     
-    out, err = execute_command(client, "rm-ssh-over-wlan on")
+    out, err = execute_command(client, "systemctl enable --now ssh")
     if err:
-        logging.error(f"启用SSH over WLAN失败: {err}")
-        print(f"启用SSH over WLAN失败: {err}")
+        logging.error(f"启用SSH失败: {err}")
+        print(f"启用SSH失败: {err}")
     else:
-        print("SSH over WLAN 已成功启用")
+        print("SSH 已成功启用")
         print("输出:", out)
 
 def main_menu():
@@ -313,7 +360,7 @@ def main_menu():
         print("2. 更换壁纸")
         print("3. 管理设备时间")
         print("4. 重启设备")
-        print("5. 启用SSH over WLAN")
+        print("5. 启用SSH")
         print("6. 切换连接方式")
         print("0. 退出")
         
