@@ -348,6 +348,73 @@ def enable_ssh_over_wlan(client):
         print("SSH 已成功启用")
         print("输出:", out)
 
+def increase_brightness(client):
+    logging.info("开始调整前光亮度")
+    print("正在调整前光亮度...")
+    
+    if set_rw_mode(client):
+        try:
+            # 调整前光亮度
+            out, err = execute_command(client, "cat /sys/class/backlight/rm_frontlight/max_brightness > /sys/class/backlight/rm_frontlight/brightness")
+            if err:
+                print(f"调整前光亮度失败: {err}")
+                return False
+            
+            out, err = execute_command(client, "echo yes > /sys/class/backlight/rm_frontlight/linear_mapping")
+            if err:
+                print(f"调整前光亮度失败: {err}")
+                return False
+            
+            print("前光亮度已调整")
+            
+            # 创建systemd服务以使设置半永久化
+            service_content = """
+[Unit]
+Description=Set linear_mapping to 'yes' for backlight
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo yes > /sys/class/backlight/rm_frontlight/linear_mapping'
+ExecStartPost=/bin/sh -c 'cat /sys/class/backlight/rm_frontlight/max_brightness > /sys/class/backlight/rm_frontlight/brightness'
+
+[Install]
+WantedBy=multi-user.target
+"""
+            out, err = execute_command(client, f"umount -l /etc")
+            if err:
+                print(f"卸载/etc失败: {err}")
+                return False
+            
+            out, err = execute_command(client, "mount -o remount,rw /")
+            if err:
+                print(f"重新挂载/etc失败: {err}")
+                return False
+            
+            out, err = execute_command(client, f"tee /etc/systemd/system/tweak-brightness-slider.service > /dev/null <<EOF\n{service_content}\nEOF")
+            if err:
+                print(f"创建systemd服务失败: {err}")
+                return False
+            
+            out, err = execute_command(client, "systemctl daemon-reload")
+            if err:
+                print(f"重新加载systemd服务失败: {err}")
+                return False
+            
+            # 手动启用服务并捕获详细错误信息
+            out, err = execute_command(client, "systemctl enable --now tweak-brightness-slider.service")
+            if err:
+                print(f"启用systemd服务失败: {err}")
+                print("输出:", out)
+                return False
+            
+            print("前光亮度调整已设置为半永久化")
+            
+        finally:
+            set_ro_mode(client)
+
+    return True
+
 def main_menu():
     config = load_config()
     connection_info = get_connection_info(config)
@@ -361,10 +428,11 @@ def main_menu():
         print("3. 管理设备时间")
         print("4. 重启设备")
         print("5. 启用SSH")
-        print("6. 切换连接方式")
+        print("6. 调整前光亮度")
+        print("7. 切换连接方式")
         print("0. 退出")
         
-        choice = input("请选择操作 (0-6): ")
+        choice = input("请选择操作 (0-7): ")
         
         if choice == '0':
             break
@@ -387,6 +455,8 @@ def main_menu():
         elif choice == '5':
             enable_ssh_over_wlan(client)
         elif choice == '6':
+            increase_brightness(client)
+        elif choice == '7':
             connection_info = get_connection_info(config)
             if client:
                 client.close()
