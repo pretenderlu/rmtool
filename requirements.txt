@@ -1,3 +1,4 @@
 paramiko
 PyQt5
 Pillow
+keyring
