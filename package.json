@@ -7,7 +7,7 @@
     "dev": "concurrently \"npm:dev:web\" \"npm:dev:server\" \"npm:dev:electron\"",
     "dev:web": "vite",
     "dev:electron": "tsc -p tsconfig.electron.json && wait-on tcp:5173 && electron .",
-    "dev:server": "ts-node-dev --respawn --project tsconfig.server.json src/server/index.ts",
+    "dev:server": "ts-node-dev --respawn --project tsconfig.server.json src/server/start.ts",
     "build": "rimraf dist build && vite build && tsc -p tsconfig.server.json && tsc -p tsconfig.electron.json && node scripts/postbuild.cjs",
     "package": "npm run build && electron-builder",
     "lint": "eslint \"src/**/*.{ts,tsx}\""
