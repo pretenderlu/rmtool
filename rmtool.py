@@ -18,6 +18,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import paramiko
 from PIL import Image, ImageQt
 from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5 import QtWebEngineWidgets
 
 
 try:  # Optional dependency for secure credential storage
@@ -44,6 +45,17 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
+
+
+def resource_path(*parts: str) -> Path:
+    """Return absolute path for bundled resources.
+
+    When packaged with PyInstaller the assets live inside ``_MEIPASS``. During
+    development we fall back to the repository layout.
+    """
+
+    base_path = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return base_path.joinpath(*parts)
 
 
 def _default_config() -> Dict:
@@ -293,6 +305,8 @@ class ConnectionWidget(QtWidgets.QGroupBox):
         self.connect_button = QtWidgets.QPushButton("连接")
         self.disconnect_button = QtWidgets.QPushButton("断开")
         self.status_label = QtWidgets.QLabel("未连接")
+        self.status_label.setObjectName("connectionStatusLabel")
+        self.status_label.setAlignment(QtCore.Qt.AlignCenter)
         self.device_type_combo = QtWidgets.QComboBox()
         self.device_type_combo.addItems(DEVICE_PROFILES.keys())
 
@@ -359,6 +373,11 @@ class ConnectionWidget(QtWidgets.QGroupBox):
             if device["name"] == name:
                 return device
         return {}
+
+    def current_device(self) -> Dict:
+        """Expose the currently selected device for other widgets."""
+
+        return self._current_device().copy()
 
     def _on_device_selected(self, index: int):
         if index < 0:
@@ -491,7 +510,7 @@ class ConnectionWidget(QtWidgets.QGroupBox):
     def _on_connection_changed(self, connected: bool):
         self.connect_button.setEnabled(not connected)
         self.disconnect_button.setEnabled(connected)
-        self.status_label.setText("已连接" if connected else "未连接")
+        self.status_label.setText("🟢 已连接" if connected else "🔴 未连接")
         if connected:
             self.connected.emit()
         else:
@@ -906,6 +925,7 @@ WantedBy=multi-user.target
 
 
 class DocumentsTab(QtWidgets.QWidget):
+    summary_changed = QtCore.pyqtSignal(dict)
     def __init__(self, ssh_client: SSHClientWrapper, parent=None):
         super().__init__(parent)
         self.ssh_client = ssh_client
@@ -1004,6 +1024,7 @@ class DocumentsTab(QtWidgets.QWidget):
         self.preview_image.clear_preview()
         self.preview_image.setText("暂无预览")
         self.export_button.setEnabled(bool(documents))
+        self.summary_changed.emit(self._build_summary())
 
     def _on_error(self, exc: Exception):
         QtWidgets.QMessageBox.critical(self, APP_NAME, f"操作失败：{exc}")
@@ -1244,6 +1265,97 @@ class DocumentsTab(QtWidgets.QWidget):
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
+    def _build_summary(self) -> Dict[str, object]:
+        total = len(self.documents)
+        pdf_count = sum(1 for item in self.documents if "pdf" in item.available_assets)
+        epub_count = sum(1 for item in self.documents if "epub" in item.available_assets)
+        note_count = sum(
+            1
+            for item in self.documents
+            if any(ext in item.available_assets for ext in ("note", "rm"))
+        )
+        last_updated = next(
+            (item.updated for item in self.documents if item.updated is not None),
+            None,
+        )
+        return {
+            "total": total,
+            "pdf": pdf_count,
+            "epub": epub_count,
+            "notes": note_count,
+            "lastUpdated": last_updated.strftime("%Y-%m-%d %H:%M") if last_updated else "",
+        }
+
+    def current_summary(self) -> Dict[str, object]:
+        return self._build_summary()
+
+
+class DashboardTab(QtWidgets.QWidget):
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
+        super().__init__(parent)
+        self.view = QtWebEngineWidgets.QWebEngineView(self)
+        self.view.setContextMenuPolicy(QtCore.Qt.NoContextMenu)
+        self._state: Dict[str, object] = {
+            "connected": False,
+            "lastConnectionChange": "",
+            "device": {"name": "", "type": "", "mode": "", "host": ""},
+            "documents": {
+                "total": 0,
+                "pdf": 0,
+                "epub": 0,
+                "notes": 0,
+                "lastUpdated": "",
+            },
+        }
+        self._loaded = False
+        self._pending_script: Optional[str] = None
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.view)
+
+        html_path = resource_path("web", "dashboard.html")
+        self.view.setUrl(QtCore.QUrl.fromLocalFile(str(html_path)))
+        self.view.loadFinished.connect(self._on_load_finished)
+
+    def update_device(self, device: Dict):
+        self._state["device"] = {
+            "name": device.get("name", ""),
+            "type": device.get("type", ""),
+            "mode": device.get("mode", ""),
+            "host": device.get("host", ""),
+        }
+        self._apply_state()
+
+    def update_connection(self, connected: bool, device: Optional[Dict] = None):
+        if device:
+            self._state["device"] = {
+                "name": device.get("name", ""),
+                "type": device.get("type", ""),
+                "mode": device.get("mode", ""),
+                "host": device.get("host", ""),
+            }
+        self._state["connected"] = connected
+        self._state["lastConnectionChange"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        self._apply_state()
+
+    def update_documents(self, summary: Dict[str, object]):
+        self._state["documents"].update(summary)
+        self._apply_state()
+
+    def _on_load_finished(self, ok: bool):
+        self._loaded = ok
+        if ok and self._pending_script:
+            self.view.page().runJavaScript(self._pending_script)
+            self._pending_script = None
+
+    def _apply_state(self):
+        script = f"window.updateDashboard({json.dumps(self._state, ensure_ascii=False)});"
+        if self._loaded:
+            self.view.page().runJavaScript(script)
+        else:
+            self._pending_script = script
+
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
@@ -1256,12 +1368,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.connection_widget = ConnectionWidget(self.ssh_client, self.config)
         self.tabs = QtWidgets.QTabWidget()
+        self.dashboard_tab = DashboardTab()
         self.font_tab = FontTab(self.ssh_client, self.config)
         self.wallpaper_tab = WallpaperTab(self.ssh_client, self.config)
         self.time_tab = TimeTab(self.ssh_client)
         self.control_tab = ControlTab(self.ssh_client)
         self.documents_tab = DocumentsTab(self.ssh_client)
 
+        self.tabs.addTab(self.dashboard_tab, "仪表盘")
         self.tabs.addTab(self.font_tab, "字体管理")
         self.tabs.addTab(self.wallpaper_tab, "壁纸管理")
         self.tabs.addTab(self.time_tab, "时间设置")
@@ -1280,6 +1394,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.connection_widget.disconnected.connect(lambda: self._update_tabs_enabled(False))
         self.connection_widget.device_changed.connect(self.wallpaper_tab.update_device)
         self.connection_widget.device_changed.connect(self._on_device_changed)
+        self.connection_widget.device_changed.connect(self.dashboard_tab.update_device)
+        self.connection_widget.connected.connect(self._on_connected)
+        self.connection_widget.disconnected.connect(self._on_disconnected)
+        self.documents_tab.summary_changed.connect(self.dashboard_tab.update_documents)
 
         # Initialize wallpaper profile preview
         initial_device = next(
@@ -1287,14 +1405,28 @@ class MainWindow(QtWidgets.QMainWindow):
             self.config.get("devices", [])[0],
         )
         self.wallpaper_tab.update_device(initial_device)
+        self.dashboard_tab.update_device(initial_device)
+        self.dashboard_tab.update_documents(self.documents_tab.current_summary())
+        self.dashboard_tab.update_connection(False, initial_device)
 
     def _update_tabs_enabled(self, enabled: bool):
         for idx in range(self.tabs.count()):
-            self.tabs.widget(idx).setEnabled(enabled)
+            widget = self.tabs.widget(idx)
+            if widget is self.dashboard_tab:
+                continue
+            widget.setEnabled(enabled)
 
     def _on_device_changed(self, device: Dict):
         if self.ssh_client.is_connected():
             self.documents_tab.refresh()
+
+    def _on_connected(self):
+        device = self.connection_widget.current_device()
+        self.dashboard_tab.update_connection(True, device)
+
+    def _on_disconnected(self):
+        device = self.connection_widget.current_device()
+        self.dashboard_tab.update_connection(False, device)
 
 
 def main():
@@ -1308,27 +1440,32 @@ def main():
     palette.setColor(QtGui.QPalette.Text, QtCore.Qt.white)
     palette.setColor(QtGui.QPalette.Button, QtGui.QColor(55, 60, 72))
     palette.setColor(QtGui.QPalette.ButtonText, QtCore.Qt.white)
-    palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(100, 149, 237))
+    palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(111, 181, 255))
     palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.black)
     app.setPalette(palette)
+    default_font = app.font()
+    default_font.setPointSize(11)
+    app.setFont(default_font)
     app.setStyleSheet(
         """
-        QWidget { font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif; font-size: 13px; }
-        QGroupBox { border: 1px solid #3C3F4A; border-radius: 8px; margin-top: 16px; }
-        QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; }
-        QPushButton { background-color: #5C6BC0; color: white; border-radius: 6px; padding: 6px 12px; }
-        QPushButton:disabled { background-color: #444a5a; color: #999; }
-        QPushButton:hover:!disabled { background-color: #7986CB; }
-        QToolButton { background-color: #3C4356; color: white; border-radius: 4px; padding: 4px; }
+        QWidget { font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif; font-size: 15px; }
+        QGroupBox { border: 1px solid #3C3F4A; border-radius: 12px; margin-top: 18px; }
+        QGroupBox::title { subcontrol-origin: margin; left: 16px; padding: 4px 10px; }
+        QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6A8DFF, stop:1 #4DC3FF); color: white; border-radius: 10px; padding: 10px 18px; font-weight: 600; }
+        QPushButton:disabled { background: #444a5a; color: #999; }
+        QPushButton:hover:!disabled { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7FA0FF, stop:1 #62D0FF); }
+        QToolButton { background-color: #3C4356; color: white; border-radius: 6px; padding: 6px; }
         QToolButton:hover { background-color: #4A5168; }
-        QLineEdit, QComboBox, QPlainTextEdit, QTableWidget, QTextEdit { background-color: #2f333d; color: white; border: 1px solid #3c404d; border-radius: 6px; padding: 4px; }
-        QTabWidget::pane { border: 1px solid #3C3F4A; border-radius: 8px; }
-        QTabBar::tab { background: #3C4356; color: white; padding: 8px 16px; border-top-left-radius: 6px; border-top-right-radius: 6px; }
+        QLineEdit, QComboBox, QPlainTextEdit, QTableWidget, QTextEdit { background-color: #2f333d; color: white; border: 1px solid #4c5266; border-radius: 8px; padding: 6px; }
+        QTabWidget::pane { border: 1px solid #3C3F4A; border-radius: 12px; }
+        QTabBar::tab { background: #2F3545; color: white; padding: 10px 22px; border-top-left-radius: 10px; border-top-right-radius: 10px; margin: 0 2px; }
         QTabBar::tab:selected { background: #5C6BC0; }
-        QHeaderView::section { background-color: #3c404d; color: white; padding: 6px; border: none; }
+        QTabBar::tab:hover { background: #465272; }
+        QHeaderView::section { background-color: #3c404d; color: white; padding: 8px; border: none; font-size: 14px; }
         QLabel { color: white; }
-        QSlider::groove:horizontal { height: 6px; background: #3C4356; border-radius: 3px; }
-        QSlider::handle:horizontal { width: 14px; background: #5C6BC0; border-radius: 7px; margin: -4px 0; }
+        #connectionStatusLabel { font-size: 20px; font-weight: 600; padding: 8px 0; }
+        QSlider::groove:horizontal { height: 8px; background: #3C4356; border-radius: 4px; }
+        QSlider::handle:horizontal { width: 18px; background: #5C6BC0; border-radius: 9px; margin: -5px 0; }
         """
     )
 

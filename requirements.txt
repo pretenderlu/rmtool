@@ -1,4 +1,5 @@
 paramiko
 PyQt5
+PyQtWebEngine
 Pillow
 keyring

@@ -4,11 +4,12 @@
 
 </div>
 
-一个面向 reMarkable 电子墨水平板的图形化管理工具，支持字体/壁纸上传、时间同步、设备控制、文档上传/预览/导出等功能。新版引入更现代的 GUI 风格，内置多设备配置与密码安全存储，并能轻松打包成单文件可执行程序。
+一个面向 reMarkable 电子墨水平板的图形化管理工具，支持字体/壁纸上传、时间同步、设备控制、文档上传/预览/导出等功能。新版引入基于 HTML5 的全屏仪表盘、更现代的界面视觉，内置多设备配置与密码安全存储，并能轻松打包成单文件可执行程序。
 
 ## 功能亮点
 
 - **多设备管理**：在单个配置文件内保存多台 reMarkable 设备的连接信息与型号，密码可交由系统凭证管理器（`keyring`）安全保存。
+- **HTML5 仪表盘**：主界面新增 Web 技术打造的仪表盘卡片视图，实时展示连接状态、设备信息与文档统计，并给出智能操作建议。
 - **一键连接**：支持 USB 与 Wi-Fi 两种连接方式，连接成功即自动记忆地址并刷新各功能页。
 - **字体管理**：直接从文件对话框选择字体（TTF/OTF），可选自动重命名为 `zwzt.ttf` 并上传。
 - **壁纸处理**：针对不同型号自动匹配分辨率（Paper Pro 2160×1620、Paper Pro Move 1696×954、reMarkable 2 1404×1872），提供填充/裁剪/拉伸模式、偏移调节与实时预览。
@@ -19,7 +20,7 @@
 ## 运行环境
 
 - Python 3.9 及以上版本（建议使用 64 位环境）。
-- 依赖库：`paramiko`、`PyQt5`、`Pillow`、`keyring`（用于凭证安全存储，若缺失会自动降级为手动输入密码）。
+- 依赖库：`paramiko`、`PyQt5`、`PyQtWebEngine`、`Pillow`、`keyring`（用于凭证安全存储，若缺失会自动降级为手动输入密码）。
 
 ```bash
 pip install -r requirements.txt  # 或手动安装上述依赖
@@ -42,13 +43,20 @@ pip install -r requirements.txt  # 或手动安装上述依赖
 
 ## 打包为单文件可执行程序
 
-项目已针对 PyInstaller 进行了优化。示例命令如下：
+项目已针对 PyInstaller 进行了优化，并提供了 `rmtool.spec` 以便在不同机器上生成自带 Python 运行时的单文件 EXE/APP。示例流程如下：
 
 ```bash
-pyinstaller --noconsole --windowed --onefile rmtool.py
+# 安装依赖后执行
+pyinstaller rmtool.spec
 ```
 
-打包完成后，可执行文件会出现在 `dist/` 目录中，直接拷贝到目标机器即可运行。
+PyInstaller 会自动将 Python 解释器、依赖库以及 HTML 仪表盘资源一并打包，因此目标机器无需预先安装 Python 环境。生成物位于 `dist/` 目录，`rmtool.exe` 可直接双击运行。如需在命令行自定义参数，可参考：
+
+```bash
+pyinstaller --noconsole --windowed --add-data "web/*;web" \
+            --hidden-import PyQt5.QtWebEngineWidgets --hidden-import PyQt5.QtWebEngineCore \
+            --name rmtool rmtool.py
+```
 
 ## 常见问题
 
