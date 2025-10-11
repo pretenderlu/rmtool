@@ -4,19 +4,22 @@ import os
 import posixpath
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import uuid
 import zipfile
 from functools import partial
+from contextlib import contextmanager
 from io import BytesIO
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, Iterator, List, Optional, Tuple
+import importlib.util
 
 import paramiko
-from PIL import Image, ImageQt
+from PIL import Image
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5 import QtWebEngineWidgets
 
@@ -30,6 +33,8 @@ except Exception:  # pragma: no cover - optional dependency
 APP_NAME = "reMarkable 管理工具"
 CONFIG_FILE = "config.json"
 DEFAULT_FONT_NAME = "zwzt.ttf"
+DEFAULT_FONT_DIR = "/home/root/.local/share/fonts/"
+LEGACY_FONT_DIR = "/usr/share/fonts/ttf/noto/"
 DOCUMENT_ROOT = "/home/root/.local/share/remarkable/xochitl"
 KEYRING_SERVICE = "rmtool"
 
@@ -38,6 +43,13 @@ DEVICE_PROFILES = {
     "reMarkable Paper Pro Move": (1696, 954),
     "reMarkable 2": (1404, 1872),
 }
+
+WALLPAPER_VARIANTS = [
+    ("starting", "启动壁纸", "/usr/share/remarkable/starting.png"),
+    ("suspended", "待机壁纸", "/usr/share/remarkable/suspended.png"),
+    ("hibernate", "休眠壁纸", "/usr/share/remarkable/hibernate.png"),
+    ("poweroff", "关机壁纸", "/usr/share/remarkable/poweroff.png"),
+]
 
 
 logging.basicConfig(
@@ -69,7 +81,7 @@ def _default_config() -> Dict:
         "active_device": first_device["name"],
         "devices": [first_device],
         "paths": {
-            "font": "/usr/share/fonts/ttf/noto/",
+            "font": DEFAULT_FONT_DIR,
             "wallpaper": "/usr/share/remarkable/suspended.png",
         },
     }
@@ -99,7 +111,7 @@ def load_config() -> Dict:
             "paths": config.get(
                 "paths",
                 {
-                    "font": "/usr/share/fonts/ttf/noto/",
+                    "font": DEFAULT_FONT_DIR,
                     "wallpaper": "/usr/share/remarkable/suspended.png",
                 },
             ),
@@ -112,9 +124,17 @@ def load_config() -> Dict:
         config["active_device"] = config["devices"][0]["name"]
     if "paths" not in config:
         config["paths"] = {
-            "font": "/usr/share/fonts/ttf/noto/",
+            "font": DEFAULT_FONT_DIR,
             "wallpaper": "/usr/share/remarkable/suspended.png",
         }
+    else:
+        config["paths"].setdefault("font", DEFAULT_FONT_DIR)
+        config["paths"].setdefault("wallpaper", "/usr/share/remarkable/suspended.png")
+
+    # Migrate legacy font directory to persistent location
+    font_path = config.get("paths", {}).get("font")
+    if not font_path or font_path == LEGACY_FONT_DIR:
+        config["paths"]["font"] = DEFAULT_FONT_DIR
     return config
 
 
@@ -138,7 +158,6 @@ class SSHClientWrapper(QtCore.QObject):
     def __init__(self, parent: Optional[QtCore.QObject] = None):
         super().__init__(parent)
         self._client: Optional[paramiko.SSHClient] = None
-        self._sftp: Optional[paramiko.SFTPClient] = None
         self.connection_info: Dict[str, str] = {}
 
     def connect(self, host: str, password: str) -> None:
@@ -149,13 +168,9 @@ class SSHClientWrapper(QtCore.QObject):
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(hostname=host, username="root", password=password)
         self._client = client
-        self._sftp = client.open_sftp()
         self.connection_changed.emit(True)
 
     def close(self) -> None:
-        if self._sftp:
-            self._sftp.close()
-            self._sftp = None
         if self._client:
             self._client.close()
             self._client = None
@@ -166,10 +181,17 @@ class SSHClientWrapper(QtCore.QObject):
             raise RuntimeError("未连接到设备")
         return self._client
 
-    def ensure_sftp(self) -> paramiko.SFTPClient:
-        if not self._sftp:
-            raise RuntimeError("未连接到设备")
-        return self._sftp
+    @contextmanager
+    def sftp_session(self) -> Iterator[paramiko.SFTPClient]:
+        client = self.ensure_client()
+        sftp = client.open_sftp()
+        try:
+            yield sftp
+        finally:
+            try:
+                sftp.close()
+            except Exception:
+                logging.exception("Failed to close SFTP session")
 
     def is_connected(self) -> bool:
         return self._client is not None
@@ -181,39 +203,54 @@ class SSHClientWrapper(QtCore.QObject):
         return stdout.read().decode("utf-8"), stderr.read().decode("utf-8")
 
     def transfer_file(self, local_path: str, remote_path: str) -> None:
-        sftp = self.ensure_sftp()
-        logging.info("Transferring %s -> %s", local_path, remote_path)
-        sftp.put(local_path, remote_path)
+        with self.sftp_session() as sftp:
+            logging.info("Transferring %s -> %s", local_path, remote_path)
+            sftp.put(local_path, remote_path)
 
     def file_exists(self, remote_path: str) -> bool:
-        sftp = self.ensure_sftp()
-        try:
-            sftp.stat(remote_path)
-            return True
-        except IOError:
-            return False
+        with self.sftp_session() as sftp:
+            try:
+                sftp.stat(remote_path)
+                return True
+            except IOError:
+                return False
 
     def listdir_attr(self, remote_path: str):
-        sftp = self.ensure_sftp()
-        return sftp.listdir_attr(remote_path)
+        with self.sftp_session() as sftp:
+            return sftp.listdir_attr(remote_path)
 
     def open_remote(self, remote_path: str, mode: str = "r"):
-        sftp = self.ensure_sftp()
-        return sftp.open(remote_path, mode)
+        @contextmanager
+        def _remote_file() -> Iterator[paramiko.SFTPFile]:
+            with self.sftp_session() as sftp:
+                with sftp.open(remote_path, mode) as fh:
+                    yield fh
 
-    def download_file(self, remote_path: str, local_path: str) -> None:
-        sftp = self.ensure_sftp()
-        Path(local_path).parent.mkdir(parents=True, exist_ok=True)
-        sftp.get(remote_path, local_path)
+        return _remote_file()
+
+    def download_file(
+        self,
+        remote_path: str,
+        local_path: str,
+        callback: Optional[Callable[[int, int], None]] = None,
+    ) -> None:
+        with self.sftp_session() as sftp:
+            Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+            sftp.get(remote_path, local_path, callback=callback)
 
     def download_directory(self, remote_dir: str, local_dir: str) -> None:
-        sftp = self.ensure_sftp()
+        with self.sftp_session() as sftp:
+            self._download_directory_recursive(sftp, remote_dir, local_dir)
+
+    def _download_directory_recursive(
+        self, sftp: paramiko.SFTPClient, remote_dir: str, local_dir: str
+    ) -> None:
         Path(local_dir).mkdir(parents=True, exist_ok=True)
         for entry in sftp.listdir_attr(remote_dir):
             remote_path = f"{remote_dir}/{entry.filename}"
             local_path = os.path.join(local_dir, entry.filename)
             if stat.S_ISDIR(entry.st_mode):
-                self.download_directory(remote_path, local_path)
+                self._download_directory_recursive(sftp, remote_path, local_path)
             else:
                 sftp.get(remote_path, local_path)
 
@@ -221,6 +258,7 @@ class SSHClientWrapper(QtCore.QObject):
 class WorkerSignals(QtCore.QObject):
     finished = QtCore.pyqtSignal(object)
     error = QtCore.pyqtSignal(Exception)
+    progress = QtCore.pyqtSignal(int, int)
 
 
 class Worker(QtCore.QRunnable):
@@ -284,6 +322,10 @@ class ConnectionWidget(QtWidgets.QGroupBox):
         super().__init__("连接设置", parent)
         self.ssh_client = ssh_client
         self.config = config
+
+        self.thread_pool = QtCore.QThreadPool.globalInstance()
+        self._connection_progress: Optional[QtWidgets.QProgressDialog] = None
+        self._active_connection_worker: Optional[Worker] = None
 
         self.device_combo = QtWidgets.QComboBox()
         self.add_device_button = QtWidgets.QToolButton()
@@ -395,6 +437,10 @@ class ConnectionWidget(QtWidgets.QGroupBox):
             self.device_type_combo.setCurrentIndex(idx)
         password = self._load_password(device["name"])
         self.password_edit.setText(password)
+        if keyring:
+            self.remember_checkbox.blockSignals(True)
+            self.remember_checkbox.setChecked(bool(password))
+            self.remember_checkbox.blockSignals(False)
         self.config["active_device"] = device["name"]
         save_config(self.config)
         self._emit_device_preview()
@@ -477,32 +523,61 @@ class ConnectionWidget(QtWidgets.QGroupBox):
                 "无法保存密码到系统凭证管理器，请检查 keyring 配置。",
             )
 
+    def _teardown_connection_progress(self):
+        if self._connection_progress:
+            self._connection_progress.close()
+            self._connection_progress.deleteLater()
+            self._connection_progress = None
+        self._active_connection_worker = None
+        if not self.ssh_client.is_connected():
+            self.connect_button.setEnabled(True)
+
     def _connect(self):
+        if self._active_connection_worker is not None:
+            return
         host = self.host_edit.text().strip()
         password = self.password_edit.text().strip()
         if not host or not password:
-            QtWidgets.QMessageBox.warning(self, APP_NAME, "请填写完整的连接信息。")
+            QtWidgets.QMessageBox.warning(
+                self,
+                APP_NAME,
+                "请填写完整的连接信息（包括 root 密码）。",
+            )
             return
 
-        try:
-            self.ssh_client.connect(host, password)
-        except Exception as exc:
-            logging.exception("Unable to connect")
+        remember_password = self.remember_checkbox.isChecked()
+
+        self.connect_button.setEnabled(False)
+        progress = QtWidgets.QProgressDialog("正在连接到设备…", "", 0, 0, self)
+        progress.setWindowTitle(APP_NAME)
+        progress.setWindowModality(QtCore.Qt.ApplicationModal)
+        progress.setCancelButton(None)
+        progress.setMinimumDuration(0)
+        progress.setRange(0, 0)
+        progress.show()
+        self._connection_progress = progress
+
+        worker = Worker(self.ssh_client.connect, host, password)
+
+        def on_finished(_: object):
+            self._teardown_connection_progress()
+            device = self._current_device()
+            if device:
+                device["mode"] = "usb" if self.usb_radio.isChecked() else "wifi"
+                device["host"] = host
+                save_config(self.config)
+                if remember_password:
+                    self._store_password(device["name"], password)
+
+        def on_error(exc: Exception):
+            self._teardown_connection_progress()
+            logging.error("Unable to connect: %s", exc)
             QtWidgets.QMessageBox.critical(self, APP_NAME, f"连接失败：{exc}")
-            return
 
-        device = self._current_device()
-        if device:
-            device["mode"] = "usb" if self.usb_radio.isChecked() else "wifi"
-            device["host"] = host
-            save_config(self.config)
-            if self.remember_checkbox.isChecked():
-                self._store_password(device["name"], password)
-            elif keyring:
-                try:
-                    keyring.delete_password(KEYRING_SERVICE, device["name"])
-                except Exception:  # pragma: no cover - backend specific
-                    pass
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self._active_connection_worker = worker
+        self.thread_pool.start(worker)
 
     def _disconnect(self):
         self.ssh_client.close()
@@ -563,7 +638,7 @@ class FontTab(QtWidgets.QWidget):
             QtWidgets.QMessageBox.critical(self, APP_NAME, f"字体上传失败：{exc}")
 
     def _upload_font(self, local_path: str, new_name: str):
-        font_dir = self.config.get("paths", {}).get("font", "/usr/share/fonts/ttf/noto/")
+        font_dir = self.config.get("paths", {}).get("font", DEFAULT_FONT_DIR)
         commands = [
             "mount -o remount,rw /",
             f"mkdir -p {font_dir}",
@@ -573,7 +648,7 @@ class FontTab(QtWidgets.QWidget):
             if stderr:
                 raise RuntimeError(stderr.strip())
 
-        remote_path = os.path.join(font_dir, new_name)
+        remote_path = posixpath.join(font_dir, new_name)
         self.ssh_client.transfer_file(local_path, remote_path)
         stdout, stderr = self.ssh_client.exec_command("mount -o remount,ro /")
         if stderr:
@@ -588,17 +663,27 @@ class WallpaperTab(QtWidgets.QWidget):
         self.image_path: Optional[str] = None
         self.current_resolution: Tuple[int, int] = DEVICE_PROFILES["reMarkable Paper Pro"]
 
-        self.preview_label = QtWidgets.QLabel("请选择图片以生成预览")
-        self.preview_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.base_resolution = DEVICE_PROFILES["reMarkable Paper Pro"]
+        self.orientation_combo = QtWidgets.QComboBox()
+        self.orientation_combo.addItem("竖屏", "portrait")
+        self.orientation_combo.addItem("横屏", "landscape")
+        self.current_resolution = self._calculate_resolution(self.orientation_combo.currentData())
+
+        self.preview_label = PreviewImageLabel("请选择图片以生成预览")
         self.preview_label.setMinimumSize(260, 320)
-        self.preview_label.setFrameShape(QtWidgets.QFrame.Box)
-        self.preview_label.setStyleSheet("QLabel { background-color: rgba(255, 255, 255, 30); border-radius: 6px; }")
+        self.preview_label.setStyleSheet(
+            "QLabel { background-color: rgba(255, 255, 255, 30); border-radius: 6px; }"
+        )
 
         self.info_label = QtWidgets.QLabel("未选择图片")
         self.resolution_label = QtWidgets.QLabel(self._resolution_text())
         self.choose_button = QtWidgets.QPushButton("选择图片")
         self.upload_button = QtWidgets.QPushButton("上传为壁纸")
         self.upload_button.setEnabled(False)
+
+        self.variant_group = QtWidgets.QButtonGroup(self)
+        self.variant_previews: Dict[str, PreviewImageLabel] = {}
+        self.variant_buttons: Dict[str, QtWidgets.QRadioButton] = {}
 
         self.mode_combo = QtWidgets.QComboBox()
         self.mode_combo.addItem("智能填充（留白）", "pad")
@@ -618,32 +703,206 @@ class WallpaperTab(QtWidgets.QWidget):
         offset_layout.addRow("水平偏移", self.offset_x_slider)
         offset_layout.addRow("垂直偏移", self.offset_y_slider)
 
-        layout = QtWidgets.QVBoxLayout()
-        layout.addWidget(self.preview_label)
-        layout.addWidget(self.resolution_label)
-        layout.addWidget(self.info_label)
-        layout.addWidget(QtWidgets.QLabel("处理模式"))
-        layout.addWidget(self.mode_combo)
-        layout.addLayout(offset_layout)
-        layout.addWidget(self.choose_button)
-        layout.addWidget(self.upload_button)
-        layout.addStretch()
+        variants_group = QtWidgets.QGroupBox("当前设备壁纸")
+        variants_layout = QtWidgets.QGridLayout()
+        variants_layout.setContentsMargins(6, 6, 6, 6)
+        for index, (variant_key, display_name, remote_path) in enumerate(WALLPAPER_VARIANTS):
+            preview = PreviewImageLabel("未连接")
+            preview.setMinimumSize(140, 180)
+            preview.setToolTip(remote_path)
+            radio = QtWidgets.QRadioButton(display_name)
+            radio.setProperty("variant_key", variant_key)
+            radio.setProperty("remote_path", remote_path)
+            radio.setToolTip(remote_path)
+            self.variant_group.addButton(radio)
+            self.variant_previews[variant_key] = preview
+            self.variant_buttons[variant_key] = radio
+
+            container = QtWidgets.QWidget()
+            container_layout = QtWidgets.QVBoxLayout(container)
+            container_layout.setContentsMargins(4, 4, 4, 4)
+            container_layout.addWidget(preview)
+            container_layout.addWidget(radio, alignment=QtCore.Qt.AlignHCenter)
+
+            row = index // 2
+            column = index % 2
+            variants_layout.addWidget(container, row, column)
+
+        variants_group.setLayout(variants_layout)
+
+        orientation_row = QtWidgets.QHBoxLayout()
+        orientation_row.addWidget(QtWidgets.QLabel("壁纸方向"))
+        orientation_row.addWidget(self.orientation_combo)
+        orientation_row.addStretch()
+
+        self.target_label = QtWidgets.QLabel()
+
+        control_container = QtWidgets.QWidget()
+        control_layout = QtWidgets.QVBoxLayout(control_container)
+        control_layout.setContentsMargins(0, 0, 0, 0)
+        control_layout.addWidget(variants_group)
+        control_layout.addLayout(orientation_row)
+        control_layout.addWidget(self.resolution_label)
+        control_layout.addWidget(self.target_label)
+        control_layout.addWidget(self.info_label)
+        control_layout.addWidget(QtWidgets.QLabel("处理模式"))
+        control_layout.addWidget(self.mode_combo)
+        control_layout.addLayout(offset_layout)
+        control_layout.addWidget(self.choose_button)
+        control_layout.addWidget(self.upload_button)
+        control_layout.addStretch()
+
+        preview_container = QtWidgets.QWidget()
+        preview_layout = QtWidgets.QVBoxLayout(preview_container)
+        preview_layout.setContentsMargins(0, 0, 0, 0)
+        preview_layout.addWidget(self.preview_label, alignment=QtCore.Qt.AlignCenter)
+        preview_layout.addStretch()
+
+        main_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        main_splitter.addWidget(control_container)
+        main_splitter.addWidget(preview_container)
+        main_splitter.setStretchFactor(0, 3)
+        main_splitter.setStretchFactor(1, 4)
+        main_splitter.setChildrenCollapsible(False)
+
+        layout = QtWidgets.QHBoxLayout()
+        layout.addWidget(main_splitter)
         self.setLayout(layout)
 
         self.choose_button.clicked.connect(self._select_image)
         self.upload_button.clicked.connect(self._upload_wallpaper)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        self.orientation_combo.currentIndexChanged.connect(self._on_orientation_changed)
         self.offset_x_slider.valueChanged.connect(self._render_preview)
         self.offset_y_slider.valueChanged.connect(self._render_preview)
+        self.variant_group.buttonClicked.connect(self._on_variant_selected)
+        self.ssh_client.connection_changed.connect(self._on_connection_changed)
+
+        self._select_variant_by_path(
+            self.config.get("paths", {}).get(
+                "wallpaper", "/usr/share/remarkable/suspended.png"
+            )
+        )
+        self._update_target_label()
 
     def update_device(self, device: Dict):
         profile = device.get("type") if device else None
-        self.current_resolution = DEVICE_PROFILES.get(profile, DEVICE_PROFILES["reMarkable Paper Pro"])
-        self.resolution_label.setText(self._resolution_text())
+        self.base_resolution = DEVICE_PROFILES.get(
+            profile, DEVICE_PROFILES["reMarkable Paper Pro"]
+        )
+        self._update_resolution()
+        self._select_variant_by_path(
+            self.config.get("paths", {}).get(
+                "wallpaper", "/usr/share/remarkable/suspended.png"
+            )
+        )
+        self._refresh_variant_previews()
         self._render_preview()
 
     def _resolution_text(self) -> str:
-        return f"目标分辨率：{self.current_resolution[0]} × {self.current_resolution[1]}"
+        return (
+            f"目标分辨率：{self.current_resolution[0]} × {self.current_resolution[1]}"
+        )
+
+    def _calculate_resolution(self, orientation: str) -> Tuple[int, int]:
+        width, height = self.base_resolution
+        if orientation == "portrait":
+            return (min(width, height), max(width, height))
+        return (max(width, height), min(width, height))
+
+    def _update_resolution(self) -> None:
+        orientation = self.orientation_combo.currentData()
+        self.current_resolution = self._calculate_resolution(orientation)
+        self.resolution_label.setText(self._resolution_text())
+        self._update_target_label()
+
+    def _on_connection_changed(self, connected: bool) -> None:
+        if connected:
+            self._refresh_variant_previews()
+        else:
+            for preview in self.variant_previews.values():
+                preview.clear_preview()
+                preview.setText("未连接")
+
+    def _refresh_variant_previews(self) -> None:
+        if not self.ssh_client.is_connected():
+            for preview in self.variant_previews.values():
+                preview.clear_preview()
+                preview.setText("未连接")
+            return
+
+        for variant_key, _display_name, remote_path in WALLPAPER_VARIANTS:
+            preview = self.variant_previews[variant_key]
+            try:
+                pixmap = self._download_wallpaper_preview(remote_path)
+            except Exception as exc:  # pragma: no cover - UI feedback
+                logging.exception("Unable to load wallpaper preview: %s", remote_path)
+                preview.clear_preview()
+                preview.setText(f"加载失败\n{exc}")
+                continue
+
+            if pixmap and not pixmap.isNull():
+                preview.setPixmap(pixmap)
+            else:
+                preview.clear_preview()
+                preview.setText("无预览")
+
+    def _download_wallpaper_preview(self, remote_path: str) -> Optional[QtGui.QPixmap]:
+        with self.ssh_client.open_remote(remote_path, "rb") as remote_file:
+            data = remote_file.read()
+
+        pixmap = QtGui.QPixmap()
+        if pixmap.loadFromData(data):
+            return pixmap
+
+        # Fallback through Pillow for uncommon formats
+        with Image.open(BytesIO(data)) as image:
+            buffer = BytesIO()
+            image.convert("RGB").save(buffer, format="PNG")
+        if pixmap.loadFromData(buffer.getvalue(), "PNG"):
+            return pixmap
+        return None
+
+    def _on_variant_selected(self, button: QtWidgets.QAbstractButton) -> None:
+        remote_path = button.property("remote_path")
+        if not remote_path:
+            return
+        self.config.setdefault("paths", {})["wallpaper"] = remote_path
+        self._update_target_label()
+
+    def _select_variant_by_path(self, remote_path: str) -> None:
+        normalized = posixpath.normpath(remote_path)
+        matched = False
+        for variant_key, _display_name, candidate_path in WALLPAPER_VARIANTS:
+            if posixpath.normpath(candidate_path) == normalized:
+                button = self.variant_buttons.get(variant_key)
+                if button:
+                    button.setChecked(True)
+                matched = True
+                break
+
+        if not matched:
+            self.variant_group.setExclusive(False)
+            for button in self.variant_buttons.values():
+                button.setChecked(False)
+            self.variant_group.setExclusive(True)
+
+    def _variant_label_for_path(self, remote_path: str) -> Optional[str]:
+        normalized = posixpath.normpath(remote_path)
+        for _variant_key, display_name, candidate_path in WALLPAPER_VARIANTS:
+            if posixpath.normpath(candidate_path) == normalized:
+                return display_name
+        return None
+
+    def _update_target_label(self) -> None:
+        remote_path = self.config.get("paths", {}).get(
+            "wallpaper", "/usr/share/remarkable/suspended.png"
+        )
+        variant_label = self._variant_label_for_path(remote_path)
+        if variant_label:
+            self.target_label.setText(f"目标壁纸：{variant_label} ({remote_path})")
+        else:
+            self.target_label.setText(f"目标壁纸：{remote_path}")
 
     def _select_image(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "选择图片", "", "图片文件 (*.png *.jpg *.jpeg *.bmp)")
@@ -660,32 +919,30 @@ class WallpaperTab(QtWidgets.QWidget):
         self.offset_y_slider.setEnabled(crop_mode)
         self._render_preview()
 
+    def _on_orientation_changed(self):
+        self._update_resolution()
+        self._render_preview()
+
     def _render_preview(self):
         if not self.image_path:
+            self.preview_label.clear_preview()
             self.preview_label.setText("请选择图片以生成预览")
-            self.preview_label.setPixmap(QtGui.QPixmap())
             return
         try:
             processed = self._process_image(self.image_path)
         except Exception as exc:
             logging.exception("Unable to render wallpaper preview")
+            self.preview_label.clear_preview()
             self.preview_label.setText(f"预览失败：{exc}")
-            self.preview_label.setPixmap(QtGui.QPixmap())
             return
         if processed.mode != "RGB":
             processed = processed.convert("RGB")
-        pixmap = QtGui.QPixmap.fromImage(ImageQt.ImageQt(processed))
-        target_size = QtCore.QSize(
-            max(1, int(self.preview_label.width() * 0.95)),
-            max(1, int(self.preview_label.height() * 0.95)),
-        )
-        scaled = pixmap.scaled(
-            target_size,
-            QtCore.Qt.KeepAspectRatio,
-            QtCore.Qt.SmoothTransformation,
-        )
-        self.preview_label.setPixmap(scaled)
-        self.preview_label.setText("")
+        buffer = BytesIO()
+        processed.save(buffer, format="PNG")
+        pixmap = QtGui.QPixmap()
+        if not pixmap.loadFromData(buffer.getvalue(), "PNG"):
+            raise RuntimeError("无法加载图片预览数据")
+        self.preview_label.setPixmap(pixmap)
 
     def _process_image(self, source_path: str) -> Image.Image:
         with Image.open(source_path) as img:
@@ -746,6 +1003,9 @@ class WallpaperTab(QtWidgets.QWidget):
             if stderr:
                 raise RuntimeError(stderr.strip())
 
+            if self.ssh_client.is_connected():
+                self._refresh_variant_previews()
+            self._render_preview()
             QtWidgets.QMessageBox.information(self, APP_NAME, "壁纸上传完成。")
         except Exception as exc:
             logging.exception("Wallpaper upload failed")
@@ -843,18 +1103,18 @@ class ControlTab(QtWidgets.QWidget):
         self.ssh_client = ssh_client
 
         self.restart_button = QtWidgets.QPushButton("重启设备")
-        self.enable_ssh_button = QtWidgets.QPushButton("启用 SSH 服务")
+        self.enable_wifi_ssh_button = QtWidgets.QPushButton("开启 Wi-Fi SSH 通道")
         self.brightness_button = QtWidgets.QPushButton("提升前光亮度")
 
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(self.restart_button)
-        layout.addWidget(self.enable_ssh_button)
+        layout.addWidget(self.enable_wifi_ssh_button)
         layout.addWidget(self.brightness_button)
         layout.addStretch()
         self.setLayout(layout)
 
         self.restart_button.clicked.connect(self._restart_device)
-        self.enable_ssh_button.clicked.connect(self._enable_ssh)
+        self.enable_wifi_ssh_button.clicked.connect(self._enable_wifi_ssh)
         self.brightness_button.clicked.connect(self._increase_brightness)
 
     def _restart_device(self):
@@ -870,15 +1130,19 @@ class ControlTab(QtWidgets.QWidget):
             logging.exception("Restart failed")
             QtWidgets.QMessageBox.critical(self, APP_NAME, f"重启失败：{exc}")
 
-    def _enable_ssh(self):
+    def _enable_wifi_ssh(self):
         try:
-            stdout, stderr = self.ssh_client.exec_command("systemctl enable --now ssh")
+            stdout, stderr = self.ssh_client.exec_command("rm-ssh-over-wlan on")
             if stderr:
                 raise RuntimeError(stderr.strip())
-            QtWidgets.QMessageBox.information(self, APP_NAME, "SSH 服务已启用。")
+            QtWidgets.QMessageBox.information(
+                self,
+                APP_NAME,
+                "已开启 Wi-Fi SSH，请在断开 USB 后使用 WLAN 地址连接。",
+            )
         except Exception as exc:
-            logging.exception("Enable SSH failed")
-            QtWidgets.QMessageBox.critical(self, APP_NAME, f"启用失败：{exc}")
+            logging.exception("Enable Wi-Fi SSH failed")
+            QtWidgets.QMessageBox.critical(self, APP_NAME, f"操作失败：{exc}")
 
     def _increase_brightness(self):
         try:
@@ -933,6 +1197,9 @@ class DocumentsTab(QtWidgets.QWidget):
         self.documents: List[DocumentItem] = []
         self._current_preview_request: Optional[str] = None
         self._last_preview_bytes: Optional[bytes] = None
+        self._active_progress: Optional[QtWidgets.QProgressDialog] = None
+        self._progress_label_base: str = ""
+        self._rmrl_command: Optional[List[str]] = self._detect_rmrl_command()
 
         self.refresh_button = QtWidgets.QPushButton("刷新列表")
         self.upload_button = QtWidgets.QPushButton("上传文档")
@@ -964,16 +1231,106 @@ class DocumentsTab(QtWidgets.QWidget):
         image_layout.addWidget(self.preview_image)
         preview_tabs.addTab(image_container, "图像预览")
 
-        layout = QtWidgets.QVBoxLayout()
-        layout.addLayout(top_layout)
-        layout.addWidget(self.table)
-        layout.addWidget(preview_tabs)
+        preview_container = QtWidgets.QWidget()
+        preview_layout = QtWidgets.QVBoxLayout(preview_container)
+        preview_layout.setContentsMargins(0, 0, 0, 0)
+        preview_layout.addWidget(preview_tabs)
+
+        left_container = QtWidgets.QWidget()
+        left_layout = QtWidgets.QVBoxLayout(left_container)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.addLayout(top_layout)
+        left_layout.addWidget(self.table)
+
+        content_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        content_splitter.addWidget(left_container)
+        content_splitter.addWidget(preview_container)
+        content_splitter.setStretchFactor(0, 3)
+        content_splitter.setStretchFactor(1, 2)
+        content_splitter.setChildrenCollapsible(False)
+
+        layout = QtWidgets.QHBoxLayout()
+        layout.addWidget(content_splitter)
         self.setLayout(layout)
 
         self.refresh_button.clicked.connect(self.refresh)
         self.export_button.clicked.connect(self.export_selected)
         self.upload_button.clicked.connect(self.upload_document)
         self.table.selectionModel().selectionChanged.connect(self._on_selection_changed)
+
+    def _show_progress_dialog(self, title: str, text: str) -> None:
+        if self._active_progress:
+            self._active_progress.close()
+            self._active_progress.deleteLater()
+        dialog = QtWidgets.QProgressDialog(text, None, 0, 0, self)
+        dialog.setWindowTitle(title)
+        dialog.setCancelButton(None)
+        dialog.setWindowModality(QtCore.Qt.WindowModal)
+        dialog.setMinimumDuration(0)
+        dialog.setAutoClose(False)
+        dialog.setAutoReset(False)
+        dialog.setValue(0)
+        dialog.show()
+        self._active_progress = dialog
+        self._progress_label_base = text
+
+    def _update_progress_dialog(self, current: int, total: int) -> None:
+        dialog = self._active_progress
+        if not dialog:
+            return
+        if total <= 0:
+            dialog.setRange(0, 0)
+            dialog.setLabelText(self._progress_label_base)
+            return
+        dialog.setRange(0, 1000)
+        ratio = max(0.0, min(float(current) / float(total), 1.0))
+        dialog.setValue(int(ratio * 1000))
+        dialog.setLabelText(f"{self._progress_label_base}\n已完成 {ratio * 100:.1f}%")
+
+    def _close_progress_dialog(self) -> None:
+        if self._active_progress:
+            self._active_progress.close()
+            self._active_progress.deleteLater()
+            self._active_progress = None
+            self._progress_label_base = ""
+
+    @staticmethod
+    def _safe_stat_size(sftp: paramiko.SFTPClient, remote_path: str) -> int:
+        try:
+            return int(sftp.stat(remote_path).st_size)
+        except IOError:
+            return 0
+
+    @staticmethod
+    def _detect_rmrl_command() -> Optional[List[str]]:
+        binary = shutil.which("rmrl")
+        if binary:
+            return [binary]
+        if importlib.util.find_spec("rmrl") is not None:
+            return [sys.executable, "-m", "rmrl"]
+        return None
+
+    def _collect_remote_files(
+        self,
+        sftp: paramiko.SFTPClient,
+        remote_dir: str,
+        base_dir: Optional[str] = None,
+    ) -> List[Tuple[str, str, int]]:
+        if base_dir is None:
+            base_dir = remote_dir
+        files: List[Tuple[str, str, int]] = []
+        try:
+            entries = sftp.listdir_attr(remote_dir)
+        except IOError:
+            return files
+        for entry in entries:
+            remote_path = f"{remote_dir}/{entry.filename}"
+            if stat.S_ISDIR(entry.st_mode):
+                files.extend(self._collect_remote_files(sftp, remote_path, base_dir))
+            else:
+                relative = remote_path[len(base_dir) :].lstrip("/")
+                files.append((remote_path, relative, int(entry.st_size)))
+        return files
 
     def refresh(self):
         worker = Worker(self._load_documents)
@@ -1062,9 +1419,185 @@ class DocumentsTab(QtWidgets.QWidget):
         if not target_dir:
             return
         worker = Worker(self._export_document, item, target_dir)
-        worker.signals.finished.connect(lambda _: QtWidgets.QMessageBox.information(self, APP_NAME, "导出完成。"))
-        worker.signals.error.connect(self._on_error)
+        worker.kwargs["progress_callback"] = worker.signals.progress.emit
+
+        def on_finished(_result):
+            self._close_progress_dialog()
+            QtWidgets.QMessageBox.information(self, APP_NAME, "导出完成。")
+
+        def on_error(exc: Exception):
+            self._close_progress_dialog()
+            self._on_error(exc)
+
+        worker.signals.progress.connect(self._update_progress_dialog)
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self._show_progress_dialog("导出进度", "正在导出文档...")
         self.thread_pool.start(worker)
+
+    def _try_rmrl_export(
+        self,
+        archive_path: str,
+        output_pdf: str,
+        workspace: str,
+    ) -> Tuple[bool, Optional[str], bool]:
+        command = self._rmrl_command
+        if not command:
+            return False, None, False
+
+        if os.path.exists(output_pdf):
+            try:
+                os.remove(output_pdf)
+            except OSError:
+                pass
+
+        extraction_dir: Optional[Path] = None
+        source_path = archive_path
+        candidate_dirs: List[str] = []
+        content_files: List[str] = []
+        rm_files: List[str] = []
+
+        def _register_dir(path: str):
+            abs_path = os.path.abspath(path)
+            if abs_path not in candidate_dirs:
+                candidate_dirs.append(abs_path)
+
+        try:
+            if zipfile.is_zipfile(archive_path):
+                extraction_dir = Path(workspace) / "rmrl_source"
+                extraction_dir.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(archive_path) as archive:
+                    archive.extractall(extraction_dir)
+                candidates = [
+                    entry
+                    for entry in extraction_dir.iterdir()
+                    if not entry.name.startswith("__MACOSX")
+                ]
+                if len(candidates) == 1 and candidates[0].is_dir():
+                    source_path = str(candidates[0])
+                else:
+                    source_path = str(extraction_dir)
+
+            if os.path.isdir(source_path):
+                for root, _dirs, files in os.walk(source_path):
+                    for name in files:
+                        full_path = os.path.join(root, name)
+                        lower = name.lower()
+                        if lower.endswith(".content"):
+                            _register_dir(root)
+                            content_files.append(full_path)
+                        elif lower.endswith(".rm"):
+                            _register_dir(root)
+                            rm_files.append(full_path)
+                    if not files:
+                        continue
+                if not candidate_dirs:
+                    _register_dir(source_path)
+            else:
+                _register_dir(source_path)
+
+            candidate_dirs = list(dict.fromkeys(candidate_dirs))
+            content_files = list(dict.fromkeys(content_files))[:3]
+            rm_files = list(dict.fromkeys(rm_files))[:3]
+
+            attempts: List[List[str]] = []
+
+            for candidate in candidate_dirs:
+                attempts.extend(
+                    [
+                        command + ["export", candidate, output_pdf],
+                        command + ["export", "--output", output_pdf, candidate],
+                        command
+                        + ["export", "--format", "pdf", "--output", output_pdf, candidate],
+                        command + ["export", "--format", "pdf", candidate, output_pdf],
+                        command + ["render", candidate, output_pdf],
+                        command + ["render", "--output", output_pdf, candidate],
+                        command
+                        + ["render", "--format", "pdf", "--output", output_pdf, candidate],
+                        command + ["render", "--format", "pdf", candidate, output_pdf],
+                        command + ["render", "--pdf", candidate, output_pdf],
+                        command
+                        + ["render", "--pdf", "--output", output_pdf, candidate],
+                        command + ["render", "notebook", candidate, output_pdf],
+                        command
+                        + ["render", "notebook", "--output", output_pdf, candidate],
+                        command
+                        + [
+                            "render",
+                            "notebook",
+                            "--format",
+                            "pdf",
+                            "--output",
+                            output_pdf,
+                            candidate,
+                        ],
+                        command
+                        + ["render", "notebook", "--pdf", "--output", output_pdf, candidate],
+                        command
+                        + ["render", "notebook", "--pdf", candidate, output_pdf],
+                    ]
+                )
+
+            for content_path in content_files:
+                attempts.extend(
+                    [
+                        command + ["render", content_path, output_pdf],
+                        command + ["render", "--output", output_pdf, content_path],
+                        command
+                        + ["render", "--format", "pdf", "--output", output_pdf, content_path],
+                        command + ["render", "--format", "pdf", content_path, output_pdf],
+                    ]
+                )
+
+            for rm_path in rm_files:
+                attempts.extend(
+                    [
+                        command + ["render", rm_path, output_pdf],
+                        command + ["render", "--output", output_pdf, rm_path],
+                        command
+                        + ["render", "--format", "pdf", "--output", output_pdf, rm_path],
+                        command + ["render", "--format", "pdf", rm_path, output_pdf],
+                    ]
+                )
+
+            # Remove duplicate attempts while preserving order
+            unique_attempts: List[List[str]] = []
+            seen_attempts = set()
+            for attempt in attempts:
+                key = tuple(attempt)
+                if key in seen_attempts:
+                    continue
+                seen_attempts.add(key)
+                unique_attempts.append(attempt)
+
+            last_message: Optional[str] = None
+            for attempt in unique_attempts:
+                try:
+                    completed = subprocess.run(
+                        attempt,
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                except FileNotFoundError:
+                    return False, "未找到 rmrl 可执行文件", False
+                except subprocess.CalledProcessError as exc:
+                    last_message = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+                    continue
+
+                if os.path.exists(output_pdf):
+                    return True, None, True
+
+                last_message = (completed.stdout or completed.stderr).strip()
+
+            if os.path.exists(output_pdf):
+                return True, None, True
+
+            return False, last_message or "rmrl 未生成 PDF", True
+        finally:
+            if extraction_dir is not None:
+                shutil.rmtree(extraction_dir, ignore_errors=True)
 
     def upload_document(self):
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -1076,86 +1609,279 @@ class DocumentsTab(QtWidgets.QWidget):
         if not file_path:
             return
         worker = Worker(self._transfer_document, file_path)
-        worker.signals.finished.connect(lambda _: QtWidgets.QMessageBox.information(self, APP_NAME, "上传完成，已刷新文档列表。"))
-        worker.signals.finished.connect(lambda _: self.refresh())
-        worker.signals.error.connect(self._on_error)
+        worker.kwargs["progress_callback"] = worker.signals.progress.emit
+
+        def on_finished(_result):
+            self._close_progress_dialog()
+            QtWidgets.QMessageBox.information(self, APP_NAME, "上传完成，已刷新文档列表。")
+            self.refresh()
+
+        def on_error(exc: Exception):
+            self._close_progress_dialog()
+            self._on_error(exc)
+
+        worker.signals.progress.connect(self._update_progress_dialog)
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self._show_progress_dialog("上传进度", "正在上传文档...")
         self.thread_pool.start(worker)
 
-    def _export_document(self, item: DocumentItem, target_dir: str):
+    def _export_document(
+        self,
+        item: DocumentItem,
+        target_dir: str,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+    ):
         base_name = f"{item.name}".replace("/", "_")
-        exported = False
-        errors: List[str] = []
+        pdf_path = os.path.join(target_dir, f"{base_name}.pdf")
         available = set(item.available_assets)
+        doc_type = (item.doc_type or "").lower()
+        is_notebook = doc_type in {"notebook", "note"}
+        need_note_archive = is_notebook or any(ext in available for ext in ("note", "rm", "zip"))
+        note_archive_path = (
+            os.path.join(target_dir, f"{base_name}_note.zip") if need_note_archive else ""
+        )
+        download_plan: List[Dict[str, object]] = []
+        zip_task: Optional[Dict[str, object]] = None
 
-        # Prioritise existing PDF assets
-        if "pdf" in available:
-            remote = f"{DOCUMENT_ROOT}/{item.identifier}.pdf"
-            local = os.path.join(target_dir, f"{base_name}.pdf")
-            try:
-                self.ssh_client.download_file(remote, local)
-                exported = True
-            except IOError as exc:
-                errors.append(f"下载 PDF 失败：{exc}")
+        with self.ssh_client.sftp_session() as sftp:
+            if "pdf" in available:
+                remote_pdf = f"{DOCUMENT_ROOT}/{item.identifier}.pdf"
+                download_plan.append(
+                    {
+                        "type": "file",
+                        "remote": remote_pdf,
+                        "local": pdf_path,
+                        "size": self._safe_stat_size(sftp, remote_pdf),
+                    }
+                )
 
-        # Extract PDF from ZIP bundle if needed
-        if not exported and "zip" in available:
-            remote = f"{DOCUMENT_ROOT}/{item.identifier}.zip"
-            with tempfile.TemporaryDirectory() as tmpdir:
-                local_zip = os.path.join(tmpdir, f"{item.identifier}.zip")
+            if need_note_archive:
+                remote_dir = f"{DOCUMENT_ROOT}/{item.identifier}"
+                listing = self._collect_remote_files(sftp, remote_dir)
+                if listing:
+                    zip_task = {
+                        "type": "directory",
+                        "remote": remote_dir,
+                        "local": note_archive_path,
+                        "files": listing,
+                        "size": sum(entry[2] for entry in listing),
+                    }
+                    download_plan.append(zip_task)
+                elif "zip" in available:
+                    remote_zip = f"{DOCUMENT_ROOT}/{item.identifier}.zip"
+                    zip_task = {
+                        "type": "file",
+                        "remote": remote_zip,
+                        "local": note_archive_path,
+                        "size": self._safe_stat_size(sftp, remote_zip),
+                    }
+                    download_plan.append(zip_task)
+                elif "note" in available:
+                    remote_note = f"{DOCUMENT_ROOT}/{item.identifier}.note"
+                    zip_task = {
+                        "type": "file",
+                        "remote": remote_note,
+                        "local": note_archive_path,
+                        "size": self._safe_stat_size(sftp, remote_note),
+                    }
+                    download_plan.append(zip_task)
+
+        pdf_from_zip = "pdf" not in available and zip_task is not None
+        total_size = sum(int(task.get("size", 0)) for task in download_plan)
+        total_for_progress = total_size if total_size > 0 else 1
+        if progress_callback:
+            progress_callback(0, total_for_progress)
+
+        completed = 0
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for task in download_plan:
+                task_type = task["type"]
+                size = int(task.get("size", 0))
+                offset = completed
+                if task_type == "file":
+                    local_path = task["local"]
+                    Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+
+                    def _file_callback(transferred, _total, offset=offset, size=size):
+                        if progress_callback:
+                            progress_callback(offset + min(transferred, size), total_for_progress)
+
+                    self.ssh_client.download_file(
+                        task["remote"], local_path, callback=_file_callback
+                    )
+                    completed += size
+                    if progress_callback:
+                        progress_callback(completed, total_for_progress)
+                else:  # directory download
+                    download_root = Path(tmpdir) / f"{item.identifier}_note"
+                    downloaded_within = 0
+                    for remote_path, rel_path, file_size in task["files"]:
+                        local_file = download_root / rel_path
+                        local_file.parent.mkdir(parents=True, exist_ok=True)
+                        file_offset = offset + downloaded_within
+
+                        def _dir_callback(
+                            transferred,
+                            _total,
+                            file_offset=file_offset,
+                            file_size=file_size,
+                        ):
+                            if progress_callback:
+                                progress_callback(
+                                    file_offset + min(transferred, file_size), total_for_progress
+                                )
+
+                        self.ssh_client.download_file(
+                            remote_path, str(local_file), callback=_dir_callback
+                        )
+                        downloaded_within += file_size
+                        if progress_callback:
+                            progress_callback(offset + downloaded_within, total_for_progress)
+
+                    completed += size
+                    if progress_callback:
+                        progress_callback(completed, total_for_progress)
+
+                    Path(note_archive_path).parent.mkdir(parents=True, exist_ok=True)
+                    with zipfile.ZipFile(note_archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
+                        for root, _dirs, files in os.walk(download_root):
+                            for name in files:
+                                file_path = os.path.join(root, name)
+                                rel_name = os.path.relpath(file_path, download_root)
+                                archive.write(file_path, arcname=rel_name)
+
+            if progress_callback:
+                progress_callback(total_for_progress, total_for_progress)
+
+            downloaded_pdf = os.path.exists(pdf_path)
+            backup_pdf: Optional[str] = None
+            exported = False
+            if need_note_archive:
+                if downloaded_pdf:
+                    backup_pdf = os.path.join(tmpdir, "device_export.pdf")
+                    try:
+                        shutil.copy(pdf_path, backup_pdf)
+                    except IOError:
+                        backup_pdf = None
+            else:
+                exported = downloaded_pdf
+            errors: List[str] = []
+            rmrl_attempted = False
+            rmrl_error: Optional[str] = None
+
+            if (
+                need_note_archive
+                and note_archive_path
+                and os.path.exists(note_archive_path)
+            ):
+                success, rmrl_error, rmrl_attempted = self._try_rmrl_export(
+                    note_archive_path,
+                    pdf_path,
+                    tmpdir,
+                )
+                if success:
+                    exported = True
+                elif rmrl_attempted and rmrl_error:
+                    errors.append(f"rmrl 转换失败：{rmrl_error}")
+
+            if (
+                not exported
+                and pdf_from_zip
+                and note_archive_path
+                and os.path.exists(note_archive_path)
+            ):
                 try:
-                    self.ssh_client.download_file(remote, local_zip)
-                except IOError as exc:
-                    errors.append(f"下载 ZIP 失败：{exc}")
-                else:
-                    with zipfile.ZipFile(local_zip) as archive:
+                    with zipfile.ZipFile(note_archive_path) as archive:
                         pdf_members = [m for m in archive.namelist() if m.lower().endswith(".pdf")]
                         if pdf_members:
                             member = pdf_members[0]
                             extracted = archive.extract(member, tmpdir)
-                            final_path = os.path.join(target_dir, f"{base_name}.pdf")
-                            shutil.copy(extracted, final_path)
+                            shutil.copy(os.path.join(tmpdir, member), pdf_path)
                             exported = True
-
-        # Attempt to create PDF from preview thumbnail if nothing else works
-        if not exported:
-            preview_bytes = self._fetch_preview_bytes(item)
-            if preview_bytes:
-                try:
-                    image = Image.open(BytesIO(preview_bytes)).convert("RGB")
-                    final_path = os.path.join(target_dir, f"{base_name}.pdf")
-                    image.save(final_path, "PDF", resolution=144.0)
-                    exported = True
                 except Exception as exc:
-                    errors.append(f"根据预览生成 PDF 失败：{exc}")
+                    errors.append(f"从压缩包提取 PDF 失败：{exc}")
 
-        # Fallback to raw assets download if still not exported
-        if not exported:
-            if available:
-                for ext in available:
-                    remote = f"{DOCUMENT_ROOT}/{item.identifier}.{ext}"
-                    local = os.path.join(target_dir, f"{base_name}.{ext}")
-                    try:
-                        self.ssh_client.download_file(remote, local)
-                        exported = True
-                    except IOError:
-                        continue
-            else:
-                remote_dir = f"{DOCUMENT_ROOT}/{item.identifier}"
-                local_dir = os.path.join(target_dir, base_name)
-                self.ssh_client.download_directory(remote_dir, local_dir)
+            if not exported and downloaded_pdf and backup_pdf and os.path.exists(backup_pdf):
+                try:
+                    shutil.copy(backup_pdf, pdf_path)
+                    exported = True
+                except IOError:
+                    pass
+
+            if not exported and os.path.exists(pdf_path):
                 exported = True
 
-        if not exported and errors:
-            raise RuntimeError("\n".join(errors))
+            if not exported:
+                preview_bytes = self._fetch_preview_bytes(item)
+                if preview_bytes:
+                    try:
+                        image = Image.open(BytesIO(preview_bytes)).convert("RGB")
+                        image.save(pdf_path, "PDF", resolution=144.0)
+                        exported = True
+                    except Exception as exc:
+                        errors.append(f"根据预览生成 PDF 失败：{exc}")
+
+            if need_note_archive and note_archive_path and not os.path.exists(note_archive_path):
+                remote_dir = f"{DOCUMENT_ROOT}/{item.identifier}"
+                local_dir = os.path.join(target_dir, f"{base_name}_note")
+                self.ssh_client.download_directory(remote_dir, local_dir)
+                Path(note_archive_path).parent.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(note_archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
+                    for root, _dirs, files in os.walk(local_dir):
+                        for name in files:
+                            file_path = os.path.join(root, name)
+                            rel_name = os.path.relpath(file_path, local_dir)
+                            archive.write(file_path, arcname=rel_name)
+                shutil.rmtree(local_dir, ignore_errors=True)
+
+            if not exported:
+                if available:
+                    for ext in available:
+                        remote = f"{DOCUMENT_ROOT}/{item.identifier}.{ext}"
+                        local = os.path.join(target_dir, f"{base_name}.{ext}")
+                        try:
+                            self.ssh_client.download_file(remote, local)
+                            exported = True
+                        except IOError:
+                            continue
+                else:
+                    remote_dir = f"{DOCUMENT_ROOT}/{item.identifier}"
+                    local_dir = os.path.join(target_dir, base_name)
+                    self.ssh_client.download_directory(remote_dir, local_dir)
+                    exported = True
+
+            if not exported and errors:
+                raise RuntimeError("\n".join(errors))
 
     def _fetch_preview_bytes(self, item: DocumentItem) -> Optional[bytes]:
+        thumbnail_dir = f"{DOCUMENT_ROOT}/{item.identifier}.thumbnails"
         candidates = [
-            f"{DOCUMENT_ROOT}/{item.identifier}.thumbnails/{item.identifier}.png",
-            f"{DOCUMENT_ROOT}/{item.identifier}.thumbnails/{item.identifier}.thumbnail",
+            f"{thumbnail_dir}/{item.identifier}.png",
+            f"{thumbnail_dir}/{item.identifier}.thumbnail",
         ]
         for candidate in candidates:
             try:
                 with self.ssh_client.open_remote(candidate, "rb") as fh:
+                    data = fh.read()
+                    if data:
+                        return data
+            except IOError:
+                continue
+
+        # Look for any available thumbnail in the thumbnails directory
+        try:
+            entries = self.ssh_client.listdir_attr(thumbnail_dir)
+        except IOError:
+            entries = []
+
+        for entry in sorted(entries, key=lambda e: e.filename):
+            name_lower = entry.filename.lower()
+            if not name_lower.endswith((".png", ".jpg", ".jpeg", ".thumbnail")):
+                continue
+            remote_path = f"{thumbnail_dir}/{entry.filename}"
+            try:
+                with self.ssh_client.open_remote(remote_path, "rb") as fh:
                     data = fh.read()
                     if data:
                         return data
@@ -1182,7 +1908,9 @@ class DocumentsTab(QtWidgets.QWidget):
         self.preview_image.setText("")
         self._last_preview_bytes = data
 
-    def _transfer_document(self, file_path: str):
+    def _transfer_document(
+        self, file_path: str, progress_callback: Optional[Callable[[int, int], None]] = None
+    ):
         extension = os.path.splitext(file_path)[1][1:].lower()
         if extension not in {"pdf", "epub"}:
             raise RuntimeError("仅支持上传 PDF 或 EPUB 文件")
@@ -1240,24 +1968,53 @@ class DocumentsTab(QtWidgets.QWidget):
                 with open(os.path.join(tmpdir, f"{uuid_value}.content"), "w", encoding="utf-8") as f:
                     json.dump(content, f, indent=4)
 
-            sftp = self.ssh_client.ensure_sftp()
-            for root, _dirs, files in os.walk(tmpdir):
-                rel_dir = os.path.relpath(root, tmpdir)
-                if rel_dir == ".":
-                    remote_dir = DOCUMENT_ROOT
-                else:
-                    remote_dir = posixpath.join(
-                        DOCUMENT_ROOT,
-                        rel_dir.replace(os.sep, "/"),
-                    )
+            with self.ssh_client.sftp_session() as sftp:
+                remote_dirs = set()
+                files_to_upload: List[Tuple[str, str, int]] = []
+                for root, _dirs, files in os.walk(tmpdir):
+                    rel_dir = os.path.relpath(root, tmpdir)
+                    if rel_dir == ".":
+                        remote_dir = DOCUMENT_ROOT
+                    else:
+                        remote_dir = posixpath.join(
+                            DOCUMENT_ROOT,
+                            rel_dir.replace(os.sep, "/"),
+                        )
+                        remote_dirs.add(remote_dir)
+                    for name in files:
+                        local_path = os.path.join(root, name)
+                        remote_path = posixpath.join(remote_dir, name)
+                        file_size = os.path.getsize(local_path)
+                        files_to_upload.append((local_path, remote_path, file_size))
+
+                for remote_dir in sorted(remote_dirs, key=lambda value: value.count("/")):
                     try:
                         sftp.stat(remote_dir)
                     except IOError:
                         sftp.mkdir(remote_dir)
-                for name in files:
-                    local_path = os.path.join(root, name)
-                    remote_path = posixpath.join(remote_dir, name)
-                    sftp.put(local_path, remote_path)
+
+                total_size = sum(size for _local, _remote, size in files_to_upload)
+                total_for_progress = total_size if total_size > 0 else 1
+                if progress_callback:
+                    progress_callback(0, total_for_progress)
+
+                uploaded = 0
+                for local_path, remote_path, size in files_to_upload:
+                    offset = uploaded
+
+                    def _put_callback(transferred, _total, offset=offset, size=size):
+                        if progress_callback:
+                            progress_callback(
+                                offset + min(transferred, size), total_for_progress
+                            )
+
+                    sftp.put(local_path, remote_path, callback=_put_callback)
+                    uploaded += size
+                    if progress_callback:
+                        progress_callback(uploaded, total_for_progress)
+
+            if progress_callback:
+                progress_callback(total_for_progress, total_for_progress)
 
             stdout, stderr = self.ssh_client.exec_command("systemctl restart xochitl")
             if stderr:
@@ -1361,7 +2118,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        self.resize(900, 700)
+        self.setMinimumSize(1280, 840)
+        self.resize(1600, 1000)
 
         self.config = load_config()
         self.ssh_client = SSHClientWrapper()
