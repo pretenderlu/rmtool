@@ -16,13 +16,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, Iterator, List, Optional, Tuple
-import importlib.util
 
 import paramiko
 from PIL import Image
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5 import QtWebEngineWidgets
 
+from rmrl import RmrlError, render_notebook_to_pdf
 
 try:  # Optional dependency for secure credential storage
     import keyring
@@ -283,16 +283,40 @@ class PreviewImageLabel(QtWidgets.QLabel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._original_pixmap: Optional[QtGui.QPixmap] = None
+        self._aspect_ratio: Optional[float] = None
         self.setAlignment(QtCore.Qt.AlignCenter)
         self.setFrameShape(QtWidgets.QFrame.Box)
         self.setMinimumHeight(220)
+        policy = self.sizePolicy()
+        policy.setHorizontalPolicy(QtWidgets.QSizePolicy.Expanding)
+        policy.setVerticalPolicy(QtWidgets.QSizePolicy.Expanding)
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+
+    def hasHeightForWidth(self) -> bool:  # pragma: no cover - layout hint
+        return self._aspect_ratio is not None
+
+    def heightForWidth(self, width: int) -> int:  # pragma: no cover - layout hint
+        if not self._aspect_ratio:
+            return super().heightForWidth(width)
+        return max(1, int(width / self._aspect_ratio))
+
+    def sizeHint(self) -> QtCore.QSize:  # pragma: no cover - layout hint
+        if self._aspect_ratio:
+            base = super().sizeHint()
+            height = max(1, int(base.width() / self._aspect_ratio))
+            return QtCore.QSize(base.width(), height)
+        return super().sizeHint()
 
     def setPixmap(self, pixmap: QtGui.QPixmap):  # type: ignore[override]
-        self._original_pixmap = pixmap if pixmap and not pixmap.isNull() else None
-        if self._original_pixmap is not None:
+        if pixmap and not pixmap.isNull():
+            self._original_pixmap = QtGui.QPixmap(pixmap)
+            self._aspect_ratio = pixmap.width() / max(1, pixmap.height())
             super().setPixmap(self._scaled_pixmap())
             self.setText("")
         else:
+            self._original_pixmap = None
+            self._aspect_ratio = None
             super().setPixmap(QtGui.QPixmap())
 
     def resizeEvent(self, event: QtGui.QResizeEvent):  # pragma: no cover - GUI resize
@@ -302,12 +326,14 @@ class PreviewImageLabel(QtWidgets.QLabel):
 
     def clear_preview(self):
         self._original_pixmap = None
+        self._aspect_ratio = None
         super().setPixmap(QtGui.QPixmap())
 
     def _scaled_pixmap(self) -> QtGui.QPixmap:
         assert self._original_pixmap is not None
+        target = QtCore.QSizeF(self.size()) * 0.95
         return self._original_pixmap.scaled(
-            self.size() * 0.95,
+            target.toSize(),
             QtCore.Qt.KeepAspectRatio,
             QtCore.Qt.SmoothTransformation,
         )
@@ -1144,20 +1170,6 @@ class ControlTab(QtWidgets.QWidget):
             logging.exception("Enable Wi-Fi SSH failed")
             QtWidgets.QMessageBox.critical(self, APP_NAME, f"操作失败：{exc}")
 
-    def _enable_wifi_ssh(self):
-        try:
-            stdout, stderr = self.ssh_client.exec_command("rm-ssh-over-wlan on")
-            if stderr:
-                raise RuntimeError(stderr.strip())
-            QtWidgets.QMessageBox.information(
-                self,
-                APP_NAME,
-                "已开启 Wi-Fi SSH，请在断开 USB 后使用 WLAN 地址连接。",
-            )
-        except Exception as exc:
-            logging.exception("Enable Wi-Fi SSH failed")
-            QtWidgets.QMessageBox.critical(self, APP_NAME, f"操作失败：{exc}")
-
     def _increase_brightness(self):
         try:
             commands = [
@@ -1213,7 +1225,6 @@ class DocumentsTab(QtWidgets.QWidget):
         self._last_preview_bytes: Optional[bytes] = None
         self._active_progress: Optional[QtWidgets.QProgressDialog] = None
         self._progress_label_base: str = ""
-        self._rmrl_command: Optional[List[str]] = self._detect_rmrl_command()
 
         self.refresh_button = QtWidgets.QPushButton("刷新列表")
         self.upload_button = QtWidgets.QPushButton("上传文档")
@@ -1314,15 +1325,6 @@ class DocumentsTab(QtWidgets.QWidget):
             return int(sftp.stat(remote_path).st_size)
         except IOError:
             return 0
-
-    @staticmethod
-    def _detect_rmrl_command() -> Optional[List[str]]:
-        binary = shutil.which("rmrl")
-        if binary:
-            return [binary]
-        if importlib.util.find_spec("rmrl") is not None:
-            return [sys.executable, "-m", "rmrl"]
-        return None
 
     def _collect_remote_files(
         self,
@@ -1455,163 +1457,22 @@ class DocumentsTab(QtWidgets.QWidget):
         output_pdf: str,
         workspace: str,
     ) -> Tuple[bool, Optional[str], bool]:
-        command = self._rmrl_command
-        if not command:
-            return False, None, False
-
         if os.path.exists(output_pdf):
             try:
                 os.remove(output_pdf)
             except OSError:
                 pass
 
-        extraction_dir: Optional[Path] = None
-        source_path = archive_path
-        candidate_dirs: List[str] = []
-        content_files: List[str] = []
-        rm_files: List[str] = []
-
-        def _register_dir(path: str):
-            abs_path = os.path.abspath(path)
-            if abs_path not in candidate_dirs:
-                candidate_dirs.append(abs_path)
-
         try:
-            if zipfile.is_zipfile(archive_path):
-                extraction_dir = Path(workspace) / "rmrl_source"
-                extraction_dir.mkdir(parents=True, exist_ok=True)
-                with zipfile.ZipFile(archive_path) as archive:
-                    archive.extractall(extraction_dir)
-                candidates = [
-                    entry
-                    for entry in extraction_dir.iterdir()
-                    if not entry.name.startswith("__MACOSX")
-                ]
-                if len(candidates) == 1 and candidates[0].is_dir():
-                    source_path = str(candidates[0])
-                else:
-                    source_path = str(extraction_dir)
+            render_notebook_to_pdf(archive_path, output_pdf, workspace)
+        except RmrlError as exc:
+            return False, str(exc), True
+        except Exception as exc:
+            return False, str(exc), True
 
-            if os.path.isdir(source_path):
-                for root, _dirs, files in os.walk(source_path):
-                    for name in files:
-                        full_path = os.path.join(root, name)
-                        lower = name.lower()
-                        if lower.endswith(".content"):
-                            _register_dir(root)
-                            content_files.append(full_path)
-                        elif lower.endswith(".rm"):
-                            _register_dir(root)
-                            rm_files.append(full_path)
-                    if not files:
-                        continue
-                if not candidate_dirs:
-                    _register_dir(source_path)
-            else:
-                _register_dir(source_path)
-
-            candidate_dirs = list(dict.fromkeys(candidate_dirs))
-            content_files = list(dict.fromkeys(content_files))[:3]
-            rm_files = list(dict.fromkeys(rm_files))[:3]
-
-            attempts: List[List[str]] = []
-
-            for candidate in candidate_dirs:
-                attempts.extend(
-                    [
-                        command + ["export", candidate, output_pdf],
-                        command + ["export", "--output", output_pdf, candidate],
-                        command
-                        + ["export", "--format", "pdf", "--output", output_pdf, candidate],
-                        command + ["export", "--format", "pdf", candidate, output_pdf],
-                        command + ["render", candidate, output_pdf],
-                        command + ["render", "--output", output_pdf, candidate],
-                        command
-                        + ["render", "--format", "pdf", "--output", output_pdf, candidate],
-                        command + ["render", "--format", "pdf", candidate, output_pdf],
-                        command + ["render", "--pdf", candidate, output_pdf],
-                        command
-                        + ["render", "--pdf", "--output", output_pdf, candidate],
-                        command + ["render", "notebook", candidate, output_pdf],
-                        command
-                        + ["render", "notebook", "--output", output_pdf, candidate],
-                        command
-                        + [
-                            "render",
-                            "notebook",
-                            "--format",
-                            "pdf",
-                            "--output",
-                            output_pdf,
-                            candidate,
-                        ],
-                        command
-                        + ["render", "notebook", "--pdf", "--output", output_pdf, candidate],
-                        command
-                        + ["render", "notebook", "--pdf", candidate, output_pdf],
-                    ]
-                )
-
-            for content_path in content_files:
-                attempts.extend(
-                    [
-                        command + ["render", content_path, output_pdf],
-                        command + ["render", "--output", output_pdf, content_path],
-                        command
-                        + ["render", "--format", "pdf", "--output", output_pdf, content_path],
-                        command + ["render", "--format", "pdf", content_path, output_pdf],
-                    ]
-                )
-
-            for rm_path in rm_files:
-                attempts.extend(
-                    [
-                        command + ["render", rm_path, output_pdf],
-                        command + ["render", "--output", output_pdf, rm_path],
-                        command
-                        + ["render", "--format", "pdf", "--output", output_pdf, rm_path],
-                        command + ["render", "--format", "pdf", rm_path, output_pdf],
-                    ]
-                )
-
-            # Remove duplicate attempts while preserving order
-            unique_attempts: List[List[str]] = []
-            seen_attempts = set()
-            for attempt in attempts:
-                key = tuple(attempt)
-                if key in seen_attempts:
-                    continue
-                seen_attempts.add(key)
-                unique_attempts.append(attempt)
-
-            last_message: Optional[str] = None
-            for attempt in unique_attempts:
-                try:
-                    completed = subprocess.run(
-                        attempt,
-                        check=True,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                    )
-                except FileNotFoundError:
-                    return False, "未找到 rmrl 可执行文件", False
-                except subprocess.CalledProcessError as exc:
-                    last_message = exc.stderr.strip() or exc.stdout.strip() or str(exc)
-                    continue
-
-                if os.path.exists(output_pdf):
-                    return True, None, True
-
-                last_message = (completed.stdout or completed.stderr).strip()
-
-            if os.path.exists(output_pdf):
-                return True, None, True
-
-            return False, last_message or "rmrl 未生成 PDF", True
-        finally:
-            if extraction_dir is not None:
-                shutil.rmtree(extraction_dir, ignore_errors=True)
+        if os.path.exists(output_pdf) and os.path.getsize(output_pdf) > 0:
+            return True, None, True
+        return False, "rmrl 未生成 PDF", True
 
     def upload_document(self):
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
