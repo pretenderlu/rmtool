@@ -730,24 +730,43 @@ class WallpaperTab(QtWidgets.QWidget):
 
         variants_group.setLayout(variants_layout)
 
-        layout = QtWidgets.QVBoxLayout()
-        layout.addWidget(variants_group)
-        layout.addWidget(self.preview_label)
-        orientation_layout = QtWidgets.QHBoxLayout()
-        orientation_layout.addWidget(QtWidgets.QLabel("壁纸方向"))
-        orientation_layout.addWidget(self.orientation_combo)
-        orientation_layout.addStretch()
-        layout.addLayout(orientation_layout)
-        layout.addWidget(self.resolution_label)
+        orientation_row = QtWidgets.QHBoxLayout()
+        orientation_row.addWidget(QtWidgets.QLabel("壁纸方向"))
+        orientation_row.addWidget(self.orientation_combo)
+        orientation_row.addStretch()
+
         self.target_label = QtWidgets.QLabel()
-        layout.addWidget(self.target_label)
-        layout.addWidget(self.info_label)
-        layout.addWidget(QtWidgets.QLabel("处理模式"))
-        layout.addWidget(self.mode_combo)
-        layout.addLayout(offset_layout)
-        layout.addWidget(self.choose_button)
-        layout.addWidget(self.upload_button)
-        layout.addStretch()
+
+        control_container = QtWidgets.QWidget()
+        control_layout = QtWidgets.QVBoxLayout(control_container)
+        control_layout.setContentsMargins(0, 0, 0, 0)
+        control_layout.addWidget(variants_group)
+        control_layout.addLayout(orientation_row)
+        control_layout.addWidget(self.resolution_label)
+        control_layout.addWidget(self.target_label)
+        control_layout.addWidget(self.info_label)
+        control_layout.addWidget(QtWidgets.QLabel("处理模式"))
+        control_layout.addWidget(self.mode_combo)
+        control_layout.addLayout(offset_layout)
+        control_layout.addWidget(self.choose_button)
+        control_layout.addWidget(self.upload_button)
+        control_layout.addStretch()
+
+        preview_container = QtWidgets.QWidget()
+        preview_layout = QtWidgets.QVBoxLayout(preview_container)
+        preview_layout.setContentsMargins(0, 0, 0, 0)
+        preview_layout.addWidget(self.preview_label, alignment=QtCore.Qt.AlignCenter)
+        preview_layout.addStretch()
+
+        main_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        main_splitter.addWidget(control_container)
+        main_splitter.addWidget(preview_container)
+        main_splitter.setStretchFactor(0, 3)
+        main_splitter.setStretchFactor(1, 4)
+        main_splitter.setChildrenCollapsible(False)
+
+        layout = QtWidgets.QHBoxLayout()
+        layout.addWidget(main_splitter)
         self.setLayout(layout)
 
         self.choose_button.clicked.connect(self._select_image)
@@ -984,6 +1003,9 @@ class WallpaperTab(QtWidgets.QWidget):
             if stderr:
                 raise RuntimeError(stderr.strip())
 
+            if self.ssh_client.is_connected():
+                self._refresh_variant_previews()
+            self._render_preview()
             QtWidgets.QMessageBox.information(self, APP_NAME, "壁纸上传完成。")
         except Exception as exc:
             logging.exception("Wallpaper upload failed")
@@ -1227,14 +1249,20 @@ class DocumentsTab(QtWidgets.QWidget):
         preview_layout.setContentsMargins(0, 0, 0, 0)
         preview_layout.addWidget(preview_tabs)
 
+        left_container = QtWidgets.QWidget()
+        left_layout = QtWidgets.QVBoxLayout(left_container)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.addLayout(top_layout)
+        left_layout.addWidget(self.table)
+
         content_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
-        content_splitter.addWidget(self.table)
+        content_splitter.addWidget(left_container)
         content_splitter.addWidget(preview_container)
         content_splitter.setStretchFactor(0, 3)
         content_splitter.setStretchFactor(1, 2)
+        content_splitter.setChildrenCollapsible(False)
 
-        layout = QtWidgets.QVBoxLayout()
-        layout.addLayout(top_layout)
+        layout = QtWidgets.QHBoxLayout()
         layout.addWidget(content_splitter)
         self.setLayout(layout)
 
@@ -1647,26 +1675,24 @@ class DocumentsTab(QtWidgets.QWidget):
             if progress_callback:
                 progress_callback(total_for_progress, total_for_progress)
 
-            exported = os.path.exists(pdf_path)
+            downloaded_pdf = os.path.exists(pdf_path)
+            backup_pdf: Optional[str] = None
+            exported = False
+            if need_note_archive:
+                if downloaded_pdf:
+                    backup_pdf = os.path.join(tmpdir, "device_export.pdf")
+                    try:
+                        shutil.copy(pdf_path, backup_pdf)
+                    except IOError:
+                        backup_pdf = None
+            else:
+                exported = downloaded_pdf
             errors: List[str] = []
             rmrl_attempted = False
             rmrl_error: Optional[str] = None
 
-            if not exported and pdf_from_zip and note_archive_path and os.path.exists(note_archive_path):
-                try:
-                    with zipfile.ZipFile(note_archive_path) as archive:
-                        pdf_members = [m for m in archive.namelist() if m.lower().endswith(".pdf")]
-                        if pdf_members:
-                            member = pdf_members[0]
-                            extracted = archive.extract(member, tmpdir)
-                            shutil.copy(os.path.join(tmpdir, member), pdf_path)
-                            exported = True
-                except Exception as exc:
-                    errors.append(f"从压缩包提取 PDF 失败：{exc}")
-
             if (
-                not exported
-                and need_note_archive
+                need_note_archive
                 and note_archive_path
                 and os.path.exists(note_archive_path)
             ):
@@ -1679,6 +1705,33 @@ class DocumentsTab(QtWidgets.QWidget):
                     exported = True
                 elif rmrl_attempted and rmrl_error:
                     errors.append(f"rmrl 转换失败：{rmrl_error}")
+
+            if (
+                not exported
+                and pdf_from_zip
+                and note_archive_path
+                and os.path.exists(note_archive_path)
+            ):
+                try:
+                    with zipfile.ZipFile(note_archive_path) as archive:
+                        pdf_members = [m for m in archive.namelist() if m.lower().endswith(".pdf")]
+                        if pdf_members:
+                            member = pdf_members[0]
+                            extracted = archive.extract(member, tmpdir)
+                            shutil.copy(os.path.join(tmpdir, member), pdf_path)
+                            exported = True
+                except Exception as exc:
+                    errors.append(f"从压缩包提取 PDF 失败：{exc}")
+
+            if not exported and downloaded_pdf and backup_pdf and os.path.exists(backup_pdf):
+                try:
+                    shutil.copy(backup_pdf, pdf_path)
+                    exported = True
+                except IOError:
+                    pass
+
+            if not exported and os.path.exists(pdf_path):
+                exported = True
 
             if not exported:
                 preview_bytes = self._fetch_preview_bytes(item)
