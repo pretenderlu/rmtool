@@ -1103,20 +1103,17 @@ class ControlTab(QtWidgets.QWidget):
         self.ssh_client = ssh_client
 
         self.restart_button = QtWidgets.QPushButton("重启设备")
-        self.enable_ssh_button = QtWidgets.QPushButton("启用 SSH 服务")
         self.enable_wifi_ssh_button = QtWidgets.QPushButton("开启 Wi-Fi SSH 通道")
         self.brightness_button = QtWidgets.QPushButton("提升前光亮度")
 
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(self.restart_button)
-        layout.addWidget(self.enable_ssh_button)
         layout.addWidget(self.enable_wifi_ssh_button)
         layout.addWidget(self.brightness_button)
         layout.addStretch()
         self.setLayout(layout)
 
         self.restart_button.clicked.connect(self._restart_device)
-        self.enable_ssh_button.clicked.connect(self._enable_ssh)
         self.enable_wifi_ssh_button.clicked.connect(self._enable_wifi_ssh)
         self.brightness_button.clicked.connect(self._increase_brightness)
 
@@ -1133,15 +1130,19 @@ class ControlTab(QtWidgets.QWidget):
             logging.exception("Restart failed")
             QtWidgets.QMessageBox.critical(self, APP_NAME, f"重启失败：{exc}")
 
-    def _enable_ssh(self):
+    def _enable_wifi_ssh(self):
         try:
-            stdout, stderr = self.ssh_client.exec_command("systemctl enable --now ssh")
+            stdout, stderr = self.ssh_client.exec_command("rm-ssh-over-wlan on")
             if stderr:
                 raise RuntimeError(stderr.strip())
-            QtWidgets.QMessageBox.information(self, APP_NAME, "SSH 服务已启用。")
+            QtWidgets.QMessageBox.information(
+                self,
+                APP_NAME,
+                "已开启 Wi-Fi SSH，请在断开 USB 后使用 WLAN 地址连接。",
+            )
         except Exception as exc:
-            logging.exception("Enable SSH failed")
-            QtWidgets.QMessageBox.critical(self, APP_NAME, f"启用失败：{exc}")
+            logging.exception("Enable Wi-Fi SSH failed")
+            QtWidgets.QMessageBox.critical(self, APP_NAME, f"操作失败：{exc}")
 
     def _enable_wifi_ssh(self):
         try:
@@ -1466,6 +1467,15 @@ class DocumentsTab(QtWidgets.QWidget):
 
         extraction_dir: Optional[Path] = None
         source_path = archive_path
+        candidate_dirs: List[str] = []
+        content_files: List[str] = []
+        rm_files: List[str] = []
+
+        def _register_dir(path: str):
+            abs_path = os.path.abspath(path)
+            if abs_path not in candidate_dirs:
+                candidate_dirs.append(abs_path)
+
         try:
             if zipfile.is_zipfile(archive_path):
                 extraction_dir = Path(workspace) / "rmrl_source"
@@ -1482,18 +1492,100 @@ class DocumentsTab(QtWidgets.QWidget):
                 else:
                     source_path = str(extraction_dir)
 
-            attempts: List[List[str]] = [
-                command + ["export", source_path, output_pdf],
-                command + ["export", "--output", output_pdf, source_path],
-                command + ["export", "--format", "pdf", "--output", output_pdf, source_path],
-                command + ["export", "--format", "pdf", source_path, output_pdf],
-                command + ["render", source_path, output_pdf],
-                command + ["render", "--output", output_pdf, source_path],
-                command + ["render", "--format", "pdf", "--output", output_pdf, source_path],
-            ]
+            if os.path.isdir(source_path):
+                for root, _dirs, files in os.walk(source_path):
+                    for name in files:
+                        full_path = os.path.join(root, name)
+                        lower = name.lower()
+                        if lower.endswith(".content"):
+                            _register_dir(root)
+                            content_files.append(full_path)
+                        elif lower.endswith(".rm"):
+                            _register_dir(root)
+                            rm_files.append(full_path)
+                    if not files:
+                        continue
+                if not candidate_dirs:
+                    _register_dir(source_path)
+            else:
+                _register_dir(source_path)
+
+            candidate_dirs = list(dict.fromkeys(candidate_dirs))
+            content_files = list(dict.fromkeys(content_files))[:3]
+            rm_files = list(dict.fromkeys(rm_files))[:3]
+
+            attempts: List[List[str]] = []
+
+            for candidate in candidate_dirs:
+                attempts.extend(
+                    [
+                        command + ["export", candidate, output_pdf],
+                        command + ["export", "--output", output_pdf, candidate],
+                        command
+                        + ["export", "--format", "pdf", "--output", output_pdf, candidate],
+                        command + ["export", "--format", "pdf", candidate, output_pdf],
+                        command + ["render", candidate, output_pdf],
+                        command + ["render", "--output", output_pdf, candidate],
+                        command
+                        + ["render", "--format", "pdf", "--output", output_pdf, candidate],
+                        command + ["render", "--format", "pdf", candidate, output_pdf],
+                        command + ["render", "--pdf", candidate, output_pdf],
+                        command
+                        + ["render", "--pdf", "--output", output_pdf, candidate],
+                        command + ["render", "notebook", candidate, output_pdf],
+                        command
+                        + ["render", "notebook", "--output", output_pdf, candidate],
+                        command
+                        + [
+                            "render",
+                            "notebook",
+                            "--format",
+                            "pdf",
+                            "--output",
+                            output_pdf,
+                            candidate,
+                        ],
+                        command
+                        + ["render", "notebook", "--pdf", "--output", output_pdf, candidate],
+                        command
+                        + ["render", "notebook", "--pdf", candidate, output_pdf],
+                    ]
+                )
+
+            for content_path in content_files:
+                attempts.extend(
+                    [
+                        command + ["render", content_path, output_pdf],
+                        command + ["render", "--output", output_pdf, content_path],
+                        command
+                        + ["render", "--format", "pdf", "--output", output_pdf, content_path],
+                        command + ["render", "--format", "pdf", content_path, output_pdf],
+                    ]
+                )
+
+            for rm_path in rm_files:
+                attempts.extend(
+                    [
+                        command + ["render", rm_path, output_pdf],
+                        command + ["render", "--output", output_pdf, rm_path],
+                        command
+                        + ["render", "--format", "pdf", "--output", output_pdf, rm_path],
+                        command + ["render", "--format", "pdf", rm_path, output_pdf],
+                    ]
+                )
+
+            # Remove duplicate attempts while preserving order
+            unique_attempts: List[List[str]] = []
+            seen_attempts = set()
+            for attempt in attempts:
+                key = tuple(attempt)
+                if key in seen_attempts:
+                    continue
+                seen_attempts.add(key)
+                unique_attempts.append(attempt)
 
             last_message: Optional[str] = None
-            for attempt in attempts:
+            for attempt in unique_attempts:
                 try:
                     completed = subprocess.run(
                         attempt,
@@ -1557,7 +1649,9 @@ class DocumentsTab(QtWidgets.QWidget):
         base_name = f"{item.name}".replace("/", "_")
         pdf_path = os.path.join(target_dir, f"{base_name}.pdf")
         available = set(item.available_assets)
-        need_note_archive = any(ext in available for ext in ("note", "rm", "zip"))
+        doc_type = (item.doc_type or "").lower()
+        is_notebook = doc_type in {"notebook", "note"}
+        need_note_archive = is_notebook or any(ext in available for ext in ("note", "rm", "zip"))
         note_archive_path = (
             os.path.join(target_dir, f"{base_name}_note.zip") if need_note_archive else ""
         )
@@ -1577,7 +1671,18 @@ class DocumentsTab(QtWidgets.QWidget):
                 )
 
             if need_note_archive:
-                if "zip" in available:
+                remote_dir = f"{DOCUMENT_ROOT}/{item.identifier}"
+                listing = self._collect_remote_files(sftp, remote_dir)
+                if listing:
+                    zip_task = {
+                        "type": "directory",
+                        "remote": remote_dir,
+                        "local": note_archive_path,
+                        "files": listing,
+                        "size": sum(entry[2] for entry in listing),
+                    }
+                    download_plan.append(zip_task)
+                elif "zip" in available:
                     remote_zip = f"{DOCUMENT_ROOT}/{item.identifier}.zip"
                     zip_task = {
                         "type": "file",
@@ -1595,18 +1700,6 @@ class DocumentsTab(QtWidgets.QWidget):
                         "size": self._safe_stat_size(sftp, remote_note),
                     }
                     download_plan.append(zip_task)
-                else:
-                    remote_dir = f"{DOCUMENT_ROOT}/{item.identifier}"
-                    listing = self._collect_remote_files(sftp, remote_dir)
-                    if listing:
-                        zip_task = {
-                            "type": "directory",
-                            "remote": remote_dir,
-                            "local": note_archive_path,
-                            "files": listing,
-                            "size": sum(entry[2] for entry in listing),
-                        }
-                        download_plan.append(zip_task)
 
         pdf_from_zip = "pdf" not in available and zip_task is not None
         total_size = sum(int(task.get("size", 0)) for task in download_plan)

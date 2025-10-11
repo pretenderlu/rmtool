@@ -14,8 +14,8 @@
 - **字体管理**：直接从文件对话框选择字体（TTF/OTF），可选自动重命名为 `zwzt.ttf` 并上传至 `/home/root/.local/share/fonts/` 持久目录，系统更新后仍可保留。
 - **壁纸处理**：针对不同型号自动匹配分辨率（Paper Pro 2160×1620、Paper Pro Move 1696×954、reMarkable 2 1404×1872），提供填充/裁剪/拉伸模式、偏移调节与实时预览。
 - **时间设置**：同步本地时间、查看设备时间信息或一键将时区设为东八区。
-- **设备控制**：支持重启设备、启用 SSH 服务、提升前光亮度并创建持久化服务。
-- **文档中心**：新增 PDF/EPUB 文档上传流程，可直接从桌面选取文件并推送到设备；同时提供元数据视图、缩略图预览以及导出（优先生成 PDF）功能，检测到 `rmrl` 工具时还会调用其生成高质量的手写笔记 PDF，并保留完整的 note 压缩包。
+- **设备控制**：支持重启设备、开启 Wi-Fi SSH 通道、提升前光亮度并创建持久化服务。
+- **文档中心**：新增 PDF/EPUB 文档上传流程，可直接从桌面选取文件并推送到设备；同时提供元数据视图、缩略图预览以及导出（优先生成 PDF）功能，检测到 `rmrl` 工具时还会基于原始 `.rm` 数据生成高质量的手写笔记 PDF，并保留完整的 note 压缩包。
 
 ## 运行环境
 
@@ -57,6 +57,20 @@ PyInstaller 会自动将 Python 解释器、依赖库以及 HTML 仪表盘资源
 pyinstaller --noconsole --windowed --add-data "web/*;web" \
             --hidden-import PyQt5.QtWebEngineWidgets --hidden-import PyQt5.QtWebEngineCore \
             --name rmtool rmtool.py
+```
+
+如需在生成的可执行文件中使用自定义图标，可在执行 `pyinstaller rmtool.spec` 前设置环境变量 `RMTOOL_BUILD_ICON` 指向 `.ico` 文件。例如在 PowerShell 或 CMD 中：
+
+```bash
+set RMTOOL_BUILD_ICON=C:\\path\\to\\rmtool.ico
+pyinstaller rmtool.spec
+```
+
+在类 Unix 系统中可以使用：
+
+```bash
+export RMTOOL_BUILD_ICON=/path/to/rmtool.ico
+pyinstaller rmtool.spec
 ```
 
 ## 常见问题
