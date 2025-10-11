@@ -21,6 +21,7 @@
 
 - Python 3.9 及以上版本（建议使用 64 位环境）。
 - 依赖库：`paramiko`、`PyQt5`、`PyQtWebEngine`、`Pillow`、`keyring`（用于凭证安全存储，若缺失会自动降级为手动输入密码）。
+- 已内置用于渲染手写笔记的 `rmrl` 模块，无需额外安装即可生成高清 PDF。
 
 ```bash
 pip install -r requirements.txt  # 或手动安装上述依赖
