@@ -30,6 +30,8 @@ except Exception:  # pragma: no cover - optional dependency
 APP_NAME = "reMarkable 管理工具"
 CONFIG_FILE = "config.json"
 DEFAULT_FONT_NAME = "zwzt.ttf"
+DEFAULT_FONT_DIR = "/home/root/.local/share/fonts/"
+LEGACY_FONT_DIR = "/usr/share/fonts/ttf/noto/"
 DOCUMENT_ROOT = "/home/root/.local/share/remarkable/xochitl"
 KEYRING_SERVICE = "rmtool"
 
@@ -69,7 +71,7 @@ def _default_config() -> Dict:
         "active_device": first_device["name"],
         "devices": [first_device],
         "paths": {
-            "font": "/usr/share/fonts/ttf/noto/",
+            "font": DEFAULT_FONT_DIR,
             "wallpaper": "/usr/share/remarkable/suspended.png",
         },
     }
@@ -99,7 +101,7 @@ def load_config() -> Dict:
             "paths": config.get(
                 "paths",
                 {
-                    "font": "/usr/share/fonts/ttf/noto/",
+                    "font": DEFAULT_FONT_DIR,
                     "wallpaper": "/usr/share/remarkable/suspended.png",
                 },
             ),
@@ -112,9 +114,17 @@ def load_config() -> Dict:
         config["active_device"] = config["devices"][0]["name"]
     if "paths" not in config:
         config["paths"] = {
-            "font": "/usr/share/fonts/ttf/noto/",
+            "font": DEFAULT_FONT_DIR,
             "wallpaper": "/usr/share/remarkable/suspended.png",
         }
+    else:
+        config["paths"].setdefault("font", DEFAULT_FONT_DIR)
+        config["paths"].setdefault("wallpaper", "/usr/share/remarkable/suspended.png")
+
+    # Migrate legacy font directory to persistent location
+    font_path = config.get("paths", {}).get("font")
+    if not font_path or font_path == LEGACY_FONT_DIR:
+        config["paths"]["font"] = DEFAULT_FONT_DIR
     return config
 
 
@@ -563,7 +573,7 @@ class FontTab(QtWidgets.QWidget):
             QtWidgets.QMessageBox.critical(self, APP_NAME, f"字体上传失败：{exc}")
 
     def _upload_font(self, local_path: str, new_name: str):
-        font_dir = self.config.get("paths", {}).get("font", "/usr/share/fonts/ttf/noto/")
+        font_dir = self.config.get("paths", {}).get("font", DEFAULT_FONT_DIR)
         commands = [
             "mount -o remount,rw /",
             f"mkdir -p {font_dir}",
@@ -573,7 +583,7 @@ class FontTab(QtWidgets.QWidget):
             if stderr:
                 raise RuntimeError(stderr.strip())
 
-        remote_path = os.path.join(font_dir, new_name)
+        remote_path = posixpath.join(font_dir, new_name)
         self.ssh_client.transfer_file(local_path, remote_path)
         stdout, stderr = self.ssh_client.exec_command("mount -o remount,ro /")
         if stderr:
@@ -844,17 +854,20 @@ class ControlTab(QtWidgets.QWidget):
 
         self.restart_button = QtWidgets.QPushButton("重启设备")
         self.enable_ssh_button = QtWidgets.QPushButton("启用 SSH 服务")
+        self.enable_wifi_ssh_button = QtWidgets.QPushButton("开启 Wi-Fi SSH 通道")
         self.brightness_button = QtWidgets.QPushButton("提升前光亮度")
 
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(self.restart_button)
         layout.addWidget(self.enable_ssh_button)
+        layout.addWidget(self.enable_wifi_ssh_button)
         layout.addWidget(self.brightness_button)
         layout.addStretch()
         self.setLayout(layout)
 
         self.restart_button.clicked.connect(self._restart_device)
         self.enable_ssh_button.clicked.connect(self._enable_ssh)
+        self.enable_wifi_ssh_button.clicked.connect(self._enable_wifi_ssh)
         self.brightness_button.clicked.connect(self._increase_brightness)
 
     def _restart_device(self):
@@ -879,6 +892,20 @@ class ControlTab(QtWidgets.QWidget):
         except Exception as exc:
             logging.exception("Enable SSH failed")
             QtWidgets.QMessageBox.critical(self, APP_NAME, f"启用失败：{exc}")
+
+    def _enable_wifi_ssh(self):
+        try:
+            stdout, stderr = self.ssh_client.exec_command("rm-ssh-over-wlan on")
+            if stderr:
+                raise RuntimeError(stderr.strip())
+            QtWidgets.QMessageBox.information(
+                self,
+                APP_NAME,
+                "已开启 Wi-Fi SSH，请在断开 USB 后使用 WLAN 地址连接。",
+            )
+        except Exception as exc:
+            logging.exception("Enable Wi-Fi SSH failed")
+            QtWidgets.QMessageBox.critical(self, APP_NAME, f"操作失败：{exc}")
 
     def _increase_brightness(self):
         try:
@@ -1149,13 +1176,33 @@ class DocumentsTab(QtWidgets.QWidget):
             raise RuntimeError("\n".join(errors))
 
     def _fetch_preview_bytes(self, item: DocumentItem) -> Optional[bytes]:
+        thumbnail_dir = f"{DOCUMENT_ROOT}/{item.identifier}.thumbnails"
         candidates = [
-            f"{DOCUMENT_ROOT}/{item.identifier}.thumbnails/{item.identifier}.png",
-            f"{DOCUMENT_ROOT}/{item.identifier}.thumbnails/{item.identifier}.thumbnail",
+            f"{thumbnail_dir}/{item.identifier}.png",
+            f"{thumbnail_dir}/{item.identifier}.thumbnail",
         ]
         for candidate in candidates:
             try:
                 with self.ssh_client.open_remote(candidate, "rb") as fh:
+                    data = fh.read()
+                    if data:
+                        return data
+            except IOError:
+                continue
+
+        # Look for any available thumbnail in the thumbnails directory
+        try:
+            entries = self.ssh_client.listdir_attr(thumbnail_dir)
+        except IOError:
+            entries = []
+
+        for entry in sorted(entries, key=lambda e: e.filename):
+            name_lower = entry.filename.lower()
+            if not name_lower.endswith((".png", ".jpg", ".jpeg", ".thumbnail")):
+                continue
+            remote_path = f"{thumbnail_dir}/{entry.filename}"
+            try:
+                with self.ssh_client.open_remote(remote_path, "rb") as fh:
                     data = fh.read()
                     if data:
                         return data
