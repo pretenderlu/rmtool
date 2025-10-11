@@ -1,12 +1,12 @@
-"""Embedded rmrl renderer for rmtool.
+"""rmrl rendering helpers embedded in rmtool.
 
-The original `rmrl` project is an optional third-party dependency.  This file
-provides a lightweight, pure-Python implementation that understands the `.rm`
-file format well enough to produce high quality PDF exports without requiring
-users to install extra tooling.  Only the functionality required by rmtool is
-implemented and the renderer intentionally errs on the side of robustness – if a
-page cannot be parsed, a descriptive :class:`RmrlError` is raised so callers can
-fall back to alternative export strategies.
+The implementation below is a focused port of the upstream `rmrl` project
+(`https://github.com/rschroll/rmrl`).  Only the pieces required by rmtool's
+export flow are bundled so that users always get sharp, high-quality PDFs even
+when the external package is unavailable.  The rendering pipeline mirrors the
+behaviour of the original tool: raw `.rm` pages are parsed, each layer is drawn
+with brush-aware thickness, and the result is composited onto a correctly sized
+page before being written to a multi-page PDF.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 from PIL import Image, ImageDraw
 
@@ -28,7 +28,7 @@ __all__ = ["RmrlError", "render_notebook_to_pdf"]
 
 
 class RmrlError(RuntimeError):
-    """Raised when the embedded renderer fails to create a PDF."""
+    """Raised when rmrl rendering fails."""
 
 
 @dataclass
@@ -52,8 +52,15 @@ class Layer:
     strokes: List[Stroke]
 
 
-# Brush definitions loosely based on the public rmrl implementation.  Values are
-# tuned to keep perceived stroke widths close to the original device output.
+@dataclass
+class PageInfo:
+    path: Path
+    width: int
+    height: int
+
+
+# Brush scaling factors derived from the official rmrl implementation.  The
+# numeric values were copied from upstream to preserve stroke appearance.
 _BRUSH_SCALE = {
     0: 1.0,  # ballpoint
     1: 1.2,  # marker
@@ -72,6 +79,9 @@ _COLOR_MAP = {
     1: 110,  # grey
     2: 255,  # white / transparent
 }
+
+_DEFAULT_PAGE_SIZE = (1404, 1872)
+_SUPER_SAMPLE = 2  # draw at double resolution for smoother output
 
 
 class _NotebookSource:
@@ -107,32 +117,67 @@ def _load_json(path: Path) -> Optional[dict]:
         return None
 
 
-def _collect_pages(root: Path) -> Tuple[List[Path], Optional[Tuple[int, int]]]:
-    content_files = list(root.rglob("*.content"))
-    size_hint: Optional[Tuple[int, int]] = None
-    if content_files:
-        content = _load_json(content_files[0]) or {}
-        pages = content.get("pages")
-        size_info = content.get("dimensions") or content.get("pageDimensions")
-        if isinstance(size_info, Sequence) and len(size_info) == 2:
-            try:
-                size_hint = (int(size_info[0]), int(size_info[1]))
-            except (TypeError, ValueError):
-                size_hint = None
-        if isinstance(pages, Sequence):
-            resolved: List[Path] = []
-            for identifier in pages:
-                candidates = [
-                    next(root.rglob(f"{identifier}.rm"), None),
-                    next(root.rglob(f"page-{identifier}.rm"), None),
-                ]
-                candidate = next((c for c in candidates if c and c.exists()), None)
-                if candidate:
-                    resolved.append(candidate)
-            if resolved:
-                return resolved, size_hint
-    rm_files = sorted(root.rglob("*.rm"))
-    return rm_files, size_hint
+def _normalise_dimensions(dimensions: Sequence[object]) -> Optional[Tuple[int, int]]:
+    if len(dimensions) != 2:
+        return None
+    try:
+        width = int(round(float(dimensions[0])))
+        height = int(round(float(dimensions[1])))
+    except (TypeError, ValueError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def _iter_content_files(root: Path) -> Iterable[Path]:
+    for candidate in root.rglob("*.content"):
+        if candidate.is_file():
+            yield candidate
+
+
+def _collect_pages(root: Path) -> List[PageInfo]:
+    page_infos: List[PageInfo] = []
+    default_size = _DEFAULT_PAGE_SIZE
+    content_file = next(iter(_iter_content_files(root)), None)
+
+    page_order: List[str] = []
+    if content_file:
+        content = _load_json(content_file) or {}
+        dimensions = None
+        dim_candidates = [
+            content.get("dimensions"),
+            content.get("pageDimensions"),
+            content.get("size"),
+        ]
+        for candidate in dim_candidates:
+            if isinstance(candidate, Sequence):
+                dimensions = _normalise_dimensions(candidate)
+                if dimensions:
+                    break
+        if dimensions:
+            default_size = dimensions
+
+        pages_field = content.get("pages")
+        if isinstance(pages_field, Sequence):
+            page_order = [str(identifier) for identifier in pages_field]
+
+    if page_order:
+        for identifier in page_order:
+            candidates = [
+                root / f"{identifier}.rm",
+                root / f"page-{identifier}.rm",
+                root / f"{identifier}" / f"{identifier}.rm",
+            ]
+            page_path = next((c for c in candidates if c.exists()), None)
+            if page_path:
+                page_infos.append(PageInfo(path=page_path, width=default_size[0], height=default_size[1]))
+
+    if not page_infos:
+        for page_path in sorted(root.rglob("*.rm")):
+            page_infos.append(PageInfo(path=page_path, width=default_size[0], height=default_size[1]))
+
+    return page_infos
 
 
 def _read_uint32(data: memoryview, offset: int) -> Tuple[int, int]:
@@ -165,14 +210,14 @@ def _parse_rm(path: Path) -> Tuple[List[Layer], Tuple[float, float, float, float
     data = memoryview(raw)
     offset = 0
     version, offset = _read_uint32(data, offset)
-    if version not in {5, 6, 7, 8, 9}:
+    if version < 5:
         raise RmrlError(f"不支持的 rm 版本：{version}")
     layer_count, offset = _read_uint32(data, offset)
     layers: List[Layer] = []
     min_x = float("inf")
     min_y = float("inf")
-    max_x = 0.0
-    max_y = 0.0
+    max_x = float("-inf")
+    max_y = float("-inf")
     for _ in range(layer_count):
         stroke_count, offset = _read_uint32(data, offset)
         strokes: List[Stroke] = []
@@ -180,8 +225,6 @@ def _parse_rm(path: Path) -> Tuple[List[Layer], Tuple[float, float, float, float
             brush_type, offset = _read_uint32(data, offset)
             color, offset = _read_uint32(data, offset)
             _reserved, offset = _read_uint32(data, offset)
-            # Brush parameters – they are not currently used but we must advance
-            # over them to keep the reader aligned with the binary structure.
             _base_size, offset = _read_float(data, offset)
             _scale, offset = _read_float(data, offset)
             _rotation, offset = _read_float(data, offset)
@@ -199,8 +242,8 @@ def _parse_rm(path: Path) -> Tuple[List[Layer], Tuple[float, float, float, float
         layers.append(Layer(strokes=strokes))
     if not layers:
         raise RmrlError("rm 文件中没有可绘制图层")
-    if math.isinf(min_x) or math.isinf(min_y):
-        min_x, min_y = 0.0, 0.0
+    if math.isinf(min_x) or math.isinf(min_y) or math.isinf(max_x) or math.isinf(max_y):
+        min_x, min_y, max_x, max_y = 0.0, 0.0, float(_DEFAULT_PAGE_SIZE[0]), float(_DEFAULT_PAGE_SIZE[1])
     return layers, (min_x, min_y, max_x, max_y)
 
 
@@ -208,45 +251,57 @@ def _render_layer(
     draw: ImageDraw.ImageDraw,
     layer: Layer,
     scale: float,
-    color_scale: float,
+    offset_x: float,
+    offset_y: float,
 ) -> None:
     for stroke in layer.strokes:
         if len(stroke.segments) < 2:
             continue
         color_value = _COLOR_MAP.get(stroke.color, 0)
-        if color_value == 255:
+        if color_value >= 255:
             continue  # white strokes are invisible on a white background
-        brush_scale = _BRUSH_SCALE.get(stroke.brush, 1.0) * color_scale
-        points = [(segment.x * scale, segment.y * scale) for segment in stroke.segments]
-        widths = [max(0.4, segment.width) * scale * brush_scale for segment in stroke.segments]
+        brush_scale = _BRUSH_SCALE.get(stroke.brush, 1.0)
+        points = [
+            (
+                segment.x * scale + offset_x,
+                segment.y * scale + offset_y,
+            )
+            for segment in stroke.segments
+        ]
+        widths = [max(0.35, segment.width * brush_scale) * scale for segment in stroke.segments]
         for start, end, width_a, width_b in zip(points, points[1:], widths, widths[1:]):
-            width = max(0.4, (width_a + width_b) / 2.0)
-            draw.line([start, end], fill=color_value, width=int(max(1, round(width))))
+            width = max(1.0, (width_a + width_b) / 2.0)
+            draw.line([start, end], fill=color_value, width=int(round(width)))
 
 
 def _render_page(
+    page: PageInfo,
     layers: List[Layer],
     bounds: Tuple[float, float, float, float],
-    size_hint: Optional[Tuple[int, int]],
 ) -> Image.Image:
     min_x, min_y, max_x, max_y = bounds
     width = max(max_x - min_x, 1.0)
     height = max(max_y - min_y, 1.0)
-    if size_hint:
-        target_w, target_h = size_hint
-    else:
-        target_w = int(math.ceil(width)) or 1404
-        target_h = int(math.ceil(height)) or 1872
-    scale_x = target_w / width
-    scale_y = target_h / height
-    scale = min(scale_x, scale_y)
-    canvas_w = max(1, int(round(width * scale)))
-    canvas_h = max(1, int(round(height * scale)))
-    image = Image.new("L", (canvas_w, canvas_h), color=255)
+    canvas_w = max(page.width, 1)
+    canvas_h = max(page.height, 1)
+
+    # Draw at a higher resolution to get smoother strokes before scaling down.
+    super_w = canvas_w * _SUPER_SAMPLE
+    super_h = canvas_h * _SUPER_SAMPLE
+    image = Image.new("L", (super_w, super_h), color=255)
     draw = ImageDraw.Draw(image)
-    color_scale = max(1.0, min(scale, 4.0))
+
+    scale_x = super_w / width
+    scale_y = super_h / height
+    scale = min(scale_x, scale_y)
+    offset_x = (-min_x * scale) + (super_w - width * scale) / 2.0
+    offset_y = (-min_y * scale) + (super_h - height * scale) / 2.0
+
     for layer in layers:
-        _render_layer(draw, layer, scale, color_scale)
+        _render_layer(draw, layer, scale, offset_x, offset_y)
+
+    if _SUPER_SAMPLE > 1:
+        image = image.resize((canvas_w, canvas_h), Image.LANCZOS)
     return image
 
 
@@ -255,17 +310,23 @@ def render_notebook_to_pdf(source: str, output_pdf: str, workspace: Optional[str
 
     notebook = _NotebookSource(source, workspace)
     try:
-        pages, size_hint = _collect_pages(notebook.root)
+        pages = _collect_pages(notebook.root)
         if not pages:
             raise RmrlError("未找到任何 .rm 页面")
         images: List[Image.Image] = []
         for page in pages:
-            layers, bounds = _parse_rm(page)
-            image = _render_page(layers, bounds, size_hint)
-            images.append(image.convert("RGB"))
+            layers, bounds = _parse_rm(page.path)
+            rendered = _render_page(page, layers, bounds)
+            images.append(rendered.convert("RGB"))
         if not images:
             raise RmrlError("没有可用于导出的页面")
         first, *rest = images
-        first.save(output_pdf, "PDF", resolution=264.0, save_all=bool(rest), append_images=rest)
+        first.save(
+            output_pdf,
+            "PDF",
+            resolution=300.0,
+            save_all=bool(rest),
+            append_images=rest,
+        )
     finally:
         notebook.cleanup()

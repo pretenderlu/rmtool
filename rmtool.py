@@ -286,7 +286,6 @@ class PreviewImageLabel(QtWidgets.QLabel):
         self._aspect_ratio: Optional[float] = None
         self.setAlignment(QtCore.Qt.AlignCenter)
         self.setFrameShape(QtWidgets.QFrame.Box)
-        self.setMinimumHeight(220)
         policy = self.sizePolicy()
         policy.setHorizontalPolicy(QtWidgets.QSizePolicy.Expanding)
         policy.setVerticalPolicy(QtWidgets.QSizePolicy.Expanding)
@@ -331,9 +330,12 @@ class PreviewImageLabel(QtWidgets.QLabel):
 
     def _scaled_pixmap(self) -> QtGui.QPixmap:
         assert self._original_pixmap is not None
-        target = QtCore.QSizeF(self.size()) * 0.95
+        rect = self.contentsRect()
+        target = rect.size()
+        if not target.isValid():
+            target = self.size()
         return self._original_pixmap.scaled(
-            target.toSize(),
+            target,
             QtCore.Qt.KeepAspectRatio,
             QtCore.Qt.SmoothTransformation,
         )
@@ -696,7 +698,7 @@ class WallpaperTab(QtWidgets.QWidget):
         self.current_resolution = self._calculate_resolution(self.orientation_combo.currentData())
 
         self.preview_label = PreviewImageLabel("请选择图片以生成预览")
-        self.preview_label.setMinimumSize(260, 320)
+        self.preview_label.setMinimumSize(360, 480)
         self.preview_label.setStyleSheet(
             "QLabel { background-color: rgba(255, 255, 255, 30); border-radius: 6px; }"
         )
@@ -734,7 +736,7 @@ class WallpaperTab(QtWidgets.QWidget):
         variants_layout.setContentsMargins(6, 6, 6, 6)
         for index, (variant_key, display_name, remote_path) in enumerate(WALLPAPER_VARIANTS):
             preview = PreviewImageLabel("未连接")
-            preview.setMinimumSize(140, 180)
+            preview.setMinimumSize(150, 200)
             preview.setToolTip(remote_path)
             radio = QtWidgets.QRadioButton(display_name)
             radio.setProperty("variant_key", variant_key)
@@ -1993,8 +1995,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        self.setMinimumSize(1280, 840)
-        self.resize(1600, 1000)
+        self.setMinimumSize(1480, 1200)
+        self.resize(1860, 1640)
 
         self.config = load_config()
         self.ssh_client = SSHClientWrapper()
