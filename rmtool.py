@@ -525,7 +525,11 @@ class ConnectionWidget(QtWidgets.QGroupBox):
         host = self.host_edit.text().strip()
         password = self.password_edit.text().strip()
         if not host or not password:
-            QtWidgets.QMessageBox.warning(self, APP_NAME, "请填写完整的连接信息。")
+            QtWidgets.QMessageBox.warning(
+                self,
+                APP_NAME,
+                "请填写完整的连接信息（包括 root 密码）。",
+            )
             return
 
         remember_password = self.remember_checkbox.isChecked()
