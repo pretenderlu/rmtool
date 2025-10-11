@@ -310,6 +310,10 @@ class ConnectionWidget(QtWidgets.QGroupBox):
         self.ssh_client = ssh_client
         self.config = config
 
+        self.thread_pool = QtCore.QThreadPool.globalInstance()
+        self._connection_progress: Optional[QtWidgets.QProgressDialog] = None
+        self._active_connection_worker: Optional[Worker] = None
+
         self.device_combo = QtWidgets.QComboBox()
         self.add_device_button = QtWidgets.QToolButton()
         self.add_device_button.setText("+")
@@ -506,27 +510,57 @@ class ConnectionWidget(QtWidgets.QGroupBox):
                 "无法保存密码到系统凭证管理器，请检查 keyring 配置。",
             )
 
+    def _teardown_connection_progress(self):
+        if self._connection_progress:
+            self._connection_progress.close()
+            self._connection_progress.deleteLater()
+            self._connection_progress = None
+        self._active_connection_worker = None
+        if not self.ssh_client.is_connected():
+            self.connect_button.setEnabled(True)
+
     def _connect(self):
+        if self._active_connection_worker is not None:
+            return
         host = self.host_edit.text().strip()
         password = self.password_edit.text().strip()
         if not host or not password:
             QtWidgets.QMessageBox.warning(self, APP_NAME, "请填写完整的连接信息。")
             return
 
-        try:
-            self.ssh_client.connect(host, password)
-        except Exception as exc:
-            logging.exception("Unable to connect")
-            QtWidgets.QMessageBox.critical(self, APP_NAME, f"连接失败：{exc}")
-            return
+        remember_password = self.remember_checkbox.isChecked()
 
-        device = self._current_device()
-        if device:
-            device["mode"] = "usb" if self.usb_radio.isChecked() else "wifi"
-            device["host"] = host
-            save_config(self.config)
-            if self.remember_checkbox.isChecked():
-                self._store_password(device["name"], password)
+        self.connect_button.setEnabled(False)
+        progress = QtWidgets.QProgressDialog("正在连接到设备…", "", 0, 0, self)
+        progress.setWindowTitle(APP_NAME)
+        progress.setWindowModality(QtCore.Qt.ApplicationModal)
+        progress.setCancelButton(None)
+        progress.setMinimumDuration(0)
+        progress.setRange(0, 0)
+        progress.show()
+        self._connection_progress = progress
+
+        worker = Worker(self.ssh_client.connect, host, password)
+
+        def on_finished(_: object):
+            self._teardown_connection_progress()
+            device = self._current_device()
+            if device:
+                device["mode"] = "usb" if self.usb_radio.isChecked() else "wifi"
+                device["host"] = host
+                save_config(self.config)
+                if remember_password:
+                    self._store_password(device["name"], password)
+
+        def on_error(exc: Exception):
+            self._teardown_connection_progress()
+            logging.error("Unable to connect: %s", exc)
+            QtWidgets.QMessageBox.critical(self, APP_NAME, f"连接失败：{exc}")
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self._active_connection_worker = worker
+        self.thread_pool.start(worker)
 
     def _disconnect(self):
         self.ssh_client.close()
@@ -1931,7 +1965,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        self.resize(900, 700)
+        self.setMinimumSize(1280, 840)
+        self.resize(1600, 1000)
 
         self.config = load_config()
         self.ssh_client = SSHClientWrapper()
