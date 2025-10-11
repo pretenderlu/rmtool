@@ -1,10 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import pathlib
+import sys
 
 block_cipher = None
 
-base_path = pathlib.Path(__file__).parent
+try:
+    base_path = pathlib.Path(__file__).parent
+except NameError:  # __file__ may be missing when the spec is exec'd directly
+    spec_candidate = pathlib.Path(sys.argv[0]) if sys.argv else None
+    if spec_candidate and spec_candidate.suffix == '.spec' and spec_candidate.exists():
+        base_path = spec_candidate.resolve().parent
+    else:
+        base_path = pathlib.Path.cwd()
 web_assets = [
     (str(base_path / 'web' / 'dashboard.html'), 'web'),
     (str(base_path / 'web' / 'dashboard.css'), 'web'),
