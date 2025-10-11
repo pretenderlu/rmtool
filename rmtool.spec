@@ -1,10 +1,29 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
 import pathlib
+import sys
 
 block_cipher = None
 
-base_path = pathlib.Path(__file__).parent
+try:
+    base_path = pathlib.Path(__file__).parent
+except NameError:  # __file__ may be missing when the spec is exec'd directly
+    spec_candidate = pathlib.Path(sys.argv[0]) if sys.argv else None
+    if spec_candidate and spec_candidate.suffix == '.spec' and spec_candidate.exists():
+        base_path = spec_candidate.resolve().parent
+    else:
+        base_path = pathlib.Path.cwd()
+
+icon_env = os.environ.get('RMTOOL_BUILD_ICON', '').strip()
+build_icon = None
+if icon_env:
+    icon_candidate = pathlib.Path(icon_env).expanduser()
+    if not icon_candidate.is_absolute():
+        icon_candidate = (base_path / icon_candidate).resolve()
+    if icon_candidate.exists():
+        build_icon = str(icon_candidate)
+
 web_assets = [
     (str(base_path / 'web' / 'dashboard.html'), 'web'),
     (str(base_path / 'web' / 'dashboard.css'), 'web'),
@@ -43,4 +62,5 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
+    icon=build_icon,
 )
