@@ -1144,6 +1144,20 @@ class ControlTab(QtWidgets.QWidget):
             logging.exception("Enable Wi-Fi SSH failed")
             QtWidgets.QMessageBox.critical(self, APP_NAME, f"操作失败：{exc}")
 
+    def _enable_wifi_ssh(self):
+        try:
+            stdout, stderr = self.ssh_client.exec_command("rm-ssh-over-wlan on")
+            if stderr:
+                raise RuntimeError(stderr.strip())
+            QtWidgets.QMessageBox.information(
+                self,
+                APP_NAME,
+                "已开启 Wi-Fi SSH，请在断开 USB 后使用 WLAN 地址连接。",
+            )
+        except Exception as exc:
+            logging.exception("Enable Wi-Fi SSH failed")
+            QtWidgets.QMessageBox.critical(self, APP_NAME, f"操作失败：{exc}")
+
     def _increase_brightness(self):
         try:
             commands = [
