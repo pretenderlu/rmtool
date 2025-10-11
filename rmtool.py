@@ -4,6 +4,7 @@ import os
 import posixpath
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import uuid
@@ -14,6 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
+import importlib.util
 
 import paramiko
 from PIL import Image
@@ -40,6 +42,13 @@ DEVICE_PROFILES = {
     "reMarkable Paper Pro Move": (1696, 954),
     "reMarkable 2": (1404, 1872),
 }
+
+WALLPAPER_VARIANTS = [
+    ("starting", "启动壁纸", "/usr/share/remarkable/starting.png"),
+    ("suspended", "待机壁纸", "/usr/share/remarkable/suspended.png"),
+    ("hibernate", "休眠壁纸", "/usr/share/remarkable/hibernate.png"),
+    ("poweroff", "关机壁纸", "/usr/share/remarkable/poweroff.png"),
+]
 
 
 logging.basicConfig(
@@ -609,17 +618,21 @@ class WallpaperTab(QtWidgets.QWidget):
         self.orientation_combo.addItem("横屏", "landscape")
         self.current_resolution = self._calculate_resolution(self.orientation_combo.currentData())
 
-        self.preview_label = QtWidgets.QLabel("请选择图片以生成预览")
-        self.preview_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.preview_label = PreviewImageLabel("请选择图片以生成预览")
         self.preview_label.setMinimumSize(260, 320)
-        self.preview_label.setFrameShape(QtWidgets.QFrame.Box)
-        self.preview_label.setStyleSheet("QLabel { background-color: rgba(255, 255, 255, 30); border-radius: 6px; }")
+        self.preview_label.setStyleSheet(
+            "QLabel { background-color: rgba(255, 255, 255, 30); border-radius: 6px; }"
+        )
 
         self.info_label = QtWidgets.QLabel("未选择图片")
         self.resolution_label = QtWidgets.QLabel(self._resolution_text())
         self.choose_button = QtWidgets.QPushButton("选择图片")
         self.upload_button = QtWidgets.QPushButton("上传为壁纸")
         self.upload_button.setEnabled(False)
+
+        self.variant_group = QtWidgets.QButtonGroup(self)
+        self.variant_previews: Dict[str, PreviewImageLabel] = {}
+        self.variant_buttons: Dict[str, QtWidgets.QRadioButton] = {}
 
         self.mode_combo = QtWidgets.QComboBox()
         self.mode_combo.addItem("智能填充（留白）", "pad")
@@ -639,7 +652,35 @@ class WallpaperTab(QtWidgets.QWidget):
         offset_layout.addRow("水平偏移", self.offset_x_slider)
         offset_layout.addRow("垂直偏移", self.offset_y_slider)
 
+        variants_group = QtWidgets.QGroupBox("当前设备壁纸")
+        variants_layout = QtWidgets.QGridLayout()
+        variants_layout.setContentsMargins(6, 6, 6, 6)
+        for index, (variant_key, display_name, remote_path) in enumerate(WALLPAPER_VARIANTS):
+            preview = PreviewImageLabel("未连接")
+            preview.setMinimumSize(140, 180)
+            preview.setToolTip(remote_path)
+            radio = QtWidgets.QRadioButton(display_name)
+            radio.setProperty("variant_key", variant_key)
+            radio.setProperty("remote_path", remote_path)
+            radio.setToolTip(remote_path)
+            self.variant_group.addButton(radio)
+            self.variant_previews[variant_key] = preview
+            self.variant_buttons[variant_key] = radio
+
+            container = QtWidgets.QWidget()
+            container_layout = QtWidgets.QVBoxLayout(container)
+            container_layout.setContentsMargins(4, 4, 4, 4)
+            container_layout.addWidget(preview)
+            container_layout.addWidget(radio, alignment=QtCore.Qt.AlignHCenter)
+
+            row = index // 2
+            column = index % 2
+            variants_layout.addWidget(container, row, column)
+
+        variants_group.setLayout(variants_layout)
+
         layout = QtWidgets.QVBoxLayout()
+        layout.addWidget(variants_group)
         layout.addWidget(self.preview_label)
         orientation_layout = QtWidgets.QHBoxLayout()
         orientation_layout.addWidget(QtWidgets.QLabel("壁纸方向"))
@@ -647,6 +688,8 @@ class WallpaperTab(QtWidgets.QWidget):
         orientation_layout.addStretch()
         layout.addLayout(orientation_layout)
         layout.addWidget(self.resolution_label)
+        self.target_label = QtWidgets.QLabel()
+        layout.addWidget(self.target_label)
         layout.addWidget(self.info_label)
         layout.addWidget(QtWidgets.QLabel("处理模式"))
         layout.addWidget(self.mode_combo)
@@ -662,6 +705,15 @@ class WallpaperTab(QtWidgets.QWidget):
         self.orientation_combo.currentIndexChanged.connect(self._on_orientation_changed)
         self.offset_x_slider.valueChanged.connect(self._render_preview)
         self.offset_y_slider.valueChanged.connect(self._render_preview)
+        self.variant_group.buttonClicked.connect(self._on_variant_selected)
+        self.ssh_client.connection_changed.connect(self._on_connection_changed)
+
+        self._select_variant_by_path(
+            self.config.get("paths", {}).get(
+                "wallpaper", "/usr/share/remarkable/suspended.png"
+            )
+        )
+        self._update_target_label()
 
     def update_device(self, device: Dict):
         profile = device.get("type") if device else None
@@ -669,6 +721,12 @@ class WallpaperTab(QtWidgets.QWidget):
             profile, DEVICE_PROFILES["reMarkable Paper Pro"]
         )
         self._update_resolution()
+        self._select_variant_by_path(
+            self.config.get("paths", {}).get(
+                "wallpaper", "/usr/share/remarkable/suspended.png"
+            )
+        )
+        self._refresh_variant_previews()
         self._render_preview()
 
     def _resolution_text(self) -> str:
@@ -686,6 +744,95 @@ class WallpaperTab(QtWidgets.QWidget):
         orientation = self.orientation_combo.currentData()
         self.current_resolution = self._calculate_resolution(orientation)
         self.resolution_label.setText(self._resolution_text())
+        self._update_target_label()
+
+    def _on_connection_changed(self, connected: bool) -> None:
+        if connected:
+            self._refresh_variant_previews()
+        else:
+            for preview in self.variant_previews.values():
+                preview.clear_preview()
+                preview.setText("未连接")
+
+    def _refresh_variant_previews(self) -> None:
+        if not self.ssh_client.is_connected():
+            for preview in self.variant_previews.values():
+                preview.clear_preview()
+                preview.setText("未连接")
+            return
+
+        for variant_key, _display_name, remote_path in WALLPAPER_VARIANTS:
+            preview = self.variant_previews[variant_key]
+            try:
+                pixmap = self._download_wallpaper_preview(remote_path)
+            except Exception as exc:  # pragma: no cover - UI feedback
+                logging.exception("Unable to load wallpaper preview: %s", remote_path)
+                preview.clear_preview()
+                preview.setText(f"加载失败\n{exc}")
+                continue
+
+            if pixmap and not pixmap.isNull():
+                preview.setPixmap(pixmap)
+            else:
+                preview.clear_preview()
+                preview.setText("无预览")
+
+    def _download_wallpaper_preview(self, remote_path: str) -> Optional[QtGui.QPixmap]:
+        with self.ssh_client.open_remote(remote_path, "rb") as remote_file:
+            data = remote_file.read()
+
+        pixmap = QtGui.QPixmap()
+        if pixmap.loadFromData(data):
+            return pixmap
+
+        # Fallback through Pillow for uncommon formats
+        with Image.open(BytesIO(data)) as image:
+            buffer = BytesIO()
+            image.convert("RGB").save(buffer, format="PNG")
+        if pixmap.loadFromData(buffer.getvalue(), "PNG"):
+            return pixmap
+        return None
+
+    def _on_variant_selected(self, button: QtWidgets.QAbstractButton) -> None:
+        remote_path = button.property("remote_path")
+        if not remote_path:
+            return
+        self.config.setdefault("paths", {})["wallpaper"] = remote_path
+        self._update_target_label()
+
+    def _select_variant_by_path(self, remote_path: str) -> None:
+        normalized = posixpath.normpath(remote_path)
+        matched = False
+        for variant_key, _display_name, candidate_path in WALLPAPER_VARIANTS:
+            if posixpath.normpath(candidate_path) == normalized:
+                button = self.variant_buttons.get(variant_key)
+                if button:
+                    button.setChecked(True)
+                matched = True
+                break
+
+        if not matched:
+            self.variant_group.setExclusive(False)
+            for button in self.variant_buttons.values():
+                button.setChecked(False)
+            self.variant_group.setExclusive(True)
+
+    def _variant_label_for_path(self, remote_path: str) -> Optional[str]:
+        normalized = posixpath.normpath(remote_path)
+        for _variant_key, display_name, candidate_path in WALLPAPER_VARIANTS:
+            if posixpath.normpath(candidate_path) == normalized:
+                return display_name
+        return None
+
+    def _update_target_label(self) -> None:
+        remote_path = self.config.get("paths", {}).get(
+            "wallpaper", "/usr/share/remarkable/suspended.png"
+        )
+        variant_label = self._variant_label_for_path(remote_path)
+        if variant_label:
+            self.target_label.setText(f"目标壁纸：{variant_label} ({remote_path})")
+        else:
+            self.target_label.setText(f"目标壁纸：{remote_path}")
 
     def _select_image(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "选择图片", "", "图片文件 (*.png *.jpg *.jpeg *.bmp)")
@@ -708,15 +855,15 @@ class WallpaperTab(QtWidgets.QWidget):
 
     def _render_preview(self):
         if not self.image_path:
+            self.preview_label.clear_preview()
             self.preview_label.setText("请选择图片以生成预览")
-            self.preview_label.setPixmap(QtGui.QPixmap())
             return
         try:
             processed = self._process_image(self.image_path)
         except Exception as exc:
             logging.exception("Unable to render wallpaper preview")
+            self.preview_label.clear_preview()
             self.preview_label.setText(f"预览失败：{exc}")
-            self.preview_label.setPixmap(QtGui.QPixmap())
             return
         if processed.mode != "RGB":
             processed = processed.convert("RGB")
@@ -725,17 +872,7 @@ class WallpaperTab(QtWidgets.QWidget):
         pixmap = QtGui.QPixmap()
         if not pixmap.loadFromData(buffer.getvalue(), "PNG"):
             raise RuntimeError("无法加载图片预览数据")
-        target_size = QtCore.QSize(
-            max(1, int(self.preview_label.width() * 0.95)),
-            max(1, int(self.preview_label.height() * 0.95)),
-        )
-        scaled = pixmap.scaled(
-            target_size,
-            QtCore.Qt.KeepAspectRatio,
-            QtCore.Qt.SmoothTransformation,
-        )
-        self.preview_label.setPixmap(scaled)
-        self.preview_label.setText("")
+        self.preview_label.setPixmap(pixmap)
 
     def _process_image(self, source_path: str) -> Image.Image:
         with Image.open(source_path) as img:
@@ -1002,6 +1139,7 @@ class DocumentsTab(QtWidgets.QWidget):
         self._last_preview_bytes: Optional[bytes] = None
         self._active_progress: Optional[QtWidgets.QProgressDialog] = None
         self._progress_label_base: str = ""
+        self._rmrl_command: Optional[List[str]] = self._detect_rmrl_command()
 
         self.refresh_button = QtWidgets.QPushButton("刷新列表")
         self.upload_button = QtWidgets.QPushButton("上传文档")
@@ -1096,6 +1234,15 @@ class DocumentsTab(QtWidgets.QWidget):
             return int(sftp.stat(remote_path).st_size)
         except IOError:
             return 0
+
+    @staticmethod
+    def _detect_rmrl_command() -> Optional[List[str]]:
+        binary = shutil.which("rmrl")
+        if binary:
+            return [binary]
+        if importlib.util.find_spec("rmrl") is not None:
+            return [sys.executable, "-m", "rmrl"]
+        return None
 
     def _collect_remote_files(
         self,
@@ -1221,6 +1368,79 @@ class DocumentsTab(QtWidgets.QWidget):
         worker.signals.error.connect(on_error)
         self._show_progress_dialog("导出进度", "正在导出文档...")
         self.thread_pool.start(worker)
+
+    def _try_rmrl_export(
+        self,
+        archive_path: str,
+        output_pdf: str,
+        workspace: str,
+    ) -> Tuple[bool, Optional[str], bool]:
+        command = self._rmrl_command
+        if not command:
+            return False, None, False
+
+        if os.path.exists(output_pdf):
+            try:
+                os.remove(output_pdf)
+            except OSError:
+                pass
+
+        extraction_dir: Optional[Path] = None
+        source_path = archive_path
+        try:
+            if zipfile.is_zipfile(archive_path):
+                extraction_dir = Path(workspace) / "rmrl_source"
+                extraction_dir.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(archive_path) as archive:
+                    archive.extractall(extraction_dir)
+                candidates = [
+                    entry
+                    for entry in extraction_dir.iterdir()
+                    if not entry.name.startswith("__MACOSX")
+                ]
+                if len(candidates) == 1 and candidates[0].is_dir():
+                    source_path = str(candidates[0])
+                else:
+                    source_path = str(extraction_dir)
+
+            attempts: List[List[str]] = [
+                command + ["export", source_path, output_pdf],
+                command + ["export", "--output", output_pdf, source_path],
+                command + ["export", "--format", "pdf", "--output", output_pdf, source_path],
+                command + ["export", "--format", "pdf", source_path, output_pdf],
+                command + ["render", source_path, output_pdf],
+                command + ["render", "--output", output_pdf, source_path],
+                command + ["render", "--format", "pdf", "--output", output_pdf, source_path],
+            ]
+
+            last_message: Optional[str] = None
+            for attempt in attempts:
+                try:
+                    completed = subprocess.run(
+                        attempt,
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                except FileNotFoundError:
+                    return False, "未找到 rmrl 可执行文件", False
+                except subprocess.CalledProcessError as exc:
+                    last_message = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+                    continue
+
+                if os.path.exists(output_pdf):
+                    return True, None, True
+
+                last_message = (completed.stdout or completed.stderr).strip()
+
+            if os.path.exists(output_pdf):
+                return True, None, True
+
+            return False, last_message or "rmrl 未生成 PDF", True
+        finally:
+            if extraction_dir is not None:
+                shutil.rmtree(extraction_dir, ignore_errors=True)
 
     def upload_document(self):
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -1376,6 +1596,8 @@ class DocumentsTab(QtWidgets.QWidget):
 
             exported = os.path.exists(pdf_path)
             errors: List[str] = []
+            rmrl_attempted = False
+            rmrl_error: Optional[str] = None
 
             if not exported and pdf_from_zip and note_archive_path and os.path.exists(note_archive_path):
                 try:
@@ -1388,6 +1610,22 @@ class DocumentsTab(QtWidgets.QWidget):
                             exported = True
                 except Exception as exc:
                     errors.append(f"从压缩包提取 PDF 失败：{exc}")
+
+            if (
+                not exported
+                and need_note_archive
+                and note_archive_path
+                and os.path.exists(note_archive_path)
+            ):
+                success, rmrl_error, rmrl_attempted = self._try_rmrl_export(
+                    note_archive_path,
+                    pdf_path,
+                    tmpdir,
+                )
+                if success:
+                    exported = True
+                elif rmrl_attempted and rmrl_error:
+                    errors.append(f"rmrl 转换失败：{rmrl_error}")
 
             if not exported:
                 preview_bytes = self._fetch_preview_bytes(item)
