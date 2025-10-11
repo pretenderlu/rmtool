@@ -4,6 +4,7 @@ import os
 import posixpath
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import uuid
