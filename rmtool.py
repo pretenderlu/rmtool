@@ -10,11 +10,12 @@ import tempfile
 import uuid
 import zipfile
 from functools import partial
+from contextlib import contextmanager
 from io import BytesIO
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, Iterator, List, Optional, Tuple
 import importlib.util
 
 import paramiko
@@ -157,7 +158,6 @@ class SSHClientWrapper(QtCore.QObject):
     def __init__(self, parent: Optional[QtCore.QObject] = None):
         super().__init__(parent)
         self._client: Optional[paramiko.SSHClient] = None
-        self._sftp: Optional[paramiko.SFTPClient] = None
         self.connection_info: Dict[str, str] = {}
 
     def connect(self, host: str, password: str) -> None:
@@ -168,13 +168,9 @@ class SSHClientWrapper(QtCore.QObject):
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(hostname=host, username="root", password=password)
         self._client = client
-        self._sftp = client.open_sftp()
         self.connection_changed.emit(True)
 
     def close(self) -> None:
-        if self._sftp:
-            self._sftp.close()
-            self._sftp = None
         if self._client:
             self._client.close()
             self._client = None
@@ -185,10 +181,17 @@ class SSHClientWrapper(QtCore.QObject):
             raise RuntimeError("未连接到设备")
         return self._client
 
-    def ensure_sftp(self) -> paramiko.SFTPClient:
-        if not self._sftp:
-            raise RuntimeError("未连接到设备")
-        return self._sftp
+    @contextmanager
+    def sftp_session(self) -> Iterator[paramiko.SFTPClient]:
+        client = self.ensure_client()
+        sftp = client.open_sftp()
+        try:
+            yield sftp
+        finally:
+            try:
+                sftp.close()
+            except Exception:
+                logging.exception("Failed to close SFTP session")
 
     def is_connected(self) -> bool:
         return self._client is not None
@@ -200,25 +203,30 @@ class SSHClientWrapper(QtCore.QObject):
         return stdout.read().decode("utf-8"), stderr.read().decode("utf-8")
 
     def transfer_file(self, local_path: str, remote_path: str) -> None:
-        sftp = self.ensure_sftp()
-        logging.info("Transferring %s -> %s", local_path, remote_path)
-        sftp.put(local_path, remote_path)
+        with self.sftp_session() as sftp:
+            logging.info("Transferring %s -> %s", local_path, remote_path)
+            sftp.put(local_path, remote_path)
 
     def file_exists(self, remote_path: str) -> bool:
-        sftp = self.ensure_sftp()
-        try:
-            sftp.stat(remote_path)
-            return True
-        except IOError:
-            return False
+        with self.sftp_session() as sftp:
+            try:
+                sftp.stat(remote_path)
+                return True
+            except IOError:
+                return False
 
     def listdir_attr(self, remote_path: str):
-        sftp = self.ensure_sftp()
-        return sftp.listdir_attr(remote_path)
+        with self.sftp_session() as sftp:
+            return sftp.listdir_attr(remote_path)
 
     def open_remote(self, remote_path: str, mode: str = "r"):
-        sftp = self.ensure_sftp()
-        return sftp.open(remote_path, mode)
+        @contextmanager
+        def _remote_file() -> Iterator[paramiko.SFTPFile]:
+            with self.sftp_session() as sftp:
+                with sftp.open(remote_path, mode) as fh:
+                    yield fh
+
+        return _remote_file()
 
     def download_file(
         self,
@@ -226,18 +234,23 @@ class SSHClientWrapper(QtCore.QObject):
         local_path: str,
         callback: Optional[Callable[[int, int], None]] = None,
     ) -> None:
-        sftp = self.ensure_sftp()
-        Path(local_path).parent.mkdir(parents=True, exist_ok=True)
-        sftp.get(remote_path, local_path, callback=callback)
+        with self.sftp_session() as sftp:
+            Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+            sftp.get(remote_path, local_path, callback=callback)
 
     def download_directory(self, remote_dir: str, local_dir: str) -> None:
-        sftp = self.ensure_sftp()
+        with self.sftp_session() as sftp:
+            self._download_directory_recursive(sftp, remote_dir, local_dir)
+
+    def _download_directory_recursive(
+        self, sftp: paramiko.SFTPClient, remote_dir: str, local_dir: str
+    ) -> None:
         Path(local_dir).mkdir(parents=True, exist_ok=True)
         for entry in sftp.listdir_attr(remote_dir):
             remote_path = f"{remote_dir}/{entry.filename}"
             local_path = os.path.join(local_dir, entry.filename)
             if stat.S_ISDIR(entry.st_mode):
-                self.download_directory(remote_path, local_path)
+                self._download_directory_recursive(sftp, remote_path, local_path)
             else:
                 sftp.get(remote_path, local_path)
 
@@ -1516,7 +1529,6 @@ class DocumentsTab(QtWidgets.QWidget):
         base_name = f"{item.name}".replace("/", "_")
         pdf_path = os.path.join(target_dir, f"{base_name}.pdf")
         available = set(item.available_assets)
-        sftp = self.ssh_client.ensure_sftp()
         need_note_archive = any(ext in available for ext in ("note", "rm", "zip"))
         note_archive_path = (
             os.path.join(target_dir, f"{base_name}_note.zip") if need_note_archive else ""
@@ -1524,48 +1536,49 @@ class DocumentsTab(QtWidgets.QWidget):
         download_plan: List[Dict[str, object]] = []
         zip_task: Optional[Dict[str, object]] = None
 
-        if "pdf" in available:
-            remote_pdf = f"{DOCUMENT_ROOT}/{item.identifier}.pdf"
-            download_plan.append(
-                {
-                    "type": "file",
-                    "remote": remote_pdf,
-                    "local": pdf_path,
-                    "size": self._safe_stat_size(sftp, remote_pdf),
-                }
-            )
+        with self.ssh_client.sftp_session() as sftp:
+            if "pdf" in available:
+                remote_pdf = f"{DOCUMENT_ROOT}/{item.identifier}.pdf"
+                download_plan.append(
+                    {
+                        "type": "file",
+                        "remote": remote_pdf,
+                        "local": pdf_path,
+                        "size": self._safe_stat_size(sftp, remote_pdf),
+                    }
+                )
 
-        if need_note_archive:
-            if "zip" in available:
-                remote_zip = f"{DOCUMENT_ROOT}/{item.identifier}.zip"
-                zip_task = {
-                    "type": "file",
-                    "remote": remote_zip,
-                    "local": note_archive_path,
-                    "size": self._safe_stat_size(sftp, remote_zip),
-                }
-                download_plan.append(zip_task)
-            elif "note" in available:
-                remote_note = f"{DOCUMENT_ROOT}/{item.identifier}.note"
-                zip_task = {
-                    "type": "file",
-                    "remote": remote_note,
-                    "local": note_archive_path,
-                    "size": self._safe_stat_size(sftp, remote_note),
-                }
-                download_plan.append(zip_task)
-            else:
-                remote_dir = f"{DOCUMENT_ROOT}/{item.identifier}"
-                listing = self._collect_remote_files(sftp, remote_dir)
-                if listing:
+            if need_note_archive:
+                if "zip" in available:
+                    remote_zip = f"{DOCUMENT_ROOT}/{item.identifier}.zip"
                     zip_task = {
-                        "type": "directory",
-                        "remote": remote_dir,
+                        "type": "file",
+                        "remote": remote_zip,
                         "local": note_archive_path,
-                        "files": listing,
-                        "size": sum(entry[2] for entry in listing),
+                        "size": self._safe_stat_size(sftp, remote_zip),
                     }
                     download_plan.append(zip_task)
+                elif "note" in available:
+                    remote_note = f"{DOCUMENT_ROOT}/{item.identifier}.note"
+                    zip_task = {
+                        "type": "file",
+                        "remote": remote_note,
+                        "local": note_archive_path,
+                        "size": self._safe_stat_size(sftp, remote_note),
+                    }
+                    download_plan.append(zip_task)
+                else:
+                    remote_dir = f"{DOCUMENT_ROOT}/{item.identifier}"
+                    listing = self._collect_remote_files(sftp, remote_dir)
+                    if listing:
+                        zip_task = {
+                            "type": "directory",
+                            "remote": remote_dir,
+                            "local": note_archive_path,
+                            "files": listing,
+                            "size": sum(entry[2] for entry in listing),
+                        }
+                        download_plan.append(zip_task)
 
         pdf_from_zip = "pdf" not in available and zip_task is not None
         total_size = sum(int(task.get("size", 0)) for task in download_plan)
@@ -1612,7 +1625,9 @@ class DocumentsTab(QtWidgets.QWidget):
                                     file_offset + min(transferred, file_size), total_for_progress
                                 )
 
-                        sftp.get(remote_path, str(local_file), callback=_dir_callback)
+                        self.ssh_client.download_file(
+                            remote_path, str(local_file), callback=_dir_callback
+                        )
                         downloaded_within += file_size
                         if progress_callback:
                             progress_callback(offset + downloaded_within, total_for_progress)
@@ -1821,48 +1836,50 @@ class DocumentsTab(QtWidgets.QWidget):
                 with open(os.path.join(tmpdir, f"{uuid_value}.content"), "w", encoding="utf-8") as f:
                     json.dump(content, f, indent=4)
 
-            sftp = self.ssh_client.ensure_sftp()
-            remote_dirs = set()
-            files_to_upload: List[Tuple[str, str, int]] = []
-            for root, _dirs, files in os.walk(tmpdir):
-                rel_dir = os.path.relpath(root, tmpdir)
-                if rel_dir == ".":
-                    remote_dir = DOCUMENT_ROOT
-                else:
-                    remote_dir = posixpath.join(
-                        DOCUMENT_ROOT,
-                        rel_dir.replace(os.sep, "/"),
-                    )
-                    remote_dirs.add(remote_dir)
-                for name in files:
-                    local_path = os.path.join(root, name)
-                    remote_path = posixpath.join(remote_dir, name)
-                    file_size = os.path.getsize(local_path)
-                    files_to_upload.append((local_path, remote_path, file_size))
+            with self.ssh_client.sftp_session() as sftp:
+                remote_dirs = set()
+                files_to_upload: List[Tuple[str, str, int]] = []
+                for root, _dirs, files in os.walk(tmpdir):
+                    rel_dir = os.path.relpath(root, tmpdir)
+                    if rel_dir == ".":
+                        remote_dir = DOCUMENT_ROOT
+                    else:
+                        remote_dir = posixpath.join(
+                            DOCUMENT_ROOT,
+                            rel_dir.replace(os.sep, "/"),
+                        )
+                        remote_dirs.add(remote_dir)
+                    for name in files:
+                        local_path = os.path.join(root, name)
+                        remote_path = posixpath.join(remote_dir, name)
+                        file_size = os.path.getsize(local_path)
+                        files_to_upload.append((local_path, remote_path, file_size))
 
-            for remote_dir in sorted(remote_dirs, key=lambda value: value.count("/")):
-                try:
-                    sftp.stat(remote_dir)
-                except IOError:
-                    sftp.mkdir(remote_dir)
+                for remote_dir in sorted(remote_dirs, key=lambda value: value.count("/")):
+                    try:
+                        sftp.stat(remote_dir)
+                    except IOError:
+                        sftp.mkdir(remote_dir)
 
-            total_size = sum(size for _local, _remote, size in files_to_upload)
-            total_for_progress = total_size if total_size > 0 else 1
-            if progress_callback:
-                progress_callback(0, total_for_progress)
-
-            uploaded = 0
-            for local_path, remote_path, size in files_to_upload:
-                offset = uploaded
-
-                def _put_callback(transferred, _total, offset=offset, size=size):
-                    if progress_callback:
-                        progress_callback(offset + min(transferred, size), total_for_progress)
-
-                sftp.put(local_path, remote_path, callback=_put_callback)
-                uploaded += size
+                total_size = sum(size for _local, _remote, size in files_to_upload)
+                total_for_progress = total_size if total_size > 0 else 1
                 if progress_callback:
-                    progress_callback(uploaded, total_for_progress)
+                    progress_callback(0, total_for_progress)
+
+                uploaded = 0
+                for local_path, remote_path, size in files_to_upload:
+                    offset = uploaded
+
+                    def _put_callback(transferred, _total, offset=offset, size=size):
+                        if progress_callback:
+                            progress_callback(
+                                offset + min(transferred, size), total_for_progress
+                            )
+
+                    sftp.put(local_path, remote_path, callback=_put_callback)
+                    uploaded += size
+                    if progress_callback:
+                        progress_callback(uploaded, total_for_progress)
 
             if progress_callback:
                 progress_callback(total_for_progress, total_for_progress)
