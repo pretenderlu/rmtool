@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 import paramiko
-from PIL import Image, ImageQt
+from PIL import Image
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5 import QtWebEngineWidgets
 
@@ -405,6 +405,10 @@ class ConnectionWidget(QtWidgets.QGroupBox):
             self.device_type_combo.setCurrentIndex(idx)
         password = self._load_password(device["name"])
         self.password_edit.setText(password)
+        if keyring:
+            self.remember_checkbox.blockSignals(True)
+            self.remember_checkbox.setChecked(bool(password))
+            self.remember_checkbox.blockSignals(False)
         self.config["active_device"] = device["name"]
         save_config(self.config)
         self._emit_device_preview()
@@ -508,11 +512,6 @@ class ConnectionWidget(QtWidgets.QGroupBox):
             save_config(self.config)
             if self.remember_checkbox.isChecked():
                 self._store_password(device["name"], password)
-            elif keyring:
-                try:
-                    keyring.delete_password(KEYRING_SERVICE, device["name"])
-                except Exception:  # pragma: no cover - backend specific
-                    pass
 
     def _disconnect(self):
         self.ssh_client.close()
@@ -684,7 +683,11 @@ class WallpaperTab(QtWidgets.QWidget):
             return
         if processed.mode != "RGB":
             processed = processed.convert("RGB")
-        pixmap = QtGui.QPixmap.fromImage(ImageQt.ImageQt(processed))
+        buffer = BytesIO()
+        processed.save(buffer, format="PNG")
+        pixmap = QtGui.QPixmap()
+        if not pixmap.loadFromData(buffer.getvalue(), "PNG"):
+            raise RuntimeError("无法加载图片预览数据")
         target_size = QtCore.QSize(
             max(1, int(self.preview_label.width() * 0.95)),
             max(1, int(self.preview_label.height() * 0.95)),
