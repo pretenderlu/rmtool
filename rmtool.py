@@ -8,7 +8,6 @@ import subprocess
 import sys
 import tempfile
 import uuid
-import zipfile
 from functools import partial
 from contextlib import contextmanager
 from io import BytesIO
@@ -21,8 +20,6 @@ import paramiko
 from PIL import Image
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5 import QtWebEngineWidgets
-
-from rmrl import RmrlError, render_notebook_to_pdf
 
 try:  # Optional dependency for secure credential storage
     import keyring
@@ -1230,8 +1227,6 @@ class DocumentsTab(QtWidgets.QWidget):
 
         self.refresh_button = QtWidgets.QPushButton("刷新列表")
         self.upload_button = QtWidgets.QPushButton("上传文档")
-        self.export_button = QtWidgets.QPushButton("导出所选")
-        self.export_button.setEnabled(False)
         self.preview = QtWidgets.QPlainTextEdit()
         self.preview.setReadOnly(True)
         self.preview_image = PreviewImageLabel("暂无预览")
@@ -1246,7 +1241,6 @@ class DocumentsTab(QtWidgets.QWidget):
         top_layout = QtWidgets.QHBoxLayout()
         top_layout.addWidget(self.refresh_button)
         top_layout.addWidget(self.upload_button)
-        top_layout.addWidget(self.export_button)
         top_layout.addStretch()
 
         preview_tabs = QtWidgets.QTabWidget()
@@ -1281,7 +1275,6 @@ class DocumentsTab(QtWidgets.QWidget):
         self.setLayout(layout)
 
         self.refresh_button.clicked.connect(self.refresh)
-        self.export_button.clicked.connect(self.export_selected)
         self.upload_button.clicked.connect(self.upload_document)
         self.table.selectionModel().selectionChanged.connect(self._on_selection_changed)
 
@@ -1398,7 +1391,6 @@ class DocumentsTab(QtWidgets.QWidget):
         self.preview.clear()
         self.preview_image.clear_preview()
         self.preview_image.setText("暂无预览")
-        self.export_button.setEnabled(bool(documents))
         self.summary_changed.emit(self._build_summary())
 
     def _on_error(self, exc: Exception):
@@ -1428,54 +1420,6 @@ class DocumentsTab(QtWidgets.QWidget):
         worker.signals.error.connect(self._on_error)
         self.thread_pool.start(worker)
 
-    def export_selected(self):
-        indexes = self.table.selectionModel().selectedRows()
-        if not indexes:
-            return
-        item = self.documents[indexes[0].row()]
-        target_dir = QtWidgets.QFileDialog.getExistingDirectory(self, "选择导出位置")
-        if not target_dir:
-            return
-        worker = Worker(self._export_document, item, target_dir)
-        worker.kwargs["progress_callback"] = worker.signals.progress.emit
-
-        def on_finished(_result):
-            self._close_progress_dialog()
-            QtWidgets.QMessageBox.information(self, APP_NAME, "导出完成。")
-
-        def on_error(exc: Exception):
-            self._close_progress_dialog()
-            self._on_error(exc)
-
-        worker.signals.progress.connect(self._update_progress_dialog)
-        worker.signals.finished.connect(on_finished)
-        worker.signals.error.connect(on_error)
-        self._show_progress_dialog("导出进度", "正在导出文档...")
-        self.thread_pool.start(worker)
-
-    def _try_rmrl_export(
-        self,
-        archive_path: str,
-        output_pdf: str,
-        workspace: str,
-    ) -> Tuple[bool, Optional[str], bool]:
-        if os.path.exists(output_pdf):
-            try:
-                os.remove(output_pdf)
-            except OSError:
-                pass
-
-        try:
-            render_notebook_to_pdf(archive_path, output_pdf, workspace)
-        except RmrlError as exc:
-            return False, str(exc), True
-        except Exception as exc:
-            return False, str(exc), True
-
-        if os.path.exists(output_pdf) and os.path.getsize(output_pdf) > 0:
-            return True, None, True
-        return False, "rmrl 未生成 PDF", True
-
     def upload_document(self):
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
@@ -1502,234 +1446,6 @@ class DocumentsTab(QtWidgets.QWidget):
         worker.signals.error.connect(on_error)
         self._show_progress_dialog("上传进度", "正在上传文档...")
         self.thread_pool.start(worker)
-
-    def _export_document(
-        self,
-        item: DocumentItem,
-        target_dir: str,
-        progress_callback: Optional[Callable[[int, int], None]] = None,
-    ):
-        base_name = f"{item.name}".replace("/", "_")
-        pdf_path = os.path.join(target_dir, f"{base_name}.pdf")
-        available = set(item.available_assets)
-        doc_type = (item.doc_type or "").lower()
-        is_notebook = doc_type in {"notebook", "note"}
-        need_note_archive = is_notebook or any(ext in available for ext in ("note", "rm", "zip"))
-        note_archive_path = (
-            os.path.join(target_dir, f"{base_name}_note.zip") if need_note_archive else ""
-        )
-        download_plan: List[Dict[str, object]] = []
-        zip_task: Optional[Dict[str, object]] = None
-
-        with self.ssh_client.sftp_session() as sftp:
-            if "pdf" in available:
-                remote_pdf = f"{DOCUMENT_ROOT}/{item.identifier}.pdf"
-                download_plan.append(
-                    {
-                        "type": "file",
-                        "remote": remote_pdf,
-                        "local": pdf_path,
-                        "size": self._safe_stat_size(sftp, remote_pdf),
-                    }
-                )
-
-            if need_note_archive:
-                remote_dir = f"{DOCUMENT_ROOT}/{item.identifier}"
-                listing = self._collect_remote_files(sftp, remote_dir)
-                if listing:
-                    zip_task = {
-                        "type": "directory",
-                        "remote": remote_dir,
-                        "local": note_archive_path,
-                        "files": listing,
-                        "size": sum(entry[2] for entry in listing),
-                    }
-                    download_plan.append(zip_task)
-                elif "zip" in available:
-                    remote_zip = f"{DOCUMENT_ROOT}/{item.identifier}.zip"
-                    zip_task = {
-                        "type": "file",
-                        "remote": remote_zip,
-                        "local": note_archive_path,
-                        "size": self._safe_stat_size(sftp, remote_zip),
-                    }
-                    download_plan.append(zip_task)
-                elif "note" in available:
-                    remote_note = f"{DOCUMENT_ROOT}/{item.identifier}.note"
-                    zip_task = {
-                        "type": "file",
-                        "remote": remote_note,
-                        "local": note_archive_path,
-                        "size": self._safe_stat_size(sftp, remote_note),
-                    }
-                    download_plan.append(zip_task)
-
-        pdf_from_zip = "pdf" not in available and zip_task is not None
-        total_size = sum(int(task.get("size", 0)) for task in download_plan)
-        total_for_progress = total_size if total_size > 0 else 1
-        if progress_callback:
-            progress_callback(0, total_for_progress)
-
-        completed = 0
-        with tempfile.TemporaryDirectory() as tmpdir:
-            for task in download_plan:
-                task_type = task["type"]
-                size = int(task.get("size", 0))
-                offset = completed
-                if task_type == "file":
-                    local_path = task["local"]
-                    Path(local_path).parent.mkdir(parents=True, exist_ok=True)
-
-                    def _file_callback(transferred, _total, offset=offset, size=size):
-                        if progress_callback:
-                            progress_callback(offset + min(transferred, size), total_for_progress)
-
-                    self.ssh_client.download_file(
-                        task["remote"], local_path, callback=_file_callback
-                    )
-                    completed += size
-                    if progress_callback:
-                        progress_callback(completed, total_for_progress)
-                else:  # directory download
-                    download_root = Path(tmpdir) / f"{item.identifier}_note"
-                    downloaded_within = 0
-                    for remote_path, rel_path, file_size in task["files"]:
-                        local_file = download_root / rel_path
-                        local_file.parent.mkdir(parents=True, exist_ok=True)
-                        file_offset = offset + downloaded_within
-
-                        def _dir_callback(
-                            transferred,
-                            _total,
-                            file_offset=file_offset,
-                            file_size=file_size,
-                        ):
-                            if progress_callback:
-                                progress_callback(
-                                    file_offset + min(transferred, file_size), total_for_progress
-                                )
-
-                        self.ssh_client.download_file(
-                            remote_path, str(local_file), callback=_dir_callback
-                        )
-                        downloaded_within += file_size
-                        if progress_callback:
-                            progress_callback(offset + downloaded_within, total_for_progress)
-
-                    completed += size
-                    if progress_callback:
-                        progress_callback(completed, total_for_progress)
-
-                    Path(note_archive_path).parent.mkdir(parents=True, exist_ok=True)
-                    with zipfile.ZipFile(note_archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
-                        for root, _dirs, files in os.walk(download_root):
-                            for name in files:
-                                file_path = os.path.join(root, name)
-                                rel_name = os.path.relpath(file_path, download_root)
-                                archive.write(file_path, arcname=rel_name)
-
-            if progress_callback:
-                progress_callback(total_for_progress, total_for_progress)
-
-            downloaded_pdf = os.path.exists(pdf_path)
-            backup_pdf: Optional[str] = None
-            exported = False
-            if need_note_archive:
-                if downloaded_pdf:
-                    backup_pdf = os.path.join(tmpdir, "device_export.pdf")
-                    try:
-                        shutil.copy(pdf_path, backup_pdf)
-                    except IOError:
-                        backup_pdf = None
-            else:
-                exported = downloaded_pdf
-            errors: List[str] = []
-            rmrl_attempted = False
-            rmrl_error: Optional[str] = None
-
-            if (
-                need_note_archive
-                and note_archive_path
-                and os.path.exists(note_archive_path)
-            ):
-                success, rmrl_error, rmrl_attempted = self._try_rmrl_export(
-                    note_archive_path,
-                    pdf_path,
-                    tmpdir,
-                )
-                if success:
-                    exported = True
-                elif rmrl_attempted and rmrl_error:
-                    errors.append(f"rmrl 转换失败：{rmrl_error}")
-
-            if (
-                not exported
-                and pdf_from_zip
-                and note_archive_path
-                and os.path.exists(note_archive_path)
-            ):
-                try:
-                    with zipfile.ZipFile(note_archive_path) as archive:
-                        pdf_members = [m for m in archive.namelist() if m.lower().endswith(".pdf")]
-                        if pdf_members:
-                            member = pdf_members[0]
-                            extracted = archive.extract(member, tmpdir)
-                            shutil.copy(os.path.join(tmpdir, member), pdf_path)
-                            exported = True
-                except Exception as exc:
-                    errors.append(f"从压缩包提取 PDF 失败：{exc}")
-
-            if not exported and downloaded_pdf and backup_pdf and os.path.exists(backup_pdf):
-                try:
-                    shutil.copy(backup_pdf, pdf_path)
-                    exported = True
-                except IOError:
-                    pass
-
-            if not exported and os.path.exists(pdf_path):
-                exported = True
-
-            if not exported:
-                preview_bytes = self._fetch_preview_bytes(item)
-                if preview_bytes:
-                    try:
-                        image = Image.open(BytesIO(preview_bytes)).convert("RGB")
-                        image.save(pdf_path, "PDF", resolution=144.0)
-                        exported = True
-                    except Exception as exc:
-                        errors.append(f"根据预览生成 PDF 失败：{exc}")
-
-            if need_note_archive and note_archive_path and not os.path.exists(note_archive_path):
-                remote_dir = f"{DOCUMENT_ROOT}/{item.identifier}"
-                local_dir = os.path.join(target_dir, f"{base_name}_note")
-                self.ssh_client.download_directory(remote_dir, local_dir)
-                Path(note_archive_path).parent.mkdir(parents=True, exist_ok=True)
-                with zipfile.ZipFile(note_archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
-                    for root, _dirs, files in os.walk(local_dir):
-                        for name in files:
-                            file_path = os.path.join(root, name)
-                            rel_name = os.path.relpath(file_path, local_dir)
-                            archive.write(file_path, arcname=rel_name)
-                shutil.rmtree(local_dir, ignore_errors=True)
-
-            if not exported:
-                if available:
-                    for ext in available:
-                        remote = f"{DOCUMENT_ROOT}/{item.identifier}.{ext}"
-                        local = os.path.join(target_dir, f"{base_name}.{ext}")
-                        try:
-                            self.ssh_client.download_file(remote, local)
-                            exported = True
-                        except IOError:
-                            continue
-                else:
-                    remote_dir = f"{DOCUMENT_ROOT}/{item.identifier}"
-                    local_dir = os.path.join(target_dir, base_name)
-                    self.ssh_client.download_directory(remote_dir, local_dir)
-                    exported = True
-
-            if not exported and errors:
-                raise RuntimeError("\n".join(errors))
 
     def _fetch_preview_bytes(self, item: DocumentItem) -> Optional[bytes]:
         thumbnail_dir = f"{DOCUMENT_ROOT}/{item.identifier}.thumbnails"
@@ -2015,7 +1731,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs.addTab(self.wallpaper_tab, "壁纸管理")
         self.tabs.addTab(self.time_tab, "时间设置")
         self.tabs.addTab(self.control_tab, "设备控制")
-        self.tabs.addTab(self.documents_tab, "文档预览/导出")
+        self.tabs.addTab(self.documents_tab, "文档预览/上传")
 
         central_widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(central_widget)
