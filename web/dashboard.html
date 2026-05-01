@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>reMarkable 仪表盘</title>
+    <link rel="stylesheet" href="dashboard.css" />
+</head>
+<body>
+    <div class="page">
+        <header class="hero">
+            <div class="headline">
+                <h1>reMarkable 控制中心</h1>
+                <p>集中查看连接状态、设备信息与文档概览，获取下一步操作建议。</p>
+            </div>
+            <div class="status-badge" id="connection-badge">未连接</div>
+        </header>
+        <section class="device-grid">
+            <article class="card">
+                <h2>当前设备</h2>
+                <dl>
+                    <div>
+                        <dt>名称</dt>
+                        <dd id="device-name">—</dd>
+                    </div>
+                    <div>
+                        <dt>型号</dt>
+                        <dd id="device-type">—</dd>
+                    </div>
+                    <div>
+                        <dt>连接方式</dt>
+                        <dd id="device-mode">—</dd>
+                    </div>
+                    <div>
+                        <dt>地址</dt>
+                        <dd id="device-host">—</dd>
+                    </div>
+                    <div>
+                        <dt>状态更新时间</dt>
+                        <dd id="connection-updated">—</dd>
+                    </div>
+                </dl>
+            </article>
+            <article class="card">
+                <h2>文档概览</h2>
+                <div class="doc-counts">
+                    <div>
+                        <span id="doc-total" class="metric">0</span>
+                        <small>总文档数</small>
+                    </div>
+                    <div>
+                        <span id="doc-pdf" class="metric">0</span>
+                        <small>PDF</small>
+                    </div>
+                    <div>
+                        <span id="doc-epub" class="metric">0</span>
+                        <small>EPUB</small>
+                    </div>
+                    <div>
+                        <span id="doc-note" class="metric">0</span>
+                        <small>笔记/NOTE</small>
+                    </div>
+                </div>
+                <p class="doc-updated">最近更新：<span id="doc-updated">—</span></p>
+            </article>
+        </section>
+        <section class="tips">
+            <h2>下一步建议</h2>
+            <ul id="next-actions">
+                <li>连接设备后可在顶部标签页快速上传字体、壁纸或文档。</li>
+                <li>在“文档预览/上传”标签中浏览文档元数据与缩略图，并继续上传需要的文件。</li>
+                <li>根据设备型号选择壁纸，系统将自动匹配最优分辨率并提供裁剪。</li>
+            </ul>
+        </section>
+    </div>
+    <script src="dashboard.js"></script>
+</body>
+</html>

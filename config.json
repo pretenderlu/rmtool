@@ -1,0 +1,16 @@
+{
+    "active_device": "默认设备",
+    "devices": [
+        {
+            "name": "默认设备",
+            "mode": "usb",
+            "host": "10.11.99.1",
+            "type": "reMarkable Paper Pro"
+        }
+    ],
+    "paths": {
+        "font": "/home/root/.local/share/fonts/",
+        "wallpaper": "/usr/share/remarkable/suspended.png"
+    },
+    "theme": "light"
+}
