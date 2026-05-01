@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# PyInstaller build artifacts (keep rmtool.spec)
+build/
+dist/
+
+# Runtime logs
+*.log
+remarkable_tool.log
+
+# Editor / tooling
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Local claude / tooling state
+.claude/
+.superpowers/
+docs/superpowers/
