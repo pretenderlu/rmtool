@@ -66,11 +66,21 @@ WALLPAPER_VARIANTS = [
 FONT_PREVIEW_TEXT = "字体预览\nAaBbCc 1234567890\n你好，reMarkable"
 
 
+def app_state_dir() -> Path:
+    if sys.platform.startswith("win"):
+        root = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+    else:
+        root = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    path = root / "rmtool"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 # ---------------------------------------------------------------------------
 # Logging – use rotating handler to prevent unbounded log growth
 # ---------------------------------------------------------------------------
 _log_handler = logging.handlers.RotatingFileHandler(
-    str(Path(__file__).resolve().parent / "remarkable_tool.log"),
+    str(app_state_dir() / "remarkable_tool.log"),
     maxBytes=5 * 1024 * 1024,
     backupCount=3,
     encoding="utf-8",
@@ -291,16 +301,6 @@ def save_config(config: Dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fh:
         json.dump(config, fh, indent=4, ensure_ascii=False)
-
-
-def app_state_dir() -> Path:
-    if sys.platform.startswith("win"):
-        root = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
-    else:
-        root = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    path = root / "rmtool"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
 
 
 def config_path() -> Path:
