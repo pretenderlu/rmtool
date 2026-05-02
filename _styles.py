@@ -533,9 +533,16 @@ QToolButton[cssClass="danger"]:hover {
     background: rgba(255, 255, 255, 0.14);
 }
 
-/* ===== Log viewer dialog ===== */
-#logViewerDialog {
+/* ===== Log viewer panel ===== */
+#logViewerPanel {
     background: #14161F;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+#logViewerTitle {
+    color: #C0C8E0;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.5px;
 }
 #logViewerText {
     background: #0E1018;
@@ -548,6 +555,27 @@ QToolButton[cssClass="danger"]:hover {
 #logViewerStatus {
     color: #6E7488;
     font-size: 11px;
+}
+#logViewerClose {
+    background: transparent;
+    color: #8890A8;
+    border: none;
+    border-radius: 13px;
+    font-size: 16px;
+    font-weight: 600;
+}
+#logViewerClose:hover {
+    background: rgba(255, 255, 255, 0.10);
+    color: #C0C8E0;
+}
+#logViewerClose:pressed {
+    background: rgba(255, 255, 255, 0.16);
+}
+QSplitter#mainSplitter::handle {
+    background: rgba(255, 255, 255, 0.08);
+}
+QSplitter#mainSplitter::handle:hover {
+    background: rgba(255, 255, 255, 0.16);
 }
 """
 
@@ -1038,9 +1066,16 @@ QStatusBar#appStatusBar[level="error"] { color: #C84A5A; }
     background: #D3D7DE;
 }
 
-/* ===== Log viewer dialog ===== */
-#logViewerDialog {
+/* ===== Log viewer panel ===== */
+#logViewerPanel {
     background: #F5F6F9;
+    border-top: 1px solid #D0D4DC;
+}
+#logViewerTitle {
+    color: #1A1D27;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.5px;
 }
 #logViewerText {
     background: #FFFFFF;
@@ -1053,6 +1088,27 @@ QStatusBar#appStatusBar[level="error"] { color: #C84A5A; }
 #logViewerStatus {
     color: #6E7488;
     font-size: 11px;
+}
+#logViewerClose {
+    background: transparent;
+    color: #5A6070;
+    border: none;
+    border-radius: 13px;
+    font-size: 16px;
+    font-weight: 600;
+}
+#logViewerClose:hover {
+    background: #DDE0E6;
+    color: #1A1D27;
+}
+#logViewerClose:pressed {
+    background: #D3D7DE;
+}
+QSplitter#mainSplitter::handle {
+    background: #E0E3E8;
+}
+QSplitter#mainSplitter::handle:hover {
+    background: #C8CDD7;
 }
 """
 
