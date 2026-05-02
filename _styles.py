@@ -540,9 +540,9 @@ QToolButton[cssClass="danger"]:hover {
 }
 #logViewerTitle {
     color: #C0C8E0;
-    font-weight: 600;
-    font-size: 12px;
-    letter-spacing: 0.5px;
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: 0.02em;
 }
 #logViewerText {
     background: #0E1018;
@@ -554,22 +554,25 @@ QToolButton[cssClass="danger"]:hover {
 }
 #logViewerStatus {
     color: #6E7488;
-    font-size: 11px;
+    font-size: 12px;
 }
 #logViewerClose {
-    background: transparent;
+    background: rgba(255, 255, 255, 0.06);
     color: #8890A8;
-    border: none;
-    border-radius: 13px;
-    font-size: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 19px;
+    font-size: 22px;
     font-weight: 600;
+    padding: 0;
+    padding-bottom: 4px;
 }
 #logViewerClose:hover {
     background: rgba(255, 255, 255, 0.10);
     color: #C0C8E0;
+    border-color: rgba(255, 255, 255, 0.18);
 }
 #logViewerClose:pressed {
-    background: rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.14);
 }
 QSplitter#mainSplitter::handle {
     background: rgba(255, 255, 255, 0.08);
@@ -1073,9 +1076,9 @@ QStatusBar#appStatusBar[level="error"] { color: #C84A5A; }
 }
 #logViewerTitle {
     color: #1A1D27;
-    font-weight: 600;
-    font-size: 12px;
-    letter-spacing: 0.5px;
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: 0.02em;
 }
 #logViewerText {
     background: #FFFFFF;
@@ -1087,15 +1090,17 @@ QStatusBar#appStatusBar[level="error"] { color: #C84A5A; }
 }
 #logViewerStatus {
     color: #6E7488;
-    font-size: 11px;
+    font-size: 12px;
 }
 #logViewerClose {
-    background: transparent;
+    background: #E8EAF0;
     color: #5A6070;
-    border: none;
-    border-radius: 13px;
-    font-size: 16px;
+    border: 1px solid #D0D4DC;
+    border-radius: 19px;
+    font-size: 22px;
     font-weight: 600;
+    padding: 0;
+    padding-bottom: 4px;
 }
 #logViewerClose:hover {
     background: #DDE0E6;
