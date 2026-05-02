@@ -144,7 +144,7 @@ class LogViewerPanel(QtWidgets.QWidget):
         self.close_button.setObjectName("logViewerClose")
         self.close_button.setText("×")
         self.close_button.setToolTip("收起日志面板")
-        self.close_button.setFixedSize(26, 26)
+        self.close_button.setFixedSize(38, 38)
         self.close_button.setCursor(QtCore.Qt.PointingHandCursor)
         self.close_button.clicked.connect(self.close_requested)
         toolbar.addWidget(self.close_button)
