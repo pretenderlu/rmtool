@@ -512,6 +512,7 @@ QToolButton[cssClass="danger"]:hover {
 
 /* ===== Theme toggle ===== */
 #themeToggle,
+#logViewerButton,
 #githubLinkButton {
     background: rgba(255, 255, 255, 0.06);
     color: #8890A8;
@@ -520,14 +521,33 @@ QToolButton[cssClass="danger"]:hover {
     padding: 0;
 }
 #themeToggle:hover,
+#logViewerButton:hover,
 #githubLinkButton:hover {
     background: rgba(255, 255, 255, 0.10);
     color: #C0C8E0;
     border-color: rgba(255, 255, 255, 0.18);
 }
 #themeToggle:pressed,
+#logViewerButton:pressed,
 #githubLinkButton:pressed {
     background: rgba(255, 255, 255, 0.14);
+}
+
+/* ===== Log viewer dialog ===== */
+#logViewerDialog {
+    background: #14161F;
+}
+#logViewerText {
+    background: #0E1018;
+    color: #C0C8E0;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 8px;
+    padding: 8px;
+    selection-background-color: #2C3142;
+}
+#logViewerStatus {
+    color: #6E7488;
+    font-size: 11px;
 }
 """
 
@@ -998,6 +1018,7 @@ QStatusBar#appStatusBar[level="error"] { color: #C84A5A; }
 }
 /* ===== Theme toggle ===== */
 #themeToggle,
+#logViewerButton,
 #githubLinkButton {
     background: #E8EAF0;
     color: #5A6070;
@@ -1006,13 +1027,32 @@ QStatusBar#appStatusBar[level="error"] { color: #C84A5A; }
     padding: 0;
 }
 #themeToggle:hover,
+#logViewerButton:hover,
 #githubLinkButton:hover {
     background: #DDE0E6;
     color: #1A1D27;
 }
 #themeToggle:pressed,
+#logViewerButton:pressed,
 #githubLinkButton:pressed {
     background: #D3D7DE;
+}
+
+/* ===== Log viewer dialog ===== */
+#logViewerDialog {
+    background: #F5F6F9;
+}
+#logViewerText {
+    background: #FFFFFF;
+    color: #1A1D27;
+    border: 1px solid #D0D4DC;
+    border-radius: 8px;
+    padding: 8px;
+    selection-background-color: #C8CDD7;
+}
+#logViewerStatus {
+    color: #6E7488;
+    font-size: 11px;
 }
 """
 

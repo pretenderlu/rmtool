@@ -183,6 +183,16 @@ class ConnectionWidget(QtWidgets.QWidget):
         self.theme_button.setCursor(QtCore.Qt.PointingHandCursor)
         footer_actions.addWidget(self.theme_button)
 
+        self.log_button = QtWidgets.QToolButton()
+        self.log_button.setObjectName("logViewerButton")
+        self.log_button.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
+        self.log_button.setIconSize(QtCore.QSize(18, 18))
+        self.log_button.setFixedSize(38, 38)
+        self.log_button.setCursor(QtCore.Qt.PointingHandCursor)
+        self.log_button.setToolTip("查看运行日志")
+        self.log_button.setAccessibleName("查看运行日志")
+        footer_actions.addWidget(self.log_button)
+
         self.github_button = QtWidgets.QToolButton()
         self.github_button.setObjectName("githubLinkButton")
         self.github_button.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
@@ -576,6 +586,7 @@ class ConnectionWidget(QtWidgets.QWidget):
         self.theme_button.setToolTip(f"切换到{target_theme_label}")
         self.theme_button.setAccessibleName(f"切换到{target_theme_label}")
 
+        self.log_button.setIcon(_rmtool._make_sidebar_icon("log", icon_color))
         self.github_button.setIcon(_rmtool._make_sidebar_icon("github", icon_color))
 
     def _open_github_repo(self) -> None:

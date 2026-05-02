@@ -175,6 +175,26 @@ def _draw_github_icon(painter: QtGui.QPainter, color: QtGui.QColor, size: int) -
     renderer.render(painter, QtCore.QRectF(0, 0, size, size))
 
 
+def _draw_log_icon(painter: QtGui.QPainter, color: QtGui.QColor, size: int) -> None:
+    pen = QtGui.QPen(color)
+    pen.setWidthF(size * 0.11)
+    pen.setCapStyle(QtCore.Qt.RoundCap)
+    pen.setJoinStyle(QtCore.Qt.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(QtCore.Qt.NoBrush)
+
+    rect = QtCore.QRectF(size * 0.18, size * 0.18, size * 0.64, size * 0.64)
+    radius = size * 0.12
+    painter.drawRoundedRect(rect, radius, radius)
+
+    line_x1 = size * 0.30
+    line_x2 = size * 0.70
+    for i, frac in enumerate((0.36, 0.50, 0.64)):
+        y = size * frac
+        x2 = line_x2 if i != 2 else size * 0.58
+        painter.drawLine(QtCore.QPointF(line_x1, y), QtCore.QPointF(x2, y))
+
+
 def _make_sidebar_icon(kind: str, color_hex: str, size: int = 18) -> QtGui.QIcon:
     pixmap = QtGui.QPixmap(size, size)
     pixmap.fill(QtCore.Qt.transparent)
@@ -188,6 +208,8 @@ def _make_sidebar_icon(kind: str, color_hex: str, size: int = 18) -> QtGui.QIcon
         _draw_moon_icon(painter, color, size)
     elif kind == "github":
         _draw_github_icon(painter, color, size)
+    elif kind == "log":
+        _draw_log_icon(painter, color, size)
     else:  # pragma: no cover - defensive programming
         raise ValueError(f"Unsupported sidebar icon kind: {kind}")
 
@@ -528,7 +550,7 @@ from _tab_toolbox import (
 # Main window
 # ---------------------------------------------------------------------------
 class MainWindow(QtWidgets.QMainWindow):
-    def __init__(self):
+    def __init__(self, log_bridge=None):
         super().__init__()
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(1280, 900)
@@ -537,6 +559,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config = load_config()
         self._current_theme = self.config.get("theme", "dark")
         self.ssh_client = SSHClientWrapper()
+        self._log_bridge = log_bridge
+        self._log_dialog = None
 
         # -- Sidebar (connection panel) --
         self.connection_widget = ConnectionWidget(self.ssh_client, self.config)
@@ -594,6 +618,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.connection_widget.connected.connect(self._on_connected)
         self.connection_widget.disconnected.connect(self._on_disconnected)
         self.connection_widget.theme_button.clicked.connect(self._toggle_theme)
+        self.connection_widget.log_button.clicked.connect(self._open_log_viewer)
         self.connection_widget.status_message.connect(self._show_status_message)
         self.documents_tab.status_message.connect(self._show_status_message)
         self.documents_tab.summary_changed.connect(self.dashboard_tab.update_documents)
@@ -624,6 +649,18 @@ class MainWindow(QtWidgets.QMainWindow):
         status_bar.style().unpolish(status_bar)
         status_bar.style().polish(status_bar)
         status_bar.showMessage(text, timeout)
+
+    def _open_log_viewer(self) -> None:
+        if self._log_dialog is None:
+            from _log_viewer import LogViewerDialog, _LogBridge
+
+            bridge = self._log_bridge or _LogBridge()
+            log_path = app_state_dir() / "remarkable_tool.log"
+            self._log_dialog = LogViewerDialog(bridge, log_file=log_path, parent=self)
+            self._log_dialog.setWindowFlags(self._log_dialog.windowFlags() | QtCore.Qt.Window)
+        self._log_dialog.show()
+        self._log_dialog.raise_()
+        self._log_dialog.activateWindow()
 
     def _set_connection_chip(self, connected: bool, device: Optional[Dict] = None) -> None:
         if connected and device:
@@ -688,6 +725,7 @@ class MainWindow(QtWidgets.QMainWindow):
 # Stylesheets and palette definitions live in _styles.py to keep this file
 # focused on application logic.
 from _styles import _DARK_STYLESHEET, _LIGHT_STYLESHEET, _dark_palette, _light_palette
+from _log_viewer import LogViewerDialog, attach_qt_log_handler
 
 
 
@@ -729,7 +767,12 @@ def main():
         _resolve_stylesheet(_DARK_STYLESHEET if theme == "dark" else _LIGHT_STYLESHEET)
     )
 
-    window = MainWindow()
+    # In-app log bridge: routes records into the runtime log viewer dialog.
+    log_bridge = attach_qt_log_handler(
+        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    )
+
+    window = MainWindow(log_bridge=log_bridge)
     window._current_theme = theme
     window.connection_widget.set_footer_theme(theme)
     window.dashboard_tab.set_theme(theme)
