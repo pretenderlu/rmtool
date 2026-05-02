@@ -4,7 +4,7 @@
 
 </div>
 
-一个面向 reMarkable 电子墨水平板的图形化管理工具，支持字体/壁纸上传、时间同步、设备控制、文档上传与预览等功能。新版引入基于 HTML5 的全屏仪表盘、更现代的界面视觉，内置多设备配置与密码安全存储，并能轻松打包成单文件可执行程序。
+一个面向 reMarkable 电子墨水平板的图形化管理工具，支持字体/壁纸上传、时间同步、设备控制、文档上传与预览等功能。新版引入基于 HTML5 的全屏仪表盘、更现代的界面视觉，内置多设备配置与密码安全存储。项目坚持源码直跑路线，跨平台无需打包步骤，部署即用。
 
 ## 功能亮点
 
@@ -27,8 +27,6 @@
 pip install -r requirements.txt  # 或手动安装上述依赖
 ```
 
-> **提示**：如果你计划打包成单文件可执行程序，推荐在干净的虚拟环境中安装依赖。
-
 ## 快速开始
 
 1. 克隆或下载本仓库。
@@ -43,37 +41,6 @@ pip install -r requirements.txt  # 或手动安装上述依赖
 3. 首次连接时在界面左上角新建或选择设备条目，填写地址与 root 密码即可。勾选“记住密码”后凭证将保存到系统 keyring。连接成功后即可访问全部功能，无需手动创建 `fonts`、`wallpaper`、`documents` 目录。若希望后续通过 Wi-Fi 连接，在首次 USB 连接成功后请切换到“设备控制”页执行“开启 Wi-Fi SSH 通道”（底层命令 `rm-ssh-over-wlan on`），再改用 WLAN 地址连接。
 
 > 配置文件、SSH 已知主机指纹与运行日志统一存放在 `%APPDATA%\rmtool\`（Windows）或 `~/.config/rmtool/`（Linux/macOS），排错时可在该目录查看 `remarkable_tool.log`。
-
-## 打包为单文件可执行程序
-
-项目已针对 PyInstaller 进行了优化，并提供了 `rmtool.spec` 以便在不同机器上生成自带 Python 运行时的单文件 EXE/APP。示例流程如下：
-
-```bash
-# 安装依赖后执行
-pyinstaller rmtool.spec
-```
-
-PyInstaller 会自动将 Python 解释器、依赖库以及 HTML 仪表盘资源一并打包，因此目标机器无需预先安装 Python 环境。生成物位于 `dist/` 目录，`rmtool.exe` 可直接双击运行。如需在命令行自定义参数，可参考：
-
-```bash
-pyinstaller --noconsole --windowed --add-data "web/*;web" \
-            --hidden-import PyQt5.QtWebEngineWidgets --hidden-import PyQt5.QtWebEngineCore \
-            --name rmtool rmtool.py
-```
-
-如需在生成的可执行文件中使用自定义图标，可在执行 `pyinstaller rmtool.spec` 前设置环境变量 `RMTOOL_BUILD_ICON` 指向 `.ico` 文件。例如在 PowerShell 或 CMD 中：
-
-```bash
-set RMTOOL_BUILD_ICON=C:\\path\\to\\rmtool.ico
-pyinstaller rmtool.spec
-```
-
-在类 Unix 系统中可以使用：
-
-```bash
-export RMTOOL_BUILD_ICON=/path/to/rmtool.ico
-pyinstaller rmtool.spec
-```
 
 ## 常见问题
 

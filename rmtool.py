@@ -97,14 +97,9 @@ _root_logger.setLevel(logging.INFO)
 # Utility helpers
 # ---------------------------------------------------------------------------
 def resource_path(*parts: str) -> Path:
-    """Return absolute path for bundled resources.
+    """Return absolute path for bundled resources, relative to this file."""
 
-    When packaged with PyInstaller the assets live inside ``_MEIPASS``. During
-    development we fall back to the repository layout.
-    """
-
-    base_path = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
-    return base_path.joinpath(*parts)
+    return Path(__file__).resolve().parent.joinpath(*parts)
 
 
 def _generate_arrow_icons() -> Dict[str, str]:

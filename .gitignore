@@ -6,10 +6,6 @@ __pycache__/
 .venv/
 venv/
 
-# PyInstaller build artifacts (keep rmtool.spec)
-build/
-dist/
-
 # Runtime logs
 *.log
 remarkable_tool.log
