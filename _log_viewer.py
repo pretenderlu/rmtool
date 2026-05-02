@@ -22,15 +22,16 @@ Pieces
 from __future__ import annotations
 
 import logging
-from collections import deque
 from pathlib import Path
-from typing import Deque, Optional
+from typing import Optional
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 
 _DEFAULT_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 _LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
+_TAIL_BYTES = 64 * 1024
+_MAX_LINES = 5000
 
 
 class _LogBridge(QtCore.QObject):
@@ -66,7 +67,9 @@ class LogViewerPanel(QtWidgets.QWidget):
     """Embedded panel showing recent log records.
 
     Tails the on-disk log file on construction so prior sessions are visible,
-    then appends every new record via the bridge.
+    then appends every new record via the bridge.  Level filter and pause
+    apply forward-only — they do not retroactively rewrite the visible
+    backlog.
     """
 
     close_requested = QtCore.pyqtSignal()
@@ -75,22 +78,16 @@ class LogViewerPanel(QtWidgets.QWidget):
         self,
         bridge: _LogBridge,
         log_file: Optional[Path] = None,
-        parent: Optional[QtWidgets.QWidget] = None,
-        tail_bytes: int = 64 * 1024,
-        max_lines: int = 5000,
     ) -> None:
-        super().__init__(parent)
+        super().__init__()
         self.setObjectName("logViewerPanel")
         self.setMinimumHeight(120)
 
         self._bridge = bridge
         self._log_file = log_file
-        self._tail_bytes = tail_bytes
-        self._max_lines = max_lines
         self._paused = False
         self._auto_scroll = True
         self._min_level = logging.INFO
-        self._buffer: Deque[tuple[str, int]] = deque(maxlen=max_lines)
 
         self._build_ui()
         self._load_history()
@@ -159,7 +156,7 @@ class LogViewerPanel(QtWidgets.QWidget):
         mono.setStyleHint(QtGui.QFont.Monospace)
         mono.setPointSize(10)
         self.text_view.setFont(mono)
-        self.text_view.setMaximumBlockCount(self._max_lines)
+        self.text_view.setMaximumBlockCount(_MAX_LINES)
         layout.addWidget(self.text_view, 1)
 
         self.status_label = QtWidgets.QLabel()
@@ -169,16 +166,12 @@ class LogViewerPanel(QtWidgets.QWidget):
 
     # -- Slots -------------------------------------------------------------
     def _on_record(self, msg: str, levelno: int) -> None:
-        self._buffer.append((msg, levelno))
-        if self._paused:
-            return
-        if levelno < self._min_level:
+        if self._paused or levelno < self._min_level:
             return
         self._append_line(msg)
 
     def _on_level_changed(self, _index: int) -> None:
         self._min_level = self.level_combo.currentData()
-        self._redraw_from_buffer()
 
     def _on_auto_scroll(self, checked: bool) -> None:
         self._auto_scroll = checked
@@ -187,8 +180,6 @@ class LogViewerPanel(QtWidgets.QWidget):
 
     def _on_pause(self, checked: bool) -> None:
         self._paused = checked
-        if not checked:
-            self._redraw_from_buffer()
 
     def _on_clear(self) -> None:
         self.text_view.clear()
@@ -210,15 +201,6 @@ class LogViewerPanel(QtWidgets.QWidget):
         bar = self.text_view.verticalScrollBar()
         bar.setValue(bar.maximum())
 
-    def _redraw_from_buffer(self) -> None:
-        self.text_view.clear()
-        for msg, levelno in self._buffer:
-            if levelno >= self._min_level:
-                self.text_view.appendPlainText(msg)
-        if self._auto_scroll:
-            self._scroll_to_bottom()
-        self._update_status()
-
     def _update_status(self) -> None:
         if self._log_file:
             self.status_label.setText(
@@ -233,8 +215,8 @@ class LogViewerPanel(QtWidgets.QWidget):
         try:
             size = self._log_file.stat().st_size
             with self._log_file.open("rb") as fh:
-                if size > self._tail_bytes:
-                    fh.seek(size - self._tail_bytes)
+                if size > _TAIL_BYTES:
+                    fh.seek(size - _TAIL_BYTES)
                     fh.readline()  # discard partial first line
                 data = fh.read()
             text = data.decode("utf-8", errors="replace").rstrip("\n")
