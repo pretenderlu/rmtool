@@ -643,8 +643,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.connection_widget.theme_button.clicked.connect(self._toggle_theme)
         self.connection_widget.log_button.clicked.connect(self._toggle_log_panel)
         self.connection_widget.status_message.connect(self._show_status_message)
-        if self._log_panel is not None:
-            self._main_splitter.splitterMoved.connect(self._on_splitter_moved)
         self.documents_tab.status_message.connect(self._show_status_message)
         self.documents_tab.summary_changed.connect(self.dashboard_tab.update_documents)
 
@@ -678,22 +676,29 @@ class MainWindow(QtWidgets.QMainWindow):
     def _toggle_log_panel(self) -> None:
         if self._log_panel is None:
             return
-        new_visible = not self._log_panel.isVisible()
-        self._log_panel.setVisible(new_visible)
-        self.config["log_panel_visible"] = new_visible
-        save_config(self.config)
-        if new_visible:
+        if self._log_panel.isVisible():
+            self._hide_log_panel()
+        else:
+            self._log_panel.setVisible(True)
+            self.config["log_panel_visible"] = True
+            save_config(self.config)
             self._restore_splitter_sizes(int(self.config.get("log_panel_height", 220)))
 
     def _hide_log_panel(self) -> None:
         if self._log_panel is None or not self._log_panel.isVisible():
             return
-        sizes = self._main_splitter.sizes()
-        if len(sizes) >= 2 and sizes[1] > 0:
-            self.config["log_panel_height"] = sizes[1]
+        self._capture_log_panel_height()
         self._log_panel.setVisible(False)
         self.config["log_panel_visible"] = False
         save_config(self.config)
+
+    def _capture_log_panel_height(self) -> None:
+        """Snapshot the current panel height into config (without saving to disk)."""
+        if self._log_panel is None or not self._log_panel.isVisible():
+            return
+        height = self._main_splitter.sizes()[1]
+        if height > 0:
+            self.config["log_panel_height"] = height
 
     def _restore_splitter_sizes(self, panel_height: int) -> None:
         total = self._main_splitter.height() or self.height()
@@ -702,13 +707,11 @@ class MainWindow(QtWidgets.QMainWindow):
         panel_height = max(self._log_panel.minimumHeight(), min(panel_height, total - 200))
         self._main_splitter.setSizes([total - panel_height, panel_height])
 
-    def _on_splitter_moved(self, _pos: int, _index: int) -> None:
-        if self._log_panel is None or not self._log_panel.isVisible():
-            return
-        sizes = self._main_splitter.sizes()
-        if len(sizes) >= 2 and sizes[1] > 0:
-            self.config["log_panel_height"] = sizes[1]
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:
+        if self._log_panel is not None and self._log_panel.isVisible():
+            self._capture_log_panel_height()
             save_config(self.config)
+        super().closeEvent(event)
 
     def _set_connection_chip(self, connected: bool, device: Optional[Dict] = None) -> None:
         if connected and device:
