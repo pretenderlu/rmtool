@@ -560,7 +560,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_theme = self.config.get("theme", "dark")
         self.ssh_client = SSHClientWrapper()
         self._log_bridge = log_bridge
-        self._log_dialog = None
+        self._log_panel = None
 
         # -- Sidebar (connection panel) --
         self.connection_widget = ConnectionWidget(self.ssh_client, self.config)
@@ -584,13 +584,36 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs.addTab(self.toolbox_tab, "设备工具箱")
 
         # -- Horizontal layout: sidebar | tabs --
-        central_widget = QtWidgets.QWidget()
-        layout = QtWidgets.QHBoxLayout(central_widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addWidget(sidebar)
-        layout.addWidget(self.tabs, 1)
-        self.setCentralWidget(central_widget)
+        upper_widget = QtWidgets.QWidget()
+        upper_layout = QtWidgets.QHBoxLayout(upper_widget)
+        upper_layout.setContentsMargins(0, 0, 0, 0)
+        upper_layout.setSpacing(0)
+        upper_layout.addWidget(sidebar)
+        upper_layout.addWidget(self.tabs, 1)
+
+        # -- Vertical splitter: main area on top, log panel on bottom --
+        if self._log_bridge is not None:
+            self._log_panel = LogViewerPanel(
+                self._log_bridge,
+                log_file=app_state_dir() / "remarkable_tool.log",
+            )
+            self._log_panel.close_requested.connect(self._hide_log_panel)
+            self._log_panel.setVisible(self.config.get("log_panel_visible", False))
+
+        self._main_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        self._main_splitter.setObjectName("mainSplitter")
+        self._main_splitter.setChildrenCollapsible(False)
+        self._main_splitter.setHandleWidth(4)
+        self._main_splitter.addWidget(upper_widget)
+        if self._log_panel is not None:
+            self._main_splitter.addWidget(self._log_panel)
+            self._main_splitter.setStretchFactor(0, 1)
+            self._main_splitter.setStretchFactor(1, 0)
+            saved_height = int(self.config.get("log_panel_height", 220))
+            QtCore.QTimer.singleShot(
+                0, lambda: self._restore_splitter_sizes(saved_height)
+            )
+        self.setCentralWidget(self._main_splitter)
 
         status_bar = QtWidgets.QStatusBar(self)
         status_bar.setObjectName("appStatusBar")
@@ -618,8 +641,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.connection_widget.connected.connect(self._on_connected)
         self.connection_widget.disconnected.connect(self._on_disconnected)
         self.connection_widget.theme_button.clicked.connect(self._toggle_theme)
-        self.connection_widget.log_button.clicked.connect(self._open_log_viewer)
+        self.connection_widget.log_button.clicked.connect(self._toggle_log_panel)
         self.connection_widget.status_message.connect(self._show_status_message)
+        if self._log_panel is not None:
+            self._main_splitter.splitterMoved.connect(self._on_splitter_moved)
         self.documents_tab.status_message.connect(self._show_status_message)
         self.documents_tab.summary_changed.connect(self.dashboard_tab.update_documents)
 
@@ -650,17 +675,40 @@ class MainWindow(QtWidgets.QMainWindow):
         status_bar.style().polish(status_bar)
         status_bar.showMessage(text, timeout)
 
-    def _open_log_viewer(self) -> None:
-        if self._log_dialog is None:
-            from _log_viewer import LogViewerDialog, _LogBridge
+    def _toggle_log_panel(self) -> None:
+        if self._log_panel is None:
+            return
+        new_visible = not self._log_panel.isVisible()
+        self._log_panel.setVisible(new_visible)
+        self.config["log_panel_visible"] = new_visible
+        save_config(self.config)
+        if new_visible:
+            self._restore_splitter_sizes(int(self.config.get("log_panel_height", 220)))
 
-            bridge = self._log_bridge or _LogBridge()
-            log_path = app_state_dir() / "remarkable_tool.log"
-            self._log_dialog = LogViewerDialog(bridge, log_file=log_path, parent=self)
-            self._log_dialog.setWindowFlags(self._log_dialog.windowFlags() | QtCore.Qt.Window)
-        self._log_dialog.show()
-        self._log_dialog.raise_()
-        self._log_dialog.activateWindow()
+    def _hide_log_panel(self) -> None:
+        if self._log_panel is None or not self._log_panel.isVisible():
+            return
+        sizes = self._main_splitter.sizes()
+        if len(sizes) >= 2 and sizes[1] > 0:
+            self.config["log_panel_height"] = sizes[1]
+        self._log_panel.setVisible(False)
+        self.config["log_panel_visible"] = False
+        save_config(self.config)
+
+    def _restore_splitter_sizes(self, panel_height: int) -> None:
+        total = self._main_splitter.height() or self.height()
+        if total <= 0:
+            return
+        panel_height = max(self._log_panel.minimumHeight(), min(panel_height, total - 200))
+        self._main_splitter.setSizes([total - panel_height, panel_height])
+
+    def _on_splitter_moved(self, _pos: int, _index: int) -> None:
+        if self._log_panel is None or not self._log_panel.isVisible():
+            return
+        sizes = self._main_splitter.sizes()
+        if len(sizes) >= 2 and sizes[1] > 0:
+            self.config["log_panel_height"] = sizes[1]
+            save_config(self.config)
 
     def _set_connection_chip(self, connected: bool, device: Optional[Dict] = None) -> None:
         if connected and device:
@@ -725,7 +773,7 @@ class MainWindow(QtWidgets.QMainWindow):
 # Stylesheets and palette definitions live in _styles.py to keep this file
 # focused on application logic.
 from _styles import _DARK_STYLESHEET, _LIGHT_STYLESHEET, _dark_palette, _light_palette
-from _log_viewer import LogViewerDialog, attach_qt_log_handler
+from _log_viewer import LogViewerPanel, attach_qt_log_handler
 
 
 

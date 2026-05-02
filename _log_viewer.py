@@ -2,8 +2,8 @@
 
 Pythonw launches without a console, so stdout/stderr disappear.  The root
 logger already writes to ``%APPDATA%\\rmtool\\remarkable_tool.log`` via a
-RotatingFileHandler; this module exposes the same stream inside a non-modal
-Qt dialog so the user does not need to crack open the file.
+RotatingFileHandler; this module exposes the same stream as a permanent
+panel embedded at the bottom of the main window.
 
 Pieces
 ------
@@ -14,8 +14,9 @@ Pieces
   through the bridge.
 * ``attach_qt_log_handler`` — convenience: instantiate both, register the
   handler on the root logger, return the bridge.
-* ``LogViewerDialog`` — the visible window.  Tails the existing log file on
-  open, then appends new records live.
+* ``LogViewerPanel`` — embedded widget.  Tails the existing log file on
+  construction, then appends new records live.  Emits ``close_requested``
+  when the user clicks its × button so the host window can hide it.
 """
 
 from __future__ import annotations
@@ -61,12 +62,14 @@ def attach_qt_log_handler(formatter: Optional[logging.Formatter] = None) -> _Log
     return bridge
 
 
-class LogViewerDialog(QtWidgets.QDialog):
-    """Non-modal window showing recent log records.
+class LogViewerPanel(QtWidgets.QWidget):
+    """Embedded panel showing recent log records.
 
-    On open: tail the on-disk log file (last ``tail_bytes`` bytes) so prior
-    sessions are visible.  Then append every new record via the bridge.
+    Tails the on-disk log file on construction so prior sessions are visible,
+    then appends every new record via the bridge.
     """
+
+    close_requested = QtCore.pyqtSignal()
 
     def __init__(
         self,
@@ -77,11 +80,8 @@ class LogViewerDialog(QtWidgets.QDialog):
         max_lines: int = 5000,
     ) -> None:
         super().__init__(parent)
-        self.setObjectName("logViewerDialog")
-        self.setWindowTitle("运行日志")
-        self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowMinimizeButtonHint)
-        self.setMinimumSize(820, 480)
-        self.resize(960, 560)
+        self.setObjectName("logViewerPanel")
+        self.setMinimumHeight(120)
 
         self._bridge = bridge
         self._log_file = log_file
@@ -99,18 +99,24 @@ class LogViewerDialog(QtWidgets.QDialog):
     # -- UI ----------------------------------------------------------------
     def _build_ui(self) -> None:
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(6)
 
         toolbar = QtWidgets.QHBoxLayout()
         toolbar.setSpacing(8)
 
+        title = QtWidgets.QLabel("运行日志")
+        title.setObjectName("logViewerTitle")
+        toolbar.addWidget(title)
+
+        toolbar.addSpacing(8)
+
+        toolbar.addWidget(QtWidgets.QLabel("级别:"))
         self.level_combo = QtWidgets.QComboBox()
         for name in _LEVELS:
             self.level_combo.addItem(name, getattr(logging, name))
         self.level_combo.setCurrentText("INFO")
         self.level_combo.currentIndexChanged.connect(self._on_level_changed)
-        toolbar.addWidget(QtWidgets.QLabel("级别:"))
         toolbar.addWidget(self.level_combo)
 
         self.auto_scroll_check = QtWidgets.QCheckBox("自动滚动")
@@ -133,6 +139,15 @@ class LogViewerDialog(QtWidgets.QDialog):
         if self._log_file is None:
             self.open_file_button.setEnabled(False)
         toolbar.addWidget(self.open_file_button)
+
+        self.close_button = QtWidgets.QToolButton()
+        self.close_button.setObjectName("logViewerClose")
+        self.close_button.setText("×")
+        self.close_button.setToolTip("收起日志面板")
+        self.close_button.setFixedSize(26, 26)
+        self.close_button.setCursor(QtCore.Qt.PointingHandCursor)
+        self.close_button.clicked.connect(self.close_requested)
+        toolbar.addWidget(self.close_button)
 
         layout.addLayout(toolbar)
 
