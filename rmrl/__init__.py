@@ -177,10 +177,50 @@ def _normalise_dimensions(dimensions: Sequence[object]) -> Optional[Tuple[int, i
     return width, height
 
 
+def _is_sequence(value: object) -> bool:
+    return isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray))
+
+
 def _iter_content_files(root: Path) -> Iterable[Path]:
     for candidate in root.rglob("*.content"):
         if candidate.is_file():
             yield candidate
+
+
+def _find_page_file(root: Path, identifier: str) -> Optional[Path]:
+    candidates = [
+        root / f"{identifier}.rm",
+        root / f"page-{identifier}.rm",
+        root / f"{identifier}" / f"{identifier}.rm",
+    ]
+    page_path = next((c for c in candidates if c.exists()), None)
+    if page_path:
+        return page_path
+
+    for pattern in (f"{identifier}.rm", f"page-{identifier}.rm"):
+        page_path = next((c for c in root.rglob(pattern) if c.is_file()), None)
+        if page_path:
+            return page_path
+    return None
+
+
+def _extract_page_order(content: dict) -> List[str]:
+    pages_field = content.get("pages")
+    if _is_sequence(pages_field):
+        return [str(identifier) for identifier in pages_field if identifier]
+
+    cpages = content.get("cPages")
+    if isinstance(cpages, dict):
+        cpages_pages = cpages.get("pages")
+        if _is_sequence(cpages_pages):
+            page_order: List[str] = []
+            for page in cpages_pages:
+                identifier = page.get("id") if isinstance(page, dict) else page
+                if identifier:
+                    page_order.append(str(identifier))
+            return page_order
+
+    return []
 
 
 def _collect_pages(root: Path) -> List[PageInfo]:
@@ -205,20 +245,21 @@ def _collect_pages(root: Path) -> List[PageInfo]:
         if dimensions:
             default_size = dimensions
 
-        pages_field = content.get("pages")
-        if isinstance(pages_field, Sequence):
-            page_order = [str(identifier) for identifier in pages_field]
+        page_order = _extract_page_order(content)
 
     if page_order:
         for identifier in page_order:
-            candidates = [
-                root / f"{identifier}.rm",
-                root / f"page-{identifier}.rm",
-                root / f"{identifier}" / f"{identifier}.rm",
-            ]
-            page_path = next((c for c in candidates if c.exists()), None)
+            page_path = _find_page_file(root, identifier)
             if page_path:
                 page_infos.append(PageInfo(path=page_path, width=default_size[0], height=default_size[1]))
+
+        if len(page_infos) < len(page_order):
+            seen = {info.path.resolve() for info in page_infos}
+            for page_path in sorted(root.rglob("*.rm")):
+                resolved = page_path.resolve()
+                if resolved not in seen:
+                    page_infos.append(PageInfo(path=page_path, width=default_size[0], height=default_size[1]))
+                    seen.add(resolved)
 
     if not page_infos:
         for page_path in sorted(root.rglob("*.rm")):
@@ -476,9 +517,60 @@ def _render_layer(
             for segment in stroke.segments
         ]
         widths = [max(0.35, segment.width * brush_scale) * scale for segment in stroke.segments]
-        for start, end, width_a, width_b in zip(points, points[1:], widths, widths[1:]):
-            width = max(1.0, (width_a + width_b) / 2.0)
-            draw.line([start, end], fill=color_value, width=int(round(width)))
+        sorted_widths = sorted(widths)
+        width = sorted_widths[len(sorted_widths) // 2]
+        width = max(1, int(round(width)))
+        try:
+            draw.line(points, fill=color_value, width=width, joint="curve")
+        except TypeError:
+            draw.line(points, fill=color_value, width=width)
+
+        radius = width / 2.0
+        for x, y in (points[0], points[-1]):
+            draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=color_value)
+
+
+def _page_render_transform(
+    page: PageInfo,
+    bounds: Tuple[float, float, float, float],
+) -> Tuple[float, float, float]:
+    min_x, min_y, max_x, max_y = bounds
+    canvas_w = max(page.width, 1)
+    canvas_h = max(page.height, 1)
+    super_w = canvas_w * _SUPER_SAMPLE
+    super_h = canvas_h * _SUPER_SAMPLE
+    base_scale = float(_SUPER_SAMPLE)
+    margin = 32.0 * _SUPER_SAMPLE
+
+    content_w = max(max_x - min_x, 1.0)
+    content_h = max(max_y - min_y, 1.0)
+    x_overflows = min_x * base_scale < 0 or max_x * base_scale > super_w
+    y_overflows = min_y * base_scale < 0 or max_y * base_scale > super_h
+    if x_overflows or y_overflows:
+        usable_w = max(super_w - margin * 2.0, 1.0)
+        usable_h = max(super_h - margin * 2.0, 1.0)
+        scale = min(base_scale, usable_w / content_w, usable_h / content_h)
+    else:
+        scale = base_scale
+
+    offset_x = 0.0
+    if min_x * scale < margin:
+        offset_x = margin - min_x * scale
+    if max_x * scale + offset_x > super_w - margin:
+        offset_x = (super_w - margin) - max_x * scale
+
+    offset_y = 0.0
+    if min_y * scale < margin:
+        offset_y = margin - min_y * scale
+    if max_y * scale + offset_y > super_h - margin:
+        offset_y = (super_h - margin) - max_y * scale
+
+    if not x_overflows:
+        offset_x = 0.0
+    if not y_overflows:
+        offset_y = 0.0
+
+    return scale, offset_x, offset_y
 
 
 def _render_page(
@@ -486,9 +578,6 @@ def _render_page(
     layers: List[Layer],
     bounds: Tuple[float, float, float, float],
 ) -> Image.Image:
-    min_x, min_y, max_x, max_y = bounds
-    width = max(max_x - min_x, 1.0)
-    height = max(max_y - min_y, 1.0)
     canvas_w = max(page.width, 1)
     canvas_h = max(page.height, 1)
 
@@ -498,11 +587,7 @@ def _render_page(
     image = Image.new("L", (super_w, super_h), color=255)
     draw = ImageDraw.Draw(image)
 
-    scale_x = super_w / width
-    scale_y = super_h / height
-    scale = min(scale_x, scale_y)
-    offset_x = (-min_x * scale) + (super_w - width * scale) / 2.0
-    offset_y = (-min_y * scale) + (super_h - height * scale) / 2.0
+    scale, offset_x, offset_y = _page_render_transform(page, bounds)
 
     for layer in layers:
         _render_layer(draw, layer, scale, offset_x, offset_y)

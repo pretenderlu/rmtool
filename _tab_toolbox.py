@@ -12,6 +12,7 @@ from typing import Dict, Optional
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5 import QtWebEngineWidgets
 
+from _dialogs import ask_confirmation, show_error, show_info, show_warning
 from _ssh import SSHClientWrapper, remount_rw, require_connection
 import rmtool as _rmtool  # late-bound access to avoid circular import
 
@@ -92,7 +93,7 @@ class FontTab(QtWidgets.QWidget):
         if preview_font_id == -1 or not families:
             self._selected_font_path = None
             self._reset_font_preview("无法预览所选字体，请重新选择有效字体文件。")
-            QtWidgets.QMessageBox.warning(self, _rmtool.APP_NAME, "无法加载所选字体的本地预览。")
+            show_warning(self, _rmtool.APP_NAME, "无法加载所选字体的本地预览。")
             self._update_target_name_label()
             return
 
@@ -110,7 +111,7 @@ class FontTab(QtWidgets.QWidget):
     @require_connection
     def _upload_selected_font(self):
         if not self._selected_font_path:
-            QtWidgets.QMessageBox.information(self, _rmtool.APP_NAME, "请先选择需要上传的字体文件。")
+            show_info(self, _rmtool.APP_NAME, "请先选择需要上传的字体文件。")
             return
         file_path = self._selected_font_path
         new_name = self._target_font_name()
@@ -129,26 +130,30 @@ class FontTab(QtWidgets.QWidget):
 
         def on_finished(_: object):
             self._close_font_progress()
-            QtWidgets.QMessageBox.information(
+            show_info(
                 self,
                 _rmtool.APP_NAME,
                 "字体上传完成，并已刷新字体缓存。\n字体将在设备重启后生效。",
             )
-            confirm = QtWidgets.QMessageBox.question(
-                self, _rmtool.APP_NAME, "是否立即重启设备以应用新字体？"
+            confirm = ask_confirmation(
+                self,
+                _rmtool.APP_NAME,
+                "是否立即重启设备以应用新字体？",
+                confirm_text="立即重启",
+                cancel_text="稍后再说",
             )
-            if confirm == QtWidgets.QMessageBox.Yes:
+            if confirm:
                 try:
                     self.ssh_client.exec_command("reboot")
-                    QtWidgets.QMessageBox.information(self, _rmtool.APP_NAME, "已发送重启命令。")
+                    show_info(self, _rmtool.APP_NAME, "已发送重启命令。")
                 except Exception as exc:
                     logging.exception("Reboot after font upload failed")
-                    QtWidgets.QMessageBox.critical(self, _rmtool.APP_NAME, f"重启失败：{exc}")
+                    show_error(self, _rmtool.APP_NAME, f"重启失败：{exc}")
 
         def on_error(exc: Exception):
             self._close_font_progress()
             logging.exception("Font upload failed")
-            QtWidgets.QMessageBox.critical(self, _rmtool.APP_NAME, f"字体上传失败：{exc}")
+            show_error(self, _rmtool.APP_NAME, f"字体上传失败：{exc}")
 
         worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
@@ -238,7 +243,7 @@ class TimeTab(QtWidgets.QWidget):
             self._append_output(f"已同步设备时间到 {now}")
         except Exception as exc:
             logging.exception("Sync time failed")
-            QtWidgets.QMessageBox.critical(self, _rmtool.APP_NAME, f"同步失败：{exc}")
+            show_error(self, _rmtool.APP_NAME, f"同步失败：{exc}")
 
     @require_connection
     def _show_time_info(self):
@@ -253,7 +258,7 @@ class TimeTab(QtWidgets.QWidget):
                 self._append_output(f"[{title}]\n{stdout.strip()}\n")
         except Exception as exc:
             logging.exception("Get time info failed")
-            QtWidgets.QMessageBox.critical(self, _rmtool.APP_NAME, f"查询失败：{exc}")
+            show_error(self, _rmtool.APP_NAME, f"查询失败：{exc}")
 
     @require_connection
     def _set_timezone(self):
@@ -263,7 +268,7 @@ class TimeTab(QtWidgets.QWidget):
             self._append_output("已将时区设置为 Asia/Shanghai")
         except Exception as exc:
             logging.exception("Set timezone failed")
-            QtWidgets.QMessageBox.critical(self, _rmtool.APP_NAME, f"设置失败：{exc}")
+            show_error(self, _rmtool.APP_NAME, f"设置失败：{exc}")
 
 
 class ControlTab(QtWidgets.QWidget):
@@ -292,28 +297,34 @@ class ControlTab(QtWidgets.QWidget):
 
     @require_connection
     def _restart_device(self):
-        confirm = QtWidgets.QMessageBox.question(self, _rmtool.APP_NAME, "确定要重启设备吗？这将断开连接。")
-        if confirm != QtWidgets.QMessageBox.Yes:
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "确定要重启设备吗？这将断开连接。",
+            confirm_text="重启",
+            cancel_text="取消",
+            danger=True,
+        ):
             return
         try:
             self.ssh_client.exec_command("reboot")
-            QtWidgets.QMessageBox.information(self, _rmtool.APP_NAME, "已发送重启命令。")
+            show_info(self, _rmtool.APP_NAME, "已发送重启命令。")
         except Exception as exc:
             logging.exception("Restart failed")
-            QtWidgets.QMessageBox.critical(self, _rmtool.APP_NAME, f"重启失败：{exc}")
+            show_error(self, _rmtool.APP_NAME, f"重启失败：{exc}")
 
     @require_connection
     def _enable_wifi_ssh(self):
         try:
             self.ssh_client.exec_checked("rm-ssh-over-wlan on")
-            QtWidgets.QMessageBox.information(
+            show_info(
                 self,
                 _rmtool.APP_NAME,
                 "已开启 Wi-Fi SSH，请在断开 USB 后使用 WLAN 地址连接。",
             )
         except Exception as exc:
             logging.exception("Enable Wi-Fi SSH failed")
-            QtWidgets.QMessageBox.critical(self, _rmtool.APP_NAME, f"操作失败：{exc}")
+            show_error(self, _rmtool.APP_NAME, f"操作失败：{exc}")
 
     @require_connection
     def _increase_brightness(self):
@@ -350,10 +361,10 @@ WantedBy=multi-user.target
                 self.ssh_client.exec_checked(
                     "systemctl enable --now tweak-brightness-slider.service"
                 )
-            QtWidgets.QMessageBox.information(self, _rmtool.APP_NAME, "前光亮度已调整。")
+            show_info(self, _rmtool.APP_NAME, "前光亮度已调整。")
         except Exception as exc:
             logging.exception("Brightness tweak failed")
-            QtWidgets.QMessageBox.critical(self, _rmtool.APP_NAME, f"设置失败：{exc}")
+            show_error(self, _rmtool.APP_NAME, f"设置失败：{exc}")
 
 
 class DashboardTab(QtWidgets.QWidget):

@@ -5,14 +5,32 @@ import math
 import os
 import posixpath
 import tempfile
+from dataclasses import dataclass
 from io import BytesIO
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Set, Tuple
 
 from PIL import Image
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+from _dialogs import show_error, show_info, show_warning
 from _ssh import SSHClientWrapper, remount_rw, require_connection
 import rmtool as _rmtool  # late-bound access to avoid circular import
+
+_LEGACY_WALLPAPER_PATHS = {
+    "/usr/share/remarkable/hibernate.png": "/usr/share/remarkable/suspended.png",
+}
+
+
+@dataclass(frozen=True)
+class _WallpaperPreviewResult:
+    data: Optional[bytes] = None
+    missing: bool = False
+
+
+@dataclass
+class _WallpaperResourceScan:
+    available_paths: Set[str]
+    complete: bool
 
 
 class WallpaperTab(QtWidgets.QWidget):
@@ -26,6 +44,7 @@ class WallpaperTab(QtWidgets.QWidget):
         self.image_path: Optional[str] = None
         self._cached_source_image: Optional[Image.Image] = None
         self.current_resolution: Tuple[int, int] = _rmtool.DEVICE_PROFILES["reMarkable Paper Pro"]
+        self._unavailable_wallpaper_paths: Set[str] = set()
 
         self.base_resolution = _rmtool.DEVICE_PROFILES["reMarkable Paper Pro"]
         self.orientation_combo = QtWidgets.QComboBox()
@@ -43,6 +62,8 @@ class WallpaperTab(QtWidgets.QWidget):
         self.choose_button.setProperty("cssClass", "secondary")
         self.upload_button = QtWidgets.QPushButton("上传为壁纸")
         self.upload_button.setEnabled(False)
+        self.rescan_button = QtWidgets.QPushButton("重新扫描")
+        self.rescan_button.setProperty("cssClass", "secondary")
 
         self.variant_group = QtWidgets.QButtonGroup(self)
         self.variant_previews: Dict[str, _rmtool.PreviewImageLabel] = {}
@@ -100,7 +121,12 @@ class WallpaperTab(QtWidgets.QWidget):
         variants_section_layout.setSpacing(_rmtool.SUBSECTION_GAP)
         self.variants_section_label = QtWidgets.QLabel("当前设备壁纸")
         self.variants_section_label.setObjectName("panelSectionLabel")
-        variants_section_layout.addWidget(self.variants_section_label)
+        variants_header = QtWidgets.QHBoxLayout()
+        variants_header.setContentsMargins(0, 0, 0, 0)
+        variants_header.addWidget(self.variants_section_label)
+        variants_header.addStretch()
+        variants_header.addWidget(self.rescan_button)
+        variants_section_layout.addLayout(variants_header)
         variants_section_layout.addLayout(variants_layout)
 
         orientation_row = QtWidgets.QHBoxLayout()
@@ -181,6 +207,7 @@ class WallpaperTab(QtWidgets.QWidget):
         self.setLayout(layout)
 
         self.choose_button.clicked.connect(self._select_image)
+        self.rescan_button.clicked.connect(self._refresh_variant_previews)
         self.upload_button.clicked.connect(self._upload_wallpaper)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         self.orientation_combo.currentIndexChanged.connect(self._on_orientation_changed)
@@ -190,12 +217,13 @@ class WallpaperTab(QtWidgets.QWidget):
         self.ssh_client.connection_changed.connect(self._on_connection_changed)
         QtCore.QTimer.singleShot(0, self._apply_initial_splitter_sizes)
 
-        self._select_variant_by_path(
-            self.config.get("paths", {}).get(
-                "wallpaper", "/usr/share/remarkable/suspended.png"
-            )
-        )
+        self._select_variant_by_path(self._configured_wallpaper_path())
         self._update_target_label()
+
+    def showEvent(self, event: QtGui.QShowEvent) -> None:
+        super().showEvent(event)
+        if self.ssh_client.is_connected():
+            self._refresh_variant_previews()
 
     def _apply_initial_splitter_sizes(self):
         control_target = max(self.control_inner.sizeHint().width() + 24, 860)
@@ -208,11 +236,7 @@ class WallpaperTab(QtWidgets.QWidget):
             profile, _rmtool.DEVICE_PROFILES["reMarkable Paper Pro"]
         )
         self._update_resolution()
-        self._select_variant_by_path(
-            self.config.get("paths", {}).get(
-                "wallpaper", "/usr/share/remarkable/suspended.png"
-            )
-        )
+        self._select_variant_by_path(self._configured_wallpaper_path())
         self._refresh_variant_previews()
         self._render_preview()
 
@@ -243,9 +267,14 @@ class WallpaperTab(QtWidgets.QWidget):
 
     def _refresh_variant_previews(self) -> None:
         if not self.ssh_client.is_connected():
+            self._unavailable_wallpaper_paths.clear()
             for preview in self.variant_previews.values():
                 preview.clear_preview()
                 preview.setText("未连接")
+            for button in self.variant_buttons.values():
+                button.setEnabled(True)
+            self._update_target_label()
+            self._update_upload_button_state()
             return
         for preview in self.variant_previews.values():
             preview.setText("加载中…")
@@ -254,22 +283,96 @@ class WallpaperTab(QtWidgets.QWidget):
         worker.signals.error.connect(self._on_variant_preview_error)
         self.thread_pool.start(worker)
 
-    def _download_all_variant_previews(self) -> Dict[str, Optional[bytes]]:
-        results: Dict[str, Optional[bytes]] = {}
+    def _scan_wallpaper_resource_paths(self) -> _WallpaperResourceScan:
+        available_paths: Set[str] = set()
+        complete = True
+
+        def add_pngs_from_dir(remote_dir: str, *, required: bool = False) -> None:
+            nonlocal complete
+            try:
+                entries = self.ssh_client.listdir_attr(remote_dir)
+            except Exception:
+                if required:
+                    complete = False
+                logging.info("Wallpaper resource directory unavailable: %s", remote_dir)
+                return
+            for entry in entries:
+                filename = getattr(entry, "filename", "")
+                if filename.lower().endswith(".png"):
+                    available_paths.add(posixpath.normpath(posixpath.join(remote_dir, filename)))
+
+        add_pngs_from_dir("/usr/share/remarkable", required=True)
+        add_pngs_from_dir("/usr/share/remarkable/carousel")
+
+        try:
+            with self.ssh_client.open_remote(
+                "/home/root/.config/remarkable/xochitl.conf", "r"
+            ) as config_file:
+                config_data = config_file.read()
+            if isinstance(config_data, bytes):
+                config_text = config_data.decode("utf-8", errors="ignore")
+            else:
+                config_text = str(config_data)
+            for line in config_text.splitlines():
+                key, separator, value = line.partition("=")
+                if separator and key.strip() == "SleepScreenPath" and value.strip():
+                    available_paths.add(posixpath.normpath(value.strip()))
+        except Exception:
+            pass
+
+        return _WallpaperResourceScan(available_paths=available_paths, complete=complete)
+
+    def _download_all_variant_previews(self) -> Dict[str, _WallpaperPreviewResult]:
+        results: Dict[str, _WallpaperPreviewResult] = {}
+        scan = self._scan_wallpaper_resource_paths()
         for variant_key, _display_name, remote_path in _rmtool.WALLPAPER_VARIANTS:
             try:
+                normalized_path = posixpath.normpath(remote_path)
+                if scan.complete:
+                    if normalized_path not in scan.available_paths:
+                        results[variant_key] = _WallpaperPreviewResult(missing=True)
+                        continue
+                elif hasattr(self.ssh_client, "file_exists") and not self.ssh_client.file_exists(remote_path):
+                    results[variant_key] = _WallpaperPreviewResult(missing=True)
+                    continue
                 with self.ssh_client.open_remote(remote_path, "rb") as remote_file:
-                    results[variant_key] = remote_file.read()
+                    results[variant_key] = _WallpaperPreviewResult(data=remote_file.read())
             except Exception:
                 logging.exception("Unable to load wallpaper preview: %s", remote_path)
-                results[variant_key] = None
+                results[variant_key] = _WallpaperPreviewResult()
         return results
 
-    def _apply_variant_previews(self, results: Dict[str, Optional[bytes]]) -> None:
-        for variant_key, data in results.items():
+    def _apply_variant_previews(self, results: Dict[str, _WallpaperPreviewResult]) -> None:
+        for variant_key, result in results.items():
             preview = self.variant_previews.get(variant_key)
+            button = self.variant_buttons.get(variant_key)
             if not preview:
                 continue
+            remote_path = button.property("remote_path") if button else ""
+            normalized_path = posixpath.normpath(remote_path) if remote_path else ""
+            if result.missing:
+                if normalized_path:
+                    self._unavailable_wallpaper_paths.add(normalized_path)
+                preview.clear_preview()
+                preview.setText("当前设备不存在")
+                tooltip = (
+                    f"{remote_path}\n当前连接的设备没有这个文件；旧固件设备可能可用。"
+                    if remote_path
+                    else "当前连接的设备没有这个文件；旧固件设备可能可用。"
+                )
+                preview.setToolTip(tooltip)
+                if button:
+                    button.setToolTip(tooltip)
+                    button.setEnabled(False)
+                continue
+
+            if normalized_path:
+                self._unavailable_wallpaper_paths.discard(normalized_path)
+            if button:
+                button.setToolTip(remote_path)
+                button.setEnabled(True)
+            preview.setToolTip(remote_path)
+            data = result.data
             if not data:
                 preview.clear_preview()
                 preview.setText("加载失败")
@@ -290,21 +393,36 @@ class WallpaperTab(QtWidgets.QWidget):
                 except Exception:
                     preview.clear_preview()
                     preview.setText("无预览")
+        self._update_target_label()
+        self._update_upload_button_state()
 
     def _on_variant_preview_error(self, _exc: Exception) -> None:
         for preview in self.variant_previews.values():
             preview.clear_preview()
             preview.setText("加载失败")
+        self._update_upload_button_state()
 
     def _on_variant_selected(self, button: QtWidgets.QAbstractButton) -> None:
         remote_path = button.property("remote_path")
         if not remote_path:
             return
-        self.config.setdefault("paths", {})["wallpaper"] = remote_path
+        self.config.setdefault("paths", {})["wallpaper"] = self._normalise_wallpaper_path(remote_path)
         self._update_target_label()
 
-    def _select_variant_by_path(self, remote_path: str) -> None:
+    def _normalise_wallpaper_path(self, remote_path: str) -> str:
         normalized = posixpath.normpath(remote_path)
+        return _LEGACY_WALLPAPER_PATHS.get(normalized, normalized)
+
+    def _configured_wallpaper_path(self) -> str:
+        paths = self.config.setdefault("paths", {})
+        remote_path = paths.get("wallpaper", "/usr/share/remarkable/suspended.png")
+        normalized = self._normalise_wallpaper_path(remote_path)
+        if normalized != remote_path:
+            paths["wallpaper"] = normalized
+        return normalized
+
+    def _select_variant_by_path(self, remote_path: str) -> None:
+        normalized = self._normalise_wallpaper_path(remote_path)
         matched = False
         for variant_key, _display_name, candidate_path in _rmtool.WALLPAPER_VARIANTS:
             if posixpath.normpath(candidate_path) == normalized:
@@ -321,21 +439,30 @@ class WallpaperTab(QtWidgets.QWidget):
             self.variant_group.setExclusive(True)
 
     def _variant_label_for_path(self, remote_path: str) -> Optional[str]:
-        normalized = posixpath.normpath(remote_path)
+        normalized = self._normalise_wallpaper_path(remote_path)
         for _variant_key, display_name, candidate_path in _rmtool.WALLPAPER_VARIANTS:
             if posixpath.normpath(candidate_path) == normalized:
                 return display_name
         return None
 
-    def _update_target_label(self) -> None:
-        remote_path = self.config.get("paths", {}).get(
-            "wallpaper", "/usr/share/remarkable/suspended.png"
+    def _wallpaper_path_available(self, remote_path: str) -> bool:
+        normalized = self._normalise_wallpaper_path(remote_path)
+        return normalized not in self._unavailable_wallpaper_paths
+
+    def _update_upload_button_state(self) -> None:
+        self.upload_button.setEnabled(
+            self._cached_source_image is not None
+            and self._wallpaper_path_available(self._configured_wallpaper_path())
         )
+
+    def _update_target_label(self) -> None:
+        remote_path = self._configured_wallpaper_path()
         variant_label = self._variant_label_for_path(remote_path)
+        suffix = "（当前设备不存在）" if not self._wallpaper_path_available(remote_path) else ""
         if variant_label:
-            self.target_label.setText(f"目标壁纸：{variant_label} ({remote_path})")
+            self.target_label.setText(f"目标壁纸：{variant_label} ({remote_path}){suffix}")
         else:
-            self.target_label.setText(f"目标壁纸：{remote_path}")
+            self.target_label.setText(f"目标壁纸：{remote_path}{suffix}")
 
     def _select_image(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "选择图片", "", "图片文件 (*.png *.jpg *.jpeg *.bmp)")
@@ -350,7 +477,7 @@ class WallpaperTab(QtWidgets.QWidget):
             self._cached_source_image = img.convert("RGB")
         self.image_path = path
         self.info_label.setText(f"选择的图片：{path}")
-        self.upload_button.setEnabled(True)
+        self._update_upload_button_state()
         self._render_preview()
 
     def _on_mode_changed(self):
@@ -424,18 +551,23 @@ class WallpaperTab(QtWidgets.QWidget):
     def _upload_wallpaper(self):
         if self._cached_source_image is None:
             return
+        wallpaper_path = self._configured_wallpaper_path()
+        if not self._wallpaper_path_available(wallpaper_path):
+            show_warning(
+                self,
+                _rmtool.APP_NAME,
+                "当前连接的设备没有这个壁纸文件，无法上传到该目标。请改选一个当前设备存在的壁纸资源。",
+            )
+            return
         try:
             processed_image = self._process_image()
         except Exception as exc:
             logging.exception("Wallpaper processing failed")
-            QtWidgets.QMessageBox.critical(self, _rmtool.APP_NAME, f"图片处理失败：{exc}")
+            show_error(self, _rmtool.APP_NAME, f"图片处理失败：{exc}")
             return
         fd, temp_path = tempfile.mkstemp(suffix=".png")
         os.close(fd)
         processed_image.save(temp_path, format="PNG")
-        wallpaper_path = self.config.get("paths", {}).get(
-            "wallpaper", "/usr/share/remarkable/suspended.png"
-        )
 
         self.upload_button.setEnabled(False)
         self._wallpaper_progress = QtWidgets.QProgressDialog(
@@ -454,12 +586,12 @@ class WallpaperTab(QtWidgets.QWidget):
             if self.ssh_client.is_connected():
                 self._refresh_variant_previews()
             self._render_preview()
-            QtWidgets.QMessageBox.information(self, _rmtool.APP_NAME, "壁纸上传完成。")
+            show_info(self, _rmtool.APP_NAME, "壁纸上传完成。")
 
         def on_error(exc: Exception):
             self._close_wallpaper_progress(temp_path)
             logging.exception("Wallpaper upload failed")
-            QtWidgets.QMessageBox.critical(self, _rmtool.APP_NAME, f"上传壁纸失败：{exc}")
+            show_error(self, _rmtool.APP_NAME, f"上传壁纸失败：{exc}")
 
         worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
@@ -506,6 +638,6 @@ class WallpaperTab(QtWidgets.QWidget):
             self._wallpaper_progress.close()
             self._wallpaper_progress.deleteLater()
             self._wallpaper_progress = None
-        self.upload_button.setEnabled(True)
+        self._update_upload_button_state()
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
