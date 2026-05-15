@@ -58,8 +58,11 @@ DEVICE_PROFILE_LABELS = {
 
 WALLPAPER_VARIANTS = [
     ("starting", "启动壁纸", "/usr/share/remarkable/starting.png"),
-    ("suspended", "待机壁纸", "/usr/share/remarkable/suspended.png"),
-    ("hibernate", "休眠壁纸", "/usr/share/remarkable/hibernate.png"),
+    ("suspended", "休眠壁纸", "/usr/share/remarkable/suspended.png"),
+    ("sleeping", "旧版待机壁纸", "/usr/share/remarkable/sleeping.png"),
+    ("sleep_carousel_1", "休眠轮播 1", "/usr/share/remarkable/carousel/sleep_Illustration_01.png"),
+    ("sleep_carousel_2", "休眠轮播 2", "/usr/share/remarkable/carousel/sleep_Illustration_02.png"),
+    ("sleep_carousel_3", "休眠轮播 3", "/usr/share/remarkable/carousel/sleep_Illustration_03.png"),
     ("poweroff", "关机壁纸", "/usr/share/remarkable/poweroff.png"),
 ]
 
@@ -833,4 +836,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

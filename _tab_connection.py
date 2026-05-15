@@ -5,6 +5,7 @@ from typing import Dict, Optional
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+from _dialogs import ask_confirmation, show_error, show_info, show_warning
 from _ssh import SSHClientWrapper, UnknownHostKeyError
 import rmtool as _rmtool  # late-bound access to avoid circular import
 
@@ -286,7 +287,7 @@ class ConnectionWidget(QtWidgets.QWidget):
             self.ssh_client.close()
         else:
             return
-        QtWidgets.QMessageBox.information(
+        show_info(
             self,
             _rmtool.APP_NAME,
             "已切换到其他设备，当前 SSH 连接已自动断开。\n请重新连接后再继续操作。",
@@ -326,7 +327,7 @@ class ConnectionWidget(QtWidgets.QWidget):
             return
         name = name.strip()
         if any(device["name"] == name for device in self.config.get("devices", [])):
-            QtWidgets.QMessageBox.warning(self, _rmtool.APP_NAME, "已存在同名设备。")
+            show_warning(self, _rmtool.APP_NAME, "已存在同名设备。")
             return
         new_device = {
             "name": name,
@@ -343,15 +344,17 @@ class ConnectionWidget(QtWidgets.QWidget):
 
     def _remove_device(self):
         if self.device_combo.count() <= 1:
-            QtWidgets.QMessageBox.warning(self, _rmtool.APP_NAME, "至少保留一个设备配置。")
+            show_warning(self, _rmtool.APP_NAME, "至少保留一个设备配置。")
             return
         name = self.device_combo.currentText()
-        confirm = QtWidgets.QMessageBox.question(
+        if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
             f'确定删除设备「{name}」的配置？',
-        )
-        if confirm != QtWidgets.QMessageBox.Yes:
+            confirm_text="删除",
+            cancel_text="取消",
+            danger=True,
+        ):
             return
         self.config["devices"] = [d for d in self.config["devices"] if d["name"] != name]
         if _keyring():
@@ -392,7 +395,7 @@ class ConnectionWidget(QtWidgets.QWidget):
             _keyring().set_password(_rmtool.KEYRING_SERVICE, device_name, password)
         except Exception:  # pragma: no cover - backend specific
             logging.exception("Failed to store password in keyring")
-            QtWidgets.QMessageBox.warning(
+            show_warning(
                 self,
                 _rmtool.APP_NAME,
                 "无法保存密码到系统凭证管理器，请检查 keyring 配置。",
@@ -469,7 +472,7 @@ class ConnectionWidget(QtWidgets.QWidget):
         def on_error(exc: Exception):
             self._teardown_connection_progress()
             if isinstance(exc, UnknownHostKeyError):
-                confirm = QtWidgets.QMessageBox.question(
+                confirmed = ask_confirmation(
                     self,
                     _rmtool.APP_NAME,
                     (
@@ -477,8 +480,10 @@ class ConnectionWidget(QtWidgets.QWidget):
                         f"SSH 指纹：{exc.fingerprint}\n\n"
                         "如果你确认这是自己的设备，可以信任并继续连接。"
                     ),
+                    confirm_text="信任并连接",
+                    cancel_text="取消",
                 )
-                if confirm == QtWidgets.QMessageBox.Yes:
+                if confirmed:
                     self._begin_connection(
                         host,
                         password,
@@ -487,7 +492,7 @@ class ConnectionWidget(QtWidgets.QWidget):
                     )
                 return
             logging.error("Unable to connect: %s", exc)
-            QtWidgets.QMessageBox.critical(self, _rmtool.APP_NAME, f"连接失败：{exc}")
+            show_error(self, _rmtool.APP_NAME, f"连接失败：{exc}")
 
         worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
@@ -500,7 +505,7 @@ class ConnectionWidget(QtWidgets.QWidget):
         host = self.host_edit.text().strip()
         password = self.password_edit.text().strip()
         if not host or not password:
-            QtWidgets.QMessageBox.warning(
+            show_warning(
                 self,
                 _rmtool.APP_NAME,
                 "请填写完整的连接信息（包括 root 密码）。",
@@ -591,4 +596,3 @@ class ConnectionWidget(QtWidgets.QWidget):
 
     def _open_github_repo(self) -> None:
         QtGui.QDesktopServices.openUrl(QtCore.QUrl(_rmtool.GITHUB_REPO_URL))
-

@@ -7,13 +7,18 @@ require_connection decorator live here to keep rmtool.py focused on UI.
 import base64
 import inspect
 import logging
+import os
 import socket
+import stat
 from contextlib import contextmanager
 from functools import wraps
-from typing import Dict, Iterator, Optional, Tuple
+from pathlib import Path
+from typing import Callable, Dict, Iterator, Optional, Tuple
 
 import paramiko
 from PyQt5 import QtCore, QtWidgets
+
+from _dialogs import show_warning
 
 
 def _get_known_hosts_path():
@@ -61,7 +66,7 @@ def require_connection(method):
     @wraps(method)
     def wrapper(self, *args, **kwargs):
         if not self.ssh_client.is_connected():
-            QtWidgets.QMessageBox.warning(self, _get_app_name(), "请先连接设备后再操作。")
+            show_warning(self, _get_app_name(), "请先连接设备后再操作。")
             return None
         if args and not accepts_positional_signal_args:
             # Qt button signals often send a trailing `checked` bool even for
@@ -354,4 +359,3 @@ class SSHClientWrapper(QtCore.QObject):
                 self._download_directory_recursive(sftp, remote_path, local_path)
             else:
                 sftp.get(remote_path, local_path)
-

@@ -580,6 +580,108 @@ QSplitter#mainSplitter::handle {
 QSplitter#mainSplitter::handle:hover {
     background: rgba(255, 255, 255, 0.16);
 }
+
+/* ===== App dialog ===== */
+#appDialog {
+    background: transparent;
+}
+#appDialogSurface {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #252A3B, stop:1 #191C28);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: {panel_radius};
+}
+#appDialogBadge {
+    background: rgba(91, 124, 247, 0.16);
+    color: #8AB4FF;
+    border: 1px solid rgba(91, 124, 247, 0.32);
+    border-radius: 23px;
+    font-size: 24px;
+    font-weight: 800;
+}
+#appDialogBadge[kind="warning"],
+#appDialogBadge[kind="confirm"] {
+    background: rgba(243, 199, 106, 0.12);
+    color: #E9C46A;
+    border-color: rgba(243, 199, 106, 0.28);
+}
+#appDialogBadge[kind="error"] {
+    background: rgba(240, 100, 112, 0.14);
+    color: #FF8A94;
+    border-color: rgba(240, 100, 112, 0.28);
+}
+#appDialogTitle {
+    color: #FFFFFF;
+    font-size: 21px;
+    font-weight: 800;
+}
+#appDialogBody {
+    color: #C0C8E0;
+    font-size: 16px;
+}
+#appDialogNote {
+    background: rgba(243, 199, 106, 0.10);
+    border: 1px solid rgba(243, 199, 106, 0.22);
+    border-radius: {inner_panel_radius};
+}
+#appDialogNoteText {
+    color: #D8BE7A;
+    font-size: 15px;
+}
+#appDialogPrimary,
+#appDialogSecondary {
+    min-width: 108px;
+    min-height: 38px;
+    padding: 0 18px;
+}
+
+/* ===== Restart confirmation dialog ===== */
+#restartConfirmDialog {
+    background: transparent;
+}
+#restartConfirmSurface {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #252A3B, stop:1 #191C28);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: {panel_radius};
+}
+#restartConfirmBadge {
+    background: rgba(91, 124, 247, 0.16);
+    color: #8AB4FF;
+    border: 1px solid rgba(91, 124, 247, 0.32);
+    border-radius: 23px;
+    font-size: 24px;
+    font-weight: 700;
+}
+#restartConfirmTitle {
+    color: #FFFFFF;
+    font-size: 21px;
+    font-weight: 800;
+}
+#restartConfirmSubtitle {
+    color: #8A93B0;
+    font-size: 14px;
+    font-weight: 600;
+}
+#restartConfirmBody {
+    color: #C0C8E0;
+    font-size: 16px;
+}
+#restartConfirmNote {
+    background: rgba(243, 199, 106, 0.10);
+    border: 1px solid rgba(243, 199, 106, 0.22);
+    border-radius: {inner_panel_radius};
+}
+#restartConfirmNoteText {
+    color: #D8BE7A;
+    font-size: 15px;
+}
+#restartConfirmPrimary,
+#restartConfirmSecondary {
+    min-width: 108px;
+    min-height: 38px;
+    padding: 0 18px;
+}
 """
 
 _LIGHT_STYLESHEET = """
@@ -1114,6 +1216,106 @@ QSplitter#mainSplitter::handle {
 }
 QSplitter#mainSplitter::handle:hover {
     background: #C8CDD7;
+}
+
+/* ===== App dialog ===== */
+#appDialog {
+    background: transparent;
+}
+#appDialogSurface {
+    background: #FFFFFF;
+    border: 1px solid #DDE0E6;
+    border-radius: {panel_radius};
+}
+#appDialogBadge {
+    background: rgba(74, 108, 247, 0.10);
+    color: #2563EB;
+    border: 1px solid rgba(74, 108, 247, 0.22);
+    border-radius: 23px;
+    font-size: 24px;
+    font-weight: 800;
+}
+#appDialogBadge[kind="warning"],
+#appDialogBadge[kind="confirm"] {
+    background: rgba(175, 122, 18, 0.08);
+    color: #9A6A12;
+    border-color: rgba(175, 122, 18, 0.18);
+}
+#appDialogBadge[kind="error"] {
+    background: rgba(210, 54, 72, 0.08);
+    color: #C5243F;
+    border-color: rgba(210, 54, 72, 0.18);
+}
+#appDialogTitle {
+    color: #1A1D27;
+    font-size: 21px;
+    font-weight: 800;
+}
+#appDialogBody {
+    color: #3A3F50;
+    font-size: 16px;
+}
+#appDialogNote {
+    background: rgba(175, 122, 18, 0.08);
+    border: 1px solid rgba(175, 122, 18, 0.18);
+    border-radius: {inner_panel_radius};
+}
+#appDialogNoteText {
+    color: #7B5A18;
+    font-size: 15px;
+}
+#appDialogPrimary,
+#appDialogSecondary {
+    min-width: 108px;
+    min-height: 38px;
+    padding: 0 18px;
+}
+
+/* ===== Restart confirmation dialog ===== */
+#restartConfirmDialog {
+    background: transparent;
+}
+#restartConfirmSurface {
+    background: #FFFFFF;
+    border: 1px solid #DDE0E6;
+    border-radius: {panel_radius};
+}
+#restartConfirmBadge {
+    background: rgba(74, 108, 247, 0.10);
+    color: #2563EB;
+    border: 1px solid rgba(74, 108, 247, 0.22);
+    border-radius: 23px;
+    font-size: 24px;
+    font-weight: 700;
+}
+#restartConfirmTitle {
+    color: #1A1D27;
+    font-size: 21px;
+    font-weight: 800;
+}
+#restartConfirmSubtitle {
+    color: #6B7080;
+    font-size: 14px;
+    font-weight: 600;
+}
+#restartConfirmBody {
+    color: #3A3F50;
+    font-size: 16px;
+}
+#restartConfirmNote {
+    background: rgba(175, 122, 18, 0.08);
+    border: 1px solid rgba(175, 122, 18, 0.18);
+    border-radius: {inner_panel_radius};
+}
+#restartConfirmNoteText {
+    color: #7B5A18;
+    font-size: 15px;
+}
+#restartConfirmPrimary,
+#restartConfirmSecondary {
+    min-width: 108px;
+    min-height: 38px;
+    padding: 0 18px;
 }
 """
 
