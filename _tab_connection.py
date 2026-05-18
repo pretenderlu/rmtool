@@ -25,6 +25,7 @@ class ConnectionWidget(QtWidgets.QWidget):
         self.setObjectName("sidebarConnection")
         self.ssh_client = ssh_client
         self.config = config
+        _rmtool.normalise_config(self.config)
 
         self.thread_pool = QtCore.QThreadPool.globalInstance()
         self._connection_progress: Optional[QtWidgets.QProgressDialog] = None
@@ -79,44 +80,30 @@ class ConnectionWidget(QtWidgets.QWidget):
         self.remove_device_button.setText("删除")
         self.remove_device_button.setToolTip("删除当前设备配置")
         self.remove_device_button.setProperty("cssClass", "danger")
-        self.save_device_button = QtWidgets.QToolButton()
-        self.save_device_button.setText("保存")
-        self.save_device_button.setToolTip("保存当前设备配置")
-        self.save_device_button.setText("💾")
-
-        self.save_device_button.setText("保存")
+        self.edit_device_button = QtWidgets.QToolButton()
+        self.edit_device_button.setText("编辑")
+        self.edit_device_button.setToolTip("编辑当前设备配置")
         device_btn_row = QtWidgets.QHBoxLayout()
         device_btn_row.setContentsMargins(0, 0, 0, 0)
         device_btn_row.setSpacing(4)
         device_btn_row.addWidget(self.add_device_button)
+        device_btn_row.addWidget(self.edit_device_button)
         device_btn_row.addWidget(self.remove_device_button)
-        device_btn_row.addWidget(self.save_device_button)
         device_btn_row.addStretch()
 
-        # -- Connection mode --
-        self.usb_radio = QtWidgets.QRadioButton("USB")
-        self.wifi_radio = QtWidgets.QRadioButton("WiFi")
-        mode_layout = QtWidgets.QHBoxLayout()
-        mode_layout.setContentsMargins(0, 0, 0, 0)
-        mode_layout.addWidget(self.usb_radio)
-        mode_layout.addWidget(self.wifi_radio)
-        mode_layout.addStretch()
-
-        # -- Fields --
-        self.host_edit = QtWidgets.QLineEdit()
-        self.host_edit.setPlaceholderText("10.11.99.1")
-        self.device_type_combo = _rmtool.CompactComboBox(maximum_hint_width=220)
-        for profile_name in _rmtool.DEVICE_PROFILES.keys():
-            self.device_type_combo.addItem(_rmtool.DEVICE_PROFILE_LABELS.get(profile_name, profile_name), profile_name)
-        self.device_type_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        self.device_type_combo.setMinimumContentsLength(12)
-        self.password_edit = QtWidgets.QLineEdit()
-        self.password_edit.setEchoMode(QtWidgets.QLineEdit.Password)
-        self.password_edit.setPlaceholderText("root 密码")
-        self.remember_checkbox = QtWidgets.QCheckBox("记住密码")
-        if _keyring() is None:
-            self.remember_checkbox.setEnabled(False)
-            self.remember_checkbox.setToolTip("未找到 keyring 库，无法安全保存密码。")
+        self.credential_status_label = QtWidgets.QLabel("未保存")
+        self.credential_status_label.setObjectName("credentialStatusLabel")
+        self.credential_status_label.setWordWrap(True)
+        self.forget_password_button = QtWidgets.QToolButton()
+        self.forget_password_button.setObjectName("forgetPasswordButton")
+        self.forget_password_button.setText("忘记密码")
+        self.forget_password_button.setToolTip("删除当前设备已保存的 root 密码")
+        self.forget_password_button.setEnabled(False)
+        credential_status_row = QtWidgets.QHBoxLayout()
+        credential_status_row.setContentsMargins(0, 0, 0, 0)
+        credential_status_row.setSpacing(8)
+        credential_status_row.addWidget(self.credential_status_label, 1)
+        credential_status_row.addWidget(self.forget_password_button)
 
         # -- Buttons --
         self.connect_button = QtWidgets.QPushButton("连接")
@@ -145,26 +132,10 @@ class ConnectionWidget(QtWidgets.QWidget):
         layout.addLayout(device_btn_row)
         layout.addSpacing(8)
 
-        layout.addLayout(mode_layout)
-        layout.addSpacing(4)
-
-        address_label = QtWidgets.QLabel("地址")
-        address_label.setObjectName("sidebarSectionLabel")
-        layout.addWidget(address_label)
-        layout.addWidget(self.host_edit)
-        layout.addSpacing(4)
-
-        type_label = QtWidgets.QLabel("设备类型")
-        type_label.setObjectName("sidebarSectionLabel")
-        layout.addWidget(type_label)
-        layout.addWidget(self.device_type_combo)
-        layout.addSpacing(4)
-
-        pw_label = QtWidgets.QLabel("密码")
-        pw_label.setObjectName("sidebarSectionLabel")
-        layout.addWidget(pw_label)
-        layout.addWidget(self.password_edit)
-        layout.addWidget(self.remember_checkbox)
+        credential_label = QtWidgets.QLabel("凭证")
+        credential_label.setObjectName("sidebarSectionLabel")
+        layout.addWidget(credential_label)
+        layout.addLayout(credential_status_row)
         layout.addSpacing(8)
 
         layout.addLayout(button_layout)
@@ -219,14 +190,12 @@ class ConnectionWidget(QtWidgets.QWidget):
 
         self.device_combo.currentIndexChanged.connect(self._on_device_selected)
         self.add_device_button.clicked.connect(self._add_device)
+        self.edit_device_button.clicked.connect(self._edit_device)
         self.remove_device_button.clicked.connect(self._remove_device)
-        self.save_device_button.clicked.connect(self._save_device)
         self.connect_button.clicked.connect(self._connect)
         self.disconnect_button.clicked.connect(self._disconnect)
-        self.usb_radio.toggled.connect(self._emit_device_preview)
-        self.wifi_radio.toggled.connect(self._emit_device_preview)
         self.github_button.clicked.connect(self._open_github_repo)
-        self.device_type_combo.currentIndexChanged.connect(self._emit_device_preview)
+        self.forget_password_button.clicked.connect(self._forget_saved_password)
         ssh_client.connection_changed.connect(self._on_connection_changed)
 
         self._populate_devices()
@@ -236,15 +205,22 @@ class ConnectionWidget(QtWidgets.QWidget):
         self.device_combo.blockSignals(True)
         self.device_combo.clear()
         for device in self.config.get("devices", []):
-            self.device_combo.addItem(device["name"])
+            self.device_combo.addItem(device["name"], device.get("id", ""))
         self.device_combo.blockSignals(False)
-        active = self.config.get("active_device")
-        if active:
-            idx = self.device_combo.findText(active)
+        active_id = self.config.get("active_device_id", "")
+        if active_id:
+            idx = self.device_combo.findData(active_id)
+            if idx != -1:
+                self.device_combo.setCurrentIndex(idx)
+        elif self.config.get("active_device"):
+            idx = self.device_combo.findText(self.config["active_device"])
             if idx != -1:
                 self.device_combo.setCurrentIndex(idx)
         if self.device_combo.count():
             self._on_device_selected(self.device_combo.currentIndex())
+
+    def _device_by_id(self, device_id: str) -> Dict:
+        return _rmtool.find_device_by_id(self.config, device_id)
 
     def _device_by_name(self, name: str) -> Dict:
         for device in self.config.get("devices", []):
@@ -253,6 +229,11 @@ class ConnectionWidget(QtWidgets.QWidget):
         return {}
 
     def _current_device(self) -> Dict:
+        device_id = self.device_combo.currentData()
+        if device_id:
+            device = self._device_by_id(str(device_id))
+            if device:
+                return device
         return self._device_by_name(self.device_combo.currentText())
 
     def current_device(self) -> Dict:
@@ -260,18 +241,8 @@ class ConnectionWidget(QtWidgets.QWidget):
 
         return self._current_device().copy()
 
-    def _current_device_type(self) -> str:
-        return str(self.device_type_combo.currentData() or self.device_type_combo.currentText())
-
     def _device_type_display(self, device_type: str) -> str:
         return _rmtool.DEVICE_PROFILE_LABELS.get(device_type, device_type)
-
-    def _select_device_type(self, device_type: str) -> None:
-        idx = self.device_type_combo.findData(device_type)
-        if idx == -1:
-            idx = self.device_type_combo.findText(self._device_type_display(device_type))
-        if idx != -1:
-            self.device_type_combo.setCurrentIndex(idx)
 
     def _disconnect_if_device_target_changed(self, device: Dict) -> None:
         if not self.ssh_client.is_connected():
@@ -299,19 +270,12 @@ class ConnectionWidget(QtWidgets.QWidget):
         device = self._current_device()
         if not device:
             return
-        mode = device.get("mode", "usb")
-        self.usb_radio.setChecked(mode == "usb")
-        self.wifi_radio.setChecked(mode == "wifi")
-        self.host_edit.setText(device.get("host", "10.11.99.1"))
-        device_type = device.get("type", "reMarkable Paper Pro")
-        self._select_device_type(device_type)
-        password = self._load_password(device["name"])
-        self.password_edit.setText(password)
-        if _keyring():
-            self.remember_checkbox.blockSignals(True)
-            self.remember_checkbox.setChecked(bool(password))
-            self.remember_checkbox.blockSignals(False)
+        password = self._load_password(device)
+        self._set_credential_status("已保存到系统凭证" if password else "未保存", bool(password))
+        if _keyring() is None:
+            self._set_credential_status("当前环境不支持保存密码", False)
         self._disconnect_if_device_target_changed(device)
+        self.config["active_device_id"] = device["id"]
         self.config["active_device"] = device["name"]
         _rmtool.save_config(self.config)
         self.status_message.emit(
@@ -322,25 +286,153 @@ class ConnectionWidget(QtWidgets.QWidget):
         self._emit_device_preview()
 
     def _add_device(self):
-        name, ok = QtWidgets.QInputDialog.getText(self, _rmtool.APP_NAME, "输入新设备名称：")
-        if not ok or not name.strip():
+        details = self._request_new_device()
+        if not details:
             return
-        name = name.strip()
+        name = details.get("name", "").strip()
+        if not name:
+            show_warning(self, _rmtool.APP_NAME, "请输入设备名称。")
+            return
         if any(device["name"] == name for device in self.config.get("devices", [])):
             show_warning(self, _rmtool.APP_NAME, "已存在同名设备。")
             return
         new_device = {
+            "id": _rmtool.new_device_id(),
             "name": name,
-            "mode": "usb",
-            "host": "10.11.99.1",
-            "type": "reMarkable Paper Pro",
+            "mode": details.get("mode", "usb"),
+            "host": details.get("host", "10.11.99.1").strip() or "10.11.99.1",
+            "type": details.get("type", "reMarkable Paper Pro"),
         }
         self.config.setdefault("devices", []).append(new_device)
+        self.config["active_device_id"] = new_device["id"]
+        self.config["active_device"] = new_device["name"]
         _rmtool.save_config(self.config)
         self._populate_devices()
-        idx = self.device_combo.findText(name)
+        idx = self.device_combo.findData(new_device["id"])
         if idx != -1:
             self.device_combo.setCurrentIndex(idx)
+        password = details.get("password", "").strip()
+        remember_password = bool(details.get("remember_password"))
+        self._sync_password_preference(new_device, password, remember_password)
+        self._emit_device_preview()
+
+    def _make_device_details_dialog(
+        self, title: str, initial: Optional[Dict] = None
+    ):
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle(title)
+        dialog.setModal(True)
+        initial = initial or {}
+
+        name_edit = QtWidgets.QLineEdit()
+        name_edit.setPlaceholderText("例如：我的 Paper Pro")
+        name_edit.setText(initial.get("name", ""))
+        usb_radio = QtWidgets.QRadioButton("USB")
+        wifi_radio = QtWidgets.QRadioButton("WiFi")
+        mode = initial.get("mode", "usb")
+        usb_radio.setChecked(mode != "wifi")
+        wifi_radio.setChecked(mode == "wifi")
+        mode_row = QtWidgets.QHBoxLayout()
+        mode_row.setContentsMargins(0, 0, 0, 0)
+        mode_row.addWidget(usb_radio)
+        mode_row.addWidget(wifi_radio)
+        mode_row.addStretch()
+
+        host_edit = QtWidgets.QLineEdit(initial.get("host", "10.11.99.1"))
+        type_combo = _rmtool.CompactComboBox(maximum_hint_width=260)
+        for profile_name in _rmtool.DEVICE_PROFILES.keys():
+            type_combo.addItem(
+                _rmtool.DEVICE_PROFILE_LABELS.get(profile_name, profile_name),
+                profile_name,
+            )
+        device_type = initial.get("type", "reMarkable Paper Pro")
+        type_index = type_combo.findData(device_type)
+        if type_index == -1:
+            type_index = type_combo.findText(self._device_type_display(device_type))
+        if type_index != -1:
+            type_combo.setCurrentIndex(type_index)
+        password_edit = QtWidgets.QLineEdit()
+        password_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+        password_edit.setPlaceholderText("root 密码")
+        saved_password = self._load_password(initial) if initial else ""
+        password_edit.setText(saved_password)
+        remember_checkbox = QtWidgets.QCheckBox("记住密码")
+        remember_checkbox.setChecked(bool(saved_password) or (_keyring() is not None and not initial))
+        if _keyring() is None:
+            remember_checkbox.setChecked(False)
+            remember_checkbox.setToolTip(
+                "当前未检测到 keyring。可先勾选；保存时会提示如何启用安全凭证存储。"
+            )
+        else:
+            remember_checkbox.setToolTip("将 root 密码保存到系统凭证管理器。")
+
+        form = QtWidgets.QFormLayout()
+        form.setContentsMargins(18, 18, 18, 12)
+        form.setSpacing(10)
+        form.addRow("设备名称", name_edit)
+        form.addRow("连接方式", mode_row)
+        form.addRow("地址", host_edit)
+        form.addRow("设备类型", type_combo)
+        form.addRow("root 密码", password_edit)
+        form.addRow("", remember_checkbox)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Save | QtWidgets.QDialogButtonBox.Cancel
+        )
+        buttons.button(QtWidgets.QDialogButtonBox.Save).setText("保存设备")
+        buttons.button(QtWidgets.QDialogButtonBox.Cancel).setText("取消")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        for role in (QtWidgets.QDialogButtonBox.Save, QtWidgets.QDialogButtonBox.Cancel):
+            button = buttons.button(role)
+            if button:
+                button.setMinimumHeight(36)
+                button.setMinimumWidth(96)
+
+        button_frame = QtWidgets.QWidget()
+        button_frame.setObjectName("deviceDialogButtonFrame")
+        button_layout = QtWidgets.QHBoxLayout(button_frame)
+        button_layout.setContentsMargins(18, 8, 18, 18)
+        button_layout.addWidget(buttons)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addLayout(form)
+        layout.addWidget(button_frame)
+
+        controls = {
+            "name": name_edit,
+            "usb": usb_radio,
+            "wifi": wifi_radio,
+            "host": host_edit,
+            "type": type_combo,
+            "password": password_edit,
+            "remember": remember_checkbox,
+        }
+        return dialog, controls
+
+    def _request_device_details(
+        self, title: str, initial: Optional[Dict] = None
+    ) -> Optional[Dict]:
+        dialog, controls = self._make_device_details_dialog(title, initial)
+        if dialog.exec_() != QtWidgets.QDialog.Accepted:
+            return None
+
+        return {
+            "name": controls["name"].text(),
+            "mode": "usb" if controls["usb"].isChecked() else "wifi",
+            "host": controls["host"].text(),
+            "type": str(controls["type"].currentData() or controls["type"].currentText()),
+            "password": controls["password"].text(),
+            "remember_password": controls["remember"].isChecked(),
+        }
+
+    def _request_new_device(self) -> Optional[Dict]:
+        return self._request_device_details("新增设备")
+
+    def _request_edit_device(self, device: Dict) -> Optional[Dict]:
+        return self._request_device_details("编辑设备", device)
 
     def _remove_device(self):
         if self.device_combo.count() <= 1:
@@ -356,43 +448,107 @@ class ConnectionWidget(QtWidgets.QWidget):
             danger=True,
         ):
             return
-        self.config["devices"] = [d for d in self.config["devices"] if d["name"] != name]
-        if _keyring():
-            try:
-                _keyring().delete_password(_rmtool.KEYRING_SERVICE, name)
-            except Exception:  # pragma: no cover - backend dependent
-                pass
+        device = self._current_device()
+        self.config["devices"] = [
+            d for d in self.config["devices"] if d.get("id") != device.get("id")
+        ]
+        self._delete_password(device)
+        self.config["active_device_id"] = self.config["devices"][0]["id"]
         self.config["active_device"] = self.config["devices"][0]["name"]
         _rmtool.save_config(self.config)
         self._populate_devices()
 
-    def _save_device(self):
+    def _edit_device(self):
         device = self._current_device()
         if not device:
             return
-        device["mode"] = "usb" if self.usb_radio.isChecked() else "wifi"
-        device["host"] = self.host_edit.text().strip()
-        device["type"] = self._current_device_type()
+        details = self._request_edit_device(device)
+        if not details:
+            return
+        name = details.get("name", "").strip()
+        if not name:
+            show_warning(self, _rmtool.APP_NAME, "请输入设备名称。")
+            return
+        device_id = device.get("id", "")
+        for existing in self.config.get("devices", []):
+            if existing.get("id") != device_id and existing.get("name") == name:
+                show_warning(self, _rmtool.APP_NAME, "已存在同名设备。")
+                return
+        device["name"] = name
+        device["mode"] = details.get("mode", "usb")
+        device["host"] = details.get("host", "10.11.99.1").strip() or "10.11.99.1"
+        device["type"] = details.get("type", "reMarkable Paper Pro")
+        self.config["active_device_id"] = device["id"]
+        self.config["active_device"] = device["name"]
         _rmtool.save_config(self.config)
+        current_index = self.device_combo.currentIndex()
+        if current_index >= 0:
+            self.device_combo.blockSignals(True)
+            self.device_combo.setItemText(current_index, device["name"])
+            self.device_combo.setItemData(current_index, device["id"])
+            self.device_combo.blockSignals(False)
+        self._sync_password_preference(
+            device,
+            details.get("password", "").strip(),
+            bool(details.get("remember_password")),
+        )
         self.status_message.emit("info", f"已保存“{device['name']}”的连接配置。", 3000)
         self._emit_device_preview()
 
     # Credential helpers --------------------------------------------------------
-    def _load_password(self, device_name: str) -> str:
+    def _set_credential_status(self, text: str, can_forget: bool) -> None:
+        self.credential_status_label.setText(text)
+        self.forget_password_button.setEnabled(can_forget)
+
+    def _load_password(self, device: Dict) -> str:
         if not _keyring():
             return ""
+        credential_key = _rmtool.device_credential_key(device)
         try:
-            stored = _keyring().get_password(_rmtool.KEYRING_SERVICE, device_name)
-            return stored or ""
+            stored = _keyring().get_password(_rmtool.KEYRING_SERVICE, credential_key)
+            if stored:
+                return stored
+            legacy_name = device.get("name", "")
+            if legacy_name and legacy_name != credential_key:
+                legacy_stored = _keyring().get_password(_rmtool.KEYRING_SERVICE, legacy_name)
+                if legacy_stored:
+                    _keyring().set_password(
+                        _rmtool.KEYRING_SERVICE,
+                        credential_key,
+                        legacy_stored,
+                    )
+                    _keyring().delete_password(_rmtool.KEYRING_SERVICE, legacy_name)
+                    return legacy_stored
+            return ""
         except Exception:  # pragma: no cover - backend specific
             logging.exception("Failed to load password from keyring")
             return ""
 
-    def _store_password(self, device_name: str, password: str):
+    def _store_password(self, device: Dict, password: str) -> bool:
+        if not password:
+            show_warning(
+                self,
+                _rmtool.APP_NAME,
+                "要记住密码，请先填写 root 密码。",
+            )
+            self._set_credential_status("未保存", False)
+            return False
         if not _keyring():
-            return
+            show_warning(
+                self,
+                _rmtool.APP_NAME,
+                "当前环境未启用 keyring，无法安全保存密码。\n请运行 pip install -r requirements.txt 后重启应用。",
+            )
+            self._set_credential_status("当前环境不支持保存密码", False)
+            return False
         try:
-            _keyring().set_password(_rmtool.KEYRING_SERVICE, device_name, password)
+            _keyring().set_password(
+                _rmtool.KEYRING_SERVICE,
+                _rmtool.device_credential_key(device),
+                password,
+            )
+            self._set_credential_status("已保存到系统凭证", True)
+            return True
         except Exception:  # pragma: no cover - backend specific
             logging.exception("Failed to store password in keyring")
             show_warning(
@@ -400,25 +556,40 @@ class ConnectionWidget(QtWidgets.QWidget):
                 _rmtool.APP_NAME,
                 "无法保存密码到系统凭证管理器，请检查 keyring 配置。",
             )
+            self._set_credential_status("保存失败", False)
+            return False
 
-    def _delete_password(self, device_name: str):
+    def _delete_password(self, device: Dict):
         if not _keyring():
             return
         try:
-            stored = _keyring().get_password(_rmtool.KEYRING_SERVICE, device_name)
+            credential_key = _rmtool.device_credential_key(device)
+            stored = _keyring().get_password(_rmtool.KEYRING_SERVICE, credential_key)
             if not stored:
+                self._set_credential_status("未保存", False)
                 return
-            _keyring().delete_password(_rmtool.KEYRING_SERVICE, device_name)
+            _keyring().delete_password(_rmtool.KEYRING_SERVICE, credential_key)
+            self._set_credential_status("未保存", False)
         except Exception:  # pragma: no cover - backend specific
             logging.exception("Failed to delete password from keyring")
 
     def _sync_password_preference(
-        self, device_name: str, password: str, remember_password: bool
-    ) -> None:
+        self, device: Dict, password: str, remember_password: bool
+    ) -> bool:
         if remember_password:
-            self._store_password(device_name, password)
+            if self._store_password(device, password):
+                return True
+            return False
         else:
-            self._delete_password(device_name)
+            self._delete_password(device)
+            return True
+
+    def _forget_saved_password(self) -> None:
+        device = self._current_device()
+        if not device:
+            return
+        self._delete_password(device)
+        self.status_message.emit("info", f"已忘记“{device['name']}”的已保存密码。", 3000)
 
     def _teardown_connection_progress(self):
         if self._connection_progress:
@@ -436,8 +607,10 @@ class ConnectionWidget(QtWidgets.QWidget):
         remember_password: bool,
         trust_unknown_host: bool = False,
     ) -> None:
-        device_name = self.device_combo.currentText()
-        device_mode = "usb" if self.usb_radio.isChecked() else "wifi"
+        device = self._current_device()
+        device_id = device.get("id", "")
+        device_name = device.get("name", self.device_combo.currentText())
+        device_mode = device.get("mode", "usb")
         self.connect_button.setEnabled(False)
         progress = QtWidgets.QProgressDialog("正在连接到设备…", "", 0, 0, self)
         progress.setWindowTitle(_rmtool.APP_NAME)
@@ -459,14 +632,14 @@ class ConnectionWidget(QtWidgets.QWidget):
 
         def on_finished(_: object):
             self._teardown_connection_progress()
-            device = self._device_by_name(device_name)
+            device = self._device_by_id(device_id) or self._device_by_name(device_name)
             if not device:
                 return
             device["mode"] = device_mode
             device["host"] = host
             _rmtool.save_config(self.config)
             self._sync_password_preference(
-                device["name"], password, remember_password
+                device, password, remember_password
             )
 
         def on_error(exc: Exception):
@@ -499,11 +672,82 @@ class ConnectionWidget(QtWidgets.QWidget):
         self._active_connection_worker = worker
         self.thread_pool.start(worker)
 
+    def _make_password_dialog(self, device: Dict):
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("连接设备")
+        dialog.setModal(True)
+
+        password_edit = QtWidgets.QLineEdit()
+        password_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+        password_edit.setPlaceholderText("root 密码")
+        remember_checkbox = QtWidgets.QCheckBox("记住密码")
+        remember_checkbox.setChecked(_keyring() is not None)
+        if _keyring() is None:
+            remember_checkbox.setChecked(False)
+            remember_checkbox.setToolTip(
+                "当前未检测到 keyring。可先勾选；连接时会提示如何启用安全凭证存储。"
+            )
+        else:
+            remember_checkbox.setToolTip("将 root 密码保存到系统凭证管理器。")
+
+        form = QtWidgets.QFormLayout()
+        form.setContentsMargins(18, 18, 18, 12)
+        form.setSpacing(10)
+        form.addRow(f"{device.get('name', '当前设备')} root 密码", password_edit)
+        form.addRow("", remember_checkbox)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+        )
+        buttons.button(QtWidgets.QDialogButtonBox.Ok).setText("连接设备")
+        buttons.button(QtWidgets.QDialogButtonBox.Cancel).setText("取消")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        for role in (QtWidgets.QDialogButtonBox.Ok, QtWidgets.QDialogButtonBox.Cancel):
+            button = buttons.button(role)
+            if button:
+                button.setMinimumHeight(36)
+                button.setMinimumWidth(96)
+
+        button_frame = QtWidgets.QWidget()
+        button_frame.setObjectName("passwordDialogButtonFrame")
+        button_layout = QtWidgets.QHBoxLayout(button_frame)
+        button_layout.setContentsMargins(18, 8, 18, 18)
+        button_layout.addWidget(buttons)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addLayout(form)
+        layout.addWidget(button_frame)
+
+        return dialog, {"password": password_edit, "remember": remember_checkbox}
+
+    def _request_connection_password(self, device: Dict) -> Optional[Dict]:
+        dialog, controls = self._make_password_dialog(device)
+        if dialog.exec_() != QtWidgets.QDialog.Accepted:
+            return None
+        return {
+            "password": controls["password"].text(),
+            "remember_password": controls["remember"].isChecked(),
+        }
+
     def _connect(self):
         if self._active_connection_worker is not None:
             return
-        host = self.host_edit.text().strip()
-        password = self.password_edit.text().strip()
+        device = self._current_device()
+        if not device:
+            show_warning(self, _rmtool.APP_NAME, "请先选择设备。")
+            return
+        host = device.get("host", "").strip()
+        password = self._load_password(device)
+        remember_password = bool(password)
+        if not password:
+            details = self._request_connection_password(device)
+            if not details:
+                return
+            password = details.get("password", "").strip()
+            remember_password = bool(details.get("remember_password"))
         if not host or not password:
             show_warning(
                 self,
@@ -512,7 +756,6 @@ class ConnectionWidget(QtWidgets.QWidget):
             )
             return
 
-        remember_password = self.remember_checkbox.isChecked()
         self._begin_connection(host, password, remember_password)
 
     def _disconnect(self):
@@ -539,9 +782,6 @@ class ConnectionWidget(QtWidgets.QWidget):
         device = self._current_device().copy()
         if not device:
             return
-        device["mode"] = "usb" if self.usb_radio.isChecked() else "wifi"
-        device["host"] = self.host_edit.text().strip()
-        device["type"] = self._current_device_type()
         self._refresh_device_summary(device)
         self.device_changed.emit(device)
 

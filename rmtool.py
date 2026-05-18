@@ -59,7 +59,7 @@ DEVICE_PROFILE_LABELS = {
 WALLPAPER_VARIANTS = [
     ("starting", "启动壁纸", "/usr/share/remarkable/starting.png"),
     ("suspended", "休眠壁纸", "/usr/share/remarkable/suspended.png"),
-    ("sleeping", "旧版待机壁纸", "/usr/share/remarkable/sleeping.png"),
+    ("sleeping", "旧版休眠壁纸", "/usr/share/remarkable/sleeping.png"),
     ("sleep_carousel_1", "休眠轮播 1", "/usr/share/remarkable/carousel/sleep_Illustration_01.png"),
     ("sleep_carousel_2", "休眠轮播 2", "/usr/share/remarkable/carousel/sleep_Illustration_02.png"),
     ("sleep_carousel_3", "休眠轮播 3", "/usr/share/remarkable/carousel/sleep_Illustration_03.png"),
@@ -236,14 +236,120 @@ def friendly_mode_label(mode: str) -> str:
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+def new_device_id() -> str:
+    return str(uuid.uuid4())
+
+
+def device_credential_key(device: Dict) -> str:
+    return f"device:{device.get('id') or device.get('name', '')}"
+
+
+def find_device_by_id(config: Dict, device_id: str) -> Dict:
+    for device in config.get("devices", []):
+        if device.get("id") == device_id:
+            return device
+    return {}
+
+
+def find_device_by_name(config: Dict, name: str) -> Dict:
+    for device in config.get("devices", []):
+        if device.get("name") == name:
+            return device
+    return {}
+
+
+def active_device(config: Dict) -> Dict:
+    devices = config.get("devices", [])
+    if not devices:
+        return {}
+    device = find_device_by_id(config, config.get("active_device_id", ""))
+    if not device:
+        device = find_device_by_name(config, config.get("active_device", ""))
+    return device or devices[0]
+
+
+def normalise_config(config: Dict) -> Dict:
+    devices = config.get("devices") or []
+    for device in devices:
+        device.setdefault("id", new_device_id())
+
+    if devices:
+        active = active_device(config)
+        if not active:
+            active = devices[0]
+        config["active_device_id"] = active["id"]
+        config["active_device"] = active["name"]
+    return config
+
+
+def _device_merge_key(device: Dict) -> Tuple[str, str]:
+    return (
+        str(device.get("name", "")).strip().casefold(),
+        str(device.get("host", "")).strip(),
+    )
+
+
+def _has_only_default_device(config: Dict) -> bool:
+    devices = config.get("devices") or []
+    if len(devices) != 1:
+        return False
+    device = devices[0]
+    return (
+        device.get("name") == "默认设备"
+        and device.get("host") == "10.11.99.1"
+        and device.get("mode", "usb") == "usb"
+    )
+
+
+def _merge_legacy_devices(config: Dict, legacy_config: Dict) -> bool:
+    if config.get("legacy_devices_imported"):
+        return False
+    if not _has_only_default_device(config):
+        return False
+    legacy_devices = legacy_config.get("devices") or []
+    if not legacy_devices:
+        return False
+
+    devices = config.setdefault("devices", [])
+    seen = {_device_merge_key(device) for device in devices}
+    added = False
+    for legacy_device in legacy_devices:
+        key = _device_merge_key(legacy_device)
+        if key in seen:
+            continue
+        merged = {
+            "id": str(legacy_device.get("id") or new_device_id()),
+            "name": legacy_device.get("name", "未命名设备"),
+            "mode": legacy_device.get("mode", "usb"),
+            "host": legacy_device.get("host", "10.11.99.1"),
+            "type": legacy_device.get("type", "reMarkable Paper Pro"),
+        }
+        devices.append(merged)
+        seen.add(_device_merge_key(merged))
+        added = True
+
+    if not added:
+        return False
+
+    legacy_active = legacy_config.get("active_device", "")
+    active = find_device_by_name(config, legacy_active)
+    if active:
+        config["active_device_id"] = active["id"]
+        config["active_device"] = active["name"]
+    config["legacy_devices_imported"] = True
+    return True
+
+
 def _default_config() -> Dict:
     first_device = {
+        "id": new_device_id(),
         "name": "默认设备",
         "mode": "usb",
         "host": "10.11.99.1",
         "type": "reMarkable Paper Pro",
     }
     return {
+        "active_device_id": first_device["id"],
         "active_device": first_device["name"],
         "devices": [first_device],
         "paths": {
@@ -257,11 +363,20 @@ def load_config() -> Dict:
     source_path: Optional[Path] = None
     preferred_path = config_path()
     legacy_path = legacy_config_path()
+    needs_save = False
 
     if preferred_path.exists():
         source_path = preferred_path
     elif legacy_path.exists():
         source_path = legacy_path
+
+    legacy_config_for_merge = None
+    if source_path == preferred_path and legacy_path.exists():
+        try:
+            with legacy_path.open("r", encoding="utf-8") as fh:
+                legacy_config_for_merge = json.load(fh)
+        except (OSError, ValueError):
+            legacy_config_for_merge = None
 
     if source_path:
         with source_path.open("r", encoding="utf-8") as fh:
@@ -275,12 +390,14 @@ def load_config() -> Dict:
         mode = connection.get("mode", "usb")
         host = connection.get(mode, {}).get("host", "10.11.99.1")
         migrated = {
+            "id": new_device_id(),
             "name": "默认设备",
             "mode": mode,
             "host": host,
             "type": "reMarkable Paper Pro",
         }
         config = {
+            "active_device_id": migrated["id"],
             "active_device": migrated["name"],
             "devices": [migrated],
             "paths": config.get(
@@ -291,27 +408,45 @@ def load_config() -> Dict:
                 },
             ),
         }
+        needs_save = True
 
     # Ensure defaults exist
     if "devices" not in config or not config["devices"]:
         config = _default_config()
+        needs_save = True
     if "active_device" not in config:
         config["active_device"] = config["devices"][0]["name"]
+        needs_save = True
     if "paths" not in config:
         config["paths"] = {
             "font": DEFAULT_FONT_DIR,
             "wallpaper": "/usr/share/remarkable/suspended.png",
         }
+        needs_save = True
     else:
-        config["paths"].setdefault("font", DEFAULT_FONT_DIR)
-        config["paths"].setdefault("wallpaper", "/usr/share/remarkable/suspended.png")
+        if "font" not in config["paths"]:
+            config["paths"]["font"] = DEFAULT_FONT_DIR
+            needs_save = True
+        if "wallpaper" not in config["paths"]:
+            config["paths"]["wallpaper"] = "/usr/share/remarkable/suspended.png"
+            needs_save = True
 
     # Migrate legacy font directory to persistent location
     font_path = config.get("paths", {}).get("font")
     if not font_path or font_path == LEGACY_FONT_DIR:
         config["paths"]["font"] = DEFAULT_FONT_DIR
+        needs_save = True
 
-    if source_path == legacy_path:
+    before_normalise = json.dumps(config, sort_keys=True, ensure_ascii=False)
+    normalise_config(config)
+    if json.dumps(config, sort_keys=True, ensure_ascii=False) != before_normalise:
+        needs_save = True
+
+    if legacy_config_for_merge and _merge_legacy_devices(config, legacy_config_for_merge):
+        normalise_config(config)
+        needs_save = True
+
+    if source_path == legacy_path or (source_path and needs_save):
         save_config(config)
     return config
 
@@ -650,10 +785,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.documents_tab.summary_changed.connect(self.dashboard_tab.update_documents)
 
         # Initialize wallpaper profile preview
-        initial_device = next(
-            (d for d in self.config.get("devices", []) if d["name"] == self.config.get("active_device")),
-            self.config.get("devices", [])[0],
-        )
+        initial_device = active_device(self.config)
         self.wallpaper_tab.update_device(initial_device)
         self.dashboard_tab.update_device(initial_device)
         self.dashboard_tab.update_documents(self.documents_tab.current_summary())
