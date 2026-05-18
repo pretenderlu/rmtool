@@ -537,25 +537,245 @@ class RequireConnectionDecoratorTests(unittest.TestCase):
 
 
 class PasswordPreferenceTests(unittest.TestCase):
+    def test_connection_password_prompt_allows_remember_choice_without_keyring(self):
+        config = rmtool._default_config()
+        ssh_client = FakeConnectionClient()
+
+        with mock.patch.object(rmtool, "save_config"), mock.patch.object(
+            rmtool, "keyring", None
+        ):
+            widget = rmtool.ConnectionWidget(ssh_client, config)
+            self.addCleanup(widget.deleteLater)
+            dialog, controls = widget._make_password_dialog(config["devices"][0])
+
+        self.assertTrue(controls["remember"].isEnabled())
+        self.assertFalse(controls["remember"].isChecked())
+
+    def test_edit_device_stores_password_when_remember_is_checked(self):
+        config = rmtool._default_config()
+        ssh_client = FakeConnectionClient()
+        fake_keyring = mock.Mock()
+        fake_keyring.get_password.return_value = ""
+        credential_key = f"device:{config['devices'][0]['id']}"
+
+        with mock.patch.object(rmtool, "save_config"), mock.patch.object(
+            rmtool, "keyring", fake_keyring
+        ), mock.patch.object(
+            rmtool.ConnectionWidget,
+            "_request_edit_device",
+            return_value={
+                "name": "默认设备",
+                "mode": "usb",
+                "host": "10.11.99.1",
+                "type": "reMarkable Paper Pro",
+                "password": "secret",
+                "remember_password": True,
+            },
+        ):
+            widget = rmtool.ConnectionWidget(ssh_client, config)
+            self.addCleanup(widget.deleteLater)
+
+            widget._edit_device()
+
+        fake_keyring.set_password.assert_called_once_with(
+            rmtool.KEYRING_SERVICE, credential_key, "secret"
+        )
+
+    def test_missing_keyring_warning_unchecks_remember_preference(self):
+        config = rmtool._default_config()
+        ssh_client = FakeConnectionClient()
+
+        with mock.patch.object(rmtool, "save_config"), mock.patch.object(
+            rmtool, "keyring", None
+        ), mock.patch.object(_tab_connection, "show_warning") as warning:
+            widget = rmtool.ConnectionWidget(ssh_client, config)
+            self.addCleanup(widget.deleteLater)
+
+            self.assertFalse(widget._sync_password_preference(config["devices"][0], "secret", True))
+
+        warning.assert_called_once()
+        self.assertIn("不支持", widget.credential_status_label.text())
+
     def test_disabling_remember_password_deletes_stored_secret(self):
         config = rmtool._default_config()
         ssh_client = FakeConnectionClient()
         fake_keyring = mock.Mock()
         fake_keyring.get_password.return_value = "old-secret"
+        credential_key = f"device:{config['devices'][0]['id']}"
 
         with mock.patch.object(rmtool, "save_config"), mock.patch.object(
             rmtool, "keyring", fake_keyring
         ):
             widget = rmtool.ConnectionWidget(ssh_client, config)
-            widget._sync_password_preference("Device A", "secret", False)
+            widget._sync_password_preference(config["devices"][0], "secret", False)
 
         fake_keyring.delete_password.assert_called_once_with(
-            rmtool.KEYRING_SERVICE, "Device A"
+            rmtool.KEYRING_SERVICE, credential_key
         )
         fake_keyring.set_password.assert_not_called()
 
+    def test_legacy_name_password_is_migrated_to_device_credential_key(self):
+        config = rmtool._default_config()
+        device = config["devices"][0]
+        credential_key = f"device:{device['id']}"
+        fake_keyring = mock.Mock()
+        fake_keyring.get_password.side_effect = lambda _service, account: (
+            "old-secret" if account == device["name"] else None
+        )
+
+        with mock.patch.object(rmtool, "save_config"), mock.patch.object(
+            rmtool, "keyring", fake_keyring
+        ):
+            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
+            self.addCleanup(widget.deleteLater)
+
+        self.assertIn("已保存", widget.credential_status_label.text())
+        fake_keyring.set_password.assert_called_once_with(
+            rmtool.KEYRING_SERVICE, credential_key, "old-secret"
+        )
+        fake_keyring.delete_password.assert_called_once_with(
+            rmtool.KEYRING_SERVICE, device["name"]
+        )
+
+    def test_saved_password_status_is_visible_and_forgettable(self):
+        config = rmtool._default_config()
+        device = config["devices"][0]
+        credential_key = f"device:{device['id']}"
+        fake_keyring = mock.Mock()
+        fake_keyring.get_password.side_effect = lambda _service, account: (
+            "secret" if account == credential_key else None
+        )
+
+        with mock.patch.object(rmtool, "save_config"), mock.patch.object(
+            rmtool, "keyring", fake_keyring
+        ):
+            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
+            self.addCleanup(widget.deleteLater)
+
+            self.assertIn("已保存", widget.credential_status_label.text())
+            self.assertTrue(widget.forget_password_button.isEnabled())
+            widget.forget_password_button.click()
+
+        fake_keyring.delete_password.assert_called_once_with(
+            rmtool.KEYRING_SERVICE, credential_key
+        )
+        self.assertIn("未保存", widget.credential_status_label.text())
+        self.assertFalse(widget.forget_password_button.isEnabled())
+
+    def test_missing_keyring_status_explains_unavailable_password_storage(self):
+        config = rmtool._default_config()
+
+        with mock.patch.object(rmtool, "save_config"), mock.patch.object(
+            rmtool, "keyring", None
+        ):
+            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
+            self.addCleanup(widget.deleteLater)
+
+        self.assertIn("不支持", widget.credential_status_label.text())
+        self.assertFalse(widget.forget_password_button.isEnabled())
+
 
 class ConnectionSidebarUiTests(unittest.TestCase):
+    def test_sidebar_uses_dialogs_instead_of_inline_device_form(self):
+        widget = rmtool.ConnectionWidget(FakeConnectionClient(), rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+
+        labels = {label.text() for label in widget.findChildren(QtWidgets.QLabel)}
+        checkboxes = {checkbox.text() for checkbox in widget.findChildren(QtWidgets.QCheckBox)}
+        radios = {radio.text() for radio in widget.findChildren(QtWidgets.QRadioButton)}
+        buttons = {button.text() for button in widget.findChildren(QtWidgets.QToolButton)}
+
+        self.assertNotIn("地址", labels)
+        self.assertNotIn("设备类型", labels)
+        self.assertNotIn("密码", labels)
+        self.assertNotIn("记住密码", checkboxes)
+        self.assertNotIn("USB", radios)
+        self.assertNotIn("WiFi", radios)
+        self.assertIn("编辑", buttons)
+        self.assertNotIn("保存", buttons)
+
+    def test_device_dialog_button_row_has_visual_margins(self):
+        widget = rmtool.ConnectionWidget(FakeConnectionClient(), rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+
+        dialog, _controls = widget._make_device_details_dialog("新增设备")
+        button_frame = dialog.findChild(QtWidgets.QWidget, "deviceDialogButtonFrame")
+        margins = button_frame.layout().contentsMargins()
+
+        self.assertGreaterEqual(margins.left(), 16)
+        self.assertGreaterEqual(margins.right(), 16)
+        self.assertGreaterEqual(margins.bottom(), 16)
+
+    def test_add_device_dialog_result_creates_full_device_and_stores_password(self):
+        config = rmtool._default_config()
+        fake_keyring = mock.Mock()
+        fake_keyring.get_password.return_value = ""
+
+        with mock.patch.object(rmtool.uuid, "uuid4", return_value="new-device-id"), mock.patch.object(
+            rmtool, "save_config"
+        ) as save_config, mock.patch.object(rmtool, "keyring", fake_keyring), mock.patch.object(
+            rmtool.ConnectionWidget,
+            "_request_new_device",
+            return_value={
+                "name": "Paper Pro",
+                "mode": "wifi",
+                "host": "192.168.1.88",
+                "type": "reMarkable Paper Pro",
+                "password": "secret",
+                "remember_password": True,
+            },
+        ):
+            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
+            self.addCleanup(widget.deleteLater)
+
+            widget._add_device()
+
+        created = config["devices"][-1]
+        self.assertEqual(created["id"], "new-device-id")
+        self.assertEqual(created["name"], "Paper Pro")
+        self.assertEqual(created["mode"], "wifi")
+        self.assertEqual(created["host"], "192.168.1.88")
+        self.assertEqual(config["active_device_id"], "new-device-id")
+        self.assertEqual(widget.device_combo.currentText(), "Paper Pro")
+        fake_keyring.set_password.assert_called_once_with(
+            rmtool.KEYRING_SERVICE,
+            "device:new-device-id",
+            "secret",
+        )
+        self.assertGreaterEqual(save_config.call_count, 1)
+
+    def test_edit_device_dialog_updates_current_device(self):
+        config = rmtool._default_config()
+        fake_keyring = mock.Mock()
+        fake_keyring.get_password.return_value = ""
+
+        with mock.patch.object(rmtool, "save_config") as save_config, mock.patch.object(
+            rmtool, "keyring", fake_keyring
+        ), mock.patch.object(
+            rmtool.ConnectionWidget,
+            "_request_edit_device",
+            return_value={
+                "name": "Updated",
+                "mode": "wifi",
+                "host": "192.168.1.99",
+                "type": "reMarkable 2",
+                "password": "",
+                "remember_password": False,
+            },
+        ):
+            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
+            self.addCleanup(widget.deleteLater)
+
+            widget._edit_device()
+
+        device = config["devices"][0]
+        self.assertEqual(device["name"], "Updated")
+        self.assertEqual(device["mode"], "wifi")
+        self.assertEqual(device["host"], "192.168.1.99")
+        self.assertEqual(device["type"], "reMarkable 2")
+        self.assertEqual(config["active_device"], "Updated")
+        self.assertGreaterEqual(save_config.call_count, 1)
+
     def test_selecting_device_updates_summary_card_and_primary_action_text(self):
         config = {
             "active_device": "Device A",
@@ -603,17 +823,26 @@ class ConnectionSidebarUiTests(unittest.TestCase):
         self.assertTrue(widget.device_meta_label.wordWrap())
         self.assertTrue(widget.device_host_label.wordWrap())
         self.assertEqual(widget.connect_button.text(), "连接设备")
-        self.assertEqual(widget.device_type_combo.currentText(), "Paper Pro")
-        self.assertLessEqual(widget.device_type_combo.minimumSizeHint().width(), 220)
         self.assertLessEqual(widget.minimumSizeHint().width(), 320)
 
-    def test_save_device_emits_non_modal_status_message(self):
+    def test_edit_device_emits_non_modal_status_message(self):
         widget = rmtool.ConnectionWidget(FakeConnectionClient(), rmtool._default_config())
         received = []
         widget.status_message.connect(lambda level, text, timeout: received.append((level, text, timeout)))
 
-        widget.host_edit.setText("10.11.99.9")
-        widget._save_device()
+        with mock.patch.object(
+            widget,
+            "_request_edit_device",
+            return_value={
+                "name": "默认设备",
+                "mode": "usb",
+                "host": "10.11.99.9",
+                "type": "reMarkable Paper Pro",
+                "password": "",
+                "remember_password": False,
+            },
+        ):
+            widget._edit_device()
 
         self.assertEqual(received, [("info", "已保存“默认设备”的连接配置。", 3000)])
 
@@ -1172,6 +1401,118 @@ class ExecCheckedContractTests(unittest.TestCase):
 
 
 class ConfigMigrationTests(unittest.TestCase):
+    def test_default_config_assigns_stable_device_id(self):
+        config = rmtool._default_config()
+
+        self.assertTrue(config["devices"][0]["id"])
+        self.assertEqual(config["active_device_id"], config["devices"][0]["id"])
+
+    def test_load_config_adds_missing_device_ids_and_active_device_id(self):
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_root = Path(temp_root)
+            app_state = temp_root / "appstate"
+            app_state.mkdir()
+            config = {
+                "active_device": "Device B",
+                "devices": [
+                    {"name": "Device A", "mode": "usb", "host": "10.11.99.1", "type": "reMarkable 2"},
+                    {"name": "Device B", "mode": "wifi", "host": "192.168.1.23", "type": "reMarkable Paper Pro"},
+                ],
+                "paths": {
+                    "font": rmtool.DEFAULT_FONT_DIR,
+                    "wallpaper": "/usr/share/remarkable/suspended.png",
+                },
+            }
+            (app_state / "config.json").write_text(
+                json.dumps(config, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            ids = iter(["device-a", "device-b"])
+            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state), mock.patch.object(
+                rmtool.uuid, "uuid4", side_effect=lambda: next(ids)
+            ):
+                loaded = rmtool.load_config()
+
+        self.assertEqual([device["id"] for device in loaded["devices"]], ["device-a", "device-b"])
+        self.assertEqual(loaded["active_device_id"], "device-b")
+        self.assertEqual(loaded["active_device"], "Device B")
+
+    def test_load_config_merges_legacy_devices_when_app_state_has_only_default(self):
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_root = Path(temp_root)
+            app_state = temp_root / "appstate"
+            legacy_dir = temp_root / "legacy"
+            app_state.mkdir()
+            legacy_dir.mkdir()
+            app_config = rmtool._default_config()
+            legacy_config = {
+                "active_device": "Paper Pro",
+                "devices": [
+                    {"name": "默认设备", "mode": "usb", "host": "10.11.99.1", "type": "reMarkable Paper Pro"},
+                    {"name": "Paper Pro", "mode": "wifi", "host": "192.168.1.88", "type": "reMarkable Paper Pro"},
+                    {"name": "RM2", "mode": "wifi", "host": "192.168.1.89", "type": "reMarkable 2"},
+                ],
+                "paths": {
+                    "font": rmtool.DEFAULT_FONT_DIR,
+                    "wallpaper": "/usr/share/remarkable/suspended.png",
+                },
+            }
+            (app_state / "config.json").write_text(
+                json.dumps(app_config, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (legacy_dir / "config.json").write_text(
+                json.dumps(legacy_config, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state):
+                with temporary_cwd(legacy_dir):
+                    loaded = rmtool.load_config()
+
+            names = [device["name"] for device in loaded["devices"]]
+            self.assertEqual(names, ["默认设备", "Paper Pro", "RM2"])
+            self.assertEqual(loaded["active_device"], "Paper Pro")
+            self.assertTrue(loaded["legacy_devices_imported"])
+            saved = json.loads((app_state / "config.json").read_text(encoding="utf-8"))
+            self.assertEqual([device["name"] for device in saved["devices"]], names)
+
+    def test_load_config_does_not_reimport_legacy_devices_after_import_marker(self):
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_root = Path(temp_root)
+            app_state = temp_root / "appstate"
+            legacy_dir = temp_root / "legacy"
+            app_state.mkdir()
+            legacy_dir.mkdir()
+            app_config = rmtool._default_config()
+            app_config["legacy_devices_imported"] = True
+            legacy_config = {
+                "active_device": "Paper Pro",
+                "devices": [
+                    {"name": "默认设备", "mode": "usb", "host": "10.11.99.1", "type": "reMarkable Paper Pro"},
+                    {"name": "Paper Pro", "mode": "wifi", "host": "192.168.1.88", "type": "reMarkable Paper Pro"},
+                ],
+                "paths": {
+                    "font": rmtool.DEFAULT_FONT_DIR,
+                    "wallpaper": "/usr/share/remarkable/suspended.png",
+                },
+            }
+            (app_state / "config.json").write_text(
+                json.dumps(app_config, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (legacy_dir / "config.json").write_text(
+                json.dumps(legacy_config, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state):
+                with temporary_cwd(legacy_dir):
+                    loaded = rmtool.load_config()
+
+        self.assertEqual([device["name"] for device in loaded["devices"]], ["默认设备"])
+
     def test_load_config_prefers_app_state_file_over_legacy_file(self):
         with tempfile.TemporaryDirectory() as temp_root:
             temp_root = Path(temp_root)
@@ -1182,8 +1523,10 @@ class ConfigMigrationTests(unittest.TestCase):
 
             preferred_config = rmtool._default_config()
             preferred_config["active_device"] = "App Device"
+            preferred_config["devices"][0]["name"] = "App Device"
             legacy_config = rmtool._default_config()
             legacy_config["active_device"] = "Legacy Device"
+            legacy_config["devices"][0]["name"] = "Legacy Device"
 
             (app_state / "config.json").write_text(
                 json.dumps(preferred_config, ensure_ascii=False),
@@ -1210,6 +1553,7 @@ class ConfigMigrationTests(unittest.TestCase):
 
             legacy_config = rmtool._default_config()
             legacy_config["active_device"] = "Migrated Device"
+            legacy_config["devices"][0]["name"] = "Migrated Device"
             legacy_config["theme"] = "light"
             (legacy_dir / "config.json").write_text(
                 json.dumps(legacy_config, ensure_ascii=False),

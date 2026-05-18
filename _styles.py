@@ -418,6 +418,16 @@ QStatusBar#appStatusBar[level="error"] {
     font-size: 14px;
     font-weight: 600;
 }
+#credentialStatusLabel {
+    color: #8890A8;
+    font-size: 13px;
+    font-weight: 600;
+}
+#forgetPasswordButton {
+    padding: 5px 8px;
+    font-size: 12px;
+    border-radius: 7px;
+}
 
 #documentsSummaryLabel {
     color: #A0AACC;
@@ -1111,6 +1121,16 @@ QStatusBar#appStatusBar[level="error"] { color: #C84A5A; }
     color: #3A3F50;
     font-size: 14px;
     font-weight: 600;
+}
+#credentialStatusLabel {
+    color: #6B7080;
+    font-size: 13px;
+    font-weight: 600;
+}
+#forgetPasswordButton {
+    padding: 5px 8px;
+    font-size: 12px;
+    border-radius: 7px;
 }
 
 #documentsSummaryLabel {
