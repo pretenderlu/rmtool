@@ -4,10 +4,12 @@ import json
 import logging
 import os
 import posixpath
+import shlex
 import shutil
 import tempfile
 from datetime import datetime
 from typing import Dict, Optional
+from xml.sax.saxutils import escape
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5 import QtWebEngineWidgets
@@ -15,6 +17,10 @@ from PyQt5 import QtWebEngineWidgets
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
 from _ssh import SSHClientWrapper, remount_rw, require_connection
 import rmtool as _rmtool  # late-bound access to avoid circular import
+
+
+FONTCONFIG_DIR = "/home/root/.config/fontconfig"
+FONTCONFIG_FILE = posixpath.join(FONTCONFIG_DIR, "fonts.conf")
 
 
 class FontTab(QtWidgets.QWidget):
@@ -25,6 +31,7 @@ class FontTab(QtWidgets.QWidget):
         self.thread_pool = QtCore.QThreadPool.globalInstance()
         self._font_progress: Optional[QtWidgets.QProgressDialog] = None
         self._selected_font_path: Optional[str] = None
+        self._selected_font_family: Optional[str] = None
         self._preview_font_id = -1
 
         self.font_path_label = QtWidgets.QLabel("未选择文件")
@@ -92,6 +99,7 @@ class FontTab(QtWidgets.QWidget):
         families = QtGui.QFontDatabase.applicationFontFamilies(preview_font_id) if preview_font_id != -1 else []
         if preview_font_id == -1 or not families:
             self._selected_font_path = None
+            self._selected_font_family = None
             self._reset_font_preview("无法预览所选字体，请重新选择有效字体文件。")
             show_warning(self, _rmtool.APP_NAME, "无法加载所选字体的本地预览。")
             self._update_target_name_label()
@@ -100,6 +108,7 @@ class FontTab(QtWidgets.QWidget):
         self._selected_font_path = file_path
         self._preview_font_id = preview_font_id
         preview_family = families[0]
+        self._selected_font_family = preview_family
         self.preview_title_label.setText(f"{preview_family} 预览")
         preview_font = QtGui.QFont(preview_family, 18)
         preview_font.setStyleStrategy(QtGui.QFont.PreferAntialias)
@@ -115,6 +124,7 @@ class FontTab(QtWidgets.QWidget):
             return
         file_path = self._selected_font_path
         new_name = self._target_font_name()
+        font_family = self._selected_font_family or ""
 
         self.select_button.setEnabled(False)
         self.upload_button.setEnabled(False)
@@ -126,7 +136,7 @@ class FontTab(QtWidgets.QWidget):
         progress.show()
         self._font_progress = progress
 
-        worker = _rmtool.Worker(self._upload_font, file_path, new_name)
+        worker = _rmtool.Worker(self._upload_font, file_path, new_name, font_family)
 
         def on_finished(_: object):
             self._close_font_progress()
@@ -186,16 +196,44 @@ class FontTab(QtWidgets.QWidget):
             QtGui.QFontDatabase.removeApplicationFont(self._preview_font_id)
             self._preview_font_id = -1
 
-    def _upload_font(self, file_path: str, new_name: str):
+    @staticmethod
+    def _fontconfig_override(font_family: str) -> str:
+        escaped_family = escape(font_family)
+        return f"""<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <!-- ponytail: user-level CJK override; remove this file to restore system Noto CJK. -->
+  <alias binding="strong">
+    <family>sans-serif</family>
+    <prefer><family>{escaped_family}</family></prefer>
+  </alias>
+  <alias binding="strong">
+    <family>Noto Sans SC</family>
+    <prefer><family>{escaped_family}</family></prefer>
+  </alias>
+</fontconfig>
+"""
+
+    def _upload_font(self, file_path: str, new_name: str, font_family: str):
         font_dir = self.config.get("paths", {}).get("font", _rmtool.DEFAULT_FONT_DIR)
         with tempfile.TemporaryDirectory() as tmpdir:
             temp_font_path = os.path.join(tmpdir, new_name)
+            temp_config_path = os.path.join(tmpdir, "fonts.conf")
             shutil.copy2(file_path, temp_font_path)
+            if font_family:
+                with open(temp_config_path, "w", encoding="utf-8") as config_file:
+                    config_file.write(self._fontconfig_override(font_family))
             with remount_rw(self.ssh_client):
-                self.ssh_client.exec_checked(f"mkdir -p {font_dir}")
+                self.ssh_client.exec_checked(f"mkdir -p {shlex.quote(font_dir)}")
                 remote_path = posixpath.join(font_dir, new_name)
                 self.ssh_client.transfer_file(temp_font_path, remote_path)
-                stdout = self.ssh_client.exec_checked(f"fc-cache -f -v {font_dir}")
+                cache_paths = [font_dir]
+                if font_family:
+                    self.ssh_client.exec_checked(f"mkdir -p {shlex.quote(FONTCONFIG_DIR)}")
+                    self.ssh_client.transfer_file(temp_config_path, FONTCONFIG_FILE)
+                    cache_paths.append(FONTCONFIG_DIR)
+                cache_args = " ".join(shlex.quote(path) for path in cache_paths)
+                stdout = self.ssh_client.exec_checked(f"fc-cache -f -v {cache_args}")
                 logging.info("fc-cache output: %s", stdout.strip())
 
 
