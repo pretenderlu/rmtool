@@ -221,6 +221,9 @@ class FakeTransferSSHClient:
     def sftp_session(self):
         yield self.sftp
 
+    def transfer_file(self, local_path, remote_path):
+        self.sftp.put(local_path, remote_path)
+
     def exec_checked(self, command):
         self.exec_calls.append(command)
         if command.startswith("df -Pk "):
@@ -1133,8 +1136,42 @@ class FontUiTests(unittest.TestCase):
             widget._upload_selected_font()
 
         progress_dialog.assert_called_once()
-        worker_cls.assert_called_once_with(widget._upload_font, str(font_path), rmtool.DEFAULT_FONT_NAME)
+        worker_cls.assert_called_once_with(
+            widget._upload_font,
+            str(font_path),
+            rmtool.DEFAULT_FONT_NAME,
+            "Preview Family",
+        )
         start_worker.assert_called_once_with(worker_instance)
+
+    def test_font_upload_installs_user_fontconfig_override(self):
+        ssh_client = FakeTransferSSHClient()
+        widget = rmtool.FontTab(ssh_client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+
+        with tempfile.TemporaryDirectory() as temp_root:
+            font_path = Path(temp_root) / "preview-font.ttf"
+            font_path.write_bytes(b"fake-font")
+
+            widget._upload_font(str(font_path), rmtool.DEFAULT_FONT_NAME, "Preview Family")
+
+        self.assertEqual(
+            ssh_client.sftp.uploaded_files[
+                f"{rmtool.DEFAULT_FONT_DIR}{rmtool.DEFAULT_FONT_NAME}"
+            ],
+            b"fake-font",
+        )
+        config = ssh_client.sftp.uploaded_files["/home/root/.config/fontconfig/fonts.conf"].decode(
+            "utf-8"
+        )
+        self.assertIn("<family>sans-serif</family>", config)
+        self.assertIn("<family>Noto Sans SC</family>", config)
+        self.assertIn("<prefer><family>Preview Family</family></prefer>", config)
+        self.assertIn("mkdir -p /home/root/.config/fontconfig", ssh_client.exec_calls)
+        self.assertIn(
+            "fc-cache -f -v /home/root/.local/share/fonts/ /home/root/.config/fontconfig",
+            ssh_client.exec_calls,
+        )
 
 
 class MainWindowUiTests(unittest.TestCase):
