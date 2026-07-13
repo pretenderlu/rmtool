@@ -21,11 +21,6 @@ import paramiko
 from PIL import Image
 from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 
-try:  # Optional dependency for secure credential storage
-    import keyring
-except Exception:  # pragma: no cover - optional dependency
-    keyring = None
-
 
 APP_NAME = "reMarkable 管理工具"
 CONFIG_FILE = "devices.json"
@@ -34,7 +29,6 @@ GITHUB_MARK_PATH = "M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.5
 DEFAULT_FONT_NAME = "zwzt.ttf"
 DEFAULT_FONT_DIR = "/home/root/.local/share/fonts/"
 DOCUMENT_ROOT = "/home/root/.local/share/remarkable/xochitl"
-KEYRING_SERVICE = "rmtool"
 KNOWN_HOSTS_FILE = "known_hosts"
 TAB_PAGE_MARGIN = 16
 PANEL_GAP = 16
@@ -233,10 +227,6 @@ def friendly_mode_label(mode: str) -> str:
 # ---------------------------------------------------------------------------
 def new_device_id() -> str:
     return str(uuid.uuid4())
-
-
-def device_credential_key(device: Dict) -> str:
-    return f"device:{device.get('id') or device.get('name', '')}"
 
 
 def find_device_by_id(config: Dict, device_id: str) -> Dict:

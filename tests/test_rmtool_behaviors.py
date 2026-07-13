@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 import re
@@ -557,143 +558,212 @@ class RequireConnectionDecoratorTests(unittest.TestCase):
         self.assertEqual(calls, ["called"])
 
 
-class PasswordPreferenceTests(unittest.TestCase):
-    def test_connection_password_prompt_allows_remember_choice_without_keyring(self):
-        config = config_with_device()
-        ssh_client = FakeConnectionClient()
+class LocalCredentialTests(unittest.TestCase):
+    def test_remembered_password_is_stored_locally_with_exact_whitespace(self):
+        config = config_with_device(password=" secret ")
+        device = config["devices"][0]
 
-        with mock.patch.object(rmtool, "save_config"), mock.patch.object(
-            rmtool, "keyring", None
-        ):
+        with mock.patch.object(rmtool, "save_config") as save_config:
+            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
+            self.addCleanup(widget.deleteLater)
+
+            self.assertEqual(widget._load_password(device), " secret ")
+            device.pop("password")
+            save_config.reset_mock()
+            self.assertTrue(widget._store_password(device, " secret "))
+
+        self.assertEqual(device["password"], " secret ")
+        save_config.assert_called_once_with(config)
+        self.assertIn("项目本地文件", widget.credential_status_label.text())
+        self.assertTrue(widget.forget_password_button.isEnabled())
+
+    def test_disabling_remember_password_removes_device_password_and_saves(self):
+        config = config_with_device(id="local-disable", password="old-secret")
+        device = config["devices"][0]
+
+        with mock.patch.object(rmtool, "save_config") as save_config:
+            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
+            self.addCleanup(widget.deleteLater)
+
+            self.assertEqual(widget._load_password(device), "old-secret")
+            save_config.reset_mock()
+            self.assertTrue(widget._sync_password_preference(device, "ignored", False))
+
+        self.assertNotIn("password", device)
+        save_config.assert_called_once_with(config)
+        self.assertEqual(widget.credential_status_label.text(), "未保存")
+
+    def test_connect_uses_selected_device_stored_password(self):
+        config = config_with_device(id="local-connect", password=" stored secret ")
+
+        with mock.patch.object(rmtool, "save_config"):
+            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
+            self.addCleanup(widget.deleteLater)
+
+        self.assertEqual(widget._load_password(config["devices"][0]), " stored secret ")
+        with mock.patch.object(widget, "_begin_connection") as begin_connection:
+            widget._connect()
+
+        begin_connection.assert_called_once_with("10.11.99.1", " stored secret ", True)
+
+    def test_successful_connection_saves_complete_device_state_once(self):
+        config = config_with_device(
+            mode="wifi", host="192.168.1.10", password="old-secret"
+        )
+        ssh_client = FakeConnectionClient()
+        ssh_client.connect = mock.Mock()
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+        snapshots = []
+
+        with mock.patch.object(
+            rmtool,
+            "save_config",
+            side_effect=lambda value: snapshots.append(copy.deepcopy(value)),
+        ) as save_config:
             widget = rmtool.ConnectionWidget(ssh_client, config)
+            self.addCleanup(widget.deleteLater)
+            save_config.reset_mock()
+            snapshots.clear()
+
+            with mock.patch.object(
+                rmtool, "Worker", return_value=worker
+            ), mock.patch.object(QtWidgets, "QProgressDialog"), mock.patch.object(
+                widget.thread_pool, "start"
+            ):
+                widget._begin_connection(
+                    "192.168.1.99", " new secret ", True
+                )
+                worker.signals.finished.connect.call_args.args[0](None)
+
+        self.assertEqual(save_config.call_count, 1)
+        self.assertEqual(snapshots, [config])
+        self.assertEqual(
+            snapshots[0]["devices"][0],
+            {
+                "id": "device-a",
+                "name": "Device A",
+                "mode": "wifi",
+                "host": "192.168.1.99",
+                "type": "reMarkable Paper Pro",
+                "password": " new secret ",
+            },
+        )
+
+    def test_connection_password_dialog_defaults_to_remember_checked(self):
+        config = config_with_device()
+
+        with mock.patch.object(rmtool, "save_config"):
+            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
             self.addCleanup(widget.deleteLater)
             dialog, controls = widget._make_password_dialog(config["devices"][0])
+            self.addCleanup(dialog.deleteLater)
 
         self.assertTrue(controls["remember"].isEnabled())
-        self.assertFalse(controls["remember"].isChecked())
+        self.assertTrue(controls["remember"].isChecked())
 
-    def test_edit_device_stores_password_when_remember_is_checked(self):
+    def test_device_dialog_remember_default_reflects_saved_password(self):
         config = config_with_device()
-        ssh_client = FakeConnectionClient()
-        fake_keyring = mock.Mock()
-        fake_keyring.get_password.return_value = ""
-        credential_key = f"device:{config['devices'][0]['id']}"
 
-        with mock.patch.object(rmtool, "save_config"), mock.patch.object(
-            rmtool, "keyring", fake_keyring
+        with mock.patch.object(rmtool, "save_config"):
+            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
+            self.addCleanup(widget.deleteLater)
+            new_dialog, new_controls = widget._make_device_details_dialog("新增设备")
+            saved_dialog, saved_controls = widget._make_device_details_dialog(
+                "编辑设备", {**config["devices"][0], "password": "secret"}
+            )
+            empty_dialog, empty_controls = widget._make_device_details_dialog(
+                "编辑设备", config["devices"][0]
+            )
+            for dialog in (new_dialog, saved_dialog, empty_dialog):
+                self.addCleanup(dialog.deleteLater)
+
+        self.assertTrue(new_controls["remember"].isEnabled())
+        self.assertTrue(new_controls["remember"].isChecked())
+        self.assertTrue(saved_controls["remember"].isChecked())
+        self.assertFalse(empty_controls["remember"].isChecked())
+
+    def test_empty_device_list_disables_device_actions(self):
+        config = rmtool._default_config()
+        with mock.patch.object(
+            rmtool.ConnectionWidget, "_on_device_selected"
+        ) as device_selected:
+            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
+            self.addCleanup(widget.deleteLater)
+
+        device_selected.assert_not_called()
+        self.assertEqual(widget.device_combo.count(), 0)
+        self.assertFalse(widget.connect_button.isEnabled())
+        self.assertFalse(widget.edit_device_button.isEnabled())
+        self.assertFalse(widget.remove_device_button.isEnabled())
+        self.assertEqual(widget.device_title_label.text(), "未选择设备")
+        self.assertEqual(widget.credential_status_label.text(), "未保存")
+
+        widget._on_connection_changed(False)
+        self.assertFalse(widget.connect_button.isEnabled())
+        widget._teardown_connection_progress()
+        self.assertFalse(widget.connect_button.isEnabled())
+
+    def test_disconnect_signal_during_active_worker_keeps_connect_disabled(self):
+        config = config_with_device()
+
+        with mock.patch.object(rmtool, "save_config"):
+            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
+            self.addCleanup(widget.deleteLater)
+
+        widget._active_connection_worker = object()
+        widget.connect_button.setEnabled(False)
+        widget._on_connection_changed(False)
+
+        self.assertFalse(widget.connect_button.isEnabled())
+
+    def test_last_connected_device_can_be_removed(self):
+        config = config_with_device(password="secret")
+        ssh_client = FakeConnectionClient(
+            connected=True, device_name="Device A", host="10.11.99.1"
+        )
+
+        with mock.patch.object(rmtool, "save_config"):
+            widget = rmtool.ConnectionWidget(ssh_client, config)
+            self.addCleanup(widget.deleteLater)
+
+        events = []
+        snapshots = []
+        real_close = ssh_client.close
+
+        def record_close():
+            events.append("close")
+            real_close()
+
+        def record_save(value):
+            events.append("save")
+            snapshots.append(copy.deepcopy(value))
+
+        with mock.patch.object(
+            ssh_client, "close", side_effect=record_close
+        ) as close_connection, mock.patch.object(
+            rmtool, "save_config", side_effect=record_save
+        ) as save_config, mock.patch.object(
+            _tab_connection, "ask_confirmation", return_value=True
         ), mock.patch.object(
-            rmtool.ConnectionWidget,
-            "_request_edit_device",
-            return_value={
-                "name": "默认设备",
-                "mode": "usb",
-                "host": "10.11.99.1",
-                "type": "reMarkable Paper Pro",
-                "password": "secret",
-                "remember_password": True,
-            },
-        ):
-            widget = rmtool.ConnectionWidget(ssh_client, config)
-            self.addCleanup(widget.deleteLater)
+            _tab_connection, "show_warning"
+        ) as warning:
+            widget._remove_device()
 
-            widget._edit_device()
-
-        fake_keyring.set_password.assert_called_once_with(
-            rmtool.KEYRING_SERVICE, credential_key, "secret"
-        )
-
-    def test_missing_keyring_warning_unchecks_remember_preference(self):
-        config = config_with_device()
-        ssh_client = FakeConnectionClient()
-
-        with mock.patch.object(rmtool, "save_config"), mock.patch.object(
-            rmtool, "keyring", None
-        ), mock.patch.object(_tab_connection, "show_warning") as warning:
-            widget = rmtool.ConnectionWidget(ssh_client, config)
-            self.addCleanup(widget.deleteLater)
-
-            self.assertFalse(widget._sync_password_preference(config["devices"][0], "secret", True))
-
-        warning.assert_called_once()
-        self.assertIn("不支持", widget.credential_status_label.text())
-
-    def test_disabling_remember_password_deletes_stored_secret(self):
-        config = config_with_device()
-        ssh_client = FakeConnectionClient()
-        fake_keyring = mock.Mock()
-        fake_keyring.get_password.return_value = "old-secret"
-        credential_key = f"device:{config['devices'][0]['id']}"
-
-        with mock.patch.object(rmtool, "save_config"), mock.patch.object(
-            rmtool, "keyring", fake_keyring
-        ):
-            widget = rmtool.ConnectionWidget(ssh_client, config)
-            widget._sync_password_preference(config["devices"][0], "secret", False)
-
-        fake_keyring.delete_password.assert_called_once_with(
-            rmtool.KEYRING_SERVICE, credential_key
-        )
-        fake_keyring.set_password.assert_not_called()
-
-    def test_legacy_name_password_is_migrated_to_device_credential_key(self):
-        config = config_with_device()
-        device = config["devices"][0]
-        credential_key = f"device:{device['id']}"
-        fake_keyring = mock.Mock()
-        fake_keyring.get_password.side_effect = lambda _service, account: (
-            "old-secret" if account == device["name"] else None
-        )
-
-        with mock.patch.object(rmtool, "save_config"), mock.patch.object(
-            rmtool, "keyring", fake_keyring
-        ):
-            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
-            self.addCleanup(widget.deleteLater)
-
-        self.assertIn("已保存", widget.credential_status_label.text())
-        fake_keyring.set_password.assert_called_once_with(
-            rmtool.KEYRING_SERVICE, credential_key, "old-secret"
-        )
-        fake_keyring.delete_password.assert_called_once_with(
-            rmtool.KEYRING_SERVICE, device["name"]
-        )
-
-    def test_saved_password_status_is_visible_and_forgettable(self):
-        config = config_with_device()
-        device = config["devices"][0]
-        credential_key = f"device:{device['id']}"
-        fake_keyring = mock.Mock()
-        fake_keyring.get_password.side_effect = lambda _service, account: (
-            "secret" if account == credential_key else None
-        )
-
-        with mock.patch.object(rmtool, "save_config"), mock.patch.object(
-            rmtool, "keyring", fake_keyring
-        ):
-            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
-            self.addCleanup(widget.deleteLater)
-
-            self.assertIn("已保存", widget.credential_status_label.text())
-            self.assertTrue(widget.forget_password_button.isEnabled())
-            widget.forget_password_button.click()
-
-        fake_keyring.delete_password.assert_called_once_with(
-            rmtool.KEYRING_SERVICE, credential_key
-        )
-        self.assertIn("未保存", widget.credential_status_label.text())
-        self.assertFalse(widget.forget_password_button.isEnabled())
-
-    def test_missing_keyring_status_explains_unavailable_password_storage(self):
-        config = config_with_device()
-
-        with mock.patch.object(rmtool, "save_config"), mock.patch.object(
-            rmtool, "keyring", None
-        ):
-            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
-            self.addCleanup(widget.deleteLater)
-
-        self.assertIn("不支持", widget.credential_status_label.text())
-        self.assertFalse(widget.forget_password_button.isEnabled())
+        warning.assert_not_called()
+        close_connection.assert_called_once_with()
+        self.assertEqual(events, ["close", "save"])
+        self.assertEqual(save_config.call_count, 1)
+        self.assertEqual(snapshots, [config])
+        self.assertEqual(config["devices"], [])
+        self.assertEqual(config["active_device_id"], "")
+        self.assertEqual(config["active_device"], "")
+        self.assertEqual(widget.device_combo.count(), 0)
+        self.assertFalse(widget.connect_button.isEnabled())
+        self.assertFalse(widget.edit_device_button.isEnabled())
+        self.assertFalse(widget.remove_device_button.isEnabled())
+        self.assertEqual(widget.device_title_label.text(), "未选择设备")
+        self.assertEqual(widget.credential_status_label.text(), "未保存")
 
 
 class ConnectionSidebarUiTests(unittest.TestCase):
@@ -729,12 +799,13 @@ class ConnectionSidebarUiTests(unittest.TestCase):
 
     def test_add_device_dialog_result_creates_full_device_and_stores_password(self):
         config = rmtool._default_config()
-        fake_keyring = mock.Mock()
-        fake_keyring.get_password.return_value = ""
+        snapshots = []
 
         with mock.patch.object(rmtool.uuid, "uuid4", return_value="new-device-id"), mock.patch.object(
-            rmtool, "save_config"
-        ) as save_config, mock.patch.object(rmtool, "keyring", fake_keyring), mock.patch.object(
+            rmtool,
+            "save_config",
+            side_effect=lambda value: snapshots.append(copy.deepcopy(value)),
+        ) as save_config, mock.patch.object(_tab_connection, "show_warning") as warning, mock.patch.object(
             rmtool.ConnectionWidget,
             "_request_new_device",
             return_value={
@@ -742,7 +813,7 @@ class ConnectionSidebarUiTests(unittest.TestCase):
                 "mode": "wifi",
                 "host": "192.168.1.88",
                 "type": "reMarkable Paper Pro",
-                "password": "secret",
+                "password": " secret ",
                 "remember_password": True,
             },
         ):
@@ -758,21 +829,23 @@ class ConnectionSidebarUiTests(unittest.TestCase):
         self.assertEqual(created["host"], "192.168.1.88")
         self.assertEqual(config["active_device_id"], "new-device-id")
         self.assertEqual(widget.device_combo.currentText(), "Paper Pro")
-        fake_keyring.set_password.assert_called_once_with(
-            rmtool.KEYRING_SERVICE,
-            "device:new-device-id",
-            "secret",
-        )
-        self.assertGreaterEqual(save_config.call_count, 1)
+        self.assertEqual(created["password"], " secret ")
+        warning.assert_not_called()
+        self.assertEqual(save_config.call_count, 1)
+        self.assertEqual(snapshots, [config])
+        self.assertEqual(snapshots[0]["devices"][0]["password"], " secret ")
 
-    def test_edit_device_dialog_updates_current_device(self):
-        config = config_with_device()
-        fake_keyring = mock.Mock()
-        fake_keyring.get_password.return_value = ""
+    def test_edit_device_dialog_updates_current_device_and_removes_password(self):
+        config = config_with_device(password="old-secret")
+        snapshots = []
 
-        with mock.patch.object(rmtool, "save_config") as save_config, mock.patch.object(
-            rmtool, "keyring", fake_keyring
-        ), mock.patch.object(
+        with mock.patch.object(
+            rmtool,
+            "save_config",
+            side_effect=lambda value: snapshots.append(copy.deepcopy(value)),
+        ) as save_config, mock.patch.object(
+            _tab_connection, "show_warning"
+        ) as warning, mock.patch.object(
             rmtool.ConnectionWidget,
             "_request_edit_device",
             return_value={
@@ -780,12 +853,14 @@ class ConnectionSidebarUiTests(unittest.TestCase):
                 "mode": "wifi",
                 "host": "192.168.1.99",
                 "type": "reMarkable 2",
-                "password": "",
+                "password": "ignored",
                 "remember_password": False,
             },
         ):
             widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
             self.addCleanup(widget.deleteLater)
+            save_config.reset_mock()
+            snapshots.clear()
 
             widget._edit_device()
 
@@ -794,8 +869,50 @@ class ConnectionSidebarUiTests(unittest.TestCase):
         self.assertEqual(device["mode"], "wifi")
         self.assertEqual(device["host"], "192.168.1.99")
         self.assertEqual(device["type"], "reMarkable 2")
+        self.assertNotIn("password", device)
         self.assertEqual(config["active_device"], "Updated")
-        self.assertGreaterEqual(save_config.call_count, 1)
+        warning.assert_not_called()
+        self.assertEqual(save_config.call_count, 1)
+        self.assertEqual(snapshots, [config])
+        self.assertNotIn("password", snapshots[0]["devices"][0])
+
+    def test_edit_saved_password_rejects_empty_remembered_password_without_changes(self):
+        config = config_with_device(password="old-secret")
+        original = copy.deepcopy(config)
+        snapshots = []
+
+        with mock.patch.object(
+            rmtool,
+            "save_config",
+            side_effect=lambda value: snapshots.append(copy.deepcopy(value)),
+        ) as save_config, mock.patch.object(
+            _tab_connection, "show_warning"
+        ) as warning, mock.patch.object(
+            rmtool.ConnectionWidget,
+            "_request_edit_device",
+            return_value={
+                "name": "Changed",
+                "mode": "wifi",
+                "host": "192.168.1.99",
+                "type": "reMarkable 2",
+                "password": "",
+                "remember_password": True,
+            },
+        ):
+            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
+            self.addCleanup(widget.deleteLater)
+            save_config.reset_mock()
+            snapshots.clear()
+
+            widget._edit_device()
+
+        warning.assert_called_once()
+        save_config.assert_not_called()
+        self.assertEqual(snapshots, [])
+        self.assertEqual(config, original)
+        self.assertEqual(config["devices"][0]["password"], "old-secret")
+        self.assertEqual(widget.credential_status_label.text(), "已保存到项目本地文件")
+        self.assertTrue(widget.forget_password_button.isEnabled())
 
     def test_selecting_device_updates_summary_card_and_primary_action_text(self):
         config = {
