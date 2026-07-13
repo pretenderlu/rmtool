@@ -21,9 +21,11 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 import rmrl
 import rmtool
+import _rmkit_cn
 import _ssh
 import _tab_connection
 import _tab_documents
+import _tab_toolbox
 import _tab_wallpaper
 
 
@@ -928,11 +930,14 @@ class WallpaperUiTests(unittest.TestCase):
 
         time_group = toolbox.time_section.parentWidget()
         control_group = toolbox.control_section.parentWidget()
+        rmkit_group = toolbox.rmkit_cn_section.parentWidget()
 
         self.assertIsInstance(time_group, QtWidgets.QGroupBox)
         self.assertIsInstance(control_group, QtWidgets.QGroupBox)
+        self.assertIsInstance(rmkit_group, QtWidgets.QGroupBox)
+        self.assertEqual(rmkit_group.title(), "系统汉化")
 
-        for group in (time_group, control_group):
+        for group in (time_group, control_group, rmkit_group):
             margins = group.layout().contentsMargins()
             self.assertEqual(
                 (
@@ -943,6 +948,64 @@ class WallpaperUiTests(unittest.TestCase):
                 ),
                 (0, rmtool.SUBSECTION_GAP, 0, 0),
             )
+
+    def test_rmkit_section_exposes_localization_actions_and_source_link(self):
+        section = _tab_toolbox.RmkitCnSection(FakeConnectionClient(connected=True, host="10.11.99.1"))
+        self.addCleanup(section.deleteLater)
+
+        with mock.patch.object(QtGui.QDesktopServices, "openUrl") as open_url:
+            section.project_button.click()
+
+        open_url.assert_called_once()
+        self.assertEqual(open_url.call_args.args[0].toString(), _rmkit_cn.REPO_URL)
+        self.assertTrue(hasattr(section, "detect_button"))
+        self.assertTrue(hasattr(section, "enable_button"))
+        self.assertTrue(hasattr(section, "restore_button"))
+        self.assertFalse(section.enable_button.isEnabled())
+        self.assertFalse(section.restore_button.isEnabled())
+
+    def test_rmkit_enable_runs_bundled_translation_without_restart(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.RmkitCnSection(client)
+        self.addCleanup(section.deleteLater)
+
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+        qm_path = Path("translations/reMarkable_zh_CN.qm")
+        with mock.patch.object(_tab_toolbox, "ask_confirmation", return_value=True), mock.patch.object(
+            rmtool, "resource_path", return_value=qm_path
+        ), mock.patch.object(rmtool, "Worker", return_value=worker) as worker_cls, mock.patch.object(
+            section.thread_pool, "start"
+        ) as start_worker, mock.patch.object(_tab_toolbox, "show_info") as show_info:
+            section._enable_localization()
+            worker.signals.finished.connect.call_args.args[0](
+                _rmkit_cn.LocalizationStatus(
+                    _rmkit_cn.LocalizationState.ENABLED,
+                    _rmkit_cn.SUPPORTED_FIRMWARE,
+                )
+            )
+
+        worker_cls.assert_called_once_with(
+            _rmkit_cn.enable_localization,
+            client,
+            str(qm_path),
+        )
+        start_worker.assert_called_once_with(worker)
+        self.assertIn("手动重启", show_info.call_args.args[2])
+
+    def test_rmkit_section_exposes_no_advanced_rmkit_features(self):
+        section = _tab_toolbox.RmkitCnSection(FakeConnectionClient(connected=True, host="10.11.99.1"))
+        self.addCleanup(section.deleteLater)
+
+        for excluded_action in (
+            "web_button",
+            "ai_config_button",
+            "installer_button",
+            "_open_web_ui",
+            "_configure_ai",
+            "_open_installer",
+        ):
+            self.assertFalse(hasattr(section, excluded_action), excluded_action)
 
     def test_wallpaper_previews_use_rounded_content_corners(self):
         widget = rmtool.WallpaperTab(FakeConnectionClient(), rmtool._default_config())
@@ -1074,6 +1137,29 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertFalse(results["sleep_carousel_1"].missing)
         self.assertTrue(results["sleeping"].missing)
         self.assertNotIn("/usr/share/remarkable/sleeping.png", client.open_calls)
+
+
+class RmkitCnExternalLinkTests(unittest.TestCase):
+    def test_rmkit_module_exposes_only_external_project_links(self):
+        self.assertEqual(_rmkit_cn.REPO_URL, "https://github.com/boangs/rmkit")
+        self.assertEqual(_rmkit_cn.RELEASES_URL, "https://github.com/boangs/rmkit/releases")
+        self.assertEqual(_rmkit_cn.INSTALL_GUIDE_URL, "https://github.com/boangs/rmkit#readme")
+
+        for removed_helper in (
+            "probe_rmkit_cn_status",
+            "read_ai_config",
+            "write_ai_config",
+            "restart_upload_service",
+            "detect_installer_tools",
+            "download_installer_package",
+            "extract_installer_package",
+            "write_installer_launcher",
+            "launch_visible_terminal",
+        ):
+            self.assertFalse(hasattr(_rmkit_cn, removed_helper), removed_helper)
+
+        self.assertFalse(hasattr(_tab_toolbox, "RmkitCnAIConfigDialog"))
+        self.assertFalse(hasattr(_tab_toolbox, "RmkitCnInstallerDialog"))
 
 
 class FontUiTests(unittest.TestCase):
