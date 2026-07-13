@@ -4,7 +4,7 @@
 
 </div>
 
-一个面向 reMarkable 电子墨水平板的图形化管理工具，支持字体/壁纸上传、时间同步、设备控制、文档上传与预览等功能。新版引入基于 HTML5 的全屏仪表盘、更现代的界面视觉，内置多设备配置。项目坚持源码直跑路线，跨平台无需打包步骤，部署即用。
+一个面向 reMarkable 电子墨水平板的图形化管理工具，支持字体/壁纸上传、时间同步、设备控制、文档上传与预览等功能。新版引入基于 HTML5 的全屏仪表盘、更现代的界面视觉，内置多设备配置。项目支持源码运行，也提供免安装 Python 的 Windows 便携版构建。
 
 ## 功能亮点
 
@@ -44,6 +44,16 @@ pip install -r requirements.txt  # 或手动安装上述依赖
 > `.rmtool/` 位于 `rmtool.py` 同目录且已被 Git 忽略。`.rmtool/devices.json` 保存设备列表、当前活动设备、路径设置、主题，以及勾选“记住密码”后才写入的明文 root 密码；`.rmtool/known_hosts` 按设备 UUID 隔离保存 SSH 主机信任；`.rmtool/remarkable_tool.log` 是滚动应用日志。
 >
 > **安全警告：** 复制、共享、备份到不受信任的位置或发布 `.rmtool/`，会暴露其中记住的 root 密码。旧版 `AppData` 与项目根目录中的配置、操作系统凭据库中的 root 密码及旧的 SSH 主机信任记录不会被导入，也不会被删除。
+
+## Windows 便携版
+
+使用 Windows x64 和 Python 在仓库根目录运行：
+
+```powershell
+.\build-portable.ps1
+```
+
+脚本会在 `build/.venv/` 创建隔离环境，按 `requirements.txt` 安装固定版本的运行时依赖和 PyInstaller `6.21.0`，然后生成 `dist/rmtool/` 和 `dist/rmtool-windows-x64.zip`。分发 ZIP 即可；便携版首次启动会在 `rmtool.exe` 旁创建 `.rmtool/`，请勿将该目录随软件一起发布。
 
 ## 常见问题
 
