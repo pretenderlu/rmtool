@@ -656,6 +656,49 @@ class LocalCredentialTests(unittest.TestCase):
             },
         )
 
+    def test_changed_host_key_dialog_uses_retrust_wording(self):
+        config = config_with_device()
+        ssh_client = FakeConnectionClient()
+        ssh_client.connect = mock.Mock()
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+
+        with mock.patch.object(rmtool, "save_config"):
+            widget = rmtool.ConnectionWidget(ssh_client, config)
+            self.addCleanup(widget.deleteLater)
+
+        with mock.patch.object(
+            rmtool, "Worker", return_value=worker
+        ), mock.patch.object(QtWidgets, "QProgressDialog"), mock.patch.object(
+            widget.thread_pool, "start"
+        ), mock.patch.object(
+            _tab_connection, "ask_confirmation", return_value=True
+        ) as ask_confirmation:
+            widget._begin_connection("10.11.99.1", "secret", False)
+            on_error = worker.signals.error.connect.call_args.args[0]
+            error = rmtool.UnknownHostKeyError(
+                "10.11.99.1",
+                FakeHostKey(b"\x11\x22\x33\x44"),
+                key_changed=True,
+            )
+
+            with mock.patch.object(widget, "_begin_connection") as retry:
+                on_error(error)
+
+        message = ask_confirmation.call_args.args[2]
+        self.assertIn("指纹已变化", message)
+        self.assertNotIn("首次连接", message)
+        self.assertEqual(
+            ask_confirmation.call_args.kwargs["confirm_text"],
+            "重新信任并连接",
+        )
+        retry.assert_called_once_with(
+            "10.11.99.1",
+            "secret",
+            False,
+            trust_unknown_host=True,
+        )
+
     def test_connection_password_dialog_defaults_to_remember_checked(self):
         config = config_with_device()
 
@@ -1509,6 +1552,8 @@ class HostKeyVerificationTests(unittest.TestCase):
 
         self.assertEqual(ctx.exception.host, "10.11.99.1")
         self.assertEqual(ctx.exception.fingerprint, "01:23:45:67")
+        self.assertFalse(ctx.exception.key_changed)
+        self.assertIn("首次连接", str(ctx.exception))
 
     def test_system_known_hosts_entries_do_not_override_app_host_trust_flow(self):
         wrapper = rmtool.SSHClientWrapper()
@@ -1611,6 +1656,9 @@ class HostKeyVerificationTests(unittest.TestCase):
 
         self.assertEqual(ctx.exception.host, "10.11.99.1")
         self.assertEqual(ctx.exception.fingerprint, "11:22:33:44")
+        self.assertTrue(ctx.exception.key_changed)
+        self.assertIn("已保存", str(ctx.exception))
+        self.assertIn("不匹配", str(ctx.exception))
         trust_host_key.assert_not_called()
 
     def test_connect_can_explicitly_retrust_mismatched_device_key(self):
