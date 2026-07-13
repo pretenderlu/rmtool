@@ -15,6 +15,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5 import QtWebEngineWidgets
 
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
+import _rmkit_cn
 from _ssh import SSHClientWrapper, remount_rw, require_connection
 import rmtool as _rmtool  # late-bound access to avoid circular import
 
@@ -405,6 +406,199 @@ WantedBy=multi-user.target
             show_error(self, _rmtool.APP_NAME, f"设置失败：{exc}")
 
 
+class RmkitCnSection(QtWidgets.QWidget):
+    def __init__(self, ssh_client: SSHClientWrapper, parent=None):
+        super().__init__(parent)
+        self.ssh_client = ssh_client
+        self.thread_pool = QtCore.QThreadPool.globalInstance()
+        self._status: Optional[_rmkit_cn.LocalizationStatus] = None
+        self._busy = False
+
+        title = QtWidgets.QLabel("原生界面中文")
+        title.setObjectName("rmkitCnStatus")
+        title_font = QtGui.QFont(title.font())
+        title_font.setPointSize(max(title_font.pointSize() + 2, 14))
+        title_font.setBold(True)
+        title.setFont(title_font)
+
+        detail = QtWidgets.QLabel(
+            f"当前仅支持固件 {_rmkit_cn.SUPPORTED_FIRMWARE}。中文翻译借用法语槽位，不安装后台服务。"
+        )
+        detail.setWordWrap(True)
+
+        self.status_label = QtWidgets.QLabel("设备已连接，尚未检测")
+        self.status_label.setObjectName("rmkitCnDeviceStatus")
+        self.status_label.setWordWrap(True)
+
+        self.detect_button = QtWidgets.QPushButton("检测状态")
+        self.detect_button.setProperty("cssClass", "secondary")
+        self.enable_button = QtWidgets.QPushButton("启用中文")
+        self.restore_button = QtWidgets.QPushButton("还原")
+        self.restore_button.setProperty("cssClass", "secondary")
+        self.enable_button.setEnabled(False)
+        self.restore_button.setEnabled(False)
+        self.project_button = QtWidgets.QPushButton("查看源码")
+        self.project_button.setProperty("cssClass", "secondary")
+
+        buttons = QtWidgets.QHBoxLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.setSpacing(_rmtool.SUBSECTION_GAP)
+        buttons.addWidget(self.detect_button)
+        buttons.addWidget(self.enable_button)
+        buttons.addWidget(self.restore_button)
+        buttons.addWidget(self.project_button)
+        buttons.addStretch()
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(_rmtool.SUBSECTION_GAP)
+        layout.addWidget(title)
+        layout.addWidget(detail)
+        layout.addWidget(self.status_label)
+        layout.addLayout(buttons)
+
+        self.detect_button.clicked.connect(self._detect_status)
+        self.enable_button.clicked.connect(self._enable_localization)
+        self.restore_button.clicked.connect(self._restore_localization)
+        self.project_button.clicked.connect(
+            lambda: self._open_external(_rmkit_cn.REPO_URL)
+        )
+        self.ssh_client.connection_changed.connect(self._on_connection_changed)
+        self._on_connection_changed(self.ssh_client.is_connected())
+
+    def _open_external(self, url: str):
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl(url))
+
+    def _on_connection_changed(self, connected: bool):
+        if not connected:
+            self._status = None
+            self.status_label.setText("设备未连接")
+        elif self._status is None:
+            self.status_label.setText("设备已连接，尚未检测")
+        self.detect_button.setEnabled(connected and not self._busy)
+        self._update_action_buttons()
+
+    def _update_action_buttons(self):
+        connected = self.ssh_client.is_connected() and not self._busy
+        state = self._status.state if self._status else None
+        self.enable_button.setEnabled(
+            connected
+            and state
+            in (
+                _rmkit_cn.LocalizationState.NOT_INSTALLED,
+                _rmkit_cn.LocalizationState.INSTALLED_NOT_ENABLED,
+            )
+        )
+        self.restore_button.setEnabled(
+            connected
+            and state
+            in (
+                _rmkit_cn.LocalizationState.ENABLED,
+                _rmkit_cn.LocalizationState.INSTALLED_NOT_ENABLED,
+            )
+        )
+
+    def _apply_status(self, status: _rmkit_cn.LocalizationStatus):
+        self._status = status
+        messages = {
+            _rmkit_cn.LocalizationState.INCOMPATIBLE: (
+                f"固件 {status.firmware or '未知'} 不受支持，未执行任何修改"
+            ),
+            _rmkit_cn.LocalizationState.NOT_INSTALLED: "尚未安装中文翻译",
+            _rmkit_cn.LocalizationState.INSTALLED_NOT_ENABLED: (
+                "已发现中文翻译，但当前未启用"
+            ),
+            _rmkit_cn.LocalizationState.ENABLED: "中文翻译已启用",
+        }
+        self.status_label.setText(messages[status.state])
+        self._update_action_buttons()
+
+    def _set_busy(self, busy: bool, message: str = ""):
+        self._busy = busy
+        self.detect_button.setEnabled(
+            self.ssh_client.is_connected() and not busy
+        )
+        if message:
+            self.status_label.setText(message)
+        self._update_action_buttons()
+
+    def _start_worker(self, fn, *args, pending: str, success: str = ""):
+        self._set_busy(True, pending)
+        worker = _rmtool.Worker(fn, *args)
+
+        def on_finished(status: _rmkit_cn.LocalizationStatus):
+            self._set_busy(False)
+            self._apply_status(status)
+            if success:
+                show_info(self, _rmtool.APP_NAME, success)
+
+        def on_error(exc: Exception):
+            self._set_busy(False)
+            self.status_label.setText("操作失败；若设备界面无响应，请手动重启")
+            logging.error("Original UI localization failed: %s", exc)
+            show_error(
+                self,
+                _rmtool.APP_NAME,
+                f"操作失败：{exc}\n若设备界面无响应，请手动重启设备。",
+            )
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self.thread_pool.start(worker)
+
+    @require_connection
+    def _detect_status(self):
+        self._start_worker(
+            _rmkit_cn.get_localization_status,
+            self.ssh_client,
+            pending="正在检测固件与汉化状态…",
+        )
+
+    @require_connection
+    def _enable_localization(self):
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "将停止原生界面、备份当前配置并启用中文。完成后不会自动重启设备，是否继续？",
+            confirm_text="启用中文",
+            cancel_text="取消",
+        ):
+            return
+        qm_path = _rmtool.resource_path(
+            "translations", "reMarkable_zh_CN.qm"
+        )
+        self._start_worker(
+            _rmkit_cn.enable_localization,
+            self.ssh_client,
+            str(qm_path),
+            pending="正在备份并部署中文翻译…",
+            success=(
+                "汉化文件与语言配置已写入，原生界面已停止，SSH 会话已关闭。\n"
+                "请手动重启设备使修改生效。"
+            ),
+        )
+
+    @require_connection
+    def _restore_localization(self):
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "将停止原生界面并恢复汉化前的配置与翻译文件。完成后不会自动重启设备，是否继续？",
+            confirm_text="还原",
+            cancel_text="取消",
+        ):
+            return
+        self._start_worker(
+            _rmkit_cn.restore_localization,
+            self.ssh_client,
+            pending="正在还原汉化前状态…",
+            success=(
+                "原配置与翻译文件已还原，原生界面已停止，SSH 会话已关闭。\n"
+                "请手动重启设备使修改生效。"
+            ),
+        )
+
+
 class DashboardTab(QtWidgets.QWidget):
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent)
@@ -487,6 +681,7 @@ class ToolboxTab(QtWidgets.QWidget):
         self.font_section = FontTab(ssh_client, config)
         self.time_section = TimeTab(ssh_client)
         self.control_section = ControlTab(ssh_client)
+        self.rmkit_cn_section = RmkitCnSection(ssh_client)
 
         font_group = QtWidgets.QGroupBox("字体上传")
         font_layout = QtWidgets.QVBoxLayout()
@@ -505,6 +700,12 @@ class ToolboxTab(QtWidgets.QWidget):
         control_layout.setContentsMargins(0, _rmtool.SUBSECTION_GAP, 0, 0)
         control_layout.addWidget(self.control_section)
         control_group.setLayout(control_layout)
+
+        rmkit_cn_group = QtWidgets.QGroupBox("系统汉化")
+        rmkit_cn_layout = QtWidgets.QVBoxLayout()
+        rmkit_cn_layout.setContentsMargins(0, _rmtool.SUBSECTION_GAP, 0, 0)
+        rmkit_cn_layout.addWidget(self.rmkit_cn_section)
+        rmkit_cn_group.setLayout(rmkit_cn_layout)
 
         koreader_group = QtWidgets.QGroupBox("KOReader / 第三方应用")
         koreader_info = QtWidgets.QLabel(
@@ -544,6 +745,7 @@ class ToolboxTab(QtWidgets.QWidget):
         content_layout.addWidget(font_group)
         content_layout.addWidget(time_group)
         content_layout.addWidget(control_group)
+        content_layout.addWidget(rmkit_cn_group)
         content_layout.addWidget(koreader_group)
         content_layout.addStretch()
 
