@@ -4,11 +4,11 @@
 
 </div>
 
-一个面向 reMarkable 电子墨水平板的图形化管理工具，支持字体/壁纸上传、时间同步、设备控制、文档上传与预览等功能。新版引入基于 HTML5 的全屏仪表盘、更现代的界面视觉，内置多设备配置与密码安全存储。项目坚持源码直跑路线，跨平台无需打包步骤，部署即用。
+一个面向 reMarkable 电子墨水平板的图形化管理工具，支持字体/壁纸上传、时间同步、设备控制、文档上传与预览等功能。新版引入基于 HTML5 的全屏仪表盘、更现代的界面视觉，内置多设备配置。项目坚持源码直跑路线，跨平台无需打包步骤，部署即用。
 
 ## 功能亮点
 
-- **多设备管理**：在单个配置文件内保存多台 reMarkable 设备的连接信息与型号，密码可交由系统凭证管理器（`keyring`）安全保存。
+- **多设备管理**：在 `.rmtool/devices.json` 内保存多台 reMarkable 设备的连接信息与型号；勾选“记住密码”后也会保存明文 root 密码。
 - **HTML5 仪表盘**：主界面新增 Web 技术打造的仪表盘卡片视图，实时展示连接状态、设备信息与文档统计，并给出智能操作建议。
 - **一键连接**：支持 USB 与 Wi-Fi 两种连接方式，连接成功即自动记忆地址并刷新各功能页。
 - **字体管理**：直接从文件对话框选择字体（TTF/OTF），可选自动重命名为 `zwzt.ttf` 并上传至 `/home/root/.local/share/fonts/` 持久目录；上传后会写入用户层 fontconfig 规则，让默认 CJK 字体优先匹配所选字体，系统更新后仍可保留。
@@ -21,7 +21,7 @@
 ## 运行环境
 
 - Python 3.9 及以上版本（建议使用 64 位环境）。
-- 依赖库：`paramiko`、`PyQt5`、`PyQtWebEngine`、`Pillow`、`keyring`（用于凭证安全存储，若缺失会自动降级为手动输入密码）、`rmscene`（手写笔记渲染所需）。具体版本见 `requirements.txt`。
+- 依赖库：`paramiko`、`PyQt5`、`PyQtWebEngine`、`Pillow`、`rmscene`（手写笔记渲染所需）。具体版本见 `requirements.txt`。
 - 仓库已内置用于渲染手写笔记的 `rmrl` 模块（依赖 `rmscene`），无需额外配置即可生成高清 PDF。
 
 ```bash
@@ -39,9 +39,11 @@ pip install -r requirements.txt  # 或手动安装上述依赖
 
    Windows 用户可以双击仓库中的 `rmtool.bat`，它会通过 `pythonw.exe` 静默启动主程序，不会留下黑色控制台窗口。如需查看运行日志，点击侧栏底部"日志"按钮即可在主窗口下方展开常驻日志面板，实时显示日志记录；面板高度可拖动调整，状态自动持久化。
 
-3. 首次连接时在界面左上角新建或选择设备条目，填写地址与 root 密码即可。勾选“记住密码”后凭证将保存到系统 keyring。连接成功后即可访问全部功能，无需手动创建 `fonts`、`wallpaper`、`documents` 目录。若希望后续通过 Wi-Fi 连接，在首次 USB 连接成功后请切换到“设备控制”页执行“开启 Wi-Fi SSH 通道”（底层命令 `rm-ssh-over-wlan on`），再改用 WLAN 地址连接。
+3. 首次启动会在 `rmtool.py` 同目录创建 `.rmtool/devices.json`，设备列表为空。连接前先添加一台或多台设备，之后从下拉框手动选择已保存的设备；只有勾选“记住密码”时，root 密码才会以明文写入该文件。连接成功后即可访问全部功能，无需手动创建 `fonts`、`wallpaper`、`documents` 目录。若希望后续通过 Wi-Fi 连接，在首次 USB 连接成功后请切换到“设备控制”页执行“开启 Wi-Fi SSH 通道”（底层命令 `rm-ssh-over-wlan on`），再改用 WLAN 地址连接。
 
-> 配置文件、SSH 已知主机指纹与运行日志统一存放在 `%APPDATA%\rmtool\`（Windows）或 `~/.config/rmtool/`（Linux/macOS）。日志文件名为 `remarkable_tool.log`，应用内"日志"面板默认会展示其末尾的内容。
+> `.rmtool/` 位于 `rmtool.py` 同目录且已被 Git 忽略。`.rmtool/devices.json` 保存设备列表、当前活动设备、路径设置、主题，以及勾选“记住密码”后才写入的明文 root 密码；`.rmtool/known_hosts` 按设备 UUID 隔离保存 SSH 主机信任；`.rmtool/remarkable_tool.log` 是滚动应用日志。
+>
+> **安全警告：** 复制、共享、备份到不受信任的位置或发布 `.rmtool/`，会暴露其中记住的 root 密码。旧版 `AppData` 与项目根目录中的配置、操作系统凭据库中的 root 密码及旧的 SSH 主机信任记录不会被导入，也不会被删除。
 
 ## 常见问题
 

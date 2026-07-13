@@ -4,5 +4,4 @@ paramiko==4.0.0
 PyQt5==5.15.11
 PyQtWebEngine==5.15.7
 Pillow==12.2.0
-keyring==25.7.0
 rmscene==0.8.0
