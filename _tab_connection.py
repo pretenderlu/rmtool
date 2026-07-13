@@ -10,10 +10,6 @@ from _ssh import SSHClientWrapper, UnknownHostKeyError
 import rmtool as _rmtool  # late-bound access to avoid circular import
 
 
-def _keyring():
-    return _rmtool.keyring
-
-
 class ConnectionWidget(QtWidgets.QWidget):
     connected = QtCore.pyqtSignal()
     disconnected = QtCore.pyqtSignal()
@@ -206,18 +202,34 @@ class ConnectionWidget(QtWidgets.QWidget):
         self.device_combo.clear()
         for device in self.config.get("devices", []):
             self.device_combo.addItem(device["name"], device.get("id", ""))
-        self.device_combo.blockSignals(False)
+
+        has_device = bool(self.device_combo.count())
+        self.edit_device_button.setEnabled(has_device)
+        self.remove_device_button.setEnabled(has_device)
+        self.connect_button.setEnabled(
+            has_device
+            and not self.ssh_client.is_connected()
+            and self._active_connection_worker is None
+        )
+        if not has_device:
+            self.device_combo.blockSignals(False)
+            self.config["active_device_id"] = ""
+            self.config["active_device"] = ""
+            self._refresh_device_summary()
+            self._set_credential_status("未保存", False)
+            return
+
+        idx = -1
         active_id = self.config.get("active_device_id", "")
         if active_id:
             idx = self.device_combo.findData(active_id)
-            if idx != -1:
-                self.device_combo.setCurrentIndex(idx)
-        elif self.config.get("active_device"):
+        if idx == -1 and self.config.get("active_device"):
             idx = self.device_combo.findText(self.config["active_device"])
-            if idx != -1:
-                self.device_combo.setCurrentIndex(idx)
-        if self.device_combo.count():
-            self._on_device_selected(self.device_combo.currentIndex())
+        if idx == -1:
+            idx = 0
+        self.device_combo.setCurrentIndex(idx)
+        self.device_combo.blockSignals(False)
+        self._on_device_selected(idx)
 
     def _device_by_id(self, device_id: str) -> Dict:
         return _rmtool.find_device_by_id(self.config, device_id)
@@ -271,13 +283,18 @@ class ConnectionWidget(QtWidgets.QWidget):
         if not device:
             return
         password = self._load_password(device)
-        self._set_credential_status("已保存到系统凭证" if password else "未保存", bool(password))
-        if _keyring() is None:
-            self._set_credential_status("当前环境不支持保存密码", False)
+        self._set_credential_status(
+            "已保存到项目本地文件" if password else "未保存", bool(password)
+        )
         self._disconnect_if_device_target_changed(device)
+        active_changed = (
+            self.config.get("active_device_id") != device["id"]
+            or self.config.get("active_device") != device["name"]
+        )
         self.config["active_device_id"] = device["id"]
         self.config["active_device"] = device["name"]
-        _rmtool.save_config(self.config)
+        if active_changed:
+            _rmtool.save_config(self.config)
         self.status_message.emit(
             "info",
             f'已保存“{device["name"]}”的连接配置。',
@@ -303,17 +320,16 @@ class ConnectionWidget(QtWidgets.QWidget):
             "host": details.get("host", "10.11.99.1").strip() or "10.11.99.1",
             "type": details.get("type", "reMarkable Paper Pro"),
         }
+        password = details.get("password", "")
+        remember_password = bool(details.get("remember_password"))
+        self._sync_password_preference(
+            new_device, password, remember_password, persist=False
+        )
         self.config.setdefault("devices", []).append(new_device)
         self.config["active_device_id"] = new_device["id"]
         self.config["active_device"] = new_device["name"]
         _rmtool.save_config(self.config)
         self._populate_devices()
-        idx = self.device_combo.findData(new_device["id"])
-        if idx != -1:
-            self.device_combo.setCurrentIndex(idx)
-        password = details.get("password", "").strip()
-        remember_password = bool(details.get("remember_password"))
-        self._sync_password_preference(new_device, password, remember_password)
         self._emit_device_preview()
 
     def _make_device_details_dialog(
@@ -357,14 +373,8 @@ class ConnectionWidget(QtWidgets.QWidget):
         saved_password = self._load_password(initial) if initial else ""
         password_edit.setText(saved_password)
         remember_checkbox = QtWidgets.QCheckBox("记住密码")
-        remember_checkbox.setChecked(bool(saved_password) or (_keyring() is not None and not initial))
-        if _keyring() is None:
-            remember_checkbox.setChecked(False)
-            remember_checkbox.setToolTip(
-                "当前未检测到 keyring。可先勾选；保存时会提示如何启用安全凭证存储。"
-            )
-        else:
-            remember_checkbox.setToolTip("将 root 密码保存到系统凭证管理器。")
+        remember_checkbox.setChecked(bool(saved_password) or not initial)
+        remember_checkbox.setToolTip("将 root 密码保存到项目本地文件。")
 
         form = QtWidgets.QFormLayout()
         form.setContentsMargins(18, 18, 18, 12)
@@ -435,10 +445,10 @@ class ConnectionWidget(QtWidgets.QWidget):
         return self._request_device_details("编辑设备", device)
 
     def _remove_device(self):
-        if self.device_combo.count() <= 1:
-            show_warning(self, _rmtool.APP_NAME, "至少保留一个设备配置。")
+        device = self._current_device()
+        if not device:
             return
-        name = self.device_combo.currentText()
+        name = device.get("name", self.device_combo.currentText())
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
@@ -448,13 +458,17 @@ class ConnectionWidget(QtWidgets.QWidget):
             danger=True,
         ):
             return
-        device = self._current_device()
+        if self.ssh_client.is_connected():
+            self.ssh_client.close()
         self.config["devices"] = [
             d for d in self.config["devices"] if d.get("id") != device.get("id")
         ]
-        self._delete_password(device)
-        self.config["active_device_id"] = self.config["devices"][0]["id"]
-        self.config["active_device"] = self.config["devices"][0]["name"]
+        if self.config["devices"]:
+            self.config["active_device_id"] = self.config["devices"][0]["id"]
+            self.config["active_device"] = self.config["devices"][0]["name"]
+        else:
+            self.config["active_device_id"] = ""
+            self.config["active_device"] = ""
         _rmtool.save_config(self.config)
         self._populate_devices()
 
@@ -474,12 +488,29 @@ class ConnectionWidget(QtWidgets.QWidget):
             if existing.get("id") != device_id and existing.get("name") == name:
                 show_warning(self, _rmtool.APP_NAME, "已存在同名设备。")
                 return
+        password = details.get("password", "")
+        remember_password = bool(details.get("remember_password"))
+        if remember_password and not password:
+            show_warning(
+                self,
+                _rmtool.APP_NAME,
+                "要记住密码，请先填写 root 密码。",
+            )
+            saved_password = self._load_password(device)
+            self._set_credential_status(
+                "已保存到项目本地文件" if saved_password else "未保存",
+                bool(saved_password),
+            )
+            return
         device["name"] = name
         device["mode"] = details.get("mode", "usb")
         device["host"] = details.get("host", "10.11.99.1").strip() or "10.11.99.1"
         device["type"] = details.get("type", "reMarkable Paper Pro")
         self.config["active_device_id"] = device["id"]
         self.config["active_device"] = device["name"]
+        self._sync_password_preference(
+            device, password, remember_password, persist=False
+        )
         _rmtool.save_config(self.config)
         current_index = self.device_combo.currentIndex()
         if current_index >= 0:
@@ -487,11 +518,6 @@ class ConnectionWidget(QtWidgets.QWidget):
             self.device_combo.setItemText(current_index, device["name"])
             self.device_combo.setItemData(current_index, device["id"])
             self.device_combo.blockSignals(False)
-        self._sync_password_preference(
-            device,
-            details.get("password", "").strip(),
-            bool(details.get("remember_password")),
-        )
         self.status_message.emit("info", f"已保存“{device['name']}”的连接配置。", 3000)
         self._emit_device_preview()
 
@@ -501,30 +527,11 @@ class ConnectionWidget(QtWidgets.QWidget):
         self.forget_password_button.setEnabled(can_forget)
 
     def _load_password(self, device: Dict) -> str:
-        if not _keyring():
-            return ""
-        credential_key = _rmtool.device_credential_key(device)
-        try:
-            stored = _keyring().get_password(_rmtool.KEYRING_SERVICE, credential_key)
-            if stored:
-                return stored
-            legacy_name = device.get("name", "")
-            if legacy_name and legacy_name != credential_key:
-                legacy_stored = _keyring().get_password(_rmtool.KEYRING_SERVICE, legacy_name)
-                if legacy_stored:
-                    _keyring().set_password(
-                        _rmtool.KEYRING_SERVICE,
-                        credential_key,
-                        legacy_stored,
-                    )
-                    _keyring().delete_password(_rmtool.KEYRING_SERVICE, legacy_name)
-                    return legacy_stored
-            return ""
-        except Exception:  # pragma: no cover - backend specific
-            logging.exception("Failed to load password from keyring")
-            return ""
+        return str(device.get("password", ""))
 
-    def _store_password(self, device: Dict, password: str) -> bool:
+    def _store_password(
+        self, device: Dict, password: str, *, persist: bool = True
+    ) -> bool:
         if not password:
             show_warning(
                 self,
@@ -533,56 +540,31 @@ class ConnectionWidget(QtWidgets.QWidget):
             )
             self._set_credential_status("未保存", False)
             return False
-        if not _keyring():
-            show_warning(
-                self,
-                _rmtool.APP_NAME,
-                "当前环境未启用 keyring，无法安全保存密码。\n请运行 pip install -r requirements.txt 后重启应用。",
-            )
-            self._set_credential_status("当前环境不支持保存密码", False)
-            return False
-        try:
-            _keyring().set_password(
-                _rmtool.KEYRING_SERVICE,
-                _rmtool.device_credential_key(device),
-                password,
-            )
-            self._set_credential_status("已保存到系统凭证", True)
-            return True
-        except Exception:  # pragma: no cover - backend specific
-            logging.exception("Failed to store password in keyring")
-            show_warning(
-                self,
-                _rmtool.APP_NAME,
-                "无法保存密码到系统凭证管理器，请检查 keyring 配置。",
-            )
-            self._set_credential_status("保存失败", False)
-            return False
+        device["password"] = password
+        if persist:
+            _rmtool.save_config(self.config)
+        self._set_credential_status("已保存到项目本地文件", True)
+        return True
 
-    def _delete_password(self, device: Dict):
-        if not _keyring():
-            return
-        try:
-            credential_key = _rmtool.device_credential_key(device)
-            stored = _keyring().get_password(_rmtool.KEYRING_SERVICE, credential_key)
-            if not stored:
-                self._set_credential_status("未保存", False)
-                return
-            _keyring().delete_password(_rmtool.KEYRING_SERVICE, credential_key)
-            self._set_credential_status("未保存", False)
-        except Exception:  # pragma: no cover - backend specific
-            logging.exception("Failed to delete password from keyring")
+    def _delete_password(self, device: Dict, *, persist: bool = True):
+        if "password" in device:
+            device.pop("password")
+            if persist:
+                _rmtool.save_config(self.config)
+        self._set_credential_status("未保存", False)
 
     def _sync_password_preference(
-        self, device: Dict, password: str, remember_password: bool
+        self,
+        device: Dict,
+        password: str,
+        remember_password: bool,
+        *,
+        persist: bool = True,
     ) -> bool:
         if remember_password:
-            if self._store_password(device, password):
-                return True
-            return False
-        else:
-            self._delete_password(device)
-            return True
+            return self._store_password(device, password, persist=persist)
+        self._delete_password(device, persist=persist)
+        return True
 
     def _forget_saved_password(self) -> None:
         device = self._current_device()
@@ -597,8 +579,9 @@ class ConnectionWidget(QtWidgets.QWidget):
             self._connection_progress.deleteLater()
             self._connection_progress = None
         self._active_connection_worker = None
-        if not self.ssh_client.is_connected():
-            self.connect_button.setEnabled(True)
+        self.connect_button.setEnabled(
+            not self.ssh_client.is_connected() and bool(self._current_device())
+        )
 
     def _begin_connection(
         self,
@@ -637,10 +620,10 @@ class ConnectionWidget(QtWidgets.QWidget):
                 return
             device["mode"] = device_mode
             device["host"] = host
-            _rmtool.save_config(self.config)
             self._sync_password_preference(
-                device, password, remember_password
+                device, password, remember_password, persist=False
             )
+            _rmtool.save_config(self.config)
 
         def on_error(exc: Exception):
             self._teardown_connection_progress()
@@ -681,14 +664,8 @@ class ConnectionWidget(QtWidgets.QWidget):
         password_edit.setEchoMode(QtWidgets.QLineEdit.Password)
         password_edit.setPlaceholderText("root 密码")
         remember_checkbox = QtWidgets.QCheckBox("记住密码")
-        remember_checkbox.setChecked(_keyring() is not None)
-        if _keyring() is None:
-            remember_checkbox.setChecked(False)
-            remember_checkbox.setToolTip(
-                "当前未检测到 keyring。可先勾选；连接时会提示如何启用安全凭证存储。"
-            )
-        else:
-            remember_checkbox.setToolTip("将 root 密码保存到系统凭证管理器。")
+        remember_checkbox.setChecked(True)
+        remember_checkbox.setToolTip("将 root 密码保存到项目本地文件。")
 
         form = QtWidgets.QFormLayout()
         form.setContentsMargins(18, 18, 18, 12)
@@ -746,7 +723,7 @@ class ConnectionWidget(QtWidgets.QWidget):
             details = self._request_connection_password(device)
             if not details:
                 return
-            password = details.get("password", "").strip()
+            password = details.get("password", "")
             remember_password = bool(details.get("remember_password"))
         if not host or not password:
             show_warning(
@@ -762,7 +739,11 @@ class ConnectionWidget(QtWidgets.QWidget):
         self.ssh_client.close()
 
     def _on_connection_changed(self, connected: bool):
-        self.connect_button.setEnabled(not connected)
+        self.connect_button.setEnabled(
+            not connected
+            and self._active_connection_worker is None
+            and bool(self._current_device())
+        )
         self.disconnect_button.setEnabled(connected)
         self.status_text.setText("已连接" if connected else "未连接")
         self.status_dot.setProperty("connected", connected)
