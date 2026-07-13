@@ -77,13 +77,23 @@ def require_connection(method):
 
 
 class UnknownHostKeyError(RuntimeError):
-    def __init__(self, host: str, host_key: paramiko.PKey):
+    def __init__(
+        self,
+        host: str,
+        host_key: paramiko.PKey,
+        *,
+        key_changed: bool = False,
+    ):
         self.host = host
         self.host_key = host_key
+        self.key_changed = key_changed
         self.fingerprint = _get_host_key_fingerprint(host_key)
-        super().__init__(
-            f"首次连接到 {host}，检测到新的 SSH 主机指纹：{self.fingerprint}"
+        message = (
+            f"{host} 已保存的 SSH 主机指纹不匹配，主机密钥可能已变化：{self.fingerprint}"
+            if key_changed
+            else f"首次连接到 {host}，检测到新的 SSH 主机指纹：{self.fingerprint}"
         )
+        super().__init__(message)
 
 
 class SSHClientWrapper(QtCore.QObject):
@@ -196,13 +206,14 @@ class SSHClientWrapper(QtCore.QObject):
                 client.close()
             except Exception:
                 logging.exception("Failed to close SSH client after connect error")
-            if not isinstance(
-                exc, paramiko.BadHostKeyException
-            ) and not self._is_unknown_host_error(exc):
+            key_changed = isinstance(exc, paramiko.BadHostKeyException)
+            if not key_changed and not self._is_unknown_host_error(exc):
                 raise
             host_key = self._fetch_remote_host_key(host, timeout)
             if not trust_unknown_host:
-                raise UnknownHostKeyError(host, host_key) from exc
+                raise UnknownHostKeyError(
+                    host, host_key, key_changed=key_changed
+                ) from exc
             self._trust_host_key(trust_identity, host_key)
             client = self._build_client()
             self._apply_trusted_host_key(client, host, host_key)

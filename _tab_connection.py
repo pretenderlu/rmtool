@@ -628,15 +628,25 @@ class ConnectionWidget(QtWidgets.QWidget):
         def on_error(exc: Exception):
             self._teardown_connection_progress()
             if isinstance(exc, UnknownHostKeyError):
-                confirmed = ask_confirmation(
-                    self,
-                    _rmtool.APP_NAME,
-                    (
+                if exc.key_changed:
+                    message = (
+                        f"{exc.host} 的 SSH 指纹已变化。\n"
+                        f"新 SSH 指纹：{exc.fingerprint}\n\n"
+                        "请确认设备身份；继续操作将重新信任并连接。"
+                    )
+                    confirm_text = "重新信任并连接"
+                else:
+                    message = (
                         f"首次连接到 {exc.host}。\n"
                         f"SSH 指纹：{exc.fingerprint}\n\n"
                         "如果你确认这是自己的设备，可以信任并继续连接。"
-                    ),
-                    confirm_text="信任并连接",
+                    )
+                    confirm_text = "信任并连接"
+                confirmed = ask_confirmation(
+                    self,
+                    _rmtool.APP_NAME,
+                    message,
+                    confirm_text=confirm_text,
                     cancel_text="取消",
                 )
                 if confirmed:
