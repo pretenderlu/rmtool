@@ -15,7 +15,7 @@ sys.modules.setdefault("rmtool", sys.modules[__name__])
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional
 
 import paramiko
 from PIL import Image
@@ -28,12 +28,11 @@ except Exception:  # pragma: no cover - optional dependency
 
 
 APP_NAME = "reMarkable 管理工具"
-CONFIG_FILE = "config.json"
+CONFIG_FILE = "devices.json"
 GITHUB_REPO_URL = "https://github.com/pretenderlu/rmtool"
 GITHUB_MARK_PATH = "M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
 DEFAULT_FONT_NAME = "zwzt.ttf"
 DEFAULT_FONT_DIR = "/home/root/.local/share/fonts/"
-LEGACY_FONT_DIR = "/usr/share/fonts/ttf/noto/"
 DOCUMENT_ROOT = "/home/root/.local/share/remarkable/xochitl"
 KEYRING_SERVICE = "rmtool"
 KNOWN_HOSTS_FILE = "known_hosts"
@@ -70,11 +69,7 @@ FONT_PREVIEW_TEXT = "字体预览\nAaBbCc 1234567890\n你好，reMarkable"
 
 
 def app_state_dir() -> Path:
-    if sys.platform.startswith("win"):
-        root = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
-    else:
-        root = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    path = root / "rmtool"
+    path = Path(__file__).resolve().parent / ".rmtool"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -271,199 +266,117 @@ def active_device(config: Dict) -> Dict:
 def normalise_config(config: Dict) -> Dict:
     devices = config.get("devices") or []
     for device in devices:
-        device.setdefault("id", new_device_id())
+        if not device.get("id"):
+            device["id"] = new_device_id()
 
     if devices:
-        active = active_device(config)
-        if not active:
-            active = devices[0]
+        active = active_device(config) or devices[0]
         config["active_device_id"] = active["id"]
-        config["active_device"] = active["name"]
+        config["active_device"] = active.get("name", "")
+    else:
+        config["active_device_id"] = ""
+        config["active_device"] = ""
     return config
 
 
-def _device_merge_key(device: Dict) -> Tuple[str, str]:
-    return (
-        str(device.get("name", "")).strip().casefold(),
-        str(device.get("host", "")).strip(),
-    )
-
-
-def _has_only_default_device(config: Dict) -> bool:
-    devices = config.get("devices") or []
-    if len(devices) != 1:
-        return False
-    device = devices[0]
-    return (
-        device.get("name") == "默认设备"
-        and device.get("host") == "10.11.99.1"
-        and device.get("mode", "usb") == "usb"
-    )
-
-
-def _merge_legacy_devices(config: Dict, legacy_config: Dict) -> bool:
-    if config.get("legacy_devices_imported"):
-        return False
-    if not _has_only_default_device(config):
-        return False
-    legacy_devices = legacy_config.get("devices") or []
-    if not legacy_devices:
-        return False
-
-    devices = config.setdefault("devices", [])
-    seen = {_device_merge_key(device) for device in devices}
-    added = False
-    for legacy_device in legacy_devices:
-        key = _device_merge_key(legacy_device)
-        if key in seen:
-            continue
-        merged = {
-            "id": str(legacy_device.get("id") or new_device_id()),
-            "name": legacy_device.get("name", "未命名设备"),
-            "mode": legacy_device.get("mode", "usb"),
-            "host": legacy_device.get("host", "10.11.99.1"),
-            "type": legacy_device.get("type", "reMarkable Paper Pro"),
-        }
-        devices.append(merged)
-        seen.add(_device_merge_key(merged))
-        added = True
-
-    if not added:
-        return False
-
-    legacy_active = legacy_config.get("active_device", "")
-    active = find_device_by_name(config, legacy_active)
-    if active:
-        config["active_device_id"] = active["id"]
-        config["active_device"] = active["name"]
-    config["legacy_devices_imported"] = True
-    return True
-
-
 def _default_config() -> Dict:
-    first_device = {
-        "id": new_device_id(),
-        "name": "默认设备",
-        "mode": "usb",
-        "host": "10.11.99.1",
-        "type": "reMarkable Paper Pro",
-    }
     return {
-        "active_device_id": first_device["id"],
-        "active_device": first_device["name"],
-        "devices": [first_device],
+        "active_device_id": "",
+        "active_device": "",
+        "devices": [],
         "paths": {
             "font": DEFAULT_FONT_DIR,
             "wallpaper": "/usr/share/remarkable/suspended.png",
         },
+        "theme": "dark",
     }
 
 
 def load_config() -> Dict:
-    source_path: Optional[Path] = None
-    preferred_path = config_path()
-    legacy_path = legacy_config_path()
-    needs_save = False
+    path = Path(__file__).resolve().parent / ".rmtool" / CONFIG_FILE
+    try:
+        path = config_path()
+        exists = path.exists()
+    except OSError as exc:
+        raise RuntimeError(f"Could not read configuration {path}: {exc}") from exc
 
-    if preferred_path.exists():
-        source_path = preferred_path
-    elif legacy_path.exists():
-        source_path = legacy_path
+    if not exists:
+        config = _default_config()
+        save_config(config)
+        return config
 
-    legacy_config_for_merge = None
-    if source_path == preferred_path and legacy_path.exists():
-        try:
-            with legacy_path.open("r", encoding="utf-8") as fh:
-                legacy_config_for_merge = json.load(fh)
-        except (OSError, ValueError):
-            legacy_config_for_merge = None
-
-    if source_path:
-        with source_path.open("r", encoding="utf-8") as fh:
+    try:
+        with path.open("r", encoding="utf-8") as fh:
             config = json.load(fh)
-    else:
-        config = _default_config()
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Could not read configuration {path}: {exc}") from exc
 
-    # Migration from legacy structure
-    if "devices" not in config:
-        connection = config.get("connection", {})
-        mode = connection.get("mode", "usb")
-        host = connection.get(mode, {}).get("host", "10.11.99.1")
-        migrated = {
-            "id": new_device_id(),
-            "name": "默认设备",
-            "mode": mode,
-            "host": host,
-            "type": "reMarkable Paper Pro",
-        }
-        config = {
-            "active_device_id": migrated["id"],
-            "active_device": migrated["name"],
-            "devices": [migrated],
-            "paths": config.get(
-                "paths",
-                {
-                    "font": DEFAULT_FONT_DIR,
-                    "wallpaper": "/usr/share/remarkable/suspended.png",
-                },
-            ),
-        }
-        needs_save = True
-
-    # Ensure defaults exist
-    if "devices" not in config or not config["devices"]:
-        config = _default_config()
-        needs_save = True
-    if "active_device" not in config:
-        config["active_device"] = config["devices"][0]["name"]
-        needs_save = True
-    if "paths" not in config:
-        config["paths"] = {
-            "font": DEFAULT_FONT_DIR,
-            "wallpaper": "/usr/share/remarkable/suspended.png",
-        }
-        needs_save = True
-    else:
-        if "font" not in config["paths"]:
-            config["paths"]["font"] = DEFAULT_FONT_DIR
-            needs_save = True
-        if "wallpaper" not in config["paths"]:
-            config["paths"]["wallpaper"] = "/usr/share/remarkable/suspended.png"
-            needs_save = True
-
-    # Migrate legacy font directory to persistent location
-    font_path = config.get("paths", {}).get("font")
-    if not font_path or font_path == LEGACY_FONT_DIR:
-        config["paths"]["font"] = DEFAULT_FONT_DIR
-        needs_save = True
+    if not isinstance(config, dict):
+        raise RuntimeError(f"Invalid configuration in {path}: root must be an object")
+    if "devices" in config and not isinstance(config["devices"], list):
+        raise RuntimeError(f"Invalid configuration in {path}: devices must be a list")
+    devices = config.get("devices", [])
+    if any(not isinstance(device, dict) for device in devices):
+        raise RuntimeError(f"Invalid configuration in {path}: every device must be an object")
+    for index, device in enumerate(devices):
+        name = device.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise RuntimeError(
+                f"Invalid configuration in {path}: device {index} name must be a non-empty string"
+            )
+    if "paths" in config and not isinstance(config["paths"], dict):
+        raise RuntimeError(f"Invalid configuration in {path}: paths must be an object")
 
     before_normalise = json.dumps(config, sort_keys=True, ensure_ascii=False)
+    config.setdefault("devices", [])
+    paths = config.setdefault("paths", {})
+    paths.setdefault("font", DEFAULT_FONT_DIR)
+    paths.setdefault("wallpaper", "/usr/share/remarkable/suspended.png")
+    config.setdefault("theme", "dark")
     normalise_config(config)
     if json.dumps(config, sort_keys=True, ensure_ascii=False) != before_normalise:
-        needs_save = True
-
-    if legacy_config_for_merge and _merge_legacy_devices(config, legacy_config_for_merge):
-        normalise_config(config)
-        needs_save = True
-
-    if source_path == legacy_path or (source_path and needs_save):
         save_config(config)
     return config
 
 
 def save_config(config: Dict) -> None:
-    path = config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        json.dump(config, fh, indent=4, ensure_ascii=False)
+    path = Path(__file__).resolve().parent / ".rmtool" / CONFIG_FILE
+    fd = None
+    temp_path = None
+    try:
+        path = config_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=path.parent,
+        )
+        temp_path = Path(temp_name)
+        fh = os.fdopen(fd, "w", encoding="utf-8", newline="\n")
+        fd = None
+        with fh:
+            json.dump(config, fh, indent=4, ensure_ascii=False)
+            fh.write("\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(temp_path, path)
+    except (OSError, TypeError, ValueError) as exc:
+        raise RuntimeError(f"Could not save configuration {path}: {exc}") from exc
+    finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def config_path() -> Path:
     return app_state_dir() / CONFIG_FILE
-
-
-def legacy_config_path() -> Path:
-    return Path(CONFIG_FILE).resolve()
 
 
 def known_hosts_path() -> Path:

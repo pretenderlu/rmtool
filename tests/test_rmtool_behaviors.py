@@ -32,6 +32,22 @@ import _tab_wallpaper
 _APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
 
+def config_with_device(**overrides):
+    device = {
+        "id": "device-a",
+        "name": "Device A",
+        "mode": "usb",
+        "host": "10.11.99.1",
+        "type": "reMarkable Paper Pro",
+    }
+    device.update(overrides)
+    config = rmtool._default_config()
+    config["devices"] = [device]
+    config["active_device_id"] = device["id"]
+    config["active_device"] = device["name"]
+    return config
+
+
 class FakeConnectionClient(QtCore.QObject):
     connection_changed = QtCore.pyqtSignal(bool)
 
@@ -543,7 +559,7 @@ class RequireConnectionDecoratorTests(unittest.TestCase):
 
 class PasswordPreferenceTests(unittest.TestCase):
     def test_connection_password_prompt_allows_remember_choice_without_keyring(self):
-        config = rmtool._default_config()
+        config = config_with_device()
         ssh_client = FakeConnectionClient()
 
         with mock.patch.object(rmtool, "save_config"), mock.patch.object(
@@ -557,7 +573,7 @@ class PasswordPreferenceTests(unittest.TestCase):
         self.assertFalse(controls["remember"].isChecked())
 
     def test_edit_device_stores_password_when_remember_is_checked(self):
-        config = rmtool._default_config()
+        config = config_with_device()
         ssh_client = FakeConnectionClient()
         fake_keyring = mock.Mock()
         fake_keyring.get_password.return_value = ""
@@ -587,7 +603,7 @@ class PasswordPreferenceTests(unittest.TestCase):
         )
 
     def test_missing_keyring_warning_unchecks_remember_preference(self):
-        config = rmtool._default_config()
+        config = config_with_device()
         ssh_client = FakeConnectionClient()
 
         with mock.patch.object(rmtool, "save_config"), mock.patch.object(
@@ -602,7 +618,7 @@ class PasswordPreferenceTests(unittest.TestCase):
         self.assertIn("不支持", widget.credential_status_label.text())
 
     def test_disabling_remember_password_deletes_stored_secret(self):
-        config = rmtool._default_config()
+        config = config_with_device()
         ssh_client = FakeConnectionClient()
         fake_keyring = mock.Mock()
         fake_keyring.get_password.return_value = "old-secret"
@@ -620,7 +636,7 @@ class PasswordPreferenceTests(unittest.TestCase):
         fake_keyring.set_password.assert_not_called()
 
     def test_legacy_name_password_is_migrated_to_device_credential_key(self):
-        config = rmtool._default_config()
+        config = config_with_device()
         device = config["devices"][0]
         credential_key = f"device:{device['id']}"
         fake_keyring = mock.Mock()
@@ -643,7 +659,7 @@ class PasswordPreferenceTests(unittest.TestCase):
         )
 
     def test_saved_password_status_is_visible_and_forgettable(self):
-        config = rmtool._default_config()
+        config = config_with_device()
         device = config["devices"][0]
         credential_key = f"device:{device['id']}"
         fake_keyring = mock.Mock()
@@ -668,7 +684,7 @@ class PasswordPreferenceTests(unittest.TestCase):
         self.assertFalse(widget.forget_password_button.isEnabled())
 
     def test_missing_keyring_status_explains_unavailable_password_storage(self):
-        config = rmtool._default_config()
+        config = config_with_device()
 
         with mock.patch.object(rmtool, "save_config"), mock.patch.object(
             rmtool, "keyring", None
@@ -750,7 +766,7 @@ class ConnectionSidebarUiTests(unittest.TestCase):
         self.assertGreaterEqual(save_config.call_count, 1)
 
     def test_edit_device_dialog_updates_current_device(self):
-        config = rmtool._default_config()
+        config = config_with_device()
         fake_keyring = mock.Mock()
         fake_keyring.get_password.return_value = ""
 
@@ -819,19 +835,20 @@ class ConnectionSidebarUiTests(unittest.TestCase):
         self.addCleanup(app.setStyleSheet, original_stylesheet)
         app.setStyleSheet(rmtool._resolve_stylesheet(rmtool._LIGHT_STYLESHEET))
 
-        widget = rmtool.ConnectionWidget(FakeConnectionClient(), rmtool._default_config())
+        widget = rmtool.ConnectionWidget(FakeConnectionClient(), config_with_device())
         widget.setFixedWidth(288)
         widget.resize(288, 900)
         widget.show()
         QtWidgets.QApplication.processEvents()
 
+        self.assertEqual(widget.device_title_label.text(), "Device A")
         self.assertTrue(widget.device_meta_label.wordWrap())
         self.assertTrue(widget.device_host_label.wordWrap())
         self.assertEqual(widget.connect_button.text(), "连接设备")
         self.assertLessEqual(widget.minimumSizeHint().width(), 320)
 
     def test_edit_device_emits_non_modal_status_message(self):
-        widget = rmtool.ConnectionWidget(FakeConnectionClient(), rmtool._default_config())
+        widget = rmtool.ConnectionWidget(FakeConnectionClient(), config_with_device())
         received = []
         widget.status_message.connect(lambda level, text, timeout: received.append((level, text, timeout)))
 
@@ -1523,198 +1540,279 @@ class ExecCheckedContractTests(unittest.TestCase):
         self.assertIn("mount failed", str(ctx.exception))
 
 
-class ConfigMigrationTests(unittest.TestCase):
-    def test_default_config_assigns_stable_device_id(self):
+class ConfigPersistenceTests(unittest.TestCase):
+    def test_default_config_starts_empty_with_dark_theme(self):
         config = rmtool._default_config()
 
-        self.assertTrue(config["devices"][0]["id"])
-        self.assertEqual(config["active_device_id"], config["devices"][0]["id"])
+        self.assertEqual(config["devices"], [])
+        self.assertEqual(config["active_device_id"], "")
+        self.assertEqual(config["active_device"], "")
+        self.assertEqual(config["theme"], "dark")
 
-    def test_load_config_adds_missing_device_ids_and_active_device_id(self):
+    def test_app_state_dir_is_project_local_and_cwd_independent(self):
+        expected = Path(rmtool.__file__).resolve().parent / ".rmtool"
+
+        with tempfile.TemporaryDirectory() as temp_root:
+            with temporary_cwd(temp_root):
+                actual = rmtool.app_state_dir()
+
+        self.assertEqual(actual, expected)
+        self.assertTrue(actual.is_dir())
+
+    def test_first_load_creates_empty_devices_file(self):
         with tempfile.TemporaryDirectory() as temp_root:
             temp_root = Path(temp_root)
-            app_state = temp_root / "appstate"
-            app_state.mkdir()
-            config = {
+            app_state = temp_root / ".rmtool"
+
+            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state):
+                with temporary_cwd(temp_root):
+                    loaded = rmtool.load_config()
+
+            path = app_state / "devices.json"
+            saved = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(loaded["devices"], [])
+        self.assertEqual(saved, loaded)
+
+    def test_multiple_devices_and_optional_password_round_trip(self):
+        password = "  secret\nwith tabs\t  "
+        config = rmtool._default_config()
+        config.update(
+            {
+                "active_device_id": "device-b",
                 "active_device": "Device B",
                 "devices": [
-                    {"name": "Device A", "mode": "usb", "host": "10.11.99.1", "type": "reMarkable 2"},
-                    {"name": "Device B", "mode": "wifi", "host": "192.168.1.23", "type": "reMarkable Paper Pro"},
+                    {
+                        "id": "device-a",
+                        "name": "Device A",
+                        "mode": "usb",
+                        "host": "10.11.99.1",
+                        "type": "reMarkable Paper Pro",
+                        "password": password,
+                    },
+                    {
+                        "id": "device-b",
+                        "name": "Device B",
+                        "mode": "wifi",
+                        "host": "192.168.1.23",
+                        "type": "reMarkable 2",
+                    },
                 ],
-                "paths": {
-                    "font": rmtool.DEFAULT_FONT_DIR,
-                    "wallpaper": "/usr/share/remarkable/suspended.png",
-                },
+                "theme": "light",
             }
-            (app_state / "config.json").write_text(
-                json.dumps(config, ensure_ascii=False),
-                encoding="utf-8",
-            )
+        )
 
-            ids = iter(["device-a", "device-b"])
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_root = Path(temp_root)
+            app_state = temp_root / ".rmtool"
+            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state):
+                with temporary_cwd(temp_root):
+                    rmtool.save_config(config)
+                    loaded = rmtool.load_config()
+
+        self.assertEqual(loaded["devices"], config["devices"])
+        self.assertEqual(loaded["devices"][0]["password"], password)
+        self.assertNotIn("password", loaded["devices"][1])
+
+    def test_state_paths_are_direct_children_of_app_state_dir(self):
+        app_state = Path("project-state")
+
+        with mock.patch.object(rmtool, "app_state_dir", return_value=app_state):
+            self.assertEqual(rmtool.config_path(), app_state / "devices.json")
+            self.assertEqual(rmtool.known_hosts_path(), app_state / "known_hosts")
+
+    def test_malformed_json_is_reported_and_preserved(self):
+        malformed = b'{"devices": [}'
+
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_root = Path(temp_root)
+            app_state = temp_root / ".rmtool"
+            app_state.mkdir()
+            path = app_state / "devices.json"
+            path.write_bytes(malformed)
+
+            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state):
+                with temporary_cwd(temp_root):
+                    with self.assertRaisesRegex(RuntimeError, r"devices\.json"):
+                        rmtool.load_config()
+
+            self.assertEqual(path.read_bytes(), malformed)
+
+    def test_invalid_utf8_is_reported_and_preserved(self):
+        invalid = b'\xff\xfe{"devices": []}'
+
+        with tempfile.TemporaryDirectory() as temp_root:
+            app_state = Path(temp_root) / ".rmtool"
+            app_state.mkdir()
+            path = app_state / "devices.json"
+            path.write_bytes(invalid)
+
+            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state):
+                with self.assertRaisesRegex(RuntimeError, r"devices\.json"):
+                    rmtool.load_config()
+
+            self.assertEqual(path.read_bytes(), invalid)
+
+    def test_unreadable_config_is_reported_and_preserved(self):
+        original = json.dumps(config_with_device(), ensure_ascii=False).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as temp_root:
+            app_state = Path(temp_root) / ".rmtool"
+            app_state.mkdir()
+            path = app_state / "devices.json"
+            path.write_bytes(original)
+
             with mock.patch.object(rmtool, "app_state_dir", return_value=app_state), mock.patch.object(
-                rmtool.uuid, "uuid4", side_effect=lambda: next(ids)
+                Path, "open", side_effect=OSError("read denied")
             ):
+                with self.assertRaisesRegex(RuntimeError, r"devices\.json"):
+                    rmtool.load_config()
+
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_invalid_config_shapes_are_reported_and_preserved(self):
+        cases = (
+            ("root", [], r"root"),
+            ("devices", {"devices": {}}, r"devices"),
+            ("device", {"devices": ["not-an-object"], "paths": {}}, r"device"),
+            ("paths", {"devices": [], "paths": []}, r"paths"),
+            ("missing-name", {"devices": [{}], "paths": {}}, r"device 0.*name"),
+            ("non-string-name", {"devices": [{"name": 123}], "paths": {}}, r"device 0.*name"),
+            ("blank-name", {"devices": [{"name": " \t"}], "paths": {}}, r"device 0.*name"),
+        )
+
+        with tempfile.TemporaryDirectory() as temp_root:
+            app_state = Path(temp_root) / ".rmtool"
+            app_state.mkdir()
+            path = app_state / "devices.json"
+
+            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state):
+                for name, invalid, error_detail in cases:
+                    with self.subTest(name=name):
+                        original = (json.dumps(invalid, separators=(",", ":")) + "\n").encode("utf-8")
+                        path.write_bytes(original)
+
+                        with self.assertRaisesRegex(
+                            RuntimeError,
+                            rf"devices\.json.*{error_detail}",
+                        ):
+                            rmtool.load_config()
+
+                        self.assertEqual(path.read_bytes(), original)
+
+    def test_load_saves_only_when_config_changes(self):
+        with tempfile.TemporaryDirectory() as temp_root:
+            app_state = Path(temp_root) / ".rmtool"
+            app_state.mkdir()
+            path = app_state / "devices.json"
+
+            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state):
+                complete = config_with_device()
+                path.write_text(json.dumps(complete), encoding="utf-8")
+                with mock.patch.object(rmtool, "save_config") as save_config:
+                    loaded = rmtool.load_config()
+
+                self.assertEqual(loaded, complete)
+                save_config.assert_not_called()
+
+                path.write_text(json.dumps({"devices": []}), encoding="utf-8")
+                with mock.patch.object(rmtool, "save_config") as save_config:
+                    loaded = rmtool.load_config()
+
+                save_config.assert_called_once_with(loaded)
+
+    def test_missing_device_id_is_normalised_and_persisted_once(self):
+        config = rmtool._default_config()
+        config["active_device"] = "Device B"
+        config["devices"] = [
+            {
+                "id": "device-a",
+                "name": "Device A",
+                "mode": "usb",
+                "host": "10.11.99.1",
+                "type": "reMarkable Paper Pro",
+            },
+            {
+                "name": "Device B",
+                "mode": "wifi",
+                "host": "192.168.1.23",
+                "type": "reMarkable 2",
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_root:
+            app_state = Path(temp_root) / ".rmtool"
+            app_state.mkdir()
+            path = app_state / "devices.json"
+            path.write_text(json.dumps(config), encoding="utf-8")
+            real_save_config = rmtool.save_config
+
+            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state), mock.patch.object(
+                rmtool, "save_config", wraps=real_save_config
+            ) as save_config:
                 loaded = rmtool.load_config()
 
-        self.assertEqual([device["id"] for device in loaded["devices"]], ["device-a", "device-b"])
-        self.assertEqual(loaded["active_device_id"], "device-b")
-        self.assertEqual(loaded["active_device"], "Device B")
+            device_b = next(device for device in loaded["devices"] if device["name"] == "Device B")
+            self.assertTrue(device_b["id"])
+            self.assertEqual(loaded["active_device_id"], device_b["id"])
+            self.assertEqual(loaded["active_device"], "Device B")
+            save_config.assert_called_once_with(loaded)
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), loaded)
 
-    def test_load_config_merges_legacy_devices_when_app_state_has_only_default(self):
-        with tempfile.TemporaryDirectory() as temp_root:
-            temp_root = Path(temp_root)
-            app_state = temp_root / "appstate"
-            legacy_dir = temp_root / "legacy"
-            app_state.mkdir()
-            legacy_dir.mkdir()
-            app_config = rmtool._default_config()
-            legacy_config = {
-                "active_device": "Paper Pro",
-                "devices": [
-                    {"name": "默认设备", "mode": "usb", "host": "10.11.99.1", "type": "reMarkable Paper Pro"},
-                    {"name": "Paper Pro", "mode": "wifi", "host": "192.168.1.88", "type": "reMarkable Paper Pro"},
-                    {"name": "RM2", "mode": "wifi", "host": "192.168.1.89", "type": "reMarkable 2"},
-                ],
-                "paths": {
-                    "font": rmtool.DEFAULT_FONT_DIR,
-                    "wallpaper": "/usr/share/remarkable/suspended.png",
-                },
-            }
-            (app_state / "config.json").write_text(
-                json.dumps(app_config, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            (legacy_dir / "config.json").write_text(
-                json.dumps(legacy_config, ensure_ascii=False),
-                encoding="utf-8",
-            )
-
-            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state):
-                with temporary_cwd(legacy_dir):
-                    loaded = rmtool.load_config()
-
-            names = [device["name"] for device in loaded["devices"]]
-            self.assertEqual(names, ["默认设备", "Paper Pro", "RM2"])
-            self.assertEqual(loaded["active_device"], "Paper Pro")
-            self.assertTrue(loaded["legacy_devices_imported"])
-            saved = json.loads((app_state / "config.json").read_text(encoding="utf-8"))
-            self.assertEqual([device["name"] for device in saved["devices"]], names)
-
-    def test_load_config_does_not_reimport_legacy_devices_after_import_marker(self):
-        with tempfile.TemporaryDirectory() as temp_root:
-            temp_root = Path(temp_root)
-            app_state = temp_root / "appstate"
-            legacy_dir = temp_root / "legacy"
-            app_state.mkdir()
-            legacy_dir.mkdir()
-            app_config = rmtool._default_config()
-            app_config["legacy_devices_imported"] = True
-            legacy_config = {
-                "active_device": "Paper Pro",
-                "devices": [
-                    {"name": "默认设备", "mode": "usb", "host": "10.11.99.1", "type": "reMarkable Paper Pro"},
-                    {"name": "Paper Pro", "mode": "wifi", "host": "192.168.1.88", "type": "reMarkable Paper Pro"},
-                ],
-                "paths": {
-                    "font": rmtool.DEFAULT_FONT_DIR,
-                    "wallpaper": "/usr/share/remarkable/suspended.png",
-                },
-            }
-            (app_state / "config.json").write_text(
-                json.dumps(app_config, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            (legacy_dir / "config.json").write_text(
-                json.dumps(legacy_config, ensure_ascii=False),
-                encoding="utf-8",
-            )
-
-            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state):
-                with temporary_cwd(legacy_dir):
-                    loaded = rmtool.load_config()
-
-        self.assertEqual([device["name"] for device in loaded["devices"]], ["默认设备"])
-
-    def test_load_config_prefers_app_state_file_over_legacy_file(self):
-        with tempfile.TemporaryDirectory() as temp_root:
-            temp_root = Path(temp_root)
-            app_state = temp_root / "appstate"
-            legacy_dir = temp_root / "legacy"
-            app_state.mkdir()
-            legacy_dir.mkdir()
-
-            preferred_config = rmtool._default_config()
-            preferred_config["active_device"] = "App Device"
-            preferred_config["devices"][0]["name"] = "App Device"
-            legacy_config = rmtool._default_config()
-            legacy_config["active_device"] = "Legacy Device"
-            legacy_config["devices"][0]["name"] = "Legacy Device"
-
-            (app_state / "config.json").write_text(
-                json.dumps(preferred_config, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            (legacy_dir / "config.json").write_text(
-                json.dumps(legacy_config, ensure_ascii=False),
-                encoding="utf-8",
-            )
-
-            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state):
-                with temporary_cwd(legacy_dir):
-                    loaded = rmtool.load_config()
-
-        self.assertEqual(loaded["active_device"], "App Device")
-
-    def test_load_config_migrates_legacy_file_into_app_state(self):
-        with tempfile.TemporaryDirectory() as temp_root:
-            temp_root = Path(temp_root)
-            app_state = temp_root / "appstate"
-            legacy_dir = temp_root / "legacy"
-            app_state.mkdir()
-            legacy_dir.mkdir()
-
-            legacy_config = rmtool._default_config()
-            legacy_config["active_device"] = "Migrated Device"
-            legacy_config["devices"][0]["name"] = "Migrated Device"
-            legacy_config["theme"] = "light"
-            (legacy_dir / "config.json").write_text(
-                json.dumps(legacy_config, ensure_ascii=False),
-                encoding="utf-8",
-            )
-
-            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state):
-                with temporary_cwd(legacy_dir):
-                    loaded = rmtool.load_config()
-
-            migrated_path = app_state / "config.json"
-            self.assertEqual(loaded["active_device"], "Migrated Device")
-            self.assertTrue(migrated_path.exists())
-            migrated = json.loads(migrated_path.read_text(encoding="utf-8"))
-            self.assertEqual(migrated["active_device"], "Migrated Device")
-            self.assertEqual(migrated["theme"], "light")
-
-    def test_save_config_writes_to_app_state_directory(self):
-        config = rmtool._default_config()
-        config["active_device"] = "Saved Device"
+    def test_replace_failure_preserves_existing_file_and_removes_temp_file(self):
+        original = b'{"existing": true}\n'
 
         with tempfile.TemporaryDirectory() as temp_root:
-            temp_root = Path(temp_root)
-            app_state = temp_root / "appstate"
-            legacy_dir = temp_root / "legacy"
+            app_state = Path(temp_root) / ".rmtool"
             app_state.mkdir()
-            legacy_dir.mkdir()
+            path = app_state / "devices.json"
+            path.write_bytes(original)
 
-            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state):
-                with temporary_cwd(legacy_dir):
-                    rmtool.save_config(config)
+            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state), mock.patch.object(
+                rmtool.os, "replace", side_effect=OSError("replace failed")
+            ):
+                with self.assertRaisesRegex(RuntimeError, r"devices\.json"):
+                    rmtool.save_config(config_with_device(password="exact password"))
 
-            app_state_path = app_state / "config.json"
-            legacy_path = legacy_dir / "config.json"
-            self.assertTrue(app_state_path.exists())
-            self.assertFalse(legacy_path.exists())
-            saved = json.loads(app_state_path.read_text(encoding="utf-8"))
-            self.assertEqual(saved["active_device"], "Saved Device")
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(list(app_state.glob("*.tmp")), [])
+
+    def test_fdopen_failure_preserves_existing_file_and_removes_temp_file(self):
+        original = b'{"existing": true}\n'
+        opened_fds = []
+        closed_fds = []
+        real_close = os.close
+
+        def fail_fdopen(fd, *_args, **_kwargs):
+            opened_fds.append(fd)
+            raise OSError("fdopen failed")
+
+        def close_fd(fd):
+            closed_fds.append(fd)
+            real_close(fd)
+
+        with tempfile.TemporaryDirectory() as temp_root:
+            app_state = Path(temp_root) / ".rmtool"
+            app_state.mkdir()
+            path = app_state / "devices.json"
+            path.write_bytes(original)
+
+            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state), mock.patch.object(
+                rmtool.os, "fdopen", side_effect=fail_fdopen
+            ), mock.patch.object(
+                rmtool.os, "close", side_effect=close_fd
+            ):
+                try:
+                    with self.assertRaisesRegex(RuntimeError, r"devices\.json"):
+                        rmtool.save_config(config_with_device())
+                finally:
+                    for fd in opened_fds:
+                        if fd not in closed_fds:
+                            real_close(fd)
+
+            self.assertEqual(closed_fds, opened_fds)
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(list(app_state.glob("*.tmp")), [])
 
 
 class DocumentWorkspaceUiTests(unittest.TestCase):

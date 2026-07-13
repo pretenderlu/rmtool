@@ -10,6 +10,9 @@ venv/
 *.log
 remarkable_tool.log
 
+# Project-local state and plaintext credentials
+.rmtool/
+
 # Editor / tooling
 .vscode/
 .idea/
