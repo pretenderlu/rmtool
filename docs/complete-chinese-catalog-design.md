@@ -74,6 +74,20 @@ metadata, and meaningful whitespace come from the stock baseline.
 - Keep product names and file formats unchanged where appropriate.
 - Provide every required numerus form and leave no empty or unfinished target.
 
+## French Carrier Display Alias
+
+The localization continues to use xochitl's `fr_FR` language code and
+`reMarkable_fr.qm` carrier file. In the `LanguageAndKeyboard` translation
+context, the source label `French` is displayed as `简体中文` instead of `法语`.
+This is a cosmetic alias only; it does not add a `zh_CN` language code or
+change the underlying French slot.
+
+The same context/source key can also be used by keyboard or handwriting
+language selectors. Those occurrences may therefore display `简体中文` while
+retaining their original French behavior. This known trade-off is accepted in
+order to keep the implementation translation-only and avoid QMD, xovi, and
+systemd changes.
+
 ## Validation
 
 Automated checks must fail on the current 873-message catalog and pass only
@@ -90,7 +104,8 @@ when the rebuilt catalog satisfies all of these conditions:
   keys and zero unmapped QML resource bundles.
 - Regression checks require all nine `SettingsModel` titles and the exact
   reading-light description key in both `DisplaySettingsHeader` and
-  `KeyboardSettingsHeader`, plus `PenColorModel / Magenta`.
+  `KeyboardSettingsHeader`, plus `PenColorModel / Magenta` and
+  `LanguageAndKeyboard / French = 简体中文`.
 - The full rmtool test suite remains green.
 
 After local validation, deploy the new QM through the existing safe backend,
