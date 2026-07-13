@@ -1818,6 +1818,17 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertEqual(actual, expected)
         self.assertTrue(actual.is_dir())
 
+    def test_frozen_app_state_dir_is_beside_executable(self):
+        with tempfile.TemporaryDirectory() as temp_root:
+            executable = Path(temp_root) / "rmtool.exe"
+            with mock.patch.object(
+                rmtool.sys, "frozen", True, create=True
+            ), mock.patch.object(rmtool.sys, "executable", str(executable)):
+                actual = rmtool.app_state_dir()
+
+            self.assertEqual(actual, Path(temp_root) / ".rmtool")
+            self.assertTrue(actual.is_dir())
+
     def test_first_load_creates_empty_devices_file(self):
         with tempfile.TemporaryDirectory() as temp_root:
             temp_root = Path(temp_root)

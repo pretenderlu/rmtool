@@ -63,7 +63,8 @@ FONT_PREVIEW_TEXT = "字体预览\nAaBbCc 1234567890\n你好，reMarkable"
 
 
 def app_state_dir() -> Path:
-    path = Path(__file__).resolve().parent / ".rmtool"
+    anchor = sys.executable if getattr(sys, "frozen", False) else __file__
+    path = Path(anchor).resolve().parent / ".rmtool"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
