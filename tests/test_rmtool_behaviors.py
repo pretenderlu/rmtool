@@ -119,10 +119,6 @@ class FakeHostKey:
     def get_name(self):
         return "ssh-ed25519"
 
-    def get_base64(self):
-        return "ZmFrZS1rZXk="
-
-
 class FakeTransport:
     def __init__(self):
         self.keepalive = None
@@ -628,7 +624,9 @@ class LocalCredentialTests(unittest.TestCase):
 
             with mock.patch.object(
                 rmtool, "Worker", return_value=worker
-            ), mock.patch.object(QtWidgets, "QProgressDialog"), mock.patch.object(
+            ) as worker_factory, mock.patch.object(
+                QtWidgets, "QProgressDialog"
+            ), mock.patch.object(
                 widget.thread_pool, "start"
             ):
                 widget._begin_connection(
@@ -636,6 +634,14 @@ class LocalCredentialTests(unittest.TestCase):
                 )
                 worker.signals.finished.connect.call_args.args[0](None)
 
+        worker_factory.assert_called_once_with(
+            ssh_client.connect,
+            "192.168.1.99",
+            " new secret ",
+            trust_unknown_host=False,
+            device_id="device-a",
+            device_name="Device A",
+        )
         self.assertEqual(save_config.call_count, 1)
         self.assertEqual(snapshots, [config])
         self.assertEqual(
@@ -1442,15 +1448,44 @@ class DashboardDesignTokenTests(unittest.TestCase):
 
 
 class HostKeyVerificationTests(unittest.TestCase):
-    def test_trust_identity_prefers_same_device_alias_for_usb_and_wifi(self):
+    def test_trust_identity_uses_device_id_alias(self):
         wrapper = rmtool.SSHClientWrapper()
 
-        usb_identity = wrapper._trust_identity("10.11.99.1", "usb", "Device A")
-        wifi_identity = wrapper._trust_identity("192.168.0.8", "wifi", "Device A")
+        self.assertEqual(
+            wrapper._trust_identity("10.11.99.1", "device-a"),
+            "rmtool-device-device-a",
+        )
+
+    def test_trust_identity_is_stable_across_usb_and_wifi_hosts(self):
+        wrapper = rmtool.SSHClientWrapper()
+
+        usb_identity = wrapper._trust_identity("10.11.99.1", "device-a")
+        wifi_identity = wrapper._trust_identity("192.168.0.8", "device-a")
 
         self.assertEqual(usb_identity, wifi_identity)
-        self.assertNotEqual(usb_identity, "10.11.99.1")
-        self.assertNotEqual(wifi_identity, "192.168.0.8")
+
+    def test_trust_identity_is_stable_across_device_rename(self):
+        wrapper = rmtool.SSHClientWrapper()
+        device = {"id": "device-a", "name": "Device A"}
+
+        original_identity = wrapper._trust_identity("10.11.99.1", device["id"])
+        device["name"] = "Renamed Device"
+        renamed_identity = wrapper._trust_identity("10.11.99.1", device["id"])
+
+        self.assertEqual(original_identity, renamed_identity)
+
+    def test_trust_identity_isolated_for_devices_sharing_usb_host(self):
+        wrapper = rmtool.SSHClientWrapper()
+
+        first_identity = wrapper._trust_identity("10.11.99.1", "device-a")
+        second_identity = wrapper._trust_identity("10.11.99.1", "device-b")
+
+        self.assertNotEqual(first_identity, second_identity)
+
+    def test_trust_identity_falls_back_to_raw_host_without_device_id(self):
+        wrapper = rmtool.SSHClientWrapper()
+
+        self.assertEqual(wrapper._trust_identity("10.11.99.1", ""), "10.11.99.1")
 
     def test_connect_raises_unknown_host_key_error_for_untrusted_host(self):
         wrapper = rmtool.SSHClientWrapper()
@@ -1465,7 +1500,12 @@ class HostKeyVerificationTests(unittest.TestCase):
             wrapper, "_fetch_remote_host_key", return_value=host_key
         ):
             with self.assertRaises(rmtool.UnknownHostKeyError) as ctx:
-                wrapper.connect("10.11.99.1", "secret")
+                wrapper.connect(
+                    "10.11.99.1",
+                    "secret",
+                    device_id="device-a",
+                    device_name="Device A",
+                )
 
         self.assertEqual(ctx.exception.host, "10.11.99.1")
         self.assertEqual(ctx.exception.fingerprint, "01:23:45:67")
@@ -1497,8 +1537,8 @@ class HostKeyVerificationTests(unittest.TestCase):
                 wrapper.connect(
                     "10.11.99.1",
                     "secret",
-                    device_name="Device B",
-                    connection_mode="usb",
+                    device_id="device-a",
+                    device_name="Device A",
                 )
 
         self.assertEqual(ctx.exception.host, "10.11.99.1")
@@ -1525,13 +1565,21 @@ class HostKeyVerificationTests(unittest.TestCase):
                 "10.11.99.1",
                 "secret",
                 trust_unknown_host=True,
+                device_id="device-a",
                 device_name="Device A",
             )
 
-        expected_identity = wrapper._trust_identity("10.11.99.1", "wifi", "Device A")
+        expected_identity = wrapper._trust_identity("10.11.99.1", "device-a")
         trust_host_key.assert_called_once_with(expected_identity, host_key)
         self.assertIs(wrapper._client, second_client)
-        self.assertEqual(wrapper.connection_info["device_name"], "Device A")
+        self.assertEqual(
+            wrapper.connection_info,
+            {
+                "host": "10.11.99.1",
+                "device_id": "device-a",
+                "device_name": "Device A",
+            },
+        )
         self.assertEqual(second_client.transport.keepalive, 30)
         injected = second_client.get_host_keys().lookup("10.11.99.1")
         self.assertIsNotNone(injected)
@@ -1540,40 +1588,41 @@ class HostKeyVerificationTests(unittest.TestCase):
             rmtool.host_key_fingerprint(host_key),
         )
 
-    def test_connect_treats_legacy_host_mismatch_as_retrust_for_selected_device(self):
+    def test_connect_rejects_mismatched_device_key_until_retrusted(self):
         wrapper = rmtool.SSHClientWrapper()
-        legacy_key = FakeHostKey(b"\xaa\xbb\xcc\xdd")
+        trusted_key = FakeHostKey(b"\xaa\xbb\xcc\xdd")
         actual_key = FakeHostKey(b"\x11\x22\x33\x44")
-        mismatch = paramiko.BadHostKeyException("10.11.99.1", actual_key, legacy_key)
+        mismatch = paramiko.BadHostKeyException("10.11.99.1", actual_key, trusted_key)
 
         with mock.patch.object(
-            wrapper, "_lookup_trusted_host_key", return_value=("10.11.99.1", legacy_key)
+            wrapper, "_lookup_trusted_host_key", return_value=trusted_key
         ), mock.patch.object(
             wrapper, "_build_client", return_value=FakeSSHClient(exc=mismatch)
         ), mock.patch.object(
             wrapper, "_fetch_remote_host_key", return_value=actual_key
-        ):
+        ), mock.patch.object(wrapper, "_trust_host_key") as trust_host_key:
             with self.assertRaises(rmtool.UnknownHostKeyError) as ctx:
                 wrapper.connect(
                     "10.11.99.1",
                     "secret",
-                    device_name="Device B",
-                    connection_mode="usb",
+                    device_id="device-a",
+                    device_name="Device A",
                 )
 
         self.assertEqual(ctx.exception.host, "10.11.99.1")
         self.assertEqual(ctx.exception.fingerprint, "11:22:33:44")
+        trust_host_key.assert_not_called()
 
-    def test_connect_can_retrust_legacy_host_mismatch_for_selected_device(self):
+    def test_connect_can_explicitly_retrust_mismatched_device_key(self):
         wrapper = rmtool.SSHClientWrapper()
-        legacy_key = FakeHostKey(b"\xaa\xbb\xcc\xdd")
+        trusted_key = FakeHostKey(b"\xaa\xbb\xcc\xdd")
         actual_key = FakeHostKey(b"\x11\x22\x33\x44")
-        mismatch = paramiko.BadHostKeyException("10.11.99.1", actual_key, legacy_key)
+        mismatch = paramiko.BadHostKeyException("10.11.99.1", actual_key, trusted_key)
         first_client = FakeSSHClient(exc=mismatch)
         second_client = FakeSSHClient()
 
         with mock.patch.object(
-            wrapper, "_lookup_trusted_host_key", return_value=("10.11.99.1", legacy_key)
+            wrapper, "_lookup_trusted_host_key", return_value=trusted_key
         ), mock.patch.object(
             wrapper, "_build_client", side_effect=[first_client, second_client]
         ), mock.patch.object(
@@ -1585,14 +1634,21 @@ class HostKeyVerificationTests(unittest.TestCase):
                 "10.11.99.1",
                 "secret",
                 trust_unknown_host=True,
-                device_name="Device B",
-                connection_mode="usb",
+                device_id="device-a",
+                device_name="Device A",
             )
 
-        expected_identity = wrapper._trust_identity("10.11.99.1", "usb", "Device B")
+        expected_identity = wrapper._trust_identity("10.11.99.1", "device-a")
         trust_host_key.assert_called_once_with(expected_identity, actual_key)
         self.assertIs(wrapper._client, second_client)
-        self.assertEqual(wrapper.connection_info["device_name"], "Device B")
+        self.assertEqual(
+            wrapper.connection_info,
+            {
+                "host": "10.11.99.1",
+                "device_id": "device-a",
+                "device_name": "Device A",
+            },
+        )
         injected = second_client.get_host_keys().lookup("10.11.99.1")
         self.assertIsNotNone(injected)
         self.assertEqual(
@@ -1600,7 +1656,7 @@ class HostKeyVerificationTests(unittest.TestCase):
             rmtool.host_key_fingerprint(actual_key),
         )
 
-    def test_usb_connect_trusts_host_key_by_device_name(self):
+    def test_usb_connect_trusts_host_key_by_device_id(self):
         wrapper = rmtool.SSHClientWrapper()
         host_key = FakeHostKey(b"\x10\x20\x30\x40")
         unknown_host = paramiko.SSHException(
@@ -1620,11 +1676,11 @@ class HostKeyVerificationTests(unittest.TestCase):
                 "10.11.99.1",
                 "secret",
                 trust_unknown_host=True,
+                device_id="device-a",
                 device_name="Device A",
-                connection_mode="usb",
             )
 
-        expected_identity = wrapper._trust_identity("10.11.99.1", "usb", "Device A")
+        expected_identity = wrapper._trust_identity("10.11.99.1", "device-a")
         trust_host_key.assert_called_once_with(expected_identity, host_key)
         injected = second_client.get_host_keys().lookup("10.11.99.1")
         self.assertIsNotNone(injected)

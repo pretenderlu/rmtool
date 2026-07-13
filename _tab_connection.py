@@ -609,8 +609,8 @@ class ConnectionWidget(QtWidgets.QWidget):
             host,
             password,
             trust_unknown_host=trust_unknown_host,
+            device_id=device_id,
             device_name=device_name,
-            connection_mode=device_mode,
         )
 
         def on_finished(_: object):

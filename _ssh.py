@@ -4,7 +4,6 @@ SSHClientWrapper, UnknownHostKeyError, remount_rw context manager, and the
 require_connection decorator live here to keep rmtool.py focused on UI.
 """
 
-import base64
 import inspect
 import logging
 import os
@@ -132,39 +131,22 @@ class SSHClientWrapper(QtCore.QObject):
         host_keys.save(str(host_keys_file))
 
     @staticmethod
-    def _trust_identity(
-        host: str,
-        connection_mode: str,
-        device_name: str,
-    ) -> str:
-        normalized_name = device_name.strip()
-        if normalized_name:
-            encoded_name = base64.urlsafe_b64encode(
-                normalized_name.encode("utf-8")
-            ).decode("ascii").rstrip("=")
-            return f"rmtool-device-{encoded_name}"
-        return host
+    def _trust_identity(host: str, device_id: str) -> str:
+        normalized_id = device_id.strip()
+        return f"rmtool-device-{normalized_id}" if normalized_id else host
 
     @staticmethod
     def _lookup_trusted_host_key(
         trust_identity: str,
-        host: str,
-    ) -> Tuple[Optional[str], Optional[paramiko.PKey]]:
+    ) -> Optional[paramiko.PKey]:
         host_keys_file = _get_known_hosts_path()
         if not host_keys_file.exists():
-            return None, None
+            return None
 
         host_keys = paramiko.HostKeys()
         host_keys.load(str(host_keys_file))
-        lookup_order = [trust_identity]
-        if host != trust_identity:
-            lookup_order.append(host)
-
-        for lookup_name in lookup_order:
-            keys = host_keys.lookup(lookup_name)
-            if keys:
-                return lookup_name, next(iter(keys.values()))
-        return None, None
+        keys = host_keys.lookup(trust_identity)
+        return next(iter(keys.values())) if keys else None
 
     @staticmethod
     def _apply_trusted_host_key(
@@ -196,14 +178,14 @@ class SSHClientWrapper(QtCore.QObject):
         password: str,
         timeout: int = 10,
         trust_unknown_host: bool = False,
+        device_id: str = "",
         device_name: str = "",
-        connection_mode: str = "wifi",
     ) -> None:
         logging.info("Connecting to %s", host)
         self.close()
         self.connection_info = {}
-        trust_identity = self._trust_identity(host, connection_mode, device_name)
-        trusted_from, trusted_key = self._lookup_trusted_host_key(trust_identity, host)
+        trust_identity = self._trust_identity(host, device_id)
+        trusted_key = self._lookup_trusted_host_key(trust_identity)
         client = self._build_client()
         if trusted_key:
             self._apply_trusted_host_key(client, host, trusted_key)
@@ -214,12 +196,9 @@ class SSHClientWrapper(QtCore.QObject):
                 client.close()
             except Exception:
                 logging.exception("Failed to close SSH client after connect error")
-            legacy_host_trust = trusted_from == host and trust_identity != host
-            if isinstance(exc, paramiko.BadHostKeyException) and not legacy_host_trust:
-                raise RuntimeError(
-                    f"{host} 的 SSH 主机指纹与已保存记录不匹配，连接已被拒绝。"
-                ) from exc
-            if not legacy_host_trust and not self._is_unknown_host_error(exc):
+            if not isinstance(
+                exc, paramiko.BadHostKeyException
+            ) and not self._is_unknown_host_error(exc):
                 raise
             host_key = self._fetch_remote_host_key(host, timeout)
             if not trust_unknown_host:
@@ -228,16 +207,17 @@ class SSHClientWrapper(QtCore.QObject):
             client = self._build_client()
             self._apply_trusted_host_key(client, host, host_key)
             self._connect_client(client, host, password, timeout)
-        else:
-            if trusted_key and trusted_from == host and trust_identity != host:
-                self._trust_host_key(trust_identity, trusted_key)
 
         # Enable TCP keepalive so the connection survives idle periods
         transport = client.get_transport()
         if transport:
             transport.set_keepalive(30)
         self._client = client
-        self.connection_info = {"host": host, "device_name": device_name}
+        self.connection_info = {
+            "host": host,
+            "device_id": device_id,
+            "device_name": device_name,
+        }
         self.connection_changed.emit(True)
 
     def close(self) -> None:
