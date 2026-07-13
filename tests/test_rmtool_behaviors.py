@@ -1633,6 +1633,44 @@ class HostKeyVerificationTests(unittest.TestCase):
             rmtool.host_key_fingerprint(host_key),
         )
 
+    def test_retrust_replaces_all_algorithms_for_selected_device_only(self):
+        wrapper = rmtool.SSHClientWrapper()
+        device_a = "rmtool-device-device-a"
+        device_b = "rmtool-device-device-b"
+        old_rsa = paramiko.RSAKey.generate(1024)
+        old_ecdsa = paramiko.ECDSAKey.generate()
+        device_b_key = paramiko.RSAKey.generate(1024)
+        confirmed_key = paramiko.RSAKey.generate(1024)
+
+        with tempfile.TemporaryDirectory() as temp_root:
+            known_hosts_path = Path(temp_root) / "known_hosts"
+            host_keys = paramiko.HostKeys()
+            host_keys.add(device_a, old_rsa.get_name(), old_rsa)
+            host_keys.add(device_a, old_ecdsa.get_name(), old_ecdsa)
+            host_keys.add(device_b, device_b_key.get_name(), device_b_key)
+            host_keys.save(str(known_hosts_path))
+
+            with mock.patch.object(
+                _ssh, "_get_known_hosts_path", return_value=known_hosts_path
+            ):
+                wrapper._trust_host_key(device_a, confirmed_key)
+
+            reloaded = paramiko.HostKeys()
+            reloaded.load(str(known_hosts_path))
+
+        device_a_keys = reloaded.lookup(device_a)
+        self.assertEqual(set(device_a_keys.keys()), {confirmed_key.get_name()})
+        self.assertEqual(
+            device_a_keys[confirmed_key.get_name()].asbytes(),
+            confirmed_key.asbytes(),
+        )
+        device_b_keys = reloaded.lookup(device_b)
+        self.assertEqual(set(device_b_keys.keys()), {device_b_key.get_name()})
+        self.assertEqual(
+            device_b_keys[device_b_key.get_name()].asbytes(),
+            device_b_key.asbytes(),
+        )
+
     def test_connect_rejects_mismatched_device_key_until_retrusted(self):
         wrapper = rmtool.SSHClientWrapper()
         trusted_key = FakeHostKey(b"\xaa\xbb\xcc\xdd")

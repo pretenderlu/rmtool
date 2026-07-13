@@ -136,6 +136,8 @@ class SSHClientWrapper(QtCore.QObject):
         host_keys = paramiko.HostKeys()
         if host_keys_file.exists():
             host_keys.load(str(host_keys_file))
+        while host_keys.lookup(host):
+            del host_keys[host]
         host_keys.add(host, host_key.get_name(), host_key)
         host_keys_file.parent.mkdir(parents=True, exist_ok=True)
         host_keys.save(str(host_keys_file))
