@@ -5170,7 +5170,7 @@ reMarkable to its factory settings?</source>
     <name>SearchIndexPanel</name>
     <message>
       <source>Reset</source>
-      <translation>重置</translation>
+      <translation>重建索引</translation>
     </message>
     <message>
       <source>Keeps an index of the notes and text you've searched for.</source>
