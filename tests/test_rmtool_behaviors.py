@@ -1982,11 +1982,28 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertEqual(actual, expected)
         self.assertTrue(actual.is_dir())
 
-    def test_frozen_app_state_dir_is_beside_executable(self):
+    def test_frozen_windows_app_state_dir_is_beside_executable(self):
         with tempfile.TemporaryDirectory() as temp_root:
-            executable = Path(temp_root) / "rmtool.exe"
+            executable = Path(temp_root) / "container.app" / "rmtool.exe"
             with mock.patch.object(
                 rmtool.sys, "frozen", True, create=True
+            ), mock.patch.object(
+                rmtool.sys, "platform", "win32"
+            ), mock.patch.object(rmtool.sys, "executable", str(executable)):
+                actual = rmtool.app_state_dir()
+
+            self.assertEqual(actual, executable.parent / ".rmtool")
+            self.assertTrue(actual.is_dir())
+
+    def test_frozen_macos_app_state_dir_is_beside_bundle(self):
+        with tempfile.TemporaryDirectory() as temp_root:
+            executable = (
+                Path(temp_root) / "Renamed.app" / "Contents" / "MacOS" / "rmtool"
+            )
+            with mock.patch.object(
+                rmtool.sys, "frozen", True, create=True
+            ), mock.patch.object(
+                rmtool.sys, "platform", "darwin"
             ), mock.patch.object(rmtool.sys, "executable", str(executable)):
                 actual = rmtool.app_state_dir()
 
