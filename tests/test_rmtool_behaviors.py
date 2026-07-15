@@ -1182,6 +1182,7 @@ class WallpaperUiTests(unittest.TestCase):
             size=178_170,
             release_version="3.28-tentacruel",
             channel="beta",
+            platform="ferrari",
         )
 
         section._apply_status(
@@ -1197,6 +1198,7 @@ class WallpaperUiTests(unittest.TestCase):
         catalog = section.catalog_label.text()
         self.assertIn("3.27.3.0 | 正式版", catalog)
         self.assertIn("3.28-tentacruel | 测试版", catalog)
+        self.assertIn("硬件 Ferrari", catalog)
         self.assertIn(stable.firmware, catalog)
         self.assertIn(beta.firmware, catalog)
 

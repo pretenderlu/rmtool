@@ -223,6 +223,29 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             channel="stable",
         )
 
+    def make_variant_packages(self):
+        ferrari_stock = b"ferrari-stock-carrier-qm"
+        common = {
+            "firmware": _rmkit_cn.SUPPORTED_FIRMWARE,
+            "localized_qm_sha256": hashlib.sha256(self.LOCALIZED_QM).hexdigest(),
+            "asset": f"reMarkable_zh_CN-{_rmkit_cn.SUPPORTED_FIRMWARE}.qm",
+            "size": len(self.LOCALIZED_QM),
+            "release_version": "3.27.3.0",
+            "channel": "stable",
+        }
+        ferrari = _rmkit_cn.TranslationPackage(
+            stock_french_sha256=hashlib.sha256(ferrari_stock).hexdigest(),
+            platform="ferrari",
+            **common,
+        )
+        chiappa = _rmkit_cn.TranslationPackage(
+            stock_french_sha256=hashlib.sha256(self.STOCK_QM).hexdigest(),
+            platform="chiappa",
+            variants=(ferrari,),
+            **common,
+        )
+        return chiappa, ferrari, ferrari_stock
+
     def managed_files(self, carrier=None):
         return {
             _rmkit_cn.QM_PATH: self.LOCALIZED_QM if carrier is None else carrier,
@@ -988,6 +1011,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         font_path = Path("assets/fonts") / _rmkit_cn.BUNDLED_FONT_NAME
         license_path = Path("assets/fonts/LICENSE")
         qm_path = Path("translations/reMarkable_zh_CN.qm")
+        ferrari_qm_path = Path("translations/reMarkable_zh_CN_ferrari.qm")
         manifest_path = Path("translations/manifest.json")
 
         self.assertEqual(font_path.stat().st_size, 16_437_364)
@@ -1011,6 +1035,19 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             package.stock_french_sha256,
             "8e0db0f7a2d3116469e1aae4f52657ccc38d0422b5b958ae512554bd018f285e",
         )
+        self.assertEqual(package.platform, "chiappa")
+        self.assertEqual(len(package.variants), 1)
+        ferrari = package.variants[0]
+        self.assertEqual(ferrari.platform, "ferrari")
+        self.assertEqual(ferrari.size, ferrari_qm_path.stat().st_size)
+        self.assertEqual(
+            ferrari.localized_qm_sha256,
+            hashlib.sha256(ferrari_qm_path.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(
+            ferrari.stock_french_sha256,
+            "9f62dc83b150e48b8d4e1688c1b16d22aa09fdd1ba09b772954394ec6c1ab4fb",
+        )
         self.assertEqual(package.release_version, "3.27.3.0")
         self.assertEqual(package.channel, "stable")
         build_script = Path("build-portable.ps1").read_text(encoding="utf-8-sig")
@@ -1018,6 +1055,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertIn("assets\\fonts\\LICENSE", build_script)
         self.assertIn("assets\\fonts');assets\\fonts", build_script)
         self.assertNotIn("translations\\reMarkable_zh_CN.qm", build_script)
+        self.assertNotIn("translations\\reMarkable_zh_CN_ferrari.qm", build_script)
         self.assertIn('"--onefile"', build_script)
         self.assertIn("rmtool-windows-x64-onefile.exe", build_script)
 
@@ -1072,6 +1110,103 @@ class RmkitCnLocalizationTests(unittest.TestCase):
                 ).encode()
                 with self.assertRaises(RuntimeError):
                     _rmkit_cn.parse_translation_manifest(data)
+
+    def test_cloud_manifest_parses_hardware_variants(self):
+        common = {
+            "asset": "reMarkable_zh_CN-20260612085811.qm",
+            "release_version": "3.27.3.0",
+            "channel": "stable",
+            "size": 175_519,
+            "sha256": "1" * 64,
+        }
+        entry = {
+            **common,
+            "platform": "chiappa",
+            "stock_french_sha256": "2" * 64,
+            "variants": [
+                {
+                    **common,
+                    "platform": "ferrari",
+                    "stock_french_sha256": "3" * 64,
+                }
+            ],
+        }
+        package = _rmkit_cn.parse_translation_manifest(
+            json.dumps(
+                {
+                    "schema": _rmkit_cn.TRANSLATION_MANIFEST_SCHEMA,
+                    "firmwares": {_rmkit_cn.SUPPORTED_FIRMWARE: entry},
+                }
+            ).encode()
+        )[_rmkit_cn.SUPPORTED_FIRMWARE]
+
+        self.assertEqual(package.platform, "chiappa")
+        self.assertEqual(package.stock_french_sha256, "2" * 64)
+        self.assertEqual(len(package.variants), 1)
+        self.assertEqual(package.variants[0].platform, "ferrari")
+        self.assertEqual(package.variants[0].stock_french_sha256, "3" * 64)
+        self.assertEqual(
+            package.localized_qm_sha256,
+            package.variants[0].localized_qm_sha256,
+        )
+
+    def test_cloud_manifest_rejects_malformed_or_duplicate_variants(self):
+        common = {
+            "asset": "reMarkable_zh_CN-20260612085811.qm",
+            "release_version": "3.27.3.0",
+            "channel": "stable",
+            "size": 175_519,
+            "sha256": "1" * 64,
+        }
+        primary = {
+            **common,
+            "platform": "chiappa",
+            "stock_french_sha256": "2" * 64,
+        }
+        variant = {
+            **common,
+            "platform": "ferrari",
+            "stock_french_sha256": "3" * 64,
+        }
+        cases = (
+            ("non-list", {**primary, "variants": {}}),
+            ("missing-primary-platform", {
+                **common,
+                "stock_french_sha256": "2" * 64,
+                "variants": [variant],
+            }),
+            ("non-record", {**primary, "variants": ["ferrari"]}),
+            ("missing-platform", {
+                **primary,
+                "variants": [{**common, "stock_french_sha256": "3" * 64}],
+            }),
+            ("unsafe-platform", {
+                **primary,
+                "variants": [{**variant, "platform": "../ferrari"}],
+            }),
+            ("duplicate-platform", {
+                **primary,
+                "variants": [{**variant, "platform": "CHIAPPA"}],
+            }),
+            ("duplicate-stock", {
+                **primary,
+                "variants": [
+                    {**variant, "stock_french_sha256": "2" * 64}
+                ],
+            }),
+        )
+        for name, entry in cases:
+            with self.subTest(name=name), self.assertRaises(RuntimeError):
+                _rmkit_cn.parse_translation_manifest(
+                    json.dumps(
+                        {
+                            "schema": _rmkit_cn.TRANSLATION_MANIFEST_SCHEMA,
+                            "firmwares": {
+                                _rmkit_cn.SUPPORTED_FIRMWARE: entry
+                            },
+                        }
+                    ).encode()
+                )
 
     def test_cloud_translation_download_is_verified_and_reused(self):
         package = self.make_translation_package()
@@ -1149,6 +1284,102 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(status.state, _rmkit_cn.LocalizationState.INCOMPATIBLE)
         self.assertIsNone(status.package)
         self.assertEqual(unsupported.events, [("exec", "cat /etc/version")])
+
+    def test_cloud_status_selects_hardware_variant_by_stock_hash(self):
+        package, ferrari, ferrari_stock = self.make_variant_packages()
+        for carrier, expected in (
+            (self.STOCK_QM, package),
+            (ferrari_stock, ferrari),
+        ):
+            with self.subTest(platform=expected.platform):
+                ssh = self.make_ssh()
+                ssh.files[_rmkit_cn.QM_PATH] = carrier
+                with patch.object(
+                    _rmkit_cn,
+                    "load_translation_catalog",
+                    return_value={package.firmware: package},
+                ):
+                    status = _rmkit_cn.get_cloud_localization_status(
+                        ssh, ".rmtool"
+                    )
+
+                self.assertIs(status.package, expected)
+                self.assertEqual(
+                    status.state, _rmkit_cn.LocalizationState.NOT_INSTALLED
+                )
+                self.assertEqual(status.available_packages, (package, ferrari))
+
+    def test_shared_localized_qm_uses_exact_stock_backup_for_variant(self):
+        package, ferrari, ferrari_stock = self.make_variant_packages()
+        for backup, expected in (
+            (self.STOCK_QM, package),
+            (ferrari_stock, ferrari),
+        ):
+            with self.subTest(platform=expected.platform):
+                ssh = self.make_ssh(
+                    config=b"[General]\nlanguage=fr_FR\n"
+                )
+                ssh.files.update(self.managed_files())
+                ssh.files[_rmkit_cn.BACKUP_QM_PATH] = backup
+                with patch.object(
+                    _rmkit_cn,
+                    "load_translation_catalog",
+                    return_value={package.firmware: package},
+                ):
+                    status = _rmkit_cn.get_cloud_localization_status(
+                        ssh, ".rmtool"
+                    )
+
+                self.assertIs(status.package, expected)
+                self.assertEqual(status.state, _rmkit_cn.LocalizationState.ENABLED)
+                self.assertNotIn(
+                    ("exec", "systemctl stop xochitl"), ssh.events
+                )
+
+    def test_shared_localized_qm_requires_complete_backup(self):
+        package, _ferrari, _ferrari_stock = self.make_variant_packages()
+        ssh = self.make_ssh(config=b"[General]\nlanguage=fr_FR\n")
+        ssh.files[_rmkit_cn.QM_PATH] = self.LOCALIZED_QM
+        before = dict(ssh.files)
+
+        with patch.object(
+            _rmkit_cn,
+            "load_translation_catalog",
+            return_value={package.firmware: package},
+        ), self.assertRaisesRegex(RuntimeError, "缺少完整备份"):
+            _rmkit_cn.get_cloud_localization_status(ssh, ".rmtool")
+
+        self.assertEqual(ssh.files, before)
+        self.assertTrue(ssh.xochitl_active)
+        self.assertNotIn(("exec", "systemctl stop xochitl"), ssh.events)
+        self.assertFalse(any(kind == "transfer" for kind, _value in ssh.events))
+
+    def test_variant_selection_rejects_unknown_carrier_and_stale_backup_read_only(self):
+        package, _ferrari, _ferrari_stock = self.make_variant_packages()
+        unknown = self.make_ssh()
+        unknown.files[_rmkit_cn.QM_PATH] = b"unknown-carrier"
+        stale = self.make_ssh(config=b"[General]\nlanguage=fr_FR\n")
+        stale.files.update(self.managed_files())
+        stale.files[_rmkit_cn.BACKUP_QM_PATH] = b"stale-stock-backup"
+
+        for name, ssh in (("unknown", unknown), ("stale", stale)):
+            with self.subTest(name=name):
+                before = dict(ssh.files)
+                with patch.object(
+                    _rmkit_cn,
+                    "load_translation_catalog",
+                    return_value={package.firmware: package},
+                ), self.assertRaises(RuntimeError):
+                    _rmkit_cn.get_cloud_localization_status(ssh, ".rmtool")
+
+                self.assertEqual(ssh.files, before)
+                self.assertTrue(ssh.xochitl_active)
+                self.assertNotIn(
+                    ("exec", "systemctl stop xochitl"), ssh.events
+                )
+                self.assertFalse(
+                    any(kind == "transfer" for kind, _value in ssh.events)
+                )
 
     def test_unknown_carrier_and_wrong_local_qm_are_rejected_before_stop(self):
         for carrier, local_qm, message in (

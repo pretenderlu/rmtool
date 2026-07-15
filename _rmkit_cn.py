@@ -69,6 +69,7 @@ _FIRMWARE_RE = re.compile(r"^[0-9]{14}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _ASSET_RE = re.compile(r"^[A-Za-z0-9._-]+\.qm$")
 _RELEASE_VERSION_RE = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
+_PLATFORM_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
 
 
 @dataclass(frozen=True)
@@ -80,6 +81,8 @@ class TranslationPackage:
     size: int
     release_version: str = ""
     channel: str = "stable"
+    platform: str = ""
+    variants: tuple["TranslationPackage", ...] = field(default=(), repr=False)
 
     @property
     def download_url(self) -> str:
@@ -95,6 +98,54 @@ def _default_translation_package() -> TranslationPackage:
         size=0,
         release_version="3.27.3.0",
         channel="stable",
+    )
+
+
+def _parse_translation_package(
+    firmware: str, entry: dict, *, require_platform: bool = False
+) -> TranslationPackage:
+    stock_sha256 = entry.get("stock_french_sha256")
+    localized_sha256 = entry.get("sha256")
+    asset = entry.get("asset")
+    size = entry.get("size")
+    release_version = entry.get("release_version")
+    channel = entry.get("channel")
+    platform = entry.get("platform", "")
+    if not isinstance(stock_sha256, str) or not _SHA256_RE.fullmatch(stock_sha256):
+        raise RuntimeError(f"固件 {firmware} 的原始法语文件哈希无效。")
+    if not isinstance(localized_sha256, str) or not _SHA256_RE.fullmatch(localized_sha256):
+        raise RuntimeError(f"固件 {firmware} 的中文文件哈希无效。")
+    if not isinstance(asset, str) or not _ASSET_RE.fullmatch(asset):
+        raise RuntimeError(f"固件 {firmware} 的云端文件名无效。")
+    if (
+        not isinstance(size, int)
+        or isinstance(size, bool)
+        or size <= 0
+        or size > MAX_TRANSLATION_BYTES
+    ):
+        raise RuntimeError(f"固件 {firmware} 的中文文件大小无效。")
+    if (
+        not isinstance(release_version, str)
+        or not _RELEASE_VERSION_RE.fullmatch(release_version)
+    ):
+        raise RuntimeError(f"固件 {firmware} 的对外版本号无效。")
+    if channel not in ("stable", "beta"):
+        raise RuntimeError(f"固件 {firmware} 的发布类型无效。")
+    if (
+        not isinstance(platform, str)
+        or (platform and not _PLATFORM_RE.fullmatch(platform))
+        or (require_platform and not platform)
+    ):
+        raise RuntimeError(f"固件 {firmware} 的硬件平台标识无效。")
+    return TranslationPackage(
+        firmware=firmware,
+        stock_french_sha256=stock_sha256,
+        localized_qm_sha256=localized_sha256,
+        asset=asset,
+        size=size,
+        release_version=release_version,
+        channel=channel,
+        platform=platform,
     )
 
 
@@ -115,41 +166,34 @@ def parse_translation_manifest(data: bytes) -> dict[str, TranslationPackage]:
             raise RuntimeError("云端汉化清单包含无效的固件版本。")
         if not isinstance(entry, dict):
             raise RuntimeError(f"固件 {firmware} 的汉化清单格式无效。")
-        stock_sha256 = entry.get("stock_french_sha256")
-        localized_sha256 = entry.get("sha256")
-        asset = entry.get("asset")
-        size = entry.get("size")
-        release_version = entry.get("release_version")
-        channel = entry.get("channel")
-        if not isinstance(stock_sha256, str) or not _SHA256_RE.fullmatch(stock_sha256):
-            raise RuntimeError(f"固件 {firmware} 的原始法语文件哈希无效。")
-        if not isinstance(localized_sha256, str) or not _SHA256_RE.fullmatch(localized_sha256):
-            raise RuntimeError(f"固件 {firmware} 的中文文件哈希无效。")
-        if not isinstance(asset, str) or not _ASSET_RE.fullmatch(asset):
-            raise RuntimeError(f"固件 {firmware} 的云端文件名无效。")
-        if (
-            not isinstance(size, int)
-            or isinstance(size, bool)
-            or size <= 0
-            or size > MAX_TRANSLATION_BYTES
-        ):
-            raise RuntimeError(f"固件 {firmware} 的中文文件大小无效。")
-        if (
-            not isinstance(release_version, str)
-            or not _RELEASE_VERSION_RE.fullmatch(release_version)
-        ):
-            raise RuntimeError(f"固件 {firmware} 的对外版本号无效。")
-        if channel not in ("stable", "beta"):
-            raise RuntimeError(f"固件 {firmware} 的发布类型无效。")
-        packages[firmware] = TranslationPackage(
-            firmware=firmware,
-            stock_french_sha256=stock_sha256,
-            localized_qm_sha256=localized_sha256,
-            asset=asset,
-            size=size,
-            release_version=release_version,
-            channel=channel,
-        )
+        package = _parse_translation_package(firmware, entry)
+        variant_entries = entry.get("variants", [])
+        if not isinstance(variant_entries, list):
+            raise RuntimeError(f"固件 {firmware} 的硬件变体列表无效。")
+        if variant_entries and not package.platform:
+            raise RuntimeError(f"固件 {firmware} 的硬件平台标识无效。")
+        variants = []
+        for variant_entry in variant_entries:
+            if not isinstance(variant_entry, dict):
+                raise RuntimeError(f"固件 {firmware} 的硬件变体格式无效。")
+            variants.append(
+                _parse_translation_package(
+                    firmware, variant_entry, require_platform=True
+                )
+            )
+        candidates = (package, *variants)
+        platforms = [candidate.platform.casefold() for candidate in candidates]
+        stock_hashes = [candidate.stock_french_sha256 for candidate in candidates]
+        localized_hashes = {
+            candidate.localized_qm_sha256 for candidate in candidates
+        }
+        if len(platforms) != len(set(platforms)):
+            raise RuntimeError(f"固件 {firmware} 包含重复的硬件平台标识。")
+        if len(stock_hashes) != len(set(stock_hashes)):
+            raise RuntimeError(f"固件 {firmware} 包含重复的原始法语文件哈希。")
+        if any(stock_hash in localized_hashes for stock_hash in stock_hashes):
+            raise RuntimeError(f"固件 {firmware} 的载体哈希元数据存在冲突。")
+        packages[firmware] = replace(package, variants=tuple(variants))
     return packages
 
 
@@ -718,20 +762,62 @@ def _install_managed_font(
         Path(local_config_path).unlink(missing_ok=True)
 
 
+def _qm_sha256(ssh_client, path: str) -> str:
+    if not _file_exists(ssh_client, path):
+        raise RuntimeError("法语载体文件不存在，已停止操作。")
+    return hashlib.sha256(_read_bytes(ssh_client, path)).hexdigest()
+
+
 def _qm_kind(
     ssh_client,
     path: str = QM_PATH,
     package: Optional[TranslationPackage] = None,
 ) -> str:
     package = package or _default_translation_package()
-    if not _file_exists(ssh_client, path):
-        raise RuntimeError("法语载体文件不存在，已停止操作。")
-    digest = hashlib.sha256(_read_bytes(ssh_client, path)).hexdigest()
+    digest = _qm_sha256(ssh_client, path)
     if digest == package.stock_french_sha256:
         return "stock"
     if digest == package.localized_qm_sha256:
         return "localized"
     raise RuntimeError("法语载体文件与支持的原版或中文版均不匹配，已停止操作。")
+
+
+def _select_translation_package(
+    ssh_client, package: TranslationPackage
+) -> TranslationPackage:
+    candidates = (package, *package.variants)
+    digest = _qm_sha256(ssh_client, QM_PATH)
+    stock_matches = [
+        candidate
+        for candidate in candidates
+        if candidate.stock_french_sha256 == digest
+    ]
+    localized_matches = [
+        candidate
+        for candidate in candidates
+        if candidate.localized_qm_sha256 == digest
+    ]
+    if len(stock_matches) == 1 and not localized_matches:
+        return stock_matches[0]
+    if len(localized_matches) == 1 and not stock_matches:
+        return localized_matches[0]
+    if len(localized_matches) > 1 and not stock_matches:
+        if not all(
+            _file_exists(ssh_client, path)
+            for path in (BACKUP_READY_PATH, BACKUP_CONFIG_PATH, BACKUP_QM_PATH)
+        ):
+            raise RuntimeError("共享中文载体缺少完整备份，无法确认硬件版本。")
+        _read_bytes(ssh_client, BACKUP_CONFIG_PATH)
+        backup_digest = _qm_sha256(ssh_client, BACKUP_QM_PATH)
+        backup_matches = [
+            candidate
+            for candidate in localized_matches
+            if candidate.stock_french_sha256 == backup_digest
+        ]
+        if len(backup_matches) == 1:
+            return backup_matches[0]
+        raise RuntimeError("汉化备份与当前固件的已知硬件版本均不匹配。")
+    raise RuntimeError("法语载体文件与当前固件的已知硬件版本均不匹配。")
 
 
 def _validate_backup(
@@ -802,15 +888,20 @@ def get_cloud_localization_status(
     firmware = _firmware(ssh_client)
     catalog = load_translation_catalog(state_dir)
     available_packages = tuple(
-        sorted(catalog.values(), key=lambda item: item.firmware, reverse=True)
+        candidate
+        for root in sorted(
+            catalog.values(), key=lambda item: item.firmware, reverse=True
+        )
+        for candidate in (root, *root.variants)
     )
-    package = catalog.get(firmware)
-    if package is None:
+    root_package = catalog.get(firmware)
+    if root_package is None:
         return LocalizationStatus(
             LocalizationState.INCOMPATIBLE,
             firmware,
             available_packages=available_packages,
         )
+    package = _select_translation_package(ssh_client, root_package)
     return replace(
         get_localization_status(ssh_client, package),
         available_packages=available_packages,

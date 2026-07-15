@@ -519,7 +519,8 @@ class RmkitCnSection(QtWidgets.QWidget):
                 entries = [
                     f"{package.release_version} | "
                     f"{channel_names[package.channel]} | "
-                    f"内部版本 {package.firmware}"
+                    + (f"硬件 {package.platform.title()} | " if package.platform else "")
+                    + f"内部版本 {package.firmware}"
                     for package in status.available_packages
                 ]
                 self.catalog_label.setText(

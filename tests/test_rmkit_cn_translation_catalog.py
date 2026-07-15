@@ -11,6 +11,10 @@ import _rmkit_cn
 
 
 EXPECTED_MESSAGES = 1847
+FERRARI_SUPPLEMENT_MESSAGES = 31
+FERRARI_MESSAGES = EXPECTED_MESSAGES + FERRARI_SUPPLEMENT_MESSAGES
+FERRARI_SUPPLEMENT_KEY_SHA256 = "9aabccaf96280039ef28f75e4147fc09a843f3095f8c2097dedc6386273db0be"
+FERRARI_QM_SHA256 = "28b82b8a0ca32aa83fe49ef4c5db792bd1a5908ae8135c2fa9eefe8cf0a98fd9"
 MINIMUM_CONTEXTS = 300
 STOCK_MESSAGES = 1779
 STOCK_KEY_SHA256 = "6362ce405416df7b45faaee315f517ffb96f1c875814a623b5e776edafaf19cb"
@@ -319,6 +323,111 @@ class RmkitCnTranslationCatalogTests(unittest.TestCase):
                 catalog_entries[(context, READING_LIGHT_DESCRIPTION, "", False)],
                 ("从右上角向下滑动打开快捷设置，即可调整亮度。",),
             )
+
+    def test_ferrari_supplement_is_complete_and_well_formed(self):
+        translations = Path(__file__).resolve().parents[1] / "translations"
+        base_root = ET.parse(translations / "reMarkable_zh_CN.ts").getroot()
+        root = ET.parse(
+            translations / "reMarkable_zh_CN_ferrari_supplement.ts"
+        ).getroot()
+        base_keys = {
+            (
+                element_text(context.find("name")),
+                element_text(message.find("source")),
+                element_text(message.find("comment")),
+                message.get("numerus") == "yes",
+            )
+            for context in base_root.findall("context")
+            for message in context.findall("message")
+        }
+        keys = []
+        entries = {}
+        invalid = []
+        identical = []
+        for context in root.findall("context"):
+            context_name = element_text(context.find("name"))
+            for message in context.findall("message"):
+                source = element_text(message.find("source"))
+                comment = element_text(message.find("comment"))
+                key = (
+                    context_name,
+                    source,
+                    comment,
+                    message.get("numerus") == "yes",
+                )
+                keys.append(key)
+                translation = message.find("translation")
+                translated = element_text(translation)
+                entries[key] = translated
+                if (
+                    translation is None
+                    or translation.get("type") in FORBIDDEN_TYPES
+                    or not translated.strip()
+                    or edge_whitespace(translated) != edge_whitespace(source)
+                    or translated.count("\n") != source.count("\n")
+                    or Counter(PLACEHOLDER_RE.findall(translated))
+                    != Counter(PLACEHOLDER_RE.findall(source))
+                    or Counter(TAG_RE.findall(translated))
+                    != Counter(TAG_RE.findall(source))
+                ):
+                    invalid.append(key)
+                if translated == source:
+                    identical.append(key)
+
+        self.assertEqual(len(keys), FERRARI_SUPPLEMENT_MESSAGES)
+        self.assertEqual(len(keys), len(set(keys)))
+        self.assertEqual(len(root.findall("context")), 7)
+        self.assertEqual(key_digest(keys), FERRARI_SUPPLEMENT_KEY_SHA256)
+        self.assertFalse(set(keys) & base_keys)
+        self.assertEqual(len(base_keys | set(keys)), FERRARI_MESSAGES)
+        self.assertFalse(invalid)
+        self.assertEqual(
+            {(context, source) for context, source, _comment, _numerus in identical},
+            {("SeabirdPreference", "Mac"), ("SeabirdPreference", "PC"),
+             ("SettingsWindow", "Mac"), ("SettingsWindow", "PC")},
+        )
+        self.assertEqual(
+            entries[("KeyboardSettingsHeader", "Keyboard light", "", False)],
+            "键盘灯",
+        )
+        self.assertEqual(
+            entries[("SettingsWindow", "Firmware", "", False)],
+            "固件",
+        )
+
+    def test_ferrari_qm_matches_the_supplemented_catalog(self):
+        qm_path = (
+            Path(__file__).resolve().parents[1]
+            / "translations"
+            / "reMarkable_zh_CN_ferrari.qm"
+        )
+        data = qm_path.read_bytes()
+        self.assertEqual(hashlib.sha256(data).hexdigest(), FERRARI_QM_SHA256)
+        self.assertEqual(data[: len(QM_MAGIC)], QM_MAGIC)
+
+        sections = {}
+        offset = len(QM_MAGIC)
+        while offset < len(data):
+            self.assertLessEqual(offset + 5, len(data))
+            tag = data[offset]
+            length = int.from_bytes(data[offset + 1 : offset + 5], "big")
+            offset += 5
+            self.assertLessEqual(offset + length, len(data))
+            sections[tag] = data[offset : offset + length]
+            offset += length
+
+        self.assertEqual(offset, len(data))
+        self.assertIn(0x42, sections)
+        self.assertIn(0x69, sections)
+        self.assertEqual(len(sections[0x42]), FERRARI_MESSAGES * 8)
+        message_offsets = {
+            int.from_bytes(sections[0x42][i + 4 : i + 8], "big")
+            for i in range(0, len(sections[0x42]), 8)
+        }
+        self.assertEqual(len(message_offsets), FERRARI_MESSAGES)
+        self.assertTrue(
+            all(message_offset < len(sections[0x69]) for message_offset in message_offsets)
+        )
 
     def test_compiled_qm_matches_the_catalog_and_runtime_hash(self):
         qm_path = (
