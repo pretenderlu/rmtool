@@ -3,38 +3,57 @@
 This directory contains the editable Qt Linguist source, the compiled catalog,
 and the cloud release manifest:
 
-- `reMarkable_zh_CN.ts`: editable translation source.
-- `reMarkable_zh_CN.qm`: compiled catalog published as a versioned GitHub
-  Release asset and deployed into xochitl's built-in French translation slot
-  (`reMarkable_fr.qm`). It is not bundled into rmtool executables.
+- `reMarkable_zh_CN.ts`: editable Chiappa translation source.
+- `reMarkable_zh_CN_ferrari_supplement.ts`: the 31 exact keys added by the
+  Ferrari firmware payload.
+- `reMarkable_zh_CN.qm` and `reMarkable_zh_CN_ferrari.qm`: compiled catalogs
+  published as versioned GitHub Release assets and deployed into xochitl's
+  built-in French translation slot (`reMarkable_fr.qm`). They are not bundled
+  into rmtool executables.
 - `manifest.json`: release metadata mapping each exact firmware version to its
   user-facing version, stable/beta channel, asset name, byte size, localized
-  SHA-256, and stock French SHA-256.
+  SHA-256, stock French SHA-256, and optional hardware variants.
 
 The carrier slot is intentional: this UI-only integration does not inject a
 new `zh_CN` language code into xochitl. rmtool backs up and restores the stock
 French catalog byte-for-byte.
 
-The current baseline is reMarkable Paper Pro production firmware `3.27.3.0`,
-internal version `20260612085811`. The expected stock French carrier
-`reMarkable_fr.qm` has SHA-256
-`8e0db0f7a2d3116469e1aae4f52657ccc38d0422b5b958ae512554bd018f285e`.
+The current baseline is production firmware `3.27.3.0`, internal version
+`20260612085811`. That firmware has two verified hardware payloads:
+
+- Chiappa stock French SHA-256:
+  `8e0db0f7a2d3116469e1aae4f52657ccc38d0422b5b958ae512554bd018f285e`
+- Ferrari stock French SHA-256:
+  `9f62dc83b150e48b8d4e1688c1b16d22aa09fdd1ba09b772954394ec6c1ab4fb`
+
+rmtool selects the package by the exact stock carrier hash. Platform names are
+display metadata only.
 
 The catalog contains 1847 messages: the 1779-key union of the active messages
 in the stock English, French, German, and Spanish catalogs, plus 64 static QML
 keys proven by the production xochitl binary and four finite runtime values:
 `SettingsModel / Wifi`, `SettingsModel / Developer`,
 `SettingsModel / Experimental`, and `PenColorModel / Magenta`.
-Other dynamic translation calls are not claimed as covered. The English QM is
-intentionally sparse because English is xochitl's source language, so it is
-not a complete translation inventory on its own. Message identity uses the
+The Ferrari catalog contains those 1847 messages plus 26 exact keys from its
+four stock catalogs and five static `SettingsWindow` keys found only in its
+embedded QML, for 1878 messages total. Ferrari adds no new dynamic translation
+path. Other dynamic translation calls are not claimed as covered. The English
+QM is intentionally sparse because English is xochitl's source language, so it
+is not a complete translation inventory on its own. Message identity uses the
 exact `(context, source, comment, numerus)` tuple.
 
 Regenerate the binary with Qt 6 Linguist tools:
 
 ```powershell
-lrelease -fail-on-unfinished translations/reMarkable_zh_CN.ts `
+lrelease -nounfinished translations/reMarkable_zh_CN.ts `
   -qm translations/reMarkable_zh_CN.qm
+
+lconvert -sort-contexts -locations none `
+  translations/reMarkable_zh_CN.ts `
+  translations/reMarkable_zh_CN_ferrari_supplement.ts `
+  -o "$env:TEMP/reMarkable_zh_CN_ferrari.ts"
+lrelease -nounfinished "$env:TEMP/reMarkable_zh_CN_ferrari.ts" `
+  -qm translations/reMarkable_zh_CN_ferrari.qm
 ```
 
 The TS file must contain no empty or `unfinished` translations before release.
