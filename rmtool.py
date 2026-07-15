@@ -63,8 +63,13 @@ FONT_PREVIEW_TEXT = "字体预览\nAaBbCc 1234567890\n你好，reMarkable"
 
 
 def app_state_dir() -> Path:
-    anchor = sys.executable if getattr(sys, "frozen", False) else __file__
-    path = Path(anchor).resolve().parent / ".rmtool"
+    frozen = getattr(sys, "frozen", False)
+    anchor = Path(sys.executable if frozen else __file__).resolve()
+    if frozen and sys.platform == "darwin":
+        anchor = next(
+            (parent for parent in anchor.parents if parent.suffix == ".app"), anchor
+        )
+    path = anchor.parent / ".rmtool"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
