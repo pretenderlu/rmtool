@@ -1283,6 +1283,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
 
         self.assertEqual(status.state, _rmkit_cn.LocalizationState.INCOMPATIBLE)
         self.assertIsNone(status.package)
+        self.assertEqual(status.available_packages, ())
         self.assertEqual(unsupported.events, [("exec", "cat /etc/version")])
 
     def test_cloud_status_selects_hardware_variant_by_stock_hash(self):
@@ -1307,7 +1308,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
                 self.assertEqual(
                     status.state, _rmkit_cn.LocalizationState.NOT_INSTALLED
                 )
-                self.assertEqual(status.available_packages, (package, ferrari))
+                self.assertEqual(status.available_packages, (expected,))
 
     def test_shared_localized_qm_uses_exact_stock_backup_for_variant(self):
         package, ferrari, ferrari_stock = self.make_variant_packages()

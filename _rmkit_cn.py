@@ -887,21 +887,28 @@ def get_cloud_localization_status(
 ) -> LocalizationStatus:
     firmware = _firmware(ssh_client)
     catalog = load_translation_catalog(state_dir)
-    available_packages = tuple(
-        candidate
-        for root in sorted(
-            catalog.values(), key=lambda item: item.firmware, reverse=True
-        )
-        for candidate in (root, *root.variants)
-    )
     root_package = catalog.get(firmware)
     if root_package is None:
         return LocalizationStatus(
             LocalizationState.INCOMPATIBLE,
             firmware,
-            available_packages=available_packages,
+            available_packages=(),
         )
     package = _select_translation_package(ssh_client, root_package)
+    if package.platform:
+        platform = package.platform.casefold()
+        available_packages = tuple(
+            candidate
+            for root in sorted(
+                catalog.values(), key=lambda item: item.firmware, reverse=True
+            )
+            for candidate in (root, *root.variants)
+            if candidate.platform.casefold() == platform
+        )
+    else:
+        available_packages = tuple(
+            sorted(catalog.values(), key=lambda item: item.firmware, reverse=True)
+        )
     return replace(
         get_localization_status(ssh_client, package),
         available_packages=available_packages,
