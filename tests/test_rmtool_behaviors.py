@@ -1992,7 +1992,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             ), mock.patch.object(rmtool.sys, "executable", str(executable)):
                 actual = rmtool.app_state_dir()
 
-            self.assertEqual(actual, executable.parent / ".rmtool")
+            self.assertEqual(actual, executable.resolve().parent / ".rmtool")
             self.assertTrue(actual.is_dir())
 
     def test_frozen_macos_app_state_dir_is_beside_bundle(self):
@@ -2007,7 +2007,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             ), mock.patch.object(rmtool.sys, "executable", str(executable)):
                 actual = rmtool.app_state_dir()
 
-            self.assertEqual(actual, Path(temp_root) / ".rmtool")
+            self.assertEqual(actual, Path(temp_root).resolve() / ".rmtool")
             self.assertTrue(actual.is_dir())
 
     def test_first_load_creates_empty_devices_file(self):
