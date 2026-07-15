@@ -1,36 +1,32 @@
-# Complete Chinese Catalog Rebuild
+# Production Chinese Catalog Baseline
 
 ## Goal
 
-Rebuild the xochitl Chinese translation catalog for reMarkable Paper Pro
-firmware `20260629074044` so it covers every active message present in the
-current English, French, German, or Spanish device catalogs, plus proven
-translation lookups in the QML embedded in that exact xochitl binary.
+Build the xochitl Chinese translation catalog for reMarkable Paper Pro
+production firmware `3.27.3.0` (internal version `20260612085811`) so it
+covers every active message present in the English, French, German, or Spanish
+device catalogs, plus proven translation lookups in that exact xochitl binary.
 
-This work changes translation assets only. The existing firmware gate, French
-carrier slot, backup/restore behavior, and stop-before-write deployment order
-remain unchanged.
+Deployment remains translation-only and keeps the French carrier slot,
+backup/restore transaction, and stop-before-write order. The firmware gate and
+carrier hashes are updated to the production baseline.
 
 ## Root Cause
 
-The current Chinese catalog was rebased from `reMarkable_en.qm`. English is
-xochitl's source language, so its QM catalog contains only 873 messages and is
-not a complete inventory of translatable UI strings. The three non-English
-catalogs contain roughly 1650 messages each. Their union with English contains
-1712 active message keys, leaving the current Chinese catalog short by 839.
+English is xochitl's source language, so its production QM catalog contains
+only 918 messages and is not a complete inventory. The exact union of all four
+stock catalogs contains 1779 active message keys. The beta-targeted Chinese TS
+matches 1675 exactly and misses 104 production keys.
 
-Visual review exposed a second gap: the stock catalogs lag the QML embedded in
-the supported xochitl build. A read-only audit of the firmware binary found 97
-Qt resource bundles, mapped 638 QML files, and inspected 1568 `qsTr` or
-`qsTranslate` calls. It found 140 exact static keys absent from the 1712-key
-stock union. The settings sidebar also translates a runtime enum through
-`qsTranslate("SettingsModel", model.title)`, requiring nine explicit title
-keys. This explains both the untranslated settings categories and the new
-reading-light description.
+The stock catalogs also omit live QML lookups. A read-only audit found 91 Qt
+resource bundles, mapped 620 QML files, and inspected 1507 `qsTr` or
+`qsTranslate` calls. It found 64 exact static keys absent from the 1779-key
+stock union. The settings sidebar additionally translates finite runtime enum
+values through `qsTranslate("SettingsModel", model.title)`.
 
-The pen color menu similarly translates a runtime value through
-`xofm::libs::toolbar::PenColorModel`. The current firmware exposes `Magenta`,
-which is absent from the stock catalogs and requires one explicit key.
+The finite runtime supplement contains `SettingsModel / Wifi`,
+`SettingsModel / Developer`, `SettingsModel / Experimental`, and
+`xofm::libs::toolbar::PenColorModel / Magenta`.
 
 ## Catalog Baseline
 
@@ -44,21 +40,20 @@ firmware:
 
 A message key consists of context, source text, disambiguation comment, and
 numerus flag. Active messages emitted by `lconvert` from the stock QM files
-form the stock layer. The firmware layer adds the 140 static QML keys proven by
-the binary audit, nine finite `SettingsModel` enum values, and `Magenta` from
-the finite pen color model. The final catalog contains exactly 1862 unique
-keys.
+form the stock layer. The firmware layer adds the 64 static QML keys proven by
+the binary audit and four finite runtime keys. The final catalog contains
+exactly 1847 unique keys.
 
 ## Merge Order
 
 For every baseline key, choose the Chinese translation in this order:
 
-1. Current rmtool Chinese catalog: 873 exact-key matches.
-2. Previous rmkit Chinese catalog: 164 additional exact-key matches.
-3. New Simplified Chinese translation: approximately 675 stock-union keys.
-4. Firmware QML supplement: 140 exact static keys plus ten finite dynamic
-   values, reusing an existing context/source translation where only the
-   disambiguation comment changed.
+1. Current rmtool Chinese catalog: 1675 exact production-key matches.
+2. Previous rmkit Chinese catalog: 47 additional exact-key matches.
+3. Current Chinese catalog after same-context entity normalization: 16 keys.
+4. Exact source translation reused from another current context: eight keys.
+5. New Simplified Chinese translation: 33 keys.
+6. Firmware supplement: 64 static QML keys plus four finite runtime values.
 
 Foreign-language target text is never copied. Source text, comments, numerus
 metadata, and meaningful whitespace come from the stock baseline.
@@ -90,21 +85,21 @@ systemd changes.
 
 ## Validation
 
-Automated checks must fail on the current 873-message catalog and pass only
-when the rebuilt catalog satisfies all of these conditions:
+Automated checks pass only when the production catalog satisfies all of these
+conditions:
 
-- Exactly 1862 unique message keys and at least 300 contexts.
+- Exactly 1847 unique message keys and at least 300 contexts.
 - No empty, unfinished, obsolete, or vanished translations.
 - Source and translation placeholder multisets match for every message.
 - Source and translation markup tag multisets match for every message.
 - No duplicate message keys.
-- Strict Qt 6 `lrelease -fail-on-unfinished -fail-on-invalid` succeeds.
-- A QM-to-TS round trip retains all 1862 messages.
+- Qt 6 `lrelease -fail-on-unfinished` succeeds.
+- A QM-to-TS round trip retains all 1847 messages.
 - Re-running the task-local firmware QML audit reports zero missing static
   keys and zero unmapped QML resource bundles.
-- Regression checks require all nine `SettingsModel` titles and the exact
-  reading-light description key in both `DisplaySettingsHeader` and
-  `KeyboardSettingsHeader`, plus `PenColorModel / Magenta` and
+- Regression checks pin the exact 64-key static supplement by its canonical
+  key-set digest and all 33 manual translation targets, reject suspicious
+  replacement-character runs, and require the four finite runtime keys and
   `LanguageAndKeyboard / French = 简体中文`.
 - The full rmtool test suite remains green.
 

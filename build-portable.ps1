@@ -8,8 +8,9 @@ $required = @(
     "rmtool.py",
     "requirements.txt",
     "assets\rmtool-icon.ico",
+    "assets\fonts\NotoSansCJKsc-Regular.otf",
+    "assets\fonts\LICENSE",
     "web\dashboard.html",
-    "translations\reMarkable_zh_CN.qm",
     "rmrl\__init__.py"
 )
 foreach ($path in $required) {
@@ -26,7 +27,8 @@ if ($LASTEXITCODE -ne 0 -or $pythonBits -ne "64") {
 
 $portableDir = Join-Path $root "dist\rmtool"
 $zipPath = Join-Path $root "dist\rmtool-windows-x64.zip"
-foreach ($path in @($portableDir, $zipPath)) {
+$oneFilePath = Join-Path $root "dist\rmtool-windows-x64-onefile.exe"
+foreach ($path in @($portableDir, $zipPath, $oneFilePath)) {
     if (Test-Path -LiteralPath $path) {
         Remove-Item -LiteralPath $path -Recurse -Force
     }
@@ -57,25 +59,29 @@ if ($pyInstallerVersion -ne "6.21.0") {
     throw "PyInstaller 6.21.0 is required; found $pyInstallerVersion."
 }
 
-$arguments = @(
+$commonArguments = @(
     "--clean",
     "--noconfirm",
-    "--onedir",
     "--windowed",
+    "--icon", (Join-Path $root "assets\rmtool-icon.ico"),
+    "--add-data", "$(Join-Path $root 'assets\fonts');assets\fonts",
+    "--add-data", "$(Join-Path $root 'web');web",
+    "--distpath", (Join-Path $root "dist"),
+    "--specpath", (Join-Path $root "build")
+)
+$entryPoint = Join-Path $root "rmtool.py"
+
+$portableArguments = $commonArguments + @(
+    "--onedir",
     "--contents-directory", "_internal",
     "--name", "rmtool",
-    "--icon", (Join-Path $root "assets\rmtool-icon.ico"),
-    "--add-data", "$(Join-Path $root 'web');web",
-    "--add-data", "$(Join-Path $root 'translations\reMarkable_zh_CN.qm');translations",
-    "--distpath", (Join-Path $root "dist"),
-    "--workpath", (Join-Path $root "build"),
-    "--specpath", (Join-Path $root "build"),
-    (Join-Path $root "rmtool.py")
+    "--workpath", (Join-Path $root "build\onedir"),
+    $entryPoint
 )
 
-& $python -m PyInstaller @arguments
+& $python -m PyInstaller @portableArguments
 if ($LASTEXITCODE -ne 0) {
-    throw "PyInstaller failed with exit code $LASTEXITCODE."
+    throw "PyInstaller failed to build the portable folder with exit code $LASTEXITCODE."
 }
 
 $executable = Join-Path $portableDir "rmtool.exe"
@@ -86,5 +92,21 @@ if (-not (Test-Path -LiteralPath $executable) -or -not (Test-Path -LiteralPath $
 
 Compress-Archive -LiteralPath $portableDir -DestinationPath $zipPath -CompressionLevel Optimal
 
+$oneFileArguments = $commonArguments + @(
+    "--onefile",
+    "--name", "rmtool-windows-x64-onefile",
+    "--workpath", (Join-Path $root "build\onefile"),
+    $entryPoint
+)
+
+& $python -m PyInstaller @oneFileArguments
+if ($LASTEXITCODE -ne 0) {
+    throw "PyInstaller failed to build the single-file executable with exit code $LASTEXITCODE."
+}
+if (-not (Test-Path -LiteralPath $oneFilePath)) {
+    throw "Build completed without the expected single-file executable."
+}
+
 Write-Host "Portable folder: $portableDir"
 Write-Host "Portable ZIP:    $zipPath"
+Write-Host "Single-file EXE: $oneFilePath"
