@@ -2,6 +2,7 @@ import copy
 import json
 import os
 import re
+import shlex
 import stat
 import struct
 import tempfile
@@ -251,6 +252,14 @@ class FakeTransferSSHClient:
             return ""
         if command.startswith("rm -rf "):
             self.cleanup_calls.append(command)
+            return ""
+        args = shlex.split(command)
+        if args[:2] == ["mv", "-f"]:
+            self.sftp.uploaded_files[args[3]] = self.sftp.uploaded_files.pop(args[2])
+            return ""
+        if args[:2] == ["rm", "-f"]:
+            for path in args[2:]:
+                self.sftp.uploaded_files.pop(path, None)
             return ""
         return ""
 
@@ -1062,6 +1071,18 @@ class ConnectionSidebarUiTests(unittest.TestCase):
 
 
 class WallpaperUiTests(unittest.TestCase):
+    @staticmethod
+    def translation_package():
+        return _rmkit_cn.TranslationPackage(
+            firmware=_rmkit_cn.SUPPORTED_FIRMWARE,
+            stock_french_sha256=_rmkit_cn.STOCK_FRENCH_QM_SHA256,
+            localized_qm_sha256=_rmkit_cn.LOCALIZED_QM_SHA256,
+            asset=f"reMarkable_zh_CN-{_rmkit_cn.SUPPORTED_FIRMWARE}.qm",
+            size=175_519,
+            release_version="3.27.3.0",
+            channel="stable",
+        )
+
     def test_native_tab_pages_share_same_outer_content_inset(self):
         wallpaper = rmtool.WallpaperTab(FakeConnectionClient(), rmtool._default_config())
         documents = rmtool.DocumentsTab(FakeConnectionClient())
@@ -1147,16 +1168,57 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertFalse(section.enable_button.isEnabled())
         self.assertFalse(section.restore_button.isEnabled())
 
-    def test_rmkit_enable_runs_bundled_translation_without_restart(self):
+    def test_rmkit_section_lists_cloud_firmware_channels(self):
+        section = _tab_toolbox.RmkitCnSection(
+            FakeConnectionClient(connected=True, host="10.11.99.1")
+        )
+        self.addCleanup(section.deleteLater)
+        stable = self.translation_package()
+        beta = _rmkit_cn.TranslationPackage(
+            firmware="20260629074044",
+            stock_french_sha256="1" * 64,
+            localized_qm_sha256="2" * 64,
+            asset="reMarkable_zh_CN-20260629074044.qm",
+            size=178_170,
+            release_version="3.28-tentacruel",
+            channel="beta",
+        )
+
+        section._apply_status(
+            _rmkit_cn.LocalizationStatus(
+                _rmkit_cn.LocalizationState.NOT_INSTALLED,
+                stable.firmware,
+                True,
+                stable,
+                (beta, stable),
+            )
+        )
+
+        catalog = section.catalog_label.text()
+        self.assertIn("3.27.3.0 | 正式版", catalog)
+        self.assertIn("3.28-tentacruel | 测试版", catalog)
+        self.assertIn(stable.firmware, catalog)
+        self.assertIn(beta.firmware, catalog)
+
+    def test_rmkit_enable_runs_cloud_translation_without_restart(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")
         section = _tab_toolbox.RmkitCnSection(client)
         self.addCleanup(section.deleteLater)
+        package = self.translation_package()
+        section._apply_status(
+            _rmkit_cn.LocalizationStatus(
+                _rmkit_cn.LocalizationState.NOT_INSTALLED,
+                _rmkit_cn.SUPPORTED_FIRMWARE,
+                True,
+                package,
+            )
+        )
 
         worker = mock.Mock()
         worker.signals = mock.Mock()
-        qm_path = Path("translations/reMarkable_zh_CN.qm")
+        state_dir = Path(".rmtool")
         with mock.patch.object(_tab_toolbox, "ask_confirmation", return_value=True), mock.patch.object(
-            rmtool, "resource_path", return_value=qm_path
+            rmtool, "app_state_dir", return_value=state_dir
         ), mock.patch.object(rmtool, "Worker", return_value=worker) as worker_cls, mock.patch.object(
             section.thread_pool, "start"
         ) as start_worker, mock.patch.object(_tab_toolbox, "show_info") as show_info:
@@ -1165,16 +1227,108 @@ class WallpaperUiTests(unittest.TestCase):
                 _rmkit_cn.LocalizationStatus(
                     _rmkit_cn.LocalizationState.ENABLED,
                     _rmkit_cn.SUPPORTED_FIRMWARE,
+                    True,
+                    package,
                 )
             )
 
         worker_cls.assert_called_once_with(
-            _rmkit_cn.enable_localization,
+            _rmkit_cn.enable_cloud_localization,
             client,
-            str(qm_path),
+            package,
+            str(state_dir),
+            None,
+            None,
         )
         start_worker.assert_called_once_with(worker)
         self.assertIn("手动重启", show_info.call_args.args[2])
+
+    def test_rmkit_missing_font_cancel_starts_no_worker(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.RmkitCnSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.translation_package()
+        section._apply_status(
+            _rmkit_cn.LocalizationStatus(
+                _rmkit_cn.LocalizationState.NOT_INSTALLED,
+                _rmkit_cn.SUPPORTED_FIRMWARE,
+                False,
+                package,
+            )
+        )
+
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=True
+        ), mock.patch.object(
+            section, "_choose_missing_font", return_value=None
+        ), mock.patch.object(rmtool, "Worker") as worker_cls, mock.patch.object(
+            section.thread_pool, "start"
+        ) as start_worker:
+            section._enable_localization()
+
+        worker_cls.assert_not_called()
+        start_worker.assert_not_called()
+
+    def test_rmkit_local_font_choice_uses_async_localization_worker(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.RmkitCnSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.translation_package()
+        section._apply_status(
+            _rmkit_cn.LocalizationStatus(
+                _rmkit_cn.LocalizationState.NOT_INSTALLED,
+                _rmkit_cn.SUPPORTED_FIRMWARE,
+                False,
+                package,
+            )
+        )
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+        state_dir = Path(".rmtool")
+        font_path = "C:/Fonts/selected-ui.ttf"
+
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=True
+        ), mock.patch.object(
+            section,
+            "_choose_missing_font",
+            return_value=(font_path, "Selected UI Font"),
+        ), mock.patch.object(
+            rmtool, "app_state_dir", return_value=state_dir
+        ), mock.patch.object(
+            rmtool, "Worker", return_value=worker
+        ) as worker_cls, mock.patch.object(
+            section.thread_pool, "start"
+        ) as start_worker:
+            section._enable_localization()
+
+        worker_cls.assert_called_once_with(
+            _rmkit_cn.enable_cloud_localization,
+            client,
+            package,
+            str(state_dir),
+            font_path,
+            "Selected UI Font",
+        )
+        start_worker.assert_called_once_with(worker)
+
+    def test_rmkit_enabled_missing_font_exposes_repair_action(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.RmkitCnSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.translation_package()
+        section._apply_status(
+            _rmkit_cn.LocalizationStatus(
+                _rmkit_cn.LocalizationState.ENABLED,
+                _rmkit_cn.SUPPORTED_FIRMWARE,
+                False,
+                package,
+            )
+        )
+
+        self.assertTrue(section.enable_button.isEnabled())
+        self.assertEqual(section.enable_button.text(), "修复中文字体")
+        self.assertIn("未检测到", section.status_label.text())
 
     def test_rmkit_section_exposes_no_advanced_rmkit_features(self):
         section = _tab_toolbox.RmkitCnSection(FakeConnectionClient(connected=True, host="10.11.99.1"))
@@ -1440,6 +1594,14 @@ class FontUiTests(unittest.TestCase):
         self.assertIn(
             "fc-cache -f -v /home/root/.local/share/fonts/ /home/root/.config/fontconfig",
             ssh_client.exec_calls,
+        )
+        self.assertNotIn(
+            f"{rmtool.DEFAULT_FONT_DIR}{rmtool.DEFAULT_FONT_NAME}.tmp",
+            ssh_client.sftp.uploaded_files,
+        )
+        self.assertNotIn(
+            "/home/root/.config/fontconfig/fonts.conf.tmp",
+            ssh_client.sftp.uploaded_files,
         )
 
 

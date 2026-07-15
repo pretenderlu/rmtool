@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "firmwares": {
+    "20260612085811": {
+      "asset": "reMarkable_zh_CN-20260612085811.qm",
+      "release_version": "3.27.3.0",
+      "channel": "stable",
+      "size": 175519,
+      "sha256": "47ba9d8a6f38b3763d013ecc489d44e8742704404b50a5de102b42e33dfebbfb",
+      "stock_french_sha256": "8e0db0f7a2d3116469e1aae4f52657ccc38d0422b5b958ae512554bd018f285e"
+    }
+  }
+}

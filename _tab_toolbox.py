@@ -4,12 +4,9 @@ import json
 import logging
 import os
 import posixpath
-import shlex
-import shutil
 import tempfile
 from datetime import datetime
 from typing import Dict, Optional
-from xml.sax.saxutils import escape
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5 import QtWebEngineWidgets
@@ -20,8 +17,25 @@ from _ssh import SSHClientWrapper, remount_rw, require_connection
 import rmtool as _rmtool  # late-bound access to avoid circular import
 
 
-FONTCONFIG_DIR = "/home/root/.config/fontconfig"
-FONTCONFIG_FILE = posixpath.join(FONTCONFIG_DIR, "fonts.conf")
+FONTCONFIG_DIR = _rmkit_cn.FONTCONFIG_DIR
+FONTCONFIG_FILE = _rmkit_cn.FONTCONFIG_FILE
+
+
+def select_font_file(parent: QtWidgets.QWidget) -> Optional[str]:
+    path, _ = QtWidgets.QFileDialog.getOpenFileName(
+        parent, "选择字体文件", "", "字体文件 (*.ttf *.otf)"
+    )
+    return path or None
+
+
+def load_font_file(file_path: str) -> tuple[int, Optional[str]]:
+    font_id = QtGui.QFontDatabase.addApplicationFont(file_path)
+    families = (
+        QtGui.QFontDatabase.applicationFontFamilies(font_id)
+        if font_id != -1
+        else []
+    )
+    return font_id, families[0] if families else None
 
 
 class FontTab(QtWidgets.QWidget):
@@ -90,15 +104,14 @@ class FontTab(QtWidgets.QWidget):
         self._update_target_name_label()
 
     def _select_font_file(self):
-        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "选择字体文件", "", "字体文件 (*.ttf *.otf)")
+        file_path = select_font_file(self)
         if not file_path:
             return
 
         self._release_preview_font()
         self.font_path_label.setText(file_path)
-        preview_font_id = QtGui.QFontDatabase.addApplicationFont(file_path)
-        families = QtGui.QFontDatabase.applicationFontFamilies(preview_font_id) if preview_font_id != -1 else []
-        if preview_font_id == -1 or not families:
+        preview_font_id, preview_family = load_font_file(file_path)
+        if preview_font_id == -1 or not preview_family:
             self._selected_font_path = None
             self._selected_font_family = None
             self._reset_font_preview("无法预览所选字体，请重新选择有效字体文件。")
@@ -108,7 +121,6 @@ class FontTab(QtWidgets.QWidget):
 
         self._selected_font_path = file_path
         self._preview_font_id = preview_font_id
-        preview_family = families[0]
         self._selected_font_family = preview_family
         self.preview_title_label.setText(f"{preview_family} 预览")
         preview_font = QtGui.QFont(preview_family, 18)
@@ -199,43 +211,23 @@ class FontTab(QtWidgets.QWidget):
 
     @staticmethod
     def _fontconfig_override(font_family: str) -> str:
-        escaped_family = escape(font_family)
-        return f"""<?xml version="1.0"?>
-<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
-<fontconfig>
-  <!-- ponytail: user-level CJK override; remove this file to restore system Noto CJK. -->
-  <alias binding="strong">
-    <family>sans-serif</family>
-    <prefer><family>{escaped_family}</family></prefer>
-  </alias>
-  <alias binding="strong">
-    <family>Noto Sans SC</family>
-    <prefer><family>{escaped_family}</family></prefer>
-  </alias>
-</fontconfig>
-"""
+        return _rmkit_cn.fontconfig_override(font_family)
 
     def _upload_font(self, file_path: str, new_name: str, font_family: str):
         font_dir = self.config.get("paths", {}).get("font", _rmtool.DEFAULT_FONT_DIR)
         with tempfile.TemporaryDirectory() as tmpdir:
-            temp_font_path = os.path.join(tmpdir, new_name)
             temp_config_path = os.path.join(tmpdir, "fonts.conf")
-            shutil.copy2(file_path, temp_font_path)
             if font_family:
                 with open(temp_config_path, "w", encoding="utf-8") as config_file:
                     config_file.write(self._fontconfig_override(font_family))
-            with remount_rw(self.ssh_client):
-                self.ssh_client.exec_checked(f"mkdir -p {shlex.quote(font_dir)}")
-                remote_path = posixpath.join(font_dir, new_name)
-                self.ssh_client.transfer_file(temp_font_path, remote_path)
-                cache_paths = [font_dir]
-                if font_family:
-                    self.ssh_client.exec_checked(f"mkdir -p {shlex.quote(FONTCONFIG_DIR)}")
-                    self.ssh_client.transfer_file(temp_config_path, FONTCONFIG_FILE)
-                    cache_paths.append(FONTCONFIG_DIR)
-                cache_args = " ".join(shlex.quote(path) for path in cache_paths)
-                stdout = self.ssh_client.exec_checked(f"fc-cache -f -v {cache_args}")
-                logging.info("fc-cache output: %s", stdout.strip())
+            _rmkit_cn.upload_font(
+                self.ssh_client,
+                file_path,
+                font_dir,
+                new_name,
+                fontconfig_local_path=temp_config_path if font_family else None,
+                fontconfig_remote_path=FONTCONFIG_FILE if font_family else None,
+            )
 
 
 class TimeTab(QtWidgets.QWidget):
@@ -422,9 +414,15 @@ class RmkitCnSection(QtWidgets.QWidget):
         title.setFont(title_font)
 
         detail = QtWidgets.QLabel(
-            f"当前仅支持固件 {_rmkit_cn.SUPPORTED_FIRMWARE}。中文翻译借用法语槽位，不安装后台服务。"
+            "连接设备后会按固件版本精确匹配并下载云端汉化包。"
+            "中文翻译借用法语槽位，不安装后台服务。"
         )
         detail.setWordWrap(True)
+
+        self.catalog_label = QtWidgets.QLabel("云端汉化包：检测后显示")
+        self.catalog_label.setObjectName("rmkitCnCatalog")
+        self.catalog_label.setWordWrap(True)
+        self.catalog_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
 
         self.status_label = QtWidgets.QLabel("设备已连接，尚未检测")
         self.status_label.setObjectName("rmkitCnDeviceStatus")
@@ -454,6 +452,7 @@ class RmkitCnSection(QtWidgets.QWidget):
         layout.setSpacing(_rmtool.SUBSECTION_GAP)
         layout.addWidget(title)
         layout.addWidget(detail)
+        layout.addWidget(self.catalog_label)
         layout.addWidget(self.status_label)
         layout.addLayout(buttons)
 
@@ -481,16 +480,30 @@ class RmkitCnSection(QtWidgets.QWidget):
     def _update_action_buttons(self):
         connected = self.ssh_client.is_connected() and not self._busy
         state = self._status.state if self._status else None
+        repair_font = bool(
+            self._status
+            and self._status.package is not None
+            and state is _rmkit_cn.LocalizationState.ENABLED
+            and not self._status.has_cjk_font
+        )
+        self.enable_button.setText("修复中文字体" if repair_font else "启用中文")
         self.enable_button.setEnabled(
             connected
-            and state
-            in (
-                _rmkit_cn.LocalizationState.NOT_INSTALLED,
-                _rmkit_cn.LocalizationState.INSTALLED_NOT_ENABLED,
+            and self._status is not None
+            and self._status.package is not None
+            and (
+                repair_font
+                or state
+                in (
+                    _rmkit_cn.LocalizationState.NOT_INSTALLED,
+                    _rmkit_cn.LocalizationState.INSTALLED_NOT_ENABLED,
+                )
             )
         )
         self.restore_button.setEnabled(
             connected
+            and self._status is not None
+            and self._status.package is not None
             and state
             in (
                 _rmkit_cn.LocalizationState.ENABLED,
@@ -500,9 +513,23 @@ class RmkitCnSection(QtWidgets.QWidget):
 
     def _apply_status(self, status: _rmkit_cn.LocalizationStatus):
         self._status = status
+        if status.available_packages is not None:
+            if status.available_packages:
+                channel_names = {"stable": "正式版", "beta": "测试版"}
+                entries = [
+                    f"{package.release_version} | "
+                    f"{channel_names[package.channel]} | "
+                    f"内部版本 {package.firmware}"
+                    for package in status.available_packages
+                ]
+                self.catalog_label.setText(
+                    "云端汉化包：\n" + "\n".join(entries)
+                )
+            else:
+                self.catalog_label.setText("云端汉化包：当前没有可用版本")
         messages = {
             _rmkit_cn.LocalizationState.INCOMPATIBLE: (
-                f"固件 {status.firmware or '未知'} 不受支持，未执行任何修改"
+                f"云端没有与固件 {status.firmware or '未知'} 精确匹配的汉化包，未执行任何修改"
             ),
             _rmkit_cn.LocalizationState.NOT_INSTALLED: "尚未安装中文翻译",
             _rmkit_cn.LocalizationState.INSTALLED_NOT_ENABLED: (
@@ -510,7 +537,15 @@ class RmkitCnSection(QtWidgets.QWidget):
             ),
             _rmkit_cn.LocalizationState.ENABLED: "中文翻译已启用",
         }
-        self.status_label.setText(messages[status.state])
+        message = messages[status.state]
+        if status.state is not _rmkit_cn.LocalizationState.INCOMPATIBLE:
+            font_status = (
+                "已检测到简体中文字体"
+                if status.has_cjk_font
+                else "未检测到简体中文字体"
+            )
+            message = f"{message}；{font_status}"
+        self.status_label.setText(message)
         self._update_action_buttons()
 
     def _set_busy(self, busy: bool, message: str = ""):
@@ -522,7 +557,14 @@ class RmkitCnSection(QtWidgets.QWidget):
             self.status_label.setText(message)
         self._update_action_buttons()
 
-    def _start_worker(self, fn, *args, pending: str, success: str = ""):
+    def _start_worker(
+        self,
+        fn,
+        *args,
+        pending: str,
+        success: str = "",
+        error_hint: str = "若设备界面无响应，请手动重启设备。",
+    ):
         self._set_busy(True, pending)
         worker = _rmtool.Worker(fn, *args)
 
@@ -534,12 +576,12 @@ class RmkitCnSection(QtWidgets.QWidget):
 
         def on_error(exc: Exception):
             self._set_busy(False)
-            self.status_label.setText("操作失败；若设备界面无响应，请手动重启")
+            self.status_label.setText("操作失败，请查看提示后重试")
             logging.error("Original UI localization failed: %s", exc)
             show_error(
                 self,
                 _rmtool.APP_NAME,
-                f"操作失败：{exc}\n若设备界面无响应，请手动重启设备。",
+                f"操作失败：{exc}\n{error_hint}",
             )
 
         worker.signals.finished.connect(on_finished)
@@ -549,14 +591,53 @@ class RmkitCnSection(QtWidgets.QWidget):
     @require_connection
     def _detect_status(self):
         self._start_worker(
-            _rmkit_cn.get_localization_status,
+            _rmkit_cn.get_cloud_localization_status,
             self.ssh_client,
-            pending="正在检测固件与汉化状态…",
+            str(_rmtool.app_state_dir()),
+            pending="正在获取云端清单并检测固件与汉化状态…",
+            error_hint="设备未被修改，请检查电脑网络连接后重试。",
         )
+
+    def _choose_missing_font(self) -> Optional[tuple[str, str]]:
+        dialog = QtWidgets.QMessageBox(self)
+        dialog.setWindowTitle(_rmtool.APP_NAME)
+        dialog.setIcon(QtWidgets.QMessageBox.Warning)
+        dialog.setText("设备缺少简体中文字体，请选择用于本次汉化的字体。")
+        bundled_button = dialog.addButton(
+            "安装内置 Noto", QtWidgets.QMessageBox.AcceptRole
+        )
+        local_button = dialog.addButton(
+            "选择本地字体…", QtWidgets.QMessageBox.ActionRole
+        )
+        dialog.addButton("取消", QtWidgets.QMessageBox.RejectRole)
+        dialog.exec_()
+        if dialog.clickedButton() is bundled_button:
+            path = str(
+                _rmtool.resource_path(
+                    "assets", "fonts", _rmkit_cn.BUNDLED_FONT_NAME
+                )
+            )
+        elif dialog.clickedButton() is local_button:
+            path = select_font_file(self)
+            if not path:
+                return None
+        else:
+            return None
+
+        font_id, family = load_font_file(path)
+        if font_id != -1:
+            QtGui.QFontDatabase.removeApplicationFont(font_id)
+        if not family:
+            show_warning(self, _rmtool.APP_NAME, "无法识别所选字体的字体族。")
+            return None
+        return path, family
 
     @require_connection
     def _enable_localization(self):
-        if not ask_confirmation(
+        if not self._status or not self._status.package:
+            return
+        repair_font = self._status.state is _rmkit_cn.LocalizationState.ENABLED
+        if not repair_font and not ask_confirmation(
             self,
             _rmtool.APP_NAME,
             "将停止原生界面、备份当前配置并启用中文。完成后不会自动重启设备，是否继续？",
@@ -564,22 +645,40 @@ class RmkitCnSection(QtWidgets.QWidget):
             cancel_text="取消",
         ):
             return
-        qm_path = _rmtool.resource_path(
-            "translations", "reMarkable_zh_CN.qm"
-        )
+
+        font_path = None
+        font_family = None
+        if not self._status.has_cjk_font:
+            selected_font = self._choose_missing_font()
+            if not selected_font:
+                return
+            font_path, font_family = selected_font
         self._start_worker(
-            _rmkit_cn.enable_localization,
+            _rmkit_cn.enable_cloud_localization,
             self.ssh_client,
-            str(qm_path),
-            pending="正在备份并部署中文翻译…",
+            self._status.package,
+            str(_rmtool.app_state_dir()),
+            font_path,
+            font_family,
+            pending=(
+                "正在安装并验证中文字体…"
+                if repair_font
+                else "正在下载并校验固件对应的汉化包，然后备份并部署…"
+            ),
             success=(
-                "汉化文件与语言配置已写入，原生界面已停止，SSH 会话已关闭。\n"
+                "中文字体已安装并验证，SSH 会话已关闭。\n"
+                if repair_font
+                else "汉化文件与语言配置已写入，原生界面已停止，SSH 会话已关闭。\n"
+            )
+            + (
                 "请手动重启设备使修改生效。"
             ),
         )
 
     @require_connection
     def _restore_localization(self):
+        if not self._status or not self._status.package:
+            return
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
@@ -591,6 +690,7 @@ class RmkitCnSection(QtWidgets.QWidget):
         self._start_worker(
             _rmkit_cn.restore_localization,
             self.ssh_client,
+            self._status.package,
             pending="正在还原汉化前状态…",
             success=(
                 "原配置与翻译文件已还原，原生界面已停止，SSH 会话已关闭。\n"
