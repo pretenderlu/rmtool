@@ -88,7 +88,7 @@ rmtool 将运行状态保存在应用旁的 `.rmtool/`：
 3. 对设备原始法语载体文件 `reMarkable_fr.qm` 计算 SHA-256，据此选择对应硬件载荷；`chiappa`、`ferrari` 等平台名仅用于显示，不用于猜测兼容性。
 4. 校验下载大小和 SHA-256。固件、原始法语文件或校验值不匹配时，不会写入设备。
 
-当前仓库清单包含正式版固件 `3.27.3.0`（内部版本 `20260612085811`）的 `chiappa` 与 `ferrari` 载荷；实际可用范围以云端清单为准。详见 [汉化说明](translations/README.md) 和 [清单格式](translations/manifest.json)。
+当前仓库清单包含正式版固件 `3.27.1.0`（内部版本 `20260506100933`）和 `3.27.3.0`（内部版本 `20260612085811`）的 `chiappa` 与 `ferrari` 载荷；实际可用范围以云端清单为准。详见 [汉化说明](translations/README.md) 和 [清单格式](translations/manifest.json)。
 
 汉化借用 xochitl 内置法语槽位，启用期间不能使用法语。程序会先备份原配置和原始 `reMarkable_fr.qm`，并检查当前主字体是否支持简体中文；缺少字体时可安装随应用提供的 Noto Sans CJK SC，或选择本地 TTF/OTF。启用、修复字体或还原后，程序会关闭 SSH，且**不会自动重启设备**，请手动重启使修改生效。
 

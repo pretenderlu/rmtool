@@ -18,8 +18,14 @@ The carrier slot is intentional: this UI-only integration does not inject a
 new `zh_CN` language code into xochitl. rmtool backs up and restores the stock
 French catalog byte-for-byte.
 
-The current baseline is production firmware `3.27.3.0`, internal version
-`20260612085811`. That firmware has two verified hardware payloads:
+The catalog currently supports these production firmware builds:
+
+- `3.27.1.0`, internal version `20260506100933`.
+- `3.27.3.0`, internal version `20260612085811`.
+
+Both builds have the same four stock translation catalogs on each hardware
+platform, so `3.27.1.0` intentionally reuses the already verified Chinese QM
+assets instead of publishing byte-identical copies. Their hardware payloads are:
 
 - Chiappa stock French SHA-256:
   `8e0db0f7a2d3116469e1aae4f52657ccc38d0422b5b958ae512554bd018f285e`
@@ -28,6 +34,12 @@ The current baseline is production firmware `3.27.3.0`, internal version
 
 rmtool selects the package by the exact stock carrier hash. Platform names are
 display metadata only.
+
+The official `3.27.1.0` SWU files used for verification have these SHA-256
+values:
+
+- Chiappa: `786f326b177394d6ce210195034b2b0e0665b377945c72d5882d0ed8d43d9047`
+- Ferrari: `2a140a2200c0b770f5e152f32bd8184ca45dab1cc9bae08f0e9d2e9c782d82e3`
 
 The catalog contains 1847 messages: the 1779-key union of the active messages
 in the stock English, French, German, and Spanish catalogs, plus 64 static QML
