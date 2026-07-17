@@ -15,6 +15,31 @@ rmtool manages reMarkable Paper Pro, Paper Pro Move, and reMarkable 2 devices ov
 > [!WARNING]
 > rmtool directly modifies files on the device. Sync or back up important content first, and make sure you accept the data and warranty risks associated with Developer Mode, root SSH, and third-party modifications. This project is not official reMarkable software.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/01-dashboard.png"><img src="assets/screenshots/01-dashboard.png" alt="rmtool device dashboard" width="100%"></a><br>
+      <sub><b>Dashboard</b></sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/02-documents.png"><img src="assets/screenshots/02-documents.png" alt="rmtool document center" width="100%"></a><br>
+      <sub><b>Document Center</b></sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/03-wallpaper.png"><img src="assets/screenshots/03-wallpaper.png" alt="rmtool wallpaper management" width="100%"></a><br>
+      <sub><b>Wallpaper Management</b></sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/04-localization.png"><img src="assets/screenshots/04-localization.png" alt="rmtool system localization" width="100%"></a><br>
+      <sub><b>System Localization</b></sub>
+    </td>
+  </tr>
+</table>
+
 ## Download and installation
 
 Most users should download the [latest release](https://github.com/pretenderlu/rmtool/releases/latest). Python is not required.

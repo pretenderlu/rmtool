@@ -15,6 +15,31 @@ rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move 和 re
 > [!WARNING]
 > rmtool 会直接修改设备文件。请先同步或备份重要内容，并确认自己能够承担开发者模式、root SSH 和第三方修改带来的数据与保修风险。本项目不是 reMarkable 官方软件。
 
+## 软件截图
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/01-dashboard.png"><img src="assets/screenshots/01-dashboard.png" alt="rmtool 设备仪表盘" width="100%"></a><br>
+      <sub><b>仪表盘</b></sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/02-documents.png"><img src="assets/screenshots/02-documents.png" alt="rmtool 文档中心" width="100%"></a><br>
+      <sub><b>文档中心</b></sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/03-wallpaper.png"><img src="assets/screenshots/03-wallpaper.png" alt="rmtool 壁纸管理" width="100%"></a><br>
+      <sub><b>壁纸管理</b></sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/04-localization.png"><img src="assets/screenshots/04-localization.png" alt="rmtool 系统汉化" width="100%"></a><br>
+      <sub><b>系统汉化</b></sub>
+    </td>
+  </tr>
+</table>
+
 ## 下载与安装
 
 普通用户建议直接使用 [最新 Release](https://github.com/pretenderlu/rmtool/releases/latest)，无需安装 Python。
