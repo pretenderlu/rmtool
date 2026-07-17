@@ -10,6 +10,8 @@ and the cloud release manifest:
   published as versioned GitHub Release assets and deployed into xochitl's
   built-in French translation slot (`reMarkable_fr.qm`). They are not bundled
   into rmtool executables.
+- `reMarkable_zh_CN-20260629074044.qm`: shared compiled beta catalog for the
+  Chiappa and Ferrari `3.28.0.162` firmware payloads.
 - `manifest.json`: release metadata mapping each exact firmware version to its
   user-facing version, stable/beta channel, asset name, byte size, localized
   SHA-256, stock French SHA-256, and optional hardware variants.
@@ -31,6 +33,20 @@ assets instead of publishing byte-identical copies. Their hardware payloads are:
   `8e0db0f7a2d3116469e1aae4f52657ccc38d0422b5b958ae512554bd018f285e`
 - Ferrari stock French SHA-256:
   `9f62dc83b150e48b8d4e1688c1b16d22aa09fdd1ba09b772954394ec6c1ab4fb`
+
+The manifest also supports beta `3.28.0.162`, internal version
+`20260629074044`, with one shared 178170-byte Chinese asset:
+
+- Localized SHA-256:
+  `4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e`
+- Chiappa stock French SHA-256:
+  `3d722f4018f33a24c738bfd14f821603c176d06c9d7e81714e2763d3d40eeb12`
+- Ferrari stock French SHA-256:
+  `24393f00d9edb933933b436ffe5020990dd97d31d7788172907d75ff1d42d3a5`
+
+Paper Pro (Ferrari) enable and restore were validated on a real device.
+Paper Pro Move (Chiappa) was validated offline against the official firmware
+only and remains pending real-device validation.
 
 rmtool selects the package by the exact stock carrier hash. Platform names are
 display metadata only.

@@ -40,6 +40,26 @@
           "stock_french_sha256": "9f62dc83b150e48b8d4e1688c1b16d22aa09fdd1ba09b772954394ec6c1ab4fb"
         }
       ]
+    },
+    "20260629074044": {
+      "asset": "reMarkable_zh_CN-20260629074044.qm",
+      "release_version": "3.28.0.162",
+      "channel": "beta",
+      "platform": "chiappa",
+      "size": 178170,
+      "sha256": "4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e",
+      "stock_french_sha256": "3d722f4018f33a24c738bfd14f821603c176d06c9d7e81714e2763d3d40eeb12",
+      "variants": [
+        {
+          "asset": "reMarkable_zh_CN-20260629074044.qm",
+          "release_version": "3.28.0.162",
+          "channel": "beta",
+          "platform": "ferrari",
+          "size": 178170,
+          "sha256": "4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e",
+          "stock_french_sha256": "24393f00d9edb933933b436ffe5020990dd97d31d7788172907d75ff1d42d3a5"
+        }
+      ]
     }
   }
 }
