@@ -1023,9 +1023,8 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             "SIL OPEN FONT LICENSE Version 1.1",
             license_path.read_text(encoding="utf-8"),
         )
-        package = _rmkit_cn.parse_translation_manifest(
-            manifest_path.read_bytes()
-        )[_rmkit_cn.SUPPORTED_FIRMWARE]
+        packages = _rmkit_cn.parse_translation_manifest(manifest_path.read_bytes())
+        package = packages[_rmkit_cn.SUPPORTED_FIRMWARE]
         self.assertEqual(package.size, qm_path.stat().st_size)
         self.assertEqual(
             package.localized_qm_sha256,
@@ -1050,6 +1049,22 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         )
         self.assertEqual(package.release_version, "3.27.3.0")
         self.assertEqual(package.channel, "stable")
+        previous = packages["20260506100933"]
+        self.assertEqual(previous.release_version, "3.27.1.0")
+        self.assertEqual(previous.asset, package.asset)
+        self.assertEqual(previous.localized_qm_sha256, package.localized_qm_sha256)
+        self.assertEqual(previous.stock_french_sha256, package.stock_french_sha256)
+        self.assertEqual(len(previous.variants), 1)
+        previous_ferrari = previous.variants[0]
+        self.assertEqual(previous_ferrari.asset, ferrari.asset)
+        self.assertEqual(
+            previous_ferrari.localized_qm_sha256,
+            ferrari.localized_qm_sha256,
+        )
+        self.assertEqual(
+            previous_ferrari.stock_french_sha256,
+            ferrari.stock_french_sha256,
+        )
         build_script = Path("build-portable.ps1").read_text(encoding="utf-8-sig")
         self.assertIn("assets\\fonts\\NotoSansCJKsc-Regular.otf", build_script)
         self.assertIn("assets\\fonts\\LICENSE", build_script)
