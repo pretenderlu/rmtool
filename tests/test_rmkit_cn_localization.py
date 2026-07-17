@@ -1012,6 +1012,9 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         license_path = Path("assets/fonts/LICENSE")
         qm_path = Path("translations/reMarkable_zh_CN.qm")
         ferrari_qm_path = Path("translations/reMarkable_zh_CN_ferrari.qm")
+        beta_qm_path = Path(
+            "translations/reMarkable_zh_CN-20260629074044.qm"
+        )
         manifest_path = Path("translations/manifest.json")
 
         self.assertEqual(font_path.stat().st_size, 16_437_364)
@@ -1064,6 +1067,41 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(
             previous_ferrari.stock_french_sha256,
             ferrari.stock_french_sha256,
+        )
+        beta = packages["20260629074044"]
+        beta_bytes = beta_qm_path.read_bytes()
+        self.assertEqual(beta.release_version, "3.28.0.162")
+        self.assertEqual(beta.channel, "beta")
+        self.assertEqual(beta.platform, "chiappa")
+        self.assertEqual(beta.asset, beta_qm_path.name)
+        self.assertEqual(beta.size, len(beta_bytes))
+        self.assertEqual(beta.size, 178_170)
+        self.assertEqual(
+            hashlib.sha256(beta_bytes).hexdigest(),
+            "4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e",
+        )
+        self.assertEqual(
+            beta.localized_qm_sha256,
+            hashlib.sha256(beta_bytes).hexdigest(),
+        )
+        self.assertEqual(
+            beta.stock_french_sha256,
+            "3d722f4018f33a24c738bfd14f821603c176d06c9d7e81714e2763d3d40eeb12",
+        )
+        self.assertEqual(len(beta.variants), 1)
+        beta_ferrari = beta.variants[0]
+        self.assertEqual(beta_ferrari.release_version, beta.release_version)
+        self.assertEqual(beta_ferrari.channel, beta.channel)
+        self.assertEqual(beta_ferrari.platform, "ferrari")
+        self.assertEqual(beta_ferrari.asset, beta.asset)
+        self.assertEqual(beta_ferrari.size, beta.size)
+        self.assertEqual(
+            beta_ferrari.localized_qm_sha256,
+            beta.localized_qm_sha256,
+        )
+        self.assertEqual(
+            beta_ferrari.stock_french_sha256,
+            "24393f00d9edb933933b436ffe5020990dd97d31d7788172907d75ff1d42d3a5",
         )
         build_script = Path("build-portable.ps1").read_text(encoding="utf-8-sig")
         self.assertIn("assets\\fonts\\NotoSansCJKsc-Regular.otf", build_script)
