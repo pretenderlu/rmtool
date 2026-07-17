@@ -1,121 +1,123 @@
+**English | [简体中文](README.zh-CN.md)**
+
 <div align="center">
 
-<img src="assets/rmtool-icon.png" alt="rmtool 图标" width="120">
+<img src="assets/rmtool-icon.png" alt="rmtool icon" width="120">
 
 # rmtool
 
-面向 reMarkable 的桌面图形化管理工具
+A desktop GUI management tool for reMarkable devices
 
 </div>
 
-rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move 和 reMarkable 2，提供多设备连接、仪表盘、壁纸、文档、字体、时间、设备控制和原生界面中文等功能。设备操作不依赖 reMarkable 云服务；首次获取汉化清单或固件包时需要电脑联网，已有有效缓存时可离线复用。
+rmtool manages reMarkable Paper Pro, Paper Pro Move, and reMarkable 2 devices over local root SSH. It provides multi-device connections, a dashboard, wallpaper and document management, font upload, time management, device controls, and native Chinese UI localization. Device operations do not depend on reMarkable cloud services. The computer needs internet access the first time it retrieves a localization manifest or firmware package; a previously validated cache can be reused offline.
 
 > [!WARNING]
-> rmtool 会直接修改设备文件。请先同步或备份重要内容，并确认自己能够承担开发者模式、root SSH 和第三方修改带来的数据与保修风险。本项目不是 reMarkable 官方软件。
+> rmtool directly modifies files on the device. Sync or back up important content first, and make sure you accept the data and warranty risks associated with Developer Mode, root SSH, and third-party modifications. This project is not official reMarkable software.
 
-## 下载与安装
+## Download and installation
 
-普通用户建议直接使用 [最新 Release](https://github.com/pretenderlu/rmtool/releases/latest)，无需安装 Python。
+Most users should download the [latest release](https://github.com/pretenderlu/rmtool/releases/latest). Python is not required.
 
-| 平台 | 下载 | 说明 |
+| Platform | Download | Notes |
 | --- | --- | --- |
-| Windows x64 | [便携版 ZIP](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64.zip) | 解压后运行 `rmtool/rmtool.exe`，适合长期使用 |
-| Windows x64 | [单文件 EXE](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64-onefile.exe) | 直接运行；首次和每次冷启动会稍慢 |
-| macOS ARM64 | [Apple Silicon 应用](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-macos-arm64.app.zip) | 仅支持 M 系列 Mac；解压后运行 `rmtool.app` |
+| Windows x64 | [Portable ZIP](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64.zip) | Extract it and run `rmtool/rmtool.exe`; recommended for regular use |
+| Windows x64 | [Single-file EXE](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64-onefile.exe) | Run it directly; first launch and each cold start are slower |
+| macOS ARM64 | [Apple Silicon app](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-macos-arm64.app.zip) | M-series Macs only; extract it and run `rmtool.app` |
 
-发布包目前没有 Windows 代码签名或 Apple 公证。若 SmartScreen 或 Gatekeeper 阻止启动，请先核对文件确实来自本仓库 Release，再使用系统提供的单次放行方式；不要全局关闭系统安全保护。
+The release packages are currently neither Windows code-signed nor Apple-notarized. If SmartScreen or Gatekeeper blocks the app, first verify that the file came from this repository's release page, then use the operating system's one-time approval option. Do not disable system security globally.
 
-macOS 版会在 `.app` 同级创建 `.rmtool/`，因此请把应用放在当前用户可写的目录，例如 `~/Applications/rmtool/`，不要直接从只读位置运行。
+The macOS build creates `.rmtool/` next to the `.app`. Place the app in a directory writable by the current user, such as `~/Applications/rmtool/`, instead of running it from a read-only location.
 
-## 连接设备
+## Connecting a device
 
-### SSH 前置条件
+### SSH prerequisites
 
-- 设备必须允许使用 `root` 账户通过 SSH 登录，并能查看当前 root 密码。
-- Paper Pro 和 Paper Pro Move 需要先启用 Developer Mode。启用会执行恢复出厂设置、清除设备上的本地数据并削弱设备安全性，请先同步或备份；具体流程与风险见 [reMarkable 官方说明](https://developer.remarkable.com/documentation/developer-mode)。reMarkable 2 没有这项 Developer Mode，但仍需可用的 root SSH。
-- USB 连接的默认地址是 `10.11.99.1`。设备通过 USB 接入电脑后，选择 USB 模式即可连接。
-- Wi-Fi SSH 默认关闭。请先通过 USB 连接，再到“设备工具箱 > 设备控制”点击“开启 Wi-Fi SSH 通道”，随后把设备配置改为 WLAN 地址。
-- Paper Pro 上的 root 用户名和密码可在 `General > Help > About > Copyrights and Licenses` 查看；其他型号或固件请以设备当前界面为准。
+- The device must allow SSH login as `root`, and you must be able to view its current root password.
+- Paper Pro and Paper Pro Move must first be put into Developer Mode. Enabling it performs a factory reset, removes local data from the device, and weakens device security, so sync or back up first. See the [official reMarkable documentation](https://developer.remarkable.com/documentation/developer-mode) for the procedure and risks. reMarkable 2 does not have this Developer Mode option, but it still requires working root SSH access.
+- The default USB address is `10.11.99.1`. Connect the device to the computer over USB and select USB mode on the device.
+- Wi-Fi SSH is disabled by default. Connect over USB first, then choose "Enable Wi-Fi SSH" under "Device Toolbox > Device Control" and change the saved device address to its WLAN address.
+- On Paper Pro, the root username and password are available under `General > Help > About > Copyrights and Licenses`. For other models or firmware versions, follow the current device UI.
 
-### 首次连接
+### First connection
 
-1. 启动 rmtool，点击左侧“新增”，填写设备名称、连接方式、地址、型号和 root 密码。
-2. 点击“连接”。首次连接会显示 SSH 主机指纹；确认是自己的设备后再选择信任。
-3. 连接成功后，壁纸、文档和工具箱页面会自动启用。
-4. 多台设备可以分别保存配置；切换到不同设备或地址时，现有 SSH 连接会自动断开。
+1. Start rmtool, click "Add" in the sidebar, and enter the device name, connection method, address, model, and root password.
+2. Click "Connect". The first connection displays the SSH host fingerprint; trust it only after confirming that it belongs to your device.
+3. After a successful connection, the wallpaper, document, and toolbox pages are enabled automatically.
+4. Multiple devices can have separate saved profiles. Switching to another device or address automatically closes the existing SSH connection.
 
-## 本地数据与安全
+## Local data and security
 
-rmtool 将运行状态保存在应用旁的 `.rmtool/`：
+rmtool stores runtime state in `.rmtool/` next to the application:
 
-| 运行方式 | `.rmtool/` 位置 |
+| Run mode | `.rmtool/` location |
 | --- | --- |
-| 源码运行 | 仓库根目录 |
-| Windows 发布包 | `rmtool.exe` 或单文件 EXE 所在目录 |
-| macOS 发布包 | `rmtool.app` 所在目录 |
+| From source | Repository root |
+| Windows release | Directory containing `rmtool.exe` or the single-file EXE |
+| macOS release | Directory containing `rmtool.app` |
 
-主要文件包括：
+The main files are:
 
-- `devices.json`：设备列表、当前设备、主题、路径和日志面板设置。
-- `known_hosts`：按设备 ID 隔离保存的 SSH 主机信任记录。
-- `remarkable_tool.log`：滚动运行日志。
-- `cache/localization/`：已校验的汉化清单和固件包缓存。
+- `devices.json`: device profiles, current device, theme, paths, and log-panel settings.
+- `known_hosts`: SSH host trust records isolated by device ID.
+- `remarkable_tool.log`: rotating runtime log.
+- `cache/localization/`: validated localization manifests and firmware-package cache.
 
 > [!CAUTION]
-> 勾选“记住密码”后，root 密码会以**明文**写入 `.rmtool/devices.json`，不会进入系统凭据库。请勿分享、上传或把整个 `.rmtool/` 同步到不受信任的位置；提交 Issue 时也不要附带该目录。可在左侧点击“忘记密码”删除已保存密码。
+> When "Remember password" is selected, the root password is stored in **plain text** in `.rmtool/devices.json`; it is not stored in the operating system credential manager. Do not share, upload, or sync the entire `.rmtool/` directory to an untrusted location, and do not attach it to an issue. Use "Forget password" in the sidebar to remove a saved password.
 
-## 当前功能
+## Features
 
-- **连接与仪表盘**：管理多个 USB/Wi-Fi 设备配置，校验 SSH 主机指纹；本地 HTML 仪表盘显示连接状态、设备信息、PDF/EPUB/笔记数量和下一步建议。
-- **壁纸管理**：读取设备现有启动、休眠、轮播和关机壁纸预览；按设备尺寸及横竖方向输出，支持留白、裁剪和拉伸，裁剪时可调整水平/垂直偏移。
-- **文档中心**：搜索和查看文档元数据、缩略图；批量上传 PDF/EPUB、检查剩余空间、批量删除；将单个文档中 `.rm` 或 `.note` 内可解析的手写笔迹导出为白底 PDF，不合并原 PDF/EPUB 页面。
-- **字体上传**：预览并上传 TTF/OTF，可重命名为 `zwzt.ttf`，写入用户字体目录和 fontconfig 配置，刷新字体缓存后提示重启。
-- **时间管理**：同步电脑时间、查看系统时间/硬件时钟/时区，或设置为 `Asia/Shanghai`。
-- **设备控制**：重启设备、开启 Wi-Fi SSH，以及为具有 `rm_frontlight` 前光接口的设备提升亮度并安装持久化服务。
-- **主题与日志**：亮色/暗色主题会持久化；底部日志面板支持级别过滤、暂停、自动滚动、清屏和打开日志文件。
-- **第三方应用入口**：工具箱提供 vellum、xovi、rm-appload 和 KOReader 的文档链接，不包含一键安装器。
+- **Connections and dashboard**: Manage multiple USB/Wi-Fi device profiles and verify SSH host fingerprints. The local HTML dashboard shows connection status, device details, PDF/EPUB/notebook counts, and suggested next steps.
+- **Wallpaper management**: Read and preview the device's current startup, suspend, carousel, and shutdown wallpapers. Output is sized for the device and orientation, with fit, crop, and stretch modes plus horizontal and vertical crop offsets.
+- **Document center**: Search and inspect document metadata and thumbnails; batch-upload PDF/EPUB files, check free space, and batch-delete documents. Export parseable handwriting from `.rm` or `.note` data in one document to a white-background PDF without merging the original PDF/EPUB pages.
+- **Font upload**: Preview and upload TTF/OTF fonts, optionally rename one to `zwzt.ttf`, write it to the user font directory with a fontconfig configuration, refresh the font cache, and prompt for a restart.
+- **Time management**: Sync the computer's time, inspect system time, hardware clock, and timezone, or set the timezone to `Asia/Shanghai`.
+- **Device control**: Restart the device, enable Wi-Fi SSH, and increase frontlight brightness on devices with the `rm_frontlight` interface while installing a persistence service.
+- **Theme and logs**: Light and dark themes are persisted. The bottom log panel supports level filtering, pause, automatic scrolling, clearing, and opening the log file.
+- **Third-party application links**: The toolbox links to documentation for vellum, xovi, rm-appload, and KOReader. It does not include one-click installers.
 
-### 壁纸注意事项
+### Wallpaper notes
 
-每次上传前，目标文件会复制为同目录的 `.backup`；再次上传会覆盖该备份。上传休眠壁纸 `suspended.png` 时，程序还会把设备现有 `carousel/*.png` 替换为透明图片，避免固件 3.27 的轮播插图遮挡自定义壁纸，但当前不会为这些轮播图片单独备份。需要保留轮播原图时，请先自行通过 SSH 备份。
+Before each upload, the target file is copied to `.backup` in the same directory; another upload overwrites that backup. When uploading the suspend wallpaper `suspended.png`, rmtool also replaces existing `carousel/*.png` files with transparent images so firmware 3.27 carousel artwork does not cover the custom wallpaper. Those carousel images are not backed up separately. If you need to preserve them, back them up over SSH first.
 
-### 原生界面中文
+### Native Chinese UI localization
 
-发布包不内置任何固件专用 `.qm` 文件。点击“设备工具箱 > 系统汉化 > 检测状态”后，rmtool 会：
+Release packages do not embed firmware-specific `.qm` files. After you choose "Device Toolbox > System Localization > Check Status", rmtool:
 
-1. 从固定的 `localization-assets` Release 获取清单，并在网络不可用时尝试已验证的本地缓存。
-2. 按 `/etc/version` 的 14 位内部固件版本精确匹配。
-3. 对设备原始法语载体文件 `reMarkable_fr.qm` 计算 SHA-256，据此选择对应硬件载荷；`chiappa`、`ferrari` 等平台名仅用于显示，不用于猜测兼容性。
-4. 校验下载大小和 SHA-256。固件、原始法语文件或校验值不匹配时，不会写入设备。
+1. Retrieves the manifest from the fixed `localization-assets` release and falls back to a previously validated local cache when the network is unavailable.
+2. Matches the exact 14-digit internal firmware version from `/etc/version`.
+3. Calculates the SHA-256 of the device's original French carrier file, `reMarkable_fr.qm`, and uses it to select the correct hardware payload. Platform names such as `chiappa` and `ferrari` are display labels only; they are not used to guess compatibility.
+4. Verifies the download size and SHA-256. Nothing is written to the device if the firmware, original French file, or checksum does not match.
 
-当前仓库清单包含正式版固件 `3.27.1.0`（内部版本 `20260506100933`）和 `3.27.3.0`（内部版本 `20260612085811`）的 `chiappa` 与 `ferrari` 载荷，以及测试版 `3.28.0.162`（内部版本 `20260629074044`）：Paper Pro（`ferrari`）已完成真机启用与还原验证，Paper Pro Move（`chiappa`）仅完成官方固件离线验证，尚未经过 Move 真机部署；实际可用范围以云端清单为准。详见 [汉化说明](translations/README.md) 和 [清单格式](translations/manifest.json)。
+The current repository manifest contains `chiappa` (Paper Pro Move) and `ferrari` (Paper Pro) payloads for stable firmware `3.27.1.0` (internal version `20260506100933`) and `3.27.3.0` (internal version `20260612085811`), plus beta firmware `3.28.0.162` (internal version `20260629074044`). On the beta firmware, enable and restore have been verified on a real Paper Pro (`ferrari`). Paper Pro Move (`chiappa`) has only been verified offline against the official firmware and has not yet been deployed to a real Move. The cloud manifest remains the source of truth for actual availability. See the [localization documentation](translations/README.md) and [manifest format](translations/manifest.json).
 
-汉化借用 xochitl 内置法语槽位，启用期间不能使用法语。程序会先备份原配置和原始 `reMarkable_fr.qm`，并检查当前主字体是否支持简体中文；缺少字体时可安装随应用提供的 Noto Sans CJK SC，或选择本地 TTF/OTF。启用、修复字体或还原后，程序会关闭 SSH，且**不会自动重启设备**，请手动重启使修改生效。
+Localization reuses xochitl's built-in French language slot, so French is unavailable while Chinese is enabled. rmtool first backs up the original configuration and `reMarkable_fr.qm`, then checks whether the current primary font supports Simplified Chinese. If it does not, you can install the bundled Noto Sans CJK SC or select a local TTF/OTF file. After enabling localization, repairing fonts, or restoring the original UI, rmtool closes SSH and **does not restart the device automatically**. Restart the device manually to apply the change.
 
-## 使用建议
+## Usage recommendations
 
-1. 连接后先在仪表盘确认当前设备和连接方式。
-2. 壁纸页先“重新扫描”，选择设备实际存在的目标，再预览并上传。
-3. 文档上传完成后，可按提示立即重启 xochitl；跳过时，新文档可能暂时不显示。
-4. 删除文档不可撤销；导出 PDF 只对包含 `.rm` 或 `.note` 笔迹数据的单个文档可用，结果不包含原 PDF/EPUB 底图或非笔迹内容。
-5. 字体和汉化属于设备级修改，完成后按提示重启设备。
+1. After connecting, confirm the current device and connection method on the dashboard.
+2. On the wallpaper page, run "Rescan" first, choose a target that actually exists on the device, then preview and upload.
+3. After uploading documents, you can restart xochitl immediately when prompted. If you skip it, new documents may not appear yet.
+4. Document deletion cannot be undone. PDF export only works for one document containing `.rm` or `.note` handwriting data, and the result excludes the original PDF/EPUB background and non-handwriting content.
+5. Font and localization changes are device-level modifications. Restart the device when prompted after they finish.
 
-## 常见问题
+## Troubleshooting
 
-- **连接失败**：检查 USB 网络是否出现、地址是否为 `10.11.99.1`、root 密码是否为当前值，以及设备是否已允许 SSH。Wi-Fi 连接还需先通过 USB 开启 Wi-Fi SSH。
-- **SSH 指纹变化**：系统更新、设备重置或地址被另一台设备复用都可能触发提示。先核对设备身份，不要在原因不明时直接重新信任。
-- **壁纸目标不可用**：不同固件拥有的壁纸文件不同。点击“重新扫描”，改选有预览且未标记“当前设备不存在”的目标。
-- **上传文档后设备端没显示**：回到文档中心重启 xochitl，或手动重启设备。
-- **“导出为 PDF”不可用**：只能单选包含 `.rm` 或 `.note` 笔迹资源的文档；该功能只渲染可解析笔迹，不会合并原 PDF/EPUB 页面、键入文本或其他非笔迹内容。
-- **汉化按钮不可用**：先点击“检测状态”。电脑需要联网或已有有效缓存，且内部固件版本与设备原始 `reMarkable_fr.qm` 的 SHA-256 必须命中同一清单项。
-- **macOS 无法创建配置**：把 `rmtool.app` 移到当前用户可写目录，确保其同级可以创建 `.rmtool/`。
-- **需要诊断信息**：点击左下角日志按钮，按级别筛选，或选择“打开日志文件”。分享日志前请检查其中是否含设备地址等隐私信息。
+- **Connection fails**: Check that the USB network interface appears, the address is `10.11.99.1`, the root password is current, and SSH is allowed on the device. Wi-Fi connections also require Wi-Fi SSH to be enabled over USB first.
+- **SSH fingerprint changed**: A system update, device reset, or reuse of the same address by another device can trigger this warning. Verify the device identity before trusting the new fingerprint.
+- **Wallpaper target unavailable**: Different firmware versions provide different wallpaper files. Click "Rescan" and choose a target that has a preview and is not marked as missing from the current device.
+- **Uploaded document does not appear on the device**: Return to the document center and restart xochitl, or restart the device manually.
+- **"Export to PDF" is unavailable**: Select exactly one document containing `.rm` or `.note` handwriting resources. Export renders only parseable handwriting and does not merge original PDF/EPUB pages, typed text, or other non-handwriting content.
+- **Localization buttons are disabled**: Click "Check Status" first. The computer needs internet access or a valid cache, and the internal firmware version plus the SHA-256 of the original `reMarkable_fr.qm` must match the same manifest entry.
+- **macOS cannot create its configuration**: Move `rmtool.app` to a directory writable by the current user and make sure `.rmtool/` can be created beside it.
+- **Diagnostic information is needed**: Click the log button in the lower-left corner, filter by level, or choose "Open Log File". Before sharing a log, check it for private information such as the device address.
 
-## 源码运行
+## Running from source
 
-建议使用与 Release 工作流一致的 64 位 Python 3.12；其他 Python 版本未由当前 CI 覆盖。
+Use 64-bit Python 3.12 to match the release workflow. Other Python versions are not covered by the current CI configuration.
 
-Windows PowerShell：
+Windows PowerShell:
 
 ```powershell
 python -m venv .venv
@@ -124,7 +126,7 @@ python -m pip install -r requirements.txt
 python rmtool.py
 ```
 
-macOS：
+macOS:
 
 ```bash
 python3 -m venv .venv
@@ -133,9 +135,9 @@ python -m pip install -r requirements.txt
 python rmtool.py
 ```
 
-Windows 也可在依赖安装完成后双击 `rmtool.bat`，通过 `pythonw.exe` 启动而不保留控制台窗口。固定依赖版本见 [requirements.txt](requirements.txt)。
+On Windows, after installing dependencies, you can also double-click `rmtool.bat` to launch with `pythonw.exe` without keeping a console window open. See [requirements.txt](requirements.txt) for pinned dependency versions.
 
-## 开发与发布检查
+## Development and release checks
 
 ```bash
 python -m compileall -q rmtool.py _dialogs.py _log_viewer.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py rmrl tests
@@ -144,20 +146,20 @@ git diff --check
 actionlint .github/workflows/release.yml
 ```
 
-Windows x64 本地构建运行：
+To build Windows x64 packages locally:
 
 ```powershell
 .\build-portable.ps1
 ```
 
-脚本生成 `dist/rmtool-windows-x64.zip` 和 `dist/rmtool-windows-x64-onefile.exe`。macOS ARM64 应用由 [Release 工作流](.github/workflows/release.yml) 构建；推送 `v*` 标签后，工作流会在 Windows 与 macOS 测试、构建均成功时发布三个下载文件。
+The script creates `dist/rmtool-windows-x64.zip` and `dist/rmtool-windows-x64-onefile.exe`. The macOS ARM64 app is built by the [release workflow](.github/workflows/release.yml). After a `v*` tag is pushed, the workflow publishes all three downloads when the Windows and macOS test and build jobs succeed.
 
-## 贡献、许可与致谢
+## Contributing, license, and credits
 
-欢迎通过 [Issues](../../issues) 报告问题，或提交 [Pull Requests](../../pulls)。请勿在日志、截图或复现配置中提交设备地址、root 密码或 `.rmtool/` 内容。
+Report problems through [Issues](../../issues) or submit [Pull Requests](../../pulls). Do not include device addresses, root passwords, or `.rmtool/` contents in logs, screenshots, or reproduction configurations.
 
-本项目采用 [GNU General Public License v3.0](LICENSE)。译文与字体的第三方来源及许可见 [NOTICE.md](NOTICE.md)；主要来源如下：
+This project is licensed under the [GNU General Public License v3.0](LICENSE). See [NOTICE.md](NOTICE.md) for third-party sources and licenses covering translations and fonts. Major sources include:
 
-- 中文翻译目录基于 [boangs/rmkit](https://github.com/boangs/rmkit) 的 GPL-3.0 内容适配。
-- 内置手写笔记渲染器移植自 [rschroll/rmrl](https://github.com/rschroll/rmrl)，并使用 `rmscene` 解析新格式笔迹。
-- 内置 Noto Sans CJK SC 来自 [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk)，按 [SIL Open Font License 1.1](assets/fonts/LICENSE) 分发。
+- The Chinese translation catalog is adapted from GPL-3.0 content in [boangs/rmkit](https://github.com/boangs/rmkit).
+- The bundled handwritten-note renderer is ported from [rschroll/rmrl](https://github.com/rschroll/rmrl) and uses `rmscene` to parse newer handwriting formats.
+- The bundled Noto Sans CJK SC comes from [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk) and is distributed under the [SIL Open Font License 1.1](assets/fonts/LICENSE).
