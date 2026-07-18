@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import os
 import re
@@ -1388,11 +1389,17 @@ class WallpaperUiTests(unittest.TestCase):
             (control_margins.left(), control_margins.top(), control_margins.right(), control_margins.bottom()),
             (rmtool.PANEL_PADDING, rmtool.PANEL_PADDING, rmtool.PANEL_PADDING, rmtool.PANEL_PADDING),
         )
-        margins = widget.preview_panel.layout().contentsMargins()
+        preview_layout = widget.preview_panel.layout()
+        margins = preview_layout.contentsMargins()
+        preview_index = preview_layout.indexOf(widget.preview_label)
         self.assertEqual(
             (margins.left(), margins.top(), margins.right(), margins.bottom()),
-            (rmtool.PANEL_PADDING, rmtool.PANEL_PADDING, rmtool.PANEL_PADDING, rmtool.PANEL_PADDING),
+            (rmtool.SUBSECTION_GAP,) * 4,
         )
+        self.assertEqual(preview_layout.spacing(), rmtool.SUBSECTION_GAP)
+        self.assertEqual(preview_layout.count(), 2)
+        self.assertEqual(preview_layout.stretch(preview_index), 1)
+        self.assertFalse(preview_layout.itemAt(preview_index).alignment())
         self.assertEqual(widget.control_inner.objectName(), "wallpaperControlInner")
         self.assertEqual(widget.control_scroll.viewport().objectName(), "wallpaperControlViewport")
         self.assertEqual(widget.main_splitter.handleWidth(), rmtool.PANEL_GAP)
@@ -1490,6 +1497,183 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertFalse(results["sleep_carousel_1"].missing)
         self.assertTrue(results["sleeping"].missing)
         self.assertNotIn("/usr/share/remarkable/sleeping.png", client.open_calls)
+
+
+class DeviceFramePreviewTests(unittest.TestCase):
+    SCREEN_RECT = (0.2, 0.1, 0.8, 0.9)
+    FRAME_SHA256 = {
+        "paper-pro.png": "3642a97b18824e7da68601c1b3034e6cbcc4e5508ad8f41c2df3a8189ac32c43",
+        "paper-pro-move.png": "fe2f5125e380bb3b9ed6993ea7611e0e556c4bd8f9186b45ff1477a5340784ce",
+        "paper-pure.png": "b855a3f1333b1897e841a1926cb4d81f76a9da41d4807eade5fc346f7b78bc7f",
+        "remarkable-1.png": "afe594f5c89ded39cde4bfc4c6651b260999d5693a5bce5847e5c88f695d6ffa",
+        "remarkable-2.png": "817972f404157fcee10e33e51f3e60f7e67f5278d58ceef7a4fcd557537d59ad",
+    }
+
+    def test_profile_mapping_covers_every_supported_device(self):
+        expected = {
+            "reMarkable Paper Pro": (
+                "paper-pro.png",
+                (973, 1355),
+                (43, 44, 930, 1226),
+            ),
+            "reMarkable Paper Pro Move": (
+                "paper-pro-move.png",
+                (1069, 1937),
+                (83, 85, 988, 1693),
+            ),
+            "reMarkable Paper Pure": (
+                "paper-pure.png",
+                (2003, 2456),
+                (224, 100, 1912, 2353),
+            ),
+            "reMarkable 1": (
+                "remarkable-1.png",
+                (1634, 2365),
+                (88, 178, 1548, 2117),
+            ),
+            "reMarkable 2": (
+                "remarkable-2.png",
+                (1850, 2428),
+                (206, 88, 1763, 2163),
+            ),
+        }
+
+        self.assertEqual(set(_tab_wallpaper._DEVICE_FRAME_PROFILES), set(expected))
+        root = Path(_tab_wallpaper.__file__).resolve().parent
+        wallpaper = Image.new("RGB", (30, 40), "white")
+        for profile, (filename, size, pixel_box) in expected.items():
+            mapped_filename, screen_rect = _tab_wallpaper._DEVICE_FRAME_PROFILES[
+                profile
+            ]
+            calibrated_box = (
+                round(screen_rect[0] * size[0]),
+                round(screen_rect[1] * size[1]),
+                round(screen_rect[2] * size[0]),
+                round(screen_rect[3] * size[1]),
+            )
+            self.assertEqual(mapped_filename, filename)
+            self.assertEqual(calibrated_box, pixel_box)
+            frame_path = root / "assets" / "device_frames" / filename
+            self.assertEqual(
+                hashlib.sha256(frame_path.read_bytes()).hexdigest(),
+                self.FRAME_SHA256[filename],
+            )
+            with Image.open(frame_path) as frame:
+                self.assertEqual(frame.mode, "RGBA")
+                self.assertEqual(frame.size, size)
+                portrait = _tab_wallpaper.compose_device_frame_preview(
+                    wallpaper,
+                    frame,
+                    screen_rect,
+                    "portrait",
+                )
+                landscape = _tab_wallpaper.compose_device_frame_preview(
+                    wallpaper,
+                    frame,
+                    screen_rect,
+                    "landscape",
+                )
+                self.assertEqual(portrait.size, size)
+                self.assertEqual(landscape.size, tuple(reversed(size)))
+
+    def test_compositor_places_wallpaper_beneath_transparent_frame(self):
+        frame = Image.new("RGBA", (100, 140), (12, 12, 12, 255))
+        frame.paste((0, 0, 0, 0), (20, 14, 80, 126))
+        frame.putpixel((50, 70), (3, 4, 5, 255))
+        wallpaper = Image.new("RGB", (60, 112), (220, 30, 30))
+
+        portrait = _tab_wallpaper.compose_device_frame_preview(
+            wallpaper,
+            frame,
+            self.SCREEN_RECT,
+            "portrait",
+        )
+
+        self.assertEqual(portrait.size, frame.size)
+        self.assertEqual(portrait.getpixel((40, 70)), (220, 30, 30, 255))
+        self.assertEqual(portrait.getpixel((50, 70)), (3, 4, 5, 255))
+        self.assertEqual(portrait.getpixel((5, 5)), (12, 12, 12, 255))
+
+    def test_landscape_rotates_composed_device_at_native_size(self):
+        frame = Image.new("RGBA", (100, 140), (12, 12, 12, 255))
+        frame.paste((0, 0, 0, 0), (20, 14, 80, 126))
+        wallpaper = Image.new("RGB", (112, 60), (220, 30, 30))
+        wallpaper.paste((30, 60, 220), (0, 0, 56, 60))
+
+        landscape = _tab_wallpaper.compose_device_frame_preview(
+            wallpaper,
+            frame,
+            self.SCREEN_RECT,
+            "landscape",
+        )
+
+        self.assertEqual(landscape.size, (140, 100))
+        self.assertEqual(landscape.getpixel((25, 50)), (30, 60, 220, 255))
+        self.assertEqual(landscape.getpixel((115, 50)), (220, 30, 30, 255))
+
+    def test_checked_preview_can_switch_to_raw_without_changing_upload_source(self):
+        widget = rmtool.WallpaperTab(FakeConnectionClient(), rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        widget.current_resolution = (30, 40)
+        widget._cached_source_image = Image.new("RGB", (30, 40), (10, 20, 30))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            frame_path = Path(temp_dir) / "frame.png"
+            Image.new("RGBA", (100, 140), (12, 12, 12, 255)).save(frame_path)
+            before = widget._process_image()
+
+            with mock.patch.object(rmtool, "resource_path", return_value=frame_path):
+                widget._render_preview()
+                framed = widget.preview_label._original_pixmap
+                self.assertTrue(widget.frame_preview_checkbox.isChecked())
+                self.assertEqual(widget.frame_preview_checkbox.text(), "真机预览")
+                self.assertEqual((framed.width(), framed.height()), (100, 140))
+                self.assertAlmostEqual(
+                    widget.preview_label._aspect_ratio,
+                    100 / 140,
+                )
+
+                widget.frame_preview_checkbox.setChecked(False)
+                raw = widget.preview_label._original_pixmap
+                self.assertEqual((raw.width(), raw.height()), (30, 40))
+
+            after = widget._process_image()
+
+        self.assertEqual(before.size, (30, 40))
+        self.assertEqual(after.size, before.size)
+        self.assertEqual(after.tobytes(), before.tobytes())
+
+    def test_missing_or_unreadable_frame_falls_back_to_raw_preview(self):
+        widget = rmtool.WallpaperTab(FakeConnectionClient(), rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        widget.current_resolution = (20, 30)
+        widget._cached_source_image = Image.new("RGB", (20, 30), "white")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            missing = Path(temp_dir) / "missing.png"
+            unreadable = Path(temp_dir) / "broken.png"
+            unreadable.write_bytes(b"not a png")
+            for frame_path in (missing, unreadable):
+                with self.subTest(frame_path=frame_path.name), mock.patch.object(
+                    rmtool,
+                    "resource_path",
+                    return_value=frame_path,
+                ), self.assertLogs(level="WARNING"):
+                    widget._render_preview()
+                    preview = widget.preview_label._original_pixmap
+                    self.assertEqual((preview.width(), preview.height()), (20, 30))
+
+    def test_device_frames_are_in_windows_and_macos_package_inputs(self):
+        root = Path(_tab_wallpaper.__file__).resolve().parent
+        windows = (root / "build-portable.ps1").read_text(encoding="utf-8")
+        workflow = (root / ".github" / "workflows" / "release.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("assets\\device_frames');assets\\device_frames", windows)
+        self.assertIn("assets/device_frames:assets/device_frames", workflow)
+        for filename, _screen_rect in _tab_wallpaper._DEVICE_FRAME_PROFILES.values():
+            self.assertIn(filename, windows)
 
 
 class CoverWallWallpaperTests(unittest.TestCase):
