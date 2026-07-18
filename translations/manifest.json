@@ -47,6 +47,24 @@
           "size": 175519,
           "sha256": "47ba9d8a6f38b3763d013ecc489d44e8742704404b50a5de102b42e33dfebbfb",
           "stock_french_sha256": "2ee88b18955776e8f6f52949b6c172d50d14f60f3e59d75db7d17881377a7b3a"
+        },
+        {
+          "asset": "reMarkable_zh_CN-20260612085811-legacy.qm",
+          "release_version": "3.27.3.0",
+          "channel": "stable",
+          "size": 188407,
+          "sha256": "517e70cdf4d862b8ceec57d3238ece72b3799aecdf075c0183668acfc2137c64",
+          "platform": "rm1",
+          "stock_french_sha256": "0767babb6d55fc960565568d6af89455ba233194a4d887d70bd1c7987c3898a4"
+        },
+        {
+          "asset": "reMarkable_zh_CN-20260612085811-legacy.qm",
+          "release_version": "3.27.3.0",
+          "channel": "stable",
+          "size": 188407,
+          "sha256": "517e70cdf4d862b8ceec57d3238ece72b3799aecdf075c0183668acfc2137c64",
+          "platform": "rm2",
+          "stock_french_sha256": "8080219cb5b3a75a1423ac0cee5bd12d3ee1c9029ff22ecf981cf075559900a7"
         }
       ]
     },
