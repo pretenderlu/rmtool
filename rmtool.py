@@ -430,6 +430,72 @@ class DocumentItem:
     available_assets: List[str]
 
 
+def load_document_items(sftp: paramiko.SFTPClient) -> List[DocumentItem]:
+    """Read and sort document metadata from an existing SFTP session."""
+    try:
+        entries = sftp.listdir_attr(DOCUMENT_ROOT)
+    except IOError:
+        return []
+
+    filenames = {entry.filename for entry in entries}
+    items = []
+    for entry in (entry for entry in entries if entry.filename.endswith(".metadata")):
+        identifier = entry.filename[:-9]
+        metadata_path = f"{DOCUMENT_ROOT}/{entry.filename}"
+        try:
+            with sftp.open(metadata_path, "r") as file_handle:
+                metadata = json.load(file_handle)
+        except Exception:
+            metadata = {}
+
+        available_assets = [
+            extension
+            for extension in ("pdf", "epub", "zip", "note")
+            if f"{identifier}.{extension}" in filenames
+        ]
+        if identifier in filenames:
+            available_assets.append("rm")
+
+        updated = datetime.fromtimestamp(entry.st_mtime) if entry.st_mtime else None
+        items.append(
+            DocumentItem(
+                identifier,
+                metadata.get("visibleName", identifier),
+                metadata.get("type", "document"),
+                updated,
+                available_assets,
+            )
+        )
+
+    items.sort(key=lambda item: item.updated or datetime.min, reverse=True)
+    return items
+
+
+def read_document_cover(
+    sftp: paramiko.SFTPClient, item: DocumentItem
+) -> Optional[bytes]:
+    """Read the first supported thumbnail from an existing SFTP session."""
+    thumbnail_dir = f"{DOCUMENT_ROOT}/{item.identifier}.thumbnails"
+    try:
+        entries = sftp.listdir_attr(thumbnail_dir)
+    except IOError:
+        return None
+
+    image_entries = [
+        entry
+        for entry in entries
+        if entry.filename.lower().endswith((".png", ".jpg", ".jpeg", ".thumbnail"))
+    ]
+    if not image_entries:
+        return None
+
+    image_entries.sort(key=lambda entry: entry.filename)
+    try:
+        with sftp.open(f"{thumbnail_dir}/{image_entries[0].filename}", "rb") as file_handle:
+            return file_handle.read() or None
+    except IOError:
+        return None
+
 # ---------------------------------------------------------------------------
 # SSH Client
 # ---------------------------------------------------------------------------
