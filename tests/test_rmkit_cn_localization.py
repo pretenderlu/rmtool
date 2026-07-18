@@ -1018,6 +1018,9 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         license_path = Path("assets/fonts/LICENSE")
         qm_path = Path("translations/reMarkable_zh_CN.qm")
         ferrari_qm_path = Path("translations/reMarkable_zh_CN_ferrari.qm")
+        legacy_qm_path = Path(
+            "translations/reMarkable_zh_CN-20260612085811-legacy.qm"
+        )
         beta_qm_path = Path(
             "translations/reMarkable_zh_CN-20260629074044.qm"
         )
@@ -1044,7 +1047,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             "8e0db0f7a2d3116469e1aae4f52657ccc38d0422b5b958ae512554bd018f285e",
         )
         self.assertEqual(package.platform, "chiappa")
-        self.assertEqual(len(package.variants), 2)
+        self.assertEqual(len(package.variants), 4)
         ferrari = package.variants[0]
         self.assertEqual(ferrari.platform, "ferrari")
         self.assertEqual(ferrari.size, ferrari_qm_path.stat().st_size)
@@ -1067,6 +1070,35 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             tatsu.stock_french_sha256,
             "2ee88b18955776e8f6f52949b6c172d50d14f60f3e59d75db7d17881377a7b3a",
         )
+        legacy_bytes = legacy_qm_path.read_bytes()
+        rm1, rm2 = package.variants[2:]
+        self.assertEqual([rm1.platform, rm2.platform], ["rm1", "rm2"])
+        self.assertEqual(rm1.release_version, package.release_version)
+        self.assertEqual(rm2.release_version, package.release_version)
+        self.assertEqual(rm1.channel, package.channel)
+        self.assertEqual(rm2.channel, package.channel)
+        self.assertEqual(rm1.asset, legacy_qm_path.name)
+        self.assertEqual(rm2.asset, legacy_qm_path.name)
+        self.assertEqual(rm1.size, len(legacy_bytes))
+        self.assertEqual(rm2.size, len(legacy_bytes))
+        self.assertEqual(rm1.size, 188_407)
+        self.assertEqual(
+            hashlib.sha256(legacy_bytes).hexdigest(),
+            "517e70cdf4d862b8ceec57d3238ece72b3799aecdf075c0183668acfc2137c64",
+        )
+        self.assertEqual(
+            rm1.localized_qm_sha256,
+            hashlib.sha256(legacy_bytes).hexdigest(),
+        )
+        self.assertEqual(rm2.localized_qm_sha256, rm1.localized_qm_sha256)
+        self.assertEqual(
+            rm1.stock_french_sha256,
+            "0767babb6d55fc960565568d6af89455ba233194a4d887d70bd1c7987c3898a4",
+        )
+        self.assertEqual(
+            rm2.stock_french_sha256,
+            "8080219cb5b3a75a1423ac0cee5bd12d3ee1c9029ff22ecf981cf075559900a7",
+        )
         self.assertEqual(package.release_version, "3.27.3.0")
         self.assertEqual(package.channel, "stable")
         previous = packages["20260506100933"]
@@ -1075,6 +1107,10 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(previous.localized_qm_sha256, package.localized_qm_sha256)
         self.assertEqual(previous.stock_french_sha256, package.stock_french_sha256)
         self.assertEqual(len(previous.variants), 1)
+        self.assertEqual(
+            [previous.platform, *(item.platform for item in previous.variants)],
+            ["chiappa", "ferrari"],
+        )
         previous_ferrari = previous.variants[0]
         self.assertEqual(previous_ferrari.asset, ferrari.asset)
         self.assertEqual(
@@ -1106,6 +1142,10 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             "3d722f4018f33a24c738bfd14f821603c176d06c9d7e81714e2763d3d40eeb12",
         )
         self.assertEqual(len(beta.variants), 1)
+        self.assertEqual(
+            [beta.platform, *(item.platform for item in beta.variants)],
+            ["chiappa", "ferrari"],
+        )
         beta_ferrari = beta.variants[0]
         self.assertEqual(beta_ferrari.release_version, beta.release_version)
         self.assertEqual(beta_ferrari.channel, beta.channel)
@@ -1126,6 +1166,10 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertIn("assets\\fonts');assets\\fonts", build_script)
         self.assertNotIn("translations\\reMarkable_zh_CN.qm", build_script)
         self.assertNotIn("translations\\reMarkable_zh_CN_ferrari.qm", build_script)
+        self.assertNotIn(
+            "translations\\reMarkable_zh_CN-20260612085811-legacy.qm",
+            build_script,
+        )
         self.assertIn('"--onefile"', build_script)
         self.assertIn("rmtool-windows-x64-onefile.exe", build_script)
 
@@ -1412,6 +1456,70 @@ class RmkitCnLocalizationTests(unittest.TestCase):
                 self.assertNotIn(
                     ("exec", "systemctl stop xochitl"), ssh.events
                 )
+
+    def test_shared_legacy_qm_uses_exact_stock_backup_for_rm1_rm2(self):
+        legacy_qm = b"legacy-localized-qm"
+        common = {
+            "firmware": _rmkit_cn.SUPPORTED_FIRMWARE,
+            "localized_qm_sha256": hashlib.sha256(legacy_qm).hexdigest(),
+            "asset": "reMarkable_zh_CN-20260612085811-legacy.qm",
+            "size": len(legacy_qm),
+            "release_version": "3.27.3.0",
+            "channel": "stable",
+        }
+        rm1_stock = b"rm1-stock-carrier-qm"
+        rm2_stock = b"rm2-stock-carrier-qm"
+        rm1 = _rmkit_cn.TranslationPackage(
+            stock_french_sha256=hashlib.sha256(rm1_stock).hexdigest(),
+            platform="rm1",
+            **common,
+        )
+        rm2 = _rmkit_cn.TranslationPackage(
+            stock_french_sha256=hashlib.sha256(rm2_stock).hexdigest(),
+            platform="rm2",
+            **common,
+        )
+        root, *_existing = self.make_variant_packages()
+        root = _rmkit_cn.TranslationPackage(
+            firmware=root.firmware,
+            stock_french_sha256=root.stock_french_sha256,
+            localized_qm_sha256=root.localized_qm_sha256,
+            asset=root.asset,
+            size=root.size,
+            release_version=root.release_version,
+            channel=root.channel,
+            platform=root.platform,
+            variants=(*root.variants, rm1, rm2),
+        )
+
+        for stock, expected in ((rm1_stock, rm1), (rm2_stock, rm2)):
+            with self.subTest(platform=expected.platform, carrier="stock"):
+                ssh = self.make_ssh()
+                ssh.files[_rmkit_cn.QM_PATH] = stock
+                with patch.object(
+                    _rmkit_cn,
+                    "load_translation_catalog",
+                    return_value={root.firmware: root},
+                ):
+                    status = _rmkit_cn.get_cloud_localization_status(
+                        ssh, ".rmtool"
+                    )
+                self.assertIs(status.package, expected)
+
+            with self.subTest(platform=expected.platform, carrier="localized"):
+                ssh = self.make_ssh(config=b"[General]\nlanguage=fr_FR\n")
+                ssh.files.update(self.managed_files(carrier=legacy_qm))
+                ssh.files[_rmkit_cn.BACKUP_QM_PATH] = stock
+                with patch.object(
+                    _rmkit_cn,
+                    "load_translation_catalog",
+                    return_value={root.firmware: root},
+                ):
+                    status = _rmkit_cn.get_cloud_localization_status(
+                        ssh, ".rmtool"
+                    )
+                self.assertIs(status.package, expected)
+                self.assertEqual(status.state, _rmkit_cn.LocalizationState.ENABLED)
 
     def test_shared_localized_qm_requires_complete_backup(self):
         package, *_variants = self.make_variant_packages()

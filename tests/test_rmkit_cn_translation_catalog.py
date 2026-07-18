@@ -1,11 +1,13 @@
 import hashlib
 import json
+import os
 import re
 import unittest
 import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
 
+from PyQt5 import QtCore
 
 import _rmkit_cn
 
@@ -15,6 +17,15 @@ FERRARI_SUPPLEMENT_MESSAGES = 31
 FERRARI_MESSAGES = EXPECTED_MESSAGES + FERRARI_SUPPLEMENT_MESSAGES
 FERRARI_SUPPLEMENT_KEY_SHA256 = "9aabccaf96280039ef28f75e4147fc09a843f3095f8c2097dedc6386273db0be"
 FERRARI_QM_SHA256 = "28b82b8a0ca32aa83fe49ef4c5db792bd1a5908ae8135c2fa9eefe8cf0a98fd9"
+LEGACY_SUPPLEMENT_MESSAGES = 84
+LEGACY_MESSAGES = FERRARI_MESSAGES + LEGACY_SUPPLEMENT_MESSAGES
+LEGACY_SUPPLEMENT_KEY_SHA256 = "52d97ca57b9fc74f74ae99af843eeaa9813e5530818adbe4be426d60c6f492fa"
+LEGACY_QM_SIZE = 188407
+LEGACY_QM_SHA256 = "517e70cdf4d862b8ceec57d3238ece72b3799aecdf075c0183668acfc2137c64"
+RM1_STOCK_MESSAGES = 1671
+RM1_STOCK_KEY_SHA256 = "0bb125ee4a3d8f429cb9a870dc5ab9ffbecdbed729ee2bf4c0ffc6b9cb9e2f4f"
+RM2_STOCK_MESSAGES = 1763
+RM2_STOCK_KEY_SHA256 = "92bfab7dd0d1138cfae04380493d9a9a2f297cb1735f543f514642d7ced3e0c2"
 MINIMUM_CONTEXTS = 300
 STOCK_MESSAGES = 1779
 STOCK_KEY_SHA256 = "6362ce405416df7b45faaee315f517ffb96f1c875814a623b5e776edafaf19cb"
@@ -394,6 +405,199 @@ class RmkitCnTranslationCatalogTests(unittest.TestCase):
             entries[("SettingsWindow", "Firmware", "", False)],
             "固件",
         )
+
+    def test_legacy_supplement_is_the_exact_rm2_catalog_gap(self):
+        translations = Path(__file__).resolve().parents[1] / "translations"
+        roots = [
+            ET.parse(translations / "reMarkable_zh_CN.ts").getroot(),
+            ET.parse(
+                translations / "reMarkable_zh_CN_ferrari_supplement.ts"
+            ).getroot(),
+        ]
+        existing_keys = {
+            (
+                element_text(context.find("name")),
+                element_text(message.find("source")),
+                element_text(message.find("comment")),
+                message.get("numerus") == "yes",
+            )
+            for root in roots
+            for context in root.findall("context")
+            for message in context.findall("message")
+        }
+        root = ET.parse(
+            translations / "reMarkable_zh_CN_legacy_supplement.ts"
+        ).getroot()
+        keys = []
+        entries = {}
+        invalid = []
+        for context in root.findall("context"):
+            context_name = element_text(context.find("name"))
+            for message in context.findall("message"):
+                source = element_text(message.find("source"))
+                comment = element_text(message.find("comment"))
+                key = (
+                    context_name,
+                    source,
+                    comment,
+                    message.get("numerus") == "yes",
+                )
+                keys.append(key)
+                translation = message.find("translation")
+                translated = element_text(translation)
+                entries[key] = translated
+                if (
+                    translation is None
+                    or translation.get("type") in FORBIDDEN_TYPES
+                    or not translated.strip()
+                    or SUSPICIOUS_REPLACEMENT_RE.search(translated)
+                    or edge_whitespace(translated) != edge_whitespace(source)
+                    or translated.count("\n") != source.count("\n")
+                    or Counter(PLACEHOLDER_RE.findall(translated))
+                    != Counter(PLACEHOLDER_RE.findall(source))
+                    or Counter(TAG_RE.findall(translated))
+                    != Counter(TAG_RE.findall(source))
+                    or not Counter(URL_RE.findall(source))
+                    <= Counter(URL_RE.findall(translated))
+                    or (source.endswith("...") and not translated.endswith("..."))
+                ):
+                    invalid.append(key)
+
+        self.assertEqual(len(keys), LEGACY_SUPPLEMENT_MESSAGES)
+        self.assertEqual(len(keys), len(set(keys)))
+        self.assertEqual(len(root.findall("context")), 13)
+        self.assertEqual(key_digest(keys), LEGACY_SUPPLEMENT_KEY_SHA256)
+        self.assertFalse(set(keys) & existing_keys)
+        self.assertEqual(len(existing_keys | set(keys)), LEGACY_MESSAGES)
+        self.assertFalse(invalid)
+        self.assertEqual(
+            entries[("EncryptionDialog", "Disk encryption", "", False)],
+            "磁盘加密",
+        )
+        self.assertEqual(
+            entries[("SetupRecoveryKeyDialog", "Recovery code", "", False)],
+            "恢复码",
+        )
+        self.assertEqual(
+            entries[("CriticalErrorWindow", "Factory reset", "", False)],
+            "恢复出厂设置",
+        )
+        self.assertEqual(
+            entries[("EnterPassword", "Password", "", False)],
+            "密码",
+        )
+        self.assertEqual(
+            entries[
+                (
+                    "EncryptionDialog",
+                    "You'll need both a password and a passcode for your device.",
+                    "",
+                    False,
+                )
+            ],
+            "您的设备需要同时设置开机密码和锁屏密码。",
+        )
+        self.assertEqual(
+            entries[("ForgotPasscodeScreen", "Confirm reset", "", False)],
+            "确认重置锁屏密码",
+        )
+        self.assertEqual(
+            entries[("ForgotPasscodeScreen", "Reset device", "", False)],
+            "重置设备",
+        )
+        self.assertEqual(
+            entries[("NotifyRecovery", "Recover your paper tablet", "", False)],
+            "恢复您的平板",
+        )
+
+    def test_legacy_qm_matches_merged_catalog_and_official_unions(self):
+        translations = Path(__file__).resolve().parents[1] / "translations"
+
+        def read_entries(path):
+            result = {}
+            for context in ET.parse(path).getroot().findall("context"):
+                context_name = element_text(context.find("name"))
+                for message in context.findall("message"):
+                    key = (
+                        context_name,
+                        element_text(message.find("source")),
+                        element_text(message.find("comment")),
+                        message.get("numerus") == "yes",
+                    )
+                    translation = message.find("translation")
+                    forms = (
+                        translation.findall("numerusform")
+                        if key[3]
+                        else [translation]
+                    )
+                    result[key] = tuple(element_text(form) for form in forms)
+            return result
+
+        merged_entries = {}
+        source_entries_by_file = {}
+        for source in (
+            "reMarkable_zh_CN.ts",
+            "reMarkable_zh_CN_ferrari_supplement.ts",
+            "reMarkable_zh_CN_legacy_supplement.ts",
+        ):
+            source_entries = read_entries(translations / source)
+            source_entries_by_file[source] = source_entries
+            self.assertFalse(set(merged_entries) & set(source_entries))
+            merged_entries.update(source_entries)
+        self.assertEqual(len(merged_entries), LEGACY_MESSAGES)
+        base_ferrari_keys = set(
+            source_entries_by_file["reMarkable_zh_CN.ts"]
+        ) | set(
+            source_entries_by_file["reMarkable_zh_CN_ferrari_supplement.ts"]
+        )
+        legacy_keys = set(
+            source_entries_by_file["reMarkable_zh_CN_legacy_supplement.ts"]
+        )
+
+        qm_path = translations / "reMarkable_zh_CN-20260612085811-legacy.qm"
+        data = qm_path.read_bytes()
+        self.assertEqual(len(data), LEGACY_QM_SIZE)
+        self.assertEqual(hashlib.sha256(data).hexdigest(), LEGACY_QM_SHA256)
+        self.assertEqual(data[: len(QM_MAGIC)], QM_MAGIC)
+        translator = QtCore.QTranslator()
+        self.assertTrue(translator.load(str(qm_path)))
+        app = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
+        self.assertTrue(app.installTranslator(translator))
+        self.addCleanup(app.removeTranslator, translator)
+        for (context, source, comment, numerus), expected in merged_entries.items():
+            with self.subTest(context=context, source=source):
+                self.assertEqual(len(expected), 1)
+                self.assertEqual(
+                    QtCore.QCoreApplication.translate(
+                        context,
+                        source,
+                        comment or None,
+                        1 if numerus else -1,
+                    ),
+                    expected[0].replace("%n", "1") if numerus else expected[0],
+                )
+
+        audit_root = os.environ.get("RMTOOL_FIRMWARE_AUDIT_ROOT")
+        if audit_root:
+            audit_root = Path(audit_root)
+            for platform, expected_count, expected_digest in (
+                ("rm1", RM1_STOCK_MESSAGES, RM1_STOCK_KEY_SHA256),
+                ("rm2", RM2_STOCK_MESSAGES, RM2_STOCK_KEY_SHA256),
+            ):
+                stock_keys = set()
+                for language in ("en", "fr", "de", "es"):
+                    stock_path = audit_root / platform / f"stock-{language}.ts"
+                    self.assertTrue(stock_path.is_file(), stock_path)
+                    stock_keys.update(read_entries(stock_path))
+                self.assertEqual(len(stock_keys), expected_count)
+                self.assertEqual(key_digest(stock_keys), expected_digest)
+                self.assertFalse(stock_keys - set(merged_entries))
+                gap = stock_keys - base_ferrari_keys
+                if platform == "rm2":
+                    self.assertEqual(gap, legacy_keys)
+                else:
+                    self.assertEqual(len(gap), 20)
+                    self.assertTrue(gap < legacy_keys)
 
     def test_ferrari_qm_matches_the_supplemented_catalog(self):
         qm_path = (

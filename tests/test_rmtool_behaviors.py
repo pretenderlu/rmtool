@@ -825,12 +825,18 @@ class LocalCredentialTests(unittest.TestCase):
 
 
 class ConnectionSidebarUiTests(unittest.TestCase):
-    def test_paper_pure_profile_matches_rm2_portrait_resolution(self):
+    def test_paper_pure_and_rm1_profiles_match_rm2_portrait_resolution(self):
         self.assertEqual(
             rmtool.DEVICE_PROFILES["reMarkable Paper Pure"], (1404, 1872)
         )
         self.assertEqual(
             rmtool.DEVICE_PROFILE_LABELS["reMarkable Paper Pure"], "Paper Pure"
+        )
+        self.assertEqual(
+            rmtool.DEVICE_PROFILES["reMarkable 1"], (1404, 1872)
+        )
+        self.assertEqual(
+            rmtool.DEVICE_PROFILE_LABELS["reMarkable 1"], "reMarkable 1"
         )
 
     def test_sidebar_uses_dialogs_instead_of_inline_device_form(self):

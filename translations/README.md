@@ -6,10 +6,14 @@ and the cloud release manifest:
 - `reMarkable_zh_CN.ts`: editable Chiappa translation source.
 - `reMarkable_zh_CN_ferrari_supplement.ts`: the 31 exact keys added by the
   Ferrari firmware payload.
+- `reMarkable_zh_CN_legacy_supplement.ts`: the exact 84-key RM2 catalog gap,
+  shared by the RM1/RM2 legacy-platform build.
 - `reMarkable_zh_CN.qm` and `reMarkable_zh_CN_ferrari.qm`: compiled catalogs
   published as versioned GitHub Release assets and deployed into xochitl's
   built-in French translation slot (`reMarkable_fr.qm`). They are not bundled
   into rmtool executables.
+- `reMarkable_zh_CN-20260612085811-legacy.qm`: shared RM1/RM2 stable
+  catalog built from the base, Ferrari supplement, and legacy supplement.
 - `reMarkable_zh_CN-20260629074044.qm`: shared compiled beta catalog for the
   Chiappa and Ferrari `3.28.0.162` firmware payloads.
 - `manifest.json`: release metadata mapping each exact firmware version to its
@@ -23,8 +27,8 @@ French catalog byte-for-byte.
 The catalog currently supports these production firmware builds:
 
 - `3.27.1.0`, internal version `20260506100933`: Chiappa and Ferrari.
-- `3.27.3.0`, internal version `20260612085811`: Chiappa, Ferrari, and Tatsu
-  (Paper Pure).
+- `3.27.3.0`, internal version `20260612085811`: Chiappa, Ferrari, Tatsu
+  (Paper Pure), RM1, and RM2.
 
 The Chiappa and Ferrari payloads have the same stock catalogs across both
 builds, so `3.27.1.0` reuses the existing verified assets. Their stock French
@@ -43,6 +47,13 @@ Its translation keys are a strict subset of Chiappa, so it reuses the same
 175519-byte Chinese asset with SHA-256
 `47ba9d8a6f38b3763d013ecc489d44e8742704404b50a5de102b42e33dfebbfb`.
 
+RM1 and RM2 `3.27.3.0` use one shared 188407-byte legacy catalog with SHA-256
+`517e70cdf4d862b8ceec57d3238ece72b3799aecdf075c0183668acfc2137c64`.
+Their exact stock French SHA-256 values are:
+
+- RM1: `0767babb6d55fc960565568d6af89455ba233194a4d887d70bd1c7987c3898a4`
+- RM2: `8080219cb5b3a75a1423ac0cee5bd12d3ee1c9029ff22ecf981cf075559900a7`
+
 The manifest also supports beta `3.28.0.162`, internal version
 `20260629074044`, with one shared 178170-byte Chinese asset:
 
@@ -54,9 +65,11 @@ The manifest also supports beta `3.28.0.162`, internal version
   `24393f00d9edb933933b436ffe5020990dd97d31d7788172907d75ff1d42d3a5`
 
 Paper Pro (Ferrari) enable and restore were validated on a real device.
-Paper Pro Move (Chiappa) and Paper Pure `3.27.3.0` (Tatsu) were validated
-offline against official firmware only and remain pending real-device
-validation.
+Paper Pro Move (Chiappa), Paper Pure (Tatsu), RM1, and RM2 `3.27.3.0` were
+validated offline against official firmware only and remain pending
+real-device validation. RM1 and RM2 do not use Developer Mode, but still
+require root SSH. Their official root filesystems contain no CJK font, so
+rmtool's font gate and bundled Noto Sans CJK SC fallback are required.
 
 rmtool selects the package by the exact stock carrier hash. Platform names are
 display metadata only.
@@ -74,8 +87,13 @@ keys proven by the production xochitl binary and four finite runtime values:
 `SettingsModel / Experimental`, and `PenColorModel / Magenta`.
 The Ferrari catalog contains those 1847 messages plus 26 exact keys from its
 four stock catalogs and five static `SettingsWindow` keys found only in its
-embedded QML, for 1878 messages total. Ferrari adds no new dynamic translation
-path. Other dynamic translation calls are not claimed as covered. The English
+embedded QML, for 1878 messages total. The legacy catalog adds exactly the 84
+keys missing from the official RM2 four-language union, for 1962 messages total;
+RM1's 1671-key union and RM2's 1763-key union are both fully covered. Ferrari
+adds no new dynamic translation path. The three RM1/RM2 dynamic sites were
+already audited as a subset of the supported Ferrari sites and are not newly
+claimed as statically resolved. Other dynamic translation calls are not claimed
+as covered. The English
 QM is intentionally sparse because English is xochitl's source language, so it
 is not a complete translation inventory on its own. Message identity uses the
 exact `(context, source, comment, numerus)` tuple.
@@ -92,6 +110,14 @@ lconvert -sort-contexts -locations none `
   -o "$env:TEMP/reMarkable_zh_CN_ferrari.ts"
 lrelease -nounfinished "$env:TEMP/reMarkable_zh_CN_ferrari.ts" `
   -qm translations/reMarkable_zh_CN_ferrari.qm
+
+lconvert -sort-contexts -locations none `
+  translations/reMarkable_zh_CN.ts `
+  translations/reMarkable_zh_CN_ferrari_supplement.ts `
+  translations/reMarkable_zh_CN_legacy_supplement.ts `
+  -o "$env:TEMP/reMarkable_zh_CN_legacy.ts"
+lrelease -nounfinished "$env:TEMP/reMarkable_zh_CN_legacy.ts" `
+  -qm translations/reMarkable_zh_CN-20260612085811-legacy.qm
 ```
 
 The TS file must contain no empty or `unfinished` translations before release.
