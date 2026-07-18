@@ -1,9 +1,10 @@
 """WallpaperTab extracted from rmtool.py."""
 
+import hashlib
 import logging
-import math
 import os
 import posixpath
+import random
 import tempfile
 from dataclasses import dataclass
 from io import BytesIO
@@ -25,6 +26,12 @@ _MONOCHROME_DEVICE_PROFILES = {
     "reMarkable 2",
 }
 _MAX_COVER_WALL_ITEMS = 12
+_COVER_WALL_LAYOUTS = (
+    ("hero_obi", "F / 主书腰封"),
+    ("poster_wall", "G / 满格海报墙"),
+    ("poster_wall_tilt_left", "H / 左倾海报墙"),
+    ("poster_wall_tilt_right", "H / 右倾海报墙"),
+)
 
 
 @dataclass(frozen=True)
@@ -82,27 +89,135 @@ def _fit_cover_wall_text(
     return (shortened + ellipsis if shortened != text else text), font
 
 
+def _poster_wall_grid_shape(
+    cover_count: int,
+    size: Tuple[int, int],
+) -> Tuple[int, int]:
+    target_aspect = size[0] / size[1]
+    tile_count = cover_count + 1
+    candidates = []
+    for rows in (3, 4):
+        minimum_columns = (tile_count + rows - 1) // rows
+        aspect_columns = max(1, round(target_aspect * rows / 0.72))
+        columns = max(minimum_columns, aspect_columns)
+        slots = rows * columns
+        repeat_ratio = (slots - tile_count) / slots
+        grid_aspect = columns * 0.72 / rows
+        aspect_error = abs(grid_aspect - target_aspect) / target_aspect
+        candidates.append((repeat_ratio + aspect_error, slots, rows, columns))
+    _, _, rows, columns = min(candidates)
+    return rows, columns
+
+
+def _poster_wall_assignments(
+    cover_count: int,
+    rows: int,
+    columns: int,
+    title_index: int,
+    seed: int,
+) -> List[Optional[int]]:
+    if cover_count == 2:
+        parity_counts = [
+            sum(
+                index != title_index
+                and (index // columns + index % columns) % 2 == parity
+                for index in range(rows * columns)
+            )
+            for parity in (0, 1)
+        ]
+        if abs(parity_counts[0] - parity_counts[1]) <= 1:
+            palette = [0, 1]
+            random.Random(seed).shuffle(palette)
+            return [
+                None
+                if index == title_index
+                else palette[(index // columns + index % columns) % 2]
+                for index in range(rows * columns)
+            ]
+
+    best: List[Optional[int]] = []
+    best_conflicts = rows * columns
+    for attempt in range(128):
+        rng = random.Random(seed + attempt)
+        assignments: List[Optional[int]] = [None] * (rows * columns)
+        counts = [0] * cover_count
+        unseen = list(range(cover_count))
+        rng.shuffle(unseen)
+
+        for index in range(rows * columns):
+            if index == title_index:
+                continue
+            if unseen:
+                candidates = unseen
+            else:
+                minimum_count = min(counts)
+                candidates = [
+                    cover_index
+                    for cover_index, count in enumerate(counts)
+                    if count == minimum_count
+                ]
+            neighbors = set()
+            if index % columns:
+                neighbors.add(assignments[index - 1])
+            if index >= columns:
+                neighbors.add(assignments[index - columns])
+            nonmatching = [
+                candidate for candidate in candidates if candidate not in neighbors
+            ]
+            if nonmatching:
+                candidates = nonmatching
+            choice = rng.choice(candidates)
+            assignments[index] = choice
+            counts[choice] += 1
+            if unseen:
+                unseen.remove(choice)
+
+        conflicts = sum(
+            assignments[index] is not None
+            and (
+                (index % columns and assignments[index] == assignments[index - 1])
+                or (
+                    index >= columns
+                    and assignments[index] == assignments[index - columns]
+                )
+            )
+            for index in range(rows * columns)
+        )
+        if conflicts < best_conflicts:
+            best = assignments
+            best_conflicts = conflicts
+        if not conflicts:
+            break
+
+    return best
+
 def compose_cover_wallpaper(
     covers: Sequence[bytes],
     size: Tuple[int, int],
     title: str = "我的书架",
     subtitle: str = "",
     *,
+    layout: str = "hero_obi",
     monochrome: bool = False,
     font_path: Optional[str] = None,
 ) -> Image.Image:
-    """Compose up to twelve document covers into one device-sized poster."""
+    """Compose selected covers using one of the fixed cover-wall layouts."""
     width, height = size
     if width <= 0 or height <= 0:
         raise ValueError("壁纸尺寸无效")
     if not 1 <= len(covers) <= _MAX_COVER_WALL_ITEMS:
         raise ValueError("请选择 1 到 12 个封面")
+    if layout not in {layout_id for layout_id, _label in _COVER_WALL_LAYOUTS}:
+        raise ValueError("未知封面墙排版")
 
     decoded: List[Image.Image] = []
+    cover_digest = hashlib.sha256()
     for cover in covers:
         try:
             with Image.open(BytesIO(cover)) as image:
                 decoded.append(image.convert("RGB"))
+            cover_digest.update(len(cover).to_bytes(8, "big"))
+            cover_digest.update(cover)
         except Exception:
             continue
     if not decoded:
@@ -115,94 +230,320 @@ def compose_cover_wallpaper(
         raise RuntimeError("缺少封面墙中文字体")
 
     shortest = min(width, height)
-    margin = max(24, int(shortest * 0.045))
-    gap = max(12, int(shortest * 0.018))
-    header_height = max(int(height * 0.16), margin * 3)
-    canvas = Image.new("RGB", size, (245, 246, 247))
-    draw = ImageDraw.Draw(canvas)
-
-    title_text, title_font = _fit_cover_wall_text(
-        draw,
-        title or "我的书架",
-        font_file,
-        width - margin * 2,
-        max(28, int(shortest * 0.055)),
-        max(18, int(shortest * 0.025)),
-    )
-    title_box = draw.textbbox((0, 0), title_text, font=title_font)
-    title_height = title_box[3] - title_box[1]
-    title_y = margin
-    draw.text((margin, title_y), title_text, fill=(24, 27, 31), font=title_font)
-
-    if subtitle.strip():
-        subtitle_text, subtitle_font = _fit_cover_wall_text(
-            draw,
-            subtitle,
-            font_file,
-            width - margin * 2,
-            max(18, int(shortest * 0.026)),
-            max(14, int(shortest * 0.018)),
-        )
-        subtitle_y = title_y + title_height + max(8, gap // 2)
-        draw.text((margin, subtitle_y), subtitle_text, fill=(91, 96, 104), font=subtitle_font)
-
-    rule_y = header_height - max(8, gap // 2)
-    rule_width = max(48, width // 8)
-    draw.rectangle(
-        (margin, rule_y, margin + rule_width, rule_y + max(3, shortest // 300)),
-        fill=(40, 79, 122),
-    )
-    draw.line(
-        (margin + rule_width + gap, rule_y + 1, width - margin, rule_y + 1),
-        fill=(205, 209, 214),
-        width=1,
-    )
-
-    count = len(decoded)
-    if width >= height:
-        columns = min(5, max(1, math.ceil(math.sqrt(count * 1.5))))
-    else:
-        columns = min(3, max(1, math.ceil(math.sqrt(count))))
-    rows = math.ceil(count / columns)
-    grid_top = header_height + gap
-    grid_width = width - margin * 2
-    grid_height = height - grid_top - margin
-    cell_width = (grid_width - gap * (columns - 1)) / columns
-    cell_height = (grid_height - gap * (rows - 1)) / rows
-    cover_ratio = 0.72
-    cover_width = int(min(cell_width, cell_height * cover_ratio))
-    cover_height = int(cover_width / cover_ratio)
     border = max(2, shortest // 450)
-    shadow = max(4, shortest // 220)
 
-    for index, image in enumerate(decoded):
-        row, column = divmod(index, columns)
-        row_count = min(columns, count - row * columns)
-        row_width = row_count * cover_width + (row_count - 1) * gap
-        row_left = (width - row_width) // 2
-        x = row_left + column * (cover_width + gap)
-        y = int(grid_top + row * (cover_height + gap))
+    def compose_poster_wall(angle: float) -> Image.Image:
+        background = (242, 241, 237)
+        gutter = max(4, round(shortest * 0.006))
+        rows, columns = _poster_wall_grid_shape(len(decoded), size)
+        overscan = 1.24
+        base_height = max(
+            (height * overscan - rows * gutter) / rows,
+            ((width * overscan - columns * gutter) / columns) / 0.72,
+        )
+        base_width = base_height * 0.72
+        cell_width = base_width + gutter
+        cell_height = base_height + gutter
+        wall = Image.new(
+            "RGB",
+            (round(columns * cell_width), round(rows * cell_height)),
+            background,
+        )
+
+        title_row = round((rows - 1) * 0.30)
+        title_column = round((columns - 1) * 0.30)
+        title_index = title_row * columns + title_column
+        assignments = _poster_wall_assignments(
+            len(decoded),
+            rows,
+            columns,
+            title_index,
+            int.from_bytes(cover_digest.digest()[:8], "big"),
+        )
+        scale_pattern = (1.0, 0.96, 0.99, 0.94, 0.98, 0.95)
+        x_alignment = (0.15, 0.75, 0.40, 0.65, 0.25, 0.85)
+        y_alignment = (0.70, 0.20, 0.55, 0.10, 0.85, 0.35)
+
+        for index, cover_index in enumerate(assignments):
+            scale = 0.98 if cover_index is None else scale_pattern[index % 6]
+            poster_width = max(24, round(base_width * scale))
+            poster_height = max(32, round(base_height * scale))
+            column = index % columns
+            row = index // columns
+            position = (
+                round(
+                    column * cell_width
+                    + (base_width - poster_width) * x_alignment[index % 6]
+                ),
+                round(
+                    row * cell_height
+                    + (base_height - poster_height) * y_alignment[index % 6]
+                ),
+            )
+
+            if cover_index is None:
+                poster = Image.new(
+                    "RGB",
+                    (poster_width, poster_height),
+                    (250, 248, 242),
+                )
+                draw = ImageDraw.Draw(poster)
+                padding = max(6, int(poster_width * 0.08))
+                title_text, title_font = _fit_cover_wall_text(
+                    draw,
+                    title or "我的书架",
+                    font_file,
+                    poster_width - padding * 2,
+                    max(16, int(poster_height * 0.12)),
+                    max(11, int(poster_height * 0.055)),
+                )
+                draw.text(
+                    (padding, int(poster_height * 0.20)),
+                    title_text,
+                    fill=(24, 27, 31),
+                    font=title_font,
+                )
+
+                subtitle_value = subtitle.strip()
+                if subtitle_value:
+                    subtitle_text, subtitle_font = _fit_cover_wall_text(
+                        draw,
+                        subtitle_value,
+                        font_file,
+                        poster_width - padding * 2,
+                        max(11, int(poster_height * 0.055)),
+                        max(9, int(poster_height * 0.035)),
+                    )
+                    draw.text(
+                        (padding, int(poster_height * 0.52)),
+                        subtitle_text,
+                        fill=(70, 72, 75),
+                        font=subtitle_font,
+                    )
+
+                count_text = f"{len(decoded):02d} 本"
+                count_font = ImageFont.truetype(
+                    font_file,
+                    max(10, int(poster_height * 0.07)),
+                )
+                count_box = draw.textbbox((0, 0), count_text, font=count_font)
+                count_width = count_box[2] - count_box[0]
+                count_y = (
+                    poster_height
+                    - padding
+                    - (count_box[3] - count_box[1])
+                    - count_box[1]
+                )
+                draw.text(
+                    (poster_width - padding - count_width, count_y),
+                    count_text,
+                    fill=(24, 27, 31),
+                    font=count_font,
+                )
+            else:
+                poster = ImageOps.fit(
+                    decoded[cover_index],
+                    (poster_width, poster_height),
+                    method=Image.LANCZOS,
+                    centering=(0.5, 0.5),
+                )
+
+            ImageDraw.Draw(poster).rectangle(
+                (0, 0, poster_width - 1, poster_height - 1),
+                outline=(218, 216, 210),
+                width=border,
+            )
+            wall.paste(poster, position)
+
+        if angle:
+            wall = wall.rotate(
+                angle,
+                resample=Image.BICUBIC,
+                expand=True,
+                fillcolor=background,
+            )
+        left = (wall.width - width) // 2
+        top = (wall.height - height) // 2
+        return wall.crop((left, top, left + width, top + height))
+    if layout != "hero_obi":
+        angle = {
+            "poster_wall": 0.0,
+            "poster_wall_tilt_left": 8.0,
+            "poster_wall_tilt_right": -8.0,
+        }[layout]
+        output = compose_poster_wall(angle)
+        if monochrome:
+            return ImageOps.autocontrast(ImageOps.grayscale(output)).convert("RGB")
+        return output
+
+    shadow = max(4, shortest // 240)
+    hero_height = int(min(height * 0.78, width * 0.92 / 0.72))
+    hero_width = int(hero_height * 0.72)
+    canvas = Image.new("RGBA", size, (242, 241, 237, 255))
+
+    def make_card(
+        image: Image.Image,
+        card_width: int,
+        card_height: int,
+        *,
+        with_obi: bool = False,
+    ) -> Image.Image:
+        pad = shadow * 2
+        layer = Image.new(
+            "RGBA",
+            (card_width + pad * 2, card_height + pad * 2),
+            (0, 0, 0, 0),
+        )
+        draw = ImageDraw.Draw(layer)
+        draw.rectangle(
+            (
+                pad + shadow,
+                pad + shadow,
+                pad + card_width + shadow,
+                pad + card_height + shadow,
+            ),
+            fill=(24, 26, 29, 42),
+        )
         fitted = ImageOps.fit(
             image,
-            (cover_width, cover_height),
+            (card_width, card_height),
             method=Image.LANCZOS,
             centering=(0.5, 0.5),
         )
-        draw.rounded_rectangle(
-            (x + shadow, y + shadow, x + cover_width + shadow, y + cover_height + shadow),
-            radius=max(3, shortest // 250),
-            fill=(205, 208, 212),
-        )
-        canvas.paste(fitted, (x, y))
+        layer.paste(fitted, (pad, pad))
         draw.rectangle(
-            (x, y, x + cover_width - 1, y + cover_height - 1),
-            outline=(255, 255, 255),
+            (pad, pad, pad + card_width - 1, pad + card_height - 1),
+            outline=(255, 255, 255, 255),
             width=border,
         )
 
+        if with_obi:
+            band_height = max(72, int(card_height * 0.205))
+            band_top = pad + int(card_height * 0.57)
+            band_bottom = band_top + band_height
+            band_padding = max(12, int(card_width * 0.06))
+            draw.rectangle(
+                (pad, band_top, pad + card_width, band_bottom),
+                fill=(250, 248, 242, 255),
+            )
+            draw.line(
+                (pad, band_top, pad + card_width, band_top),
+                fill=(210, 207, 199, 255),
+                width=border,
+            )
+            draw.line(
+                (pad, band_bottom, pad + card_width, band_bottom),
+                fill=(210, 207, 199, 255),
+                width=border,
+            )
+
+            title_text, title_font = _fit_cover_wall_text(
+                draw,
+                title or "我的书架",
+                font_file,
+                int(card_width * 0.64),
+                max(24, int(card_height * 0.075)),
+                max(16, int(card_height * 0.035)),
+            )
+            title_box = draw.textbbox((0, 0), title_text, font=title_font)
+            title_height = title_box[3] - title_box[1]
+            title_y = band_top + max(8, int(band_height * 0.10))
+            draw.text(
+                (pad + band_padding, title_y),
+                title_text,
+                fill=(24, 27, 31, 255),
+                font=title_font,
+            )
+
+            subtitle_value = subtitle.strip()
+            if subtitle_value:
+                subtitle_text, subtitle_font = _fit_cover_wall_text(
+                    draw,
+                    subtitle_value,
+                    font_file,
+                    int(card_width * 0.58),
+                    max(14, int(card_height * 0.022)),
+                    max(12, int(card_height * 0.014)),
+                )
+                subtitle_y = title_y + title_height + max(
+                    4, int(band_height * 0.025)
+                )
+                draw.text(
+                    (pad + band_padding, subtitle_y),
+                    subtitle_text,
+                    fill=(54, 57, 61, 255),
+                    font=subtitle_font,
+                )
+
+            count_text = f"{len(decoded):02d} 本"
+            count_font = ImageFont.truetype(
+                font_file,
+                max(14, int(card_height * 0.035)),
+            )
+            count_box = draw.textbbox((0, 0), count_text, font=count_font)
+            count_width = count_box[2] - count_box[0]
+            count_height = count_box[3] - count_box[1]
+            count_x = pad + card_width - band_padding - count_width
+            count_y = band_top + (band_height - count_height) // 2 - count_box[1]
+            draw.text(
+                (count_x, count_y),
+                count_text,
+                fill=(24, 27, 31, 255),
+                font=count_font,
+            )
+
+        return layer
+
+    def paste_card(
+        layer: Image.Image,
+        center_x: int,
+        center_y: int,
+        angle: float,
+    ) -> None:
+        rotated = layer.rotate(angle, resample=Image.BICUBIC, expand=True)
+        canvas.paste(
+            rotated,
+            (center_x - rotated.width // 2, center_y - rotated.height // 2),
+            rotated,
+        )
+
+    background_slots = (
+        (0.12, 0.06, -9.0, 0.46),
+        (0.88, 0.08, 7.0, 0.44),
+        (-0.02, 0.42, 8.0, 0.43),
+        (1.02, 0.45, -7.0, 0.46),
+        (0.12, 0.93, -8.0, 0.44),
+        (0.88, 0.94, 7.0, 0.42),
+        (0.50, -0.05, 3.0, 0.38),
+        (0.50, 1.04, -3.0, 0.40),
+        (-0.05, 0.74, -10.0, 0.38),
+        (1.05, 0.76, 9.0, 0.38),
+        (0.22, 0.26, 4.0, 0.34),
+    )
+    for image, (center_x, center_y, angle, scale) in zip(
+        decoded[1:], background_slots
+    ):
+        card_height = int(hero_height * scale)
+        card_width = int(card_height * 0.72)
+        paste_card(
+            make_card(image, card_width, card_height),
+            int(width * center_x),
+            int(height * center_y),
+            angle,
+        )
+
+    hero = make_card(decoded[0], hero_width, hero_height, with_obi=True)
+    paste_card(
+        hero,
+        int(width * 0.51),
+        int(height * 0.50),
+        -4.0 if height >= width else -3.0,
+    )
+
+    output = canvas.convert("RGB")
     if monochrome:
-        return ImageOps.autocontrast(ImageOps.grayscale(canvas)).convert("RGB")
-    return canvas
+        return ImageOps.autocontrast(ImageOps.grayscale(output)).convert("RGB")
+    return output
 
 
 class _CoverWallDialog(QtWidgets.QDialog):
@@ -215,6 +556,9 @@ class _CoverWallDialog(QtWidgets.QDialog):
         self.title_edit = QtWidgets.QLineEdit("我的书架")
         self.subtitle_edit = QtWidgets.QLineEdit()
         self.subtitle_edit.setPlaceholderText("可选，例如：最近阅读")
+        self.layout_combo = QtWidgets.QComboBox()
+        for layout_id, label in _COVER_WALL_LAYOUTS:
+            self.layout_combo.addItem(label, layout_id)
 
         self.table = QtWidgets.QTableWidget(len(self.entries), 3)
         self.table.setHorizontalHeaderLabels(["选择", "文档", "更新时间"])
@@ -259,6 +603,7 @@ class _CoverWallDialog(QtWidgets.QDialog):
         self._update_selection_label()
 
         form = QtWidgets.QFormLayout()
+        form.addRow("排版", self.layout_combo)
         form.addRow("标题", self.title_edit)
         form.addRow("副标题", self.subtitle_edit)
 
@@ -778,6 +1123,7 @@ class WallpaperTab(QtWidgets.QWidget):
                 dialog.selected_entries(),
                 dialog.title_edit.text(),
                 dialog.subtitle_edit.text(),
+                dialog.layout_combo.currentData(),
             )
         except Exception as exc:
             logging.exception("Unable to compose cover wall")
@@ -801,6 +1147,7 @@ class WallpaperTab(QtWidgets.QWidget):
         entries: Sequence[_CoverWallEntry],
         title: str,
         subtitle: str,
+        layout: str = "hero_obi",
     ) -> None:
         covers = [entry.cover for entry in entries if entry.cover]
         generated = compose_cover_wallpaper(
@@ -808,6 +1155,7 @@ class WallpaperTab(QtWidgets.QWidget):
             self.current_resolution,
             title,
             subtitle,
+            layout=layout,
             monochrome=self.device_profile in _MONOCHROME_DEVICE_PROFILES,
         )
         pad_index = self.mode_combo.findData("pad")
