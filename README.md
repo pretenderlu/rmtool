@@ -115,7 +115,19 @@ Release packages do not embed firmware-specific `.qm` files. After you choose "D
 3. Calculates the SHA-256 of the device's original French carrier file, `reMarkable_fr.qm`, and uses it to select the correct hardware payload. Platform names such as `chiappa`, `ferrari`, `tatsu`, `rm1`, and `rm2` are display labels only; they are not used to guess compatibility.
 4. Verifies the download size and SHA-256. Nothing is written to the device if the firmware, original French file, or checksum does not match.
 
-The current repository manifest contains `chiappa` (Paper Pro Move) and `ferrari` (Paper Pro) payloads for stable firmware `3.27.1.0` (internal version `20260506100933`); `chiappa`, `ferrari`, `tatsu` (Paper Pure), `rm1` (reMarkable 1), and `rm2` (reMarkable 2) payloads for stable `3.27.3.0` (internal version `20260612085811`); and unchanged `chiappa` and `ferrari` payloads for beta `3.28.0.162` (internal version `20260629074044`). On the beta firmware, enable and restore have been verified on a real Paper Pro (`ferrari`). Paper Pro Move (`chiappa`), Paper Pure (`tatsu`), reMarkable 1 (`rm1`), and reMarkable 2 (`rm2`) have only been validated offline against official `3.27.3.0` firmware and have not yet been deployed to real devices. The cloud manifest remains the source of truth for actual availability. See the [localization documentation](translations/README.md) and [manifest format](translations/manifest.json).
+#### Current localization support matrix
+
+The platform code is the hardware identifier used inside official firmware packages. It is separate from the 14-digit internal firmware version shown in each column.
+
+| Device model | Platform code | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) |
+| --- | --- | --- | --- | --- |
+| reMarkable Paper Pro | `ferrari` | Supported | Supported | Supported |
+| reMarkable Paper Pro Move | `chiappa` | Supported | Supported | Supported |
+| reMarkable Paper Pure | `tatsu` | Not available | Supported | Not available |
+| reMarkable 1 | `rm1` | Not available | Supported | Not available |
+| reMarkable 2 | `rm2` | Not available | Supported | Not available |
+
+On the beta firmware, enable and restore have been verified on a real Paper Pro (`ferrari`). Paper Pro Move (`chiappa`), Paper Pure (`tatsu`), reMarkable 1 (`rm1`), and reMarkable 2 (`rm2`) have only been validated offline against official `3.27.3.0` firmware and have not yet been deployed to real devices. The cloud manifest remains the source of truth for actual availability. See the [localization documentation](translations/README.md) and [manifest format](translations/manifest.json).
 
 Localization reuses xochitl's built-in French language slot, so French is unavailable while Chinese is enabled. rmtool first backs up the original configuration and `reMarkable_fr.qm`, then checks whether the current primary font supports Simplified Chinese. The official reMarkable 1 and reMarkable 2 firmware images contain no CJK fonts, so this fallback is required. If the current primary font does not support Chinese, you can install the bundled Noto Sans CJK SC or select a local TTF/OTF file. After enabling localization, repairing fonts, or restoring the original UI, rmtool closes SSH and **does not restart the device automatically**. Restart the device manually to apply the change.
 

@@ -115,7 +115,19 @@ rmtool 将运行状态保存在应用旁的 `.rmtool/`：
 3. 对设备原始法语载体文件 `reMarkable_fr.qm` 计算 SHA-256，据此选择对应硬件载荷；`chiappa`、`ferrari`、`tatsu`、`rm1`、`rm2` 等平台名仅用于显示，不用于猜测兼容性。
 4. 校验下载大小和 SHA-256。固件、原始法语文件或校验值不匹配时，不会写入设备。
 
-当前仓库清单包含正式版 `3.27.1.0`（内部版本 `20260506100933`）的 `chiappa`（Paper Pro Move）与 `ferrari`（Paper Pro）载荷、正式版 `3.27.3.0`（内部版本 `20260612085811`）的 `chiappa`、`ferrari`、`tatsu`（Paper Pure）、`rm1`（reMarkable 1）与 `rm2`（reMarkable 2）载荷，以及硬件范围不变的测试版 `3.28.0.162`（内部版本 `20260629074044`）`chiappa` 与 `ferrari` 载荷。测试版 Paper Pro（`ferrari`）已完成真机启用与还原验证；Paper Pro Move（`chiappa`）、Paper Pure（`tatsu`）、reMarkable 1（`rm1`）和 reMarkable 2（`rm2`）仅完成官方 `3.27.3.0` 固件离线验证，尚未在对应真机部署。实际可用范围以云端清单为准。详见 [汉化说明](translations/README.md) 和 [清单格式](translations/manifest.json)。
+#### 当前汉化支持矩阵
+
+“平台代号”是官方固件包内部使用的硬件标识，与各列所示的 14 位内部固件版本是两个不同概念。
+
+| 设备型号 | 平台代号 | 3.27.1.0 正式版（`20260506100933`） | 3.27.3.0 正式版（`20260612085811`） | 3.28.0.162 测试版（`20260629074044`） |
+| --- | --- | --- | --- | --- |
+| reMarkable Paper Pro | `ferrari` | 支持 | 支持 | 支持 |
+| reMarkable Paper Pro Move | `chiappa` | 支持 | 支持 | 支持 |
+| reMarkable Paper Pure | `tatsu` | 暂不支持 | 支持 | 暂不支持 |
+| reMarkable 1 | `rm1` | 暂不支持 | 支持 | 暂不支持 |
+| reMarkable 2 | `rm2` | 暂不支持 | 支持 | 暂不支持 |
+
+测试版 Paper Pro（`ferrari`）已完成真机启用与还原验证；Paper Pro Move（`chiappa`）、Paper Pure（`tatsu`）、reMarkable 1（`rm1`）和 reMarkable 2（`rm2`）仅完成官方 `3.27.3.0` 固件离线验证，尚未在对应真机部署。实际可用范围以云端清单为准。详见 [汉化说明](translations/README.md) 和 [清单格式](translations/manifest.json)。
 
 汉化借用 xochitl 内置法语槽位，启用期间不能使用法语。程序会先备份原配置和原始 `reMarkable_fr.qm`，并检查当前主字体是否支持简体中文。reMarkable 1 和 reMarkable 2 的官方固件不含 CJK 字体，因此必须经过这项字体保底检查；缺少字体时可安装随应用提供的 Noto Sans CJK SC，或选择本地 TTF/OTF。启用、修复字体或还原后，程序会关闭 SSH，且**不会自动重启设备**，请手动重启使修改生效。
 
