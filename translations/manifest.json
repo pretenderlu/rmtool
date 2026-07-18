@@ -38,6 +38,15 @@
           "size": 179412,
           "sha256": "28b82b8a0ca32aa83fe49ef4c5db792bd1a5908ae8135c2fa9eefe8cf0a98fd9",
           "stock_french_sha256": "9f62dc83b150e48b8d4e1688c1b16d22aa09fdd1ba09b772954394ec6c1ab4fb"
+        },
+        {
+          "asset": "reMarkable_zh_CN-20260612085811.qm",
+          "release_version": "3.27.3.0",
+          "channel": "stable",
+          "platform": "tatsu",
+          "size": 175519,
+          "sha256": "47ba9d8a6f38b3763d013ecc489d44e8742704404b50a5de102b42e33dfebbfb",
+          "stock_french_sha256": "2ee88b18955776e8f6f52949b6c172d50d14f60f3e59d75db7d17881377a7b3a"
         }
       ]
     },

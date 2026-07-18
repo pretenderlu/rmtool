@@ -225,6 +225,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
 
     def make_variant_packages(self):
         ferrari_stock = b"ferrari-stock-carrier-qm"
+        tatsu_stock = b"tatsu-stock-carrier-qm"
         common = {
             "firmware": _rmkit_cn.SUPPORTED_FIRMWARE,
             "localized_qm_sha256": hashlib.sha256(self.LOCALIZED_QM).hexdigest(),
@@ -238,13 +239,18 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             platform="ferrari",
             **common,
         )
+        tatsu = _rmkit_cn.TranslationPackage(
+            stock_french_sha256=hashlib.sha256(tatsu_stock).hexdigest(),
+            platform="tatsu",
+            **common,
+        )
         chiappa = _rmkit_cn.TranslationPackage(
             stock_french_sha256=hashlib.sha256(self.STOCK_QM).hexdigest(),
             platform="chiappa",
-            variants=(ferrari,),
+            variants=(ferrari, tatsu),
             **common,
         )
-        return chiappa, ferrari, ferrari_stock
+        return chiappa, ferrari, ferrari_stock, tatsu, tatsu_stock
 
     def managed_files(self, carrier=None):
         return {
@@ -1038,7 +1044,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             "8e0db0f7a2d3116469e1aae4f52657ccc38d0422b5b958ae512554bd018f285e",
         )
         self.assertEqual(package.platform, "chiappa")
-        self.assertEqual(len(package.variants), 1)
+        self.assertEqual(len(package.variants), 2)
         ferrari = package.variants[0]
         self.assertEqual(ferrari.platform, "ferrari")
         self.assertEqual(ferrari.size, ferrari_qm_path.stat().st_size)
@@ -1049,6 +1055,17 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(
             ferrari.stock_french_sha256,
             "9f62dc83b150e48b8d4e1688c1b16d22aa09fdd1ba09b772954394ec6c1ab4fb",
+        )
+        tatsu = package.variants[1]
+        self.assertEqual(tatsu.release_version, package.release_version)
+        self.assertEqual(tatsu.channel, package.channel)
+        self.assertEqual(tatsu.platform, "tatsu")
+        self.assertEqual(tatsu.asset, package.asset)
+        self.assertEqual(tatsu.size, 175_519)
+        self.assertEqual(tatsu.localized_qm_sha256, package.localized_qm_sha256)
+        self.assertEqual(
+            tatsu.stock_french_sha256,
+            "2ee88b18955776e8f6f52949b6c172d50d14f60f3e59d75db7d17881377a7b3a",
         )
         self.assertEqual(package.release_version, "3.27.3.0")
         self.assertEqual(package.channel, "stable")
@@ -1340,10 +1357,13 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(unsupported.events, [("exec", "cat /etc/version")])
 
     def test_cloud_status_selects_hardware_variant_by_stock_hash(self):
-        package, ferrari, ferrari_stock = self.make_variant_packages()
+        package, ferrari, ferrari_stock, tatsu, tatsu_stock = (
+            self.make_variant_packages()
+        )
         for carrier, expected in (
             (self.STOCK_QM, package),
             (ferrari_stock, ferrari),
+            (tatsu_stock, tatsu),
         ):
             with self.subTest(platform=expected.platform):
                 ssh = self.make_ssh()
@@ -1364,10 +1384,13 @@ class RmkitCnLocalizationTests(unittest.TestCase):
                 self.assertEqual(status.available_packages, (expected,))
 
     def test_shared_localized_qm_uses_exact_stock_backup_for_variant(self):
-        package, ferrari, ferrari_stock = self.make_variant_packages()
+        package, ferrari, ferrari_stock, tatsu, tatsu_stock = (
+            self.make_variant_packages()
+        )
         for backup, expected in (
             (self.STOCK_QM, package),
             (ferrari_stock, ferrari),
+            (tatsu_stock, tatsu),
         ):
             with self.subTest(platform=expected.platform):
                 ssh = self.make_ssh(
@@ -1391,7 +1414,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
                 )
 
     def test_shared_localized_qm_requires_complete_backup(self):
-        package, _ferrari, _ferrari_stock = self.make_variant_packages()
+        package, *_variants = self.make_variant_packages()
         ssh = self.make_ssh(config=b"[General]\nlanguage=fr_FR\n")
         ssh.files[_rmkit_cn.QM_PATH] = self.LOCALIZED_QM
         before = dict(ssh.files)
@@ -1409,7 +1432,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertFalse(any(kind == "transfer" for kind, _value in ssh.events))
 
     def test_variant_selection_rejects_unknown_carrier_and_stale_backup_read_only(self):
-        package, _ferrari, _ferrari_stock = self.make_variant_packages()
+        package, *_variants = self.make_variant_packages()
         unknown = self.make_ssh()
         unknown.files[_rmkit_cn.QM_PATH] = b"unknown-carrier"
         stale = self.make_ssh(config=b"[General]\nlanguage=fr_FR\n")
