@@ -1564,6 +1564,203 @@ class CoverWallWallpaperTests(unittest.TestCase):
         self.assertEqual(image.mode, "RGB")
         self.assertEqual(image.size, (320, 480))
 
+    def test_cover_wall_composer_wraps_the_hero_cover_with_an_obi(self):
+        image = _tab_wallpaper.compose_cover_wallpaper(
+            [self._cover_bytes((18, 52, 86))],
+            (800, 1200),
+            "我的书架",
+            "",
+        )
+
+        self.assertEqual(image.getpixel((400, 500)), (18, 52, 86))
+        self.assertEqual(image.getpixel((400, 760)), (250, 248, 242))
+
+    def test_cover_wall_composer_supports_straight_and_both_tilt_directions(self):
+        covers = [
+            self._cover_bytes(color)
+            for color in ("navy", "red", "green", "gold")
+        ]
+        images = {
+            layout: _tab_wallpaper.compose_cover_wallpaper(
+                covers,
+                (320, 480),
+                "我的书架",
+                "最近阅读",
+                layout=layout,
+            )
+            for layout in (
+                "poster_wall",
+                "poster_wall_tilt_left",
+                "poster_wall_tilt_right",
+            )
+        }
+
+        for image in images.values():
+            self.assertEqual(image.mode, "RGB")
+            self.assertEqual(image.size, (320, 480))
+        self.assertNotEqual(
+            images["poster_wall_tilt_left"].tobytes(),
+            images["poster_wall_tilt_right"].tobytes(),
+        )
+        self.assertNotEqual(
+            images["poster_wall"].tobytes(),
+            images["poster_wall_tilt_left"].tobytes(),
+        )
+        self.assertNotEqual(
+            images["poster_wall"].tobytes(),
+            images["poster_wall_tilt_right"].tobytes(),
+        )
+
+    def test_poster_wall_assignments_are_complete_balanced_and_stable(self):
+        for size in ((800, 1200), (1200, 800)):
+            for cover_count in range(1, 13):
+                rows, columns = _tab_wallpaper._poster_wall_grid_shape(
+                    cover_count,
+                    size,
+                )
+                title_row = round((rows - 1) * 0.30)
+                title_column = round((columns - 1) * 0.30)
+                title_index = title_row * columns + title_column
+                for seed in (0, 1, 7, 31):
+                    with self.subTest(
+                        size=size,
+                        cover_count=cover_count,
+                        seed=seed,
+                    ):
+                        assignments = _tab_wallpaper._poster_wall_assignments(
+                            cover_count,
+                            rows,
+                            columns,
+                            title_index,
+                            seed,
+                        )
+                        self.assertEqual(
+                            assignments,
+                            _tab_wallpaper._poster_wall_assignments(
+                                cover_count,
+                                rows,
+                                columns,
+                                title_index,
+                                seed,
+                            ),
+                        )
+                        assigned = [
+                            value for value in assignments if value is not None
+                        ]
+                        self.assertEqual(
+                            set(assigned[:cover_count]),
+                            set(range(cover_count)),
+                        )
+                        counts = [
+                            assigned.count(index) for index in range(cover_count)
+                        ]
+                        self.assertLessEqual(max(counts) - min(counts), 1)
+
+                        conflicts = []
+                        for index, value in enumerate(assignments):
+                            if value is None:
+                                continue
+                            if (
+                                index % columns
+                                and value == assignments[index - 1]
+                            ) or (
+                                index >= columns
+                                and value == assignments[index - columns]
+                            ):
+                                conflicts.append(index)
+
+                        parity_counts = [
+                            sum(
+                                index != title_index
+                                and (
+                                    index // columns + index % columns
+                                ) % 2
+                                == parity
+                                for index in range(rows * columns)
+                            )
+                            for parity in (0, 1)
+                        ]
+                        zero_conflict_is_possible = (
+                            cover_count >= 3
+                            or abs(parity_counts[0] - parity_counts[1]) <= 1
+                        )
+                        if cover_count >= 2 and zero_conflict_is_possible:
+                            self.assertEqual(conflicts, [])
+
+        rows, columns = _tab_wallpaper._poster_wall_grid_shape(3, (1200, 800))
+        self.assertEqual((rows, columns), (3, 6))
+        title_index = round((rows - 1) * 0.30) * columns + round(
+            (columns - 1) * 0.30
+        )
+        failing_case = _tab_wallpaper._poster_wall_assignments(
+            3,
+            rows,
+            columns,
+            title_index,
+            0,
+        )
+        self.assertNotEqual(failing_case[9], failing_case[9 - columns])
+    def test_poster_wall_is_dense_cropped_varied_and_deterministic(self):
+        colors = [
+            (18, 52, 86),
+            (150, 40, 45),
+            (35, 110, 75),
+            (190, 145, 35),
+            (95, 55, 130),
+            (35, 125, 145),
+            (165, 80, 35),
+            (75, 90, 155),
+        ]
+        covers = [self._cover_bytes(color) for color in colors]
+        image = _tab_wallpaper.compose_cover_wallpaper(
+            covers,
+            (800, 1200),
+            layout="poster_wall",
+        )
+        repeated = _tab_wallpaper.compose_cover_wallpaper(
+            covers,
+            (800, 1200),
+            layout="poster_wall",
+        )
+
+        self.assertEqual(image.tobytes(), repeated.tobytes())
+        pixels = list(image.get_flattened_data())
+        matches = {color: [] for color in colors}
+        for offset, pixel in enumerate(pixels):
+            if pixel in matches:
+                matches[pixel].append(offset)
+
+        sizes = []
+        for offsets in matches.values():
+            self.assertTrue(offsets)
+            xs = [offset % image.width for offset in offsets]
+            ys = [offset // image.width for offset in offsets]
+            size = (max(xs) - min(xs) + 1, max(ys) - min(ys) + 1)
+            self.assertEqual(len(offsets), size[0] * size[1])
+            sizes.append(size)
+        self.assertGreater(len(set(sizes)), 1)
+
+        edges = (
+            [image.getpixel((x, 0)) for x in range(image.width)],
+            [image.getpixel((x, image.height - 1)) for x in range(image.width)],
+            [image.getpixel((0, y)) for y in range(image.height)],
+            [image.getpixel((image.width - 1, y)) for y in range(image.height)],
+        )
+        for edge in edges:
+            self.assertTrue(any(pixel in matches for pixel in edge))
+
+        dense_colors = [
+            (20 + index * 15, 30 + (index * 29) % 180, 60 + (index * 37) % 170)
+            for index in range(12)
+        ]
+        dense = _tab_wallpaper.compose_cover_wallpaper(
+            [self._cover_bytes(color) for color in dense_colors],
+            (800, 1200),
+            layout="poster_wall",
+        )
+        dense_pixels = list(dense.get_flattened_data())
+        background_ratio = dense_pixels.count((242, 241, 237)) / len(dense_pixels)
+        self.assertLess(background_ratio, 0.25)
     def test_cover_wall_composer_skips_corrupt_cover_and_makes_monochrome(self):
         image = _tab_wallpaper.compose_cover_wallpaper(
             [b"not-an-image", self._cover_bytes("purple")],
@@ -1585,6 +1782,12 @@ class CoverWallWallpaperTests(unittest.TestCase):
                 [self._cover_bytes()] * 13,
                 (320, 480),
             )
+        with self.assertRaises(ValueError):
+            _tab_wallpaper.compose_cover_wallpaper(
+                [self._cover_bytes()],
+                (320, 480),
+                layout="freeform",
+            )
 
     def test_cover_wall_dialog_defaults_to_nine_valid_covers(self):
         cover = self._cover_bytes()
@@ -1595,6 +1798,21 @@ class CoverWallWallpaperTests(unittest.TestCase):
 
         self.assertEqual(len(dialog.selected_entries()), 9)
         self.assertEqual(dialog.title_edit.text(), "我的书架")
+        self.assertEqual(dialog.layout_combo.currentData(), "hero_obi")
+        self.assertEqual(
+            [
+                dialog.layout_combo.itemData(index)
+                for index in range(dialog.layout_combo.count())
+            ],
+            [
+                "hero_obi",
+                "poster_wall",
+                "poster_wall_tilt_left",
+                "poster_wall_tilt_right",
+            ],
+        )
+        self.assertIn("左倾", dialog.layout_combo.itemText(2))
+        self.assertIn("右倾", dialog.layout_combo.itemText(3))
         self.assertIn("9 / 12", dialog.selection_label.text())
         self.assertEqual(dialog.table.item(11, 0).flags(), QtCore.Qt.NoItemFlags)
 
