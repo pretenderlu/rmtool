@@ -25,6 +25,29 @@ _MONOCHROME_DEVICE_PROFILES = {
     "reMarkable 1",
     "reMarkable 2",
 }
+_DEVICE_FRAME_PROFILES = {
+    # (asset, normalized portrait screen rectangle)
+    "reMarkable Paper Pro": (
+        "paper-pro.png",
+        (43 / 973, 44 / 1355, 930 / 973, 1226 / 1355),
+    ),
+    "reMarkable Paper Pro Move": (
+        "paper-pro-move.png",
+        (83 / 1069, 85 / 1937, 988 / 1069, 1693 / 1937),
+    ),
+    "reMarkable Paper Pure": (
+        "paper-pure.png",
+        (224 / 2003, 100 / 2456, 1912 / 2003, 2353 / 2456),
+    ),
+    "reMarkable 1": (
+        "remarkable-1.png",
+        (88 / 1634, 178 / 2365, 1548 / 1634, 2117 / 2365),
+    ),
+    "reMarkable 2": (
+        "remarkable-2.png",
+        (206 / 1850, 88 / 2428, 1763 / 1850, 2163 / 2428),
+    ),
+}
 _MAX_COVER_WALL_ITEMS = 12
 _COVER_WALL_LAYOUTS = (
     ("hero_obi", "F / 主书腰封"),
@@ -50,6 +73,45 @@ class _WallpaperResourceScan:
 class _CoverWallEntry:
     item: _rmtool.DocumentItem
     cover: Optional[bytes]
+
+
+def compose_device_frame_preview(
+    wallpaper: Image.Image,
+    frame: Image.Image,
+    screen_rect: Tuple[float, float, float, float],
+    orientation: str,
+) -> Image.Image:
+    """Place a processed wallpaper beneath a device frame at native size."""
+    if orientation not in {"portrait", "landscape"}:
+        raise ValueError("未知壁纸方向")
+    left_n, top_n, right_n, bottom_n = screen_rect
+    if not (
+        0 <= left_n < right_n <= 1
+        and 0 <= top_n < bottom_n <= 1
+    ):
+        raise ValueError("真机预览屏幕区域无效")
+
+    device_frame = frame.convert("RGBA")
+    body_size = device_frame.size
+    left = round(body_size[0] * left_n)
+    top = round(body_size[1] * top_n)
+    right = round(body_size[0] * right_n)
+    bottom = round(body_size[1] * bottom_n)
+    screen = wallpaper.convert("RGBA")
+    if orientation == "landscape":
+        screen = screen.transpose(Image.Transpose.ROTATE_90)
+    screen = ImageOps.fit(
+        screen,
+        (right - left, bottom - top),
+        method=Image.Resampling.LANCZOS,
+    )
+
+    device = Image.new("RGBA", body_size, (0, 0, 0, 0))
+    device.alpha_composite(screen, (left, top))
+    device.alpha_composite(device_frame)
+    if orientation == "landscape":
+        device = device.transpose(Image.Transpose.ROTATE_270)
+    return device
 
 
 def _usable_cover_data(data: Optional[bytes]) -> Optional[bytes]:
@@ -665,6 +727,8 @@ class WallpaperTab(QtWidgets.QWidget):
         self.preview_label = _rmtool.PreviewImageLabel("请选择图片以生成预览")
         self.preview_label.setMinimumSize(200, 260)
         self.preview_label.set_corner_radius(_rmtool.INNER_PANEL_RADIUS)
+        self.frame_preview_checkbox = QtWidgets.QCheckBox("真机预览")
+        self.frame_preview_checkbox.setChecked(True)
 
         self.info_label = QtWidgets.QLabel("未选择图片")
         self.resolution_label = QtWidgets.QLabel(self._resolution_text())
@@ -796,13 +860,17 @@ class WallpaperTab(QtWidgets.QWidget):
         self.preview_panel.setObjectName("wallpaperPreviewPanel")
         preview_layout = QtWidgets.QVBoxLayout(self.preview_panel)
         preview_layout.setContentsMargins(
-            _rmtool.PANEL_PADDING,
-            _rmtool.PANEL_PADDING,
-            _rmtool.PANEL_PADDING,
-            _rmtool.PANEL_PADDING,
+            _rmtool.SUBSECTION_GAP,
+            _rmtool.SUBSECTION_GAP,
+            _rmtool.SUBSECTION_GAP,
+            _rmtool.SUBSECTION_GAP,
         )
-        preview_layout.addWidget(self.preview_label, alignment=QtCore.Qt.AlignCenter)
-        preview_layout.addStretch()
+        preview_layout.setSpacing(_rmtool.SUBSECTION_GAP)
+        preview_layout.addWidget(
+            self.frame_preview_checkbox,
+            alignment=QtCore.Qt.AlignLeft,
+        )
+        preview_layout.addWidget(self.preview_label, stretch=1)
 
         self.main_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         self.main_splitter.addWidget(self.control_panel)
@@ -829,6 +897,7 @@ class WallpaperTab(QtWidgets.QWidget):
         self.upload_button.clicked.connect(self._upload_wallpaper)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         self.orientation_combo.currentIndexChanged.connect(self._on_orientation_changed)
+        self.frame_preview_checkbox.toggled.connect(self._render_preview)
         self.offset_x_slider.valueChanged.connect(self._render_preview)
         self.offset_y_slider.valueChanged.connect(self._render_preview)
         self.variant_group.buttonClicked.connect(self._on_variant_selected)
@@ -1213,8 +1282,33 @@ class WallpaperTab(QtWidgets.QWidget):
             return
         if processed.mode != "RGB":
             processed = processed.convert("RGB")
+        preview = processed
+        if self.frame_preview_checkbox.isChecked():
+            frame_profile = _DEVICE_FRAME_PROFILES.get(self.device_profile)
+            if frame_profile:
+                frame_filename, screen_rect = frame_profile
+                try:
+                    with Image.open(
+                        _rmtool.resource_path(
+                            "assets",
+                            "device_frames",
+                            frame_filename,
+                        )
+                    ) as frame:
+                        preview = compose_device_frame_preview(
+                            processed,
+                            frame,
+                            screen_rect,
+                            self.orientation_combo.currentData(),
+                        )
+                except (OSError, ValueError):
+                    logging.warning(
+                        "Unable to load device frame preview for %s",
+                        self.device_profile,
+                        exc_info=True,
+                    )
         buffer = BytesIO()
-        processed.save(buffer, format="PNG")
+        preview.save(buffer, format="PNG")
         pixmap = QtGui.QPixmap()
         if not pixmap.loadFromData(buffer.getvalue(), "PNG"):
             raise RuntimeError("无法加载图片预览数据")
