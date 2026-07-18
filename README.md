@@ -94,7 +94,7 @@ The main files are:
 ## Features
 
 - **Connections and dashboard**: Manage multiple USB/Wi-Fi device profiles and verify SSH host fingerprints. The local HTML dashboard shows connection status, device details, PDF/EPUB/notebook counts, and suggested next steps.
-- **Wallpaper management**: Read and preview the device's current startup, suspend, carousel, and shutdown wallpapers. Output is sized for the device and orientation, with fit, crop, and stretch modes plus horizontal and vertical crop offsets.
+- **Wallpaper management**: Read and preview the device's current startup, suspend, carousel, and shutdown wallpapers. Output is sized for the device and orientation, with fit, crop, and stretch modes plus horizontal and vertical crop offsets. The cover-wall generator combines up to 12 document thumbnails with an optional title and subtitle into a local poster wallpaper; no document data is sent to a cloud service.
 - **Document center**: Search and inspect document metadata and thumbnails; batch-upload PDF/EPUB files, check free space, and batch-delete documents. Export parseable handwriting from `.rm` or `.note` data in one document to a white-background PDF without merging the original PDF/EPUB pages.
 - **Font upload**: Preview and upload TTF/OTF fonts, optionally rename one to `zwzt.ttf`, write it to the user font directory with a fontconfig configuration, refresh the font cache, and prompt for a restart.
 - **Time management**: Sync the computer's time, inspect system time, hardware clock, and timezone, or set the timezone to `Asia/Shanghai`.

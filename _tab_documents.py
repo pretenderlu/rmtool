@@ -587,40 +587,8 @@ class DocumentsTab(QtWidgets.QWidget):
 
     def _load_documents(self) -> List[_rmtool.DocumentItem]:
         """Load document list using a single SFTP session for efficiency."""
-        items: List[_rmtool.DocumentItem] = []
         with self.ssh_client.sftp_session() as sftp:
-            try:
-                entries = sftp.listdir_attr(_rmtool.DOCUMENT_ROOT)
-            except IOError:
-                return items
-
-            filenames = {e.filename for e in entries}
-            metadata_files = [e for e in entries if e.filename.endswith(".metadata")]
-            for entry in metadata_files:
-                identifier = entry.filename[:-9]
-                metadata_path = f"{_rmtool.DOCUMENT_ROOT}/{entry.filename}"
-                try:
-                    with sftp.open(metadata_path, "r") as fh:
-                        metadata = json.load(fh)
-                except Exception:
-                    metadata = {}
-                visible_name = metadata.get("visibleName", identifier)
-                doc_type = metadata.get("type", "document")
-                available_assets = []
-                for ext in ("pdf", "epub", "zip", "note"):
-                    remote_name = f"{identifier}.{ext}"
-                    if remote_name in filenames:
-                        available_assets.append(ext)
-                # .rm page files live inside the bare identifier directory,
-                # not as a top-level uuid.rm file.
-                if identifier in filenames:
-                    available_assets.append("rm")
-                updated = None
-                if entry.st_mtime:
-                    updated = datetime.fromtimestamp(entry.st_mtime)
-                items.append(_rmtool.DocumentItem(identifier, visible_name, doc_type, updated, available_assets))
-        items.sort(key=lambda item: item.updated or datetime.min, reverse=True)
-        return items
+            return _rmtool.load_document_items(sftp)
 
     def _on_documents_loaded(self, documents: List[_rmtool.DocumentItem]):
         self.documents = documents
@@ -971,27 +939,8 @@ class DocumentsTab(QtWidgets.QWidget):
     # -- Preview ---------------------------------------------------------------
     def _fetch_preview_cover(self, item: _rmtool.DocumentItem) -> Optional[bytes]:
         """Download the first thumbnail (cover) using a single SFTP session."""
-        thumbnail_dir = f"{_rmtool.DOCUMENT_ROOT}/{item.identifier}.thumbnails"
         with self.ssh_client.sftp_session() as sftp:
-            try:
-                entries = sftp.listdir_attr(thumbnail_dir)
-            except IOError:
-                return None
-
-            image_entries = [
-                e for e in entries
-                if e.filename.lower().endswith((".png", ".jpg", ".jpeg", ".thumbnail"))
-            ]
-            if not image_entries:
-                return None
-            image_entries.sort(key=lambda e: e.filename)
-
-            remote_path = f"{thumbnail_dir}/{image_entries[0].filename}"
-            try:
-                with sftp.open(remote_path, "rb") as fh:
-                    return fh.read() or None
-            except IOError:
-                return None
+            return _rmtool.read_document_cover(sftp, item)
 
     def _on_preview_loaded(self, identifier: str, cover: Optional[bytes]):
         if identifier != self._current_preview_request:

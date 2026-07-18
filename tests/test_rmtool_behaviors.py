@@ -1492,6 +1492,171 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertNotIn("/usr/share/remarkable/sleeping.png", client.open_calls)
 
 
+class CoverWallWallpaperTests(unittest.TestCase):
+    @staticmethod
+    def _cover_bytes(color="navy"):
+        buffer = BytesIO()
+        Image.new("RGB", (120, 180), color).save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    @staticmethod
+    def _entry(index, cover):
+        item = rmtool.DocumentItem(
+            f"doc-{index}",
+            f"Document {index}",
+            "DocumentType",
+            datetime(2026, 7, min(index + 1, 28), 12, 0),
+            ["pdf"],
+        )
+        return _tab_wallpaper._CoverWallEntry(item, cover)
+
+    def test_shared_document_helpers_keep_metadata_and_cover_order(self):
+        class FakeDocumentSFTP:
+            def listdir_attr(self, path):
+                if path == rmtool.DOCUMENT_ROOT:
+                    return [
+                        SimpleNamespace(filename="doc-old.metadata", st_mtime=100),
+                        SimpleNamespace(filename="doc-new.metadata", st_mtime=200),
+                        SimpleNamespace(filename="doc-old.pdf", st_mtime=0),
+                        SimpleNamespace(filename="doc-new.epub", st_mtime=0),
+                        SimpleNamespace(filename="doc-new", st_mtime=0),
+                    ]
+                if path == f"{rmtool.DOCUMENT_ROOT}/doc-new.thumbnails":
+                    return [
+                        SimpleNamespace(filename="2.png"),
+                        SimpleNamespace(filename="1.jpg"),
+                        SimpleNamespace(filename="notes.txt"),
+                    ]
+                raise IOError(path)
+
+            def open(self, path, _mode):
+                payloads = {
+                    f"{rmtool.DOCUMENT_ROOT}/doc-old.metadata": (
+                        b'{"visibleName":"Old","type":"DocumentType"}'
+                    ),
+                    f"{rmtool.DOCUMENT_ROOT}/doc-new.metadata": (
+                        b'{"visibleName":"New","type":"DocumentType"}'
+                    ),
+                    f"{rmtool.DOCUMENT_ROOT}/doc-new.thumbnails/1.jpg": b"first-cover",
+                }
+                if path not in payloads:
+                    raise IOError(path)
+                return BytesIO(payloads[path])
+
+        sftp = FakeDocumentSFTP()
+        items = rmtool.load_document_items(sftp)
+
+        self.assertEqual([item.name for item in items], ["New", "Old"])
+        self.assertEqual(items[0].available_assets, ["epub", "rm"])
+        self.assertEqual(items[1].available_assets, ["pdf"])
+        self.assertEqual(rmtool.read_document_cover(sftp, items[0]), b"first-cover")
+
+    def test_cover_wall_composer_outputs_exact_rgb_size(self):
+        covers = [self._cover_bytes(color) for color in ("navy", "red", "green", "gold")]
+
+        image = _tab_wallpaper.compose_cover_wallpaper(
+            covers,
+            (320, 480),
+            "我的书架",
+            "最近阅读",
+        )
+
+        self.assertEqual(image.mode, "RGB")
+        self.assertEqual(image.size, (320, 480))
+
+    def test_cover_wall_composer_skips_corrupt_cover_and_makes_monochrome(self):
+        image = _tab_wallpaper.compose_cover_wallpaper(
+            [b"not-an-image", self._cover_bytes("purple")],
+            (480, 320),
+            monochrome=True,
+        )
+
+        red, green, blue = image.split()
+        self.assertEqual(red.tobytes(), green.tobytes())
+        self.assertEqual(red.tobytes(), blue.tobytes())
+
+    def test_cover_wall_composer_rejects_empty_invalid_and_oversized_inputs(self):
+        with self.assertRaises(ValueError):
+            _tab_wallpaper.compose_cover_wallpaper([], (320, 480))
+        with self.assertRaises(ValueError):
+            _tab_wallpaper.compose_cover_wallpaper([b"broken"], (320, 480))
+        with self.assertRaises(ValueError):
+            _tab_wallpaper.compose_cover_wallpaper(
+                [self._cover_bytes()] * 13,
+                (320, 480),
+            )
+
+    def test_cover_wall_dialog_defaults_to_nine_valid_covers(self):
+        cover = self._cover_bytes()
+        entries = [self._entry(index, cover) for index in range(11)]
+        entries.append(self._entry(11, None))
+        dialog = _tab_wallpaper._CoverWallDialog(entries)
+        self.addCleanup(dialog.deleteLater)
+
+        self.assertEqual(len(dialog.selected_entries()), 9)
+        self.assertEqual(dialog.title_edit.text(), "我的书架")
+        self.assertIn("9 / 12", dialog.selection_label.text())
+        self.assertEqual(dialog.table.item(11, 0).flags(), QtCore.Qt.NoItemFlags)
+
+    def test_cover_wall_scan_reuses_one_sftp_session(self):
+        client = FakeConnectionClient(connected=True)
+        session = object()
+        session_count = 0
+
+        @contextmanager
+        def sftp_session():
+            nonlocal session_count
+            session_count += 1
+            yield session
+
+        client.sftp_session = sftp_session
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        items = [self._entry(0, None).item, self._entry(1, None).item]
+        valid_cover = self._cover_bytes()
+
+        with mock.patch.object(rmtool, "load_document_items", return_value=items) as load_items, mock.patch.object(
+            rmtool,
+            "read_document_cover",
+            side_effect=[valid_cover, b"broken"],
+        ) as read_cover:
+            entries = widget._load_cover_wall_entries()
+
+        self.assertEqual(session_count, 1)
+        load_items.assert_called_once_with(session)
+        self.assertEqual(read_cover.call_count, 2)
+        self.assertIsNotNone(entries[0].cover)
+        self.assertIsNone(entries[1].cover)
+
+    def test_cover_wall_handoff_uses_existing_wallpaper_source(self):
+        client = FakeConnectionClient(connected=True)
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        widget.device_profile = "reMarkable Paper Pure"
+        widget.current_resolution = (320, 480)
+        entry = self._entry(0, self._cover_bytes("purple"))
+
+        widget._apply_cover_wall([entry], "我的书架", "")
+
+        self.assertIsNone(widget.image_path)
+        self.assertEqual(widget._cached_source_image.size, (320, 480))
+        self.assertTrue(widget.upload_button.isEnabled())
+        self.assertIn("1 本文档", widget.info_label.text())
+        red, green, blue = widget._cached_source_image.split()
+        self.assertEqual(red.tobytes(), green.tobytes())
+        self.assertEqual(red.tobytes(), blue.tobytes())
+
+    def test_cover_wall_button_follows_connection_state(self):
+        client = FakeConnectionClient(connected=False)
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+
+        self.assertFalse(widget.cover_wall_button.isEnabled())
+        widget._on_connection_changed(True)
+        self.assertTrue(widget.cover_wall_button.isEnabled())
+        widget._on_connection_changed(False)
+        self.assertFalse(widget.cover_wall_button.isEnabled())
+
 class RmkitCnExternalLinkTests(unittest.TestCase):
     def test_rmkit_module_exposes_only_external_project_links(self):
         self.assertEqual(_rmkit_cn.REPO_URL, "https://github.com/boangs/rmkit")
