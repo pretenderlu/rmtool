@@ -22,17 +22,26 @@ French catalog byte-for-byte.
 
 The catalog currently supports these production firmware builds:
 
-- `3.27.1.0`, internal version `20260506100933`.
-- `3.27.3.0`, internal version `20260612085811`.
+- `3.27.1.0`, internal version `20260506100933`: Chiappa and Ferrari.
+- `3.27.3.0`, internal version `20260612085811`: Chiappa, Ferrari, and Tatsu
+  (Paper Pure).
 
-Both builds have the same four stock translation catalogs on each hardware
-platform, so `3.27.1.0` intentionally reuses the already verified Chinese QM
-assets instead of publishing byte-identical copies. Their hardware payloads are:
+The Chiappa and Ferrari payloads have the same stock catalogs across both
+builds, so `3.27.1.0` reuses the existing verified assets. Their stock French
+SHA-256 values are:
 
-- Chiappa stock French SHA-256:
+- Chiappa:
   `8e0db0f7a2d3116469e1aae4f52657ccc38d0422b5b958ae512554bd018f285e`
-- Ferrari stock French SHA-256:
+- Ferrari:
   `9f62dc83b150e48b8d4e1688c1b16d22aa09fdd1ba09b772954394ec6c1ab4fb`
+
+Tatsu `3.27.3.0` has this stock French SHA-256:
+
+- `2ee88b18955776e8f6f52949b6c172d50d14f60f3e59d75db7d17881377a7b3a`
+
+Its translation keys are a strict subset of Chiappa, so it reuses the same
+175519-byte Chinese asset with SHA-256
+`47ba9d8a6f38b3763d013ecc489d44e8742704404b50a5de102b42e33dfebbfb`.
 
 The manifest also supports beta `3.28.0.162`, internal version
 `20260629074044`, with one shared 178170-byte Chinese asset:
@@ -45,8 +54,9 @@ The manifest also supports beta `3.28.0.162`, internal version
   `24393f00d9edb933933b436ffe5020990dd97d31d7788172907d75ff1d42d3a5`
 
 Paper Pro (Ferrari) enable and restore were validated on a real device.
-Paper Pro Move (Chiappa) was validated offline against the official firmware
-only and remains pending real-device validation.
+Paper Pro Move (Chiappa) and Paper Pure `3.27.3.0` (Tatsu) were validated
+offline against official firmware only and remain pending real-device
+validation.
 
 rmtool selects the package by the exact stock carrier hash. Platform names are
 display metadata only.

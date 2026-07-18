@@ -825,6 +825,14 @@ class LocalCredentialTests(unittest.TestCase):
 
 
 class ConnectionSidebarUiTests(unittest.TestCase):
+    def test_paper_pure_profile_matches_rm2_portrait_resolution(self):
+        self.assertEqual(
+            rmtool.DEVICE_PROFILES["reMarkable Paper Pure"], (1404, 1872)
+        )
+        self.assertEqual(
+            rmtool.DEVICE_PROFILE_LABELS["reMarkable Paper Pure"], "Paper Pure"
+        )
+
     def test_sidebar_uses_dialogs_instead_of_inline_device_form(self):
         widget = rmtool.ConnectionWidget(FakeConnectionClient(), rmtool._default_config())
         self.addCleanup(widget.deleteLater)

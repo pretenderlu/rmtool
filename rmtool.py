@@ -40,12 +40,14 @@ SUBSECTION_GAP = 12
 DEVICE_PROFILES = {
     "reMarkable Paper Pro": (2160, 1620),
     "reMarkable Paper Pro Move": (1696, 954),
+    "reMarkable Paper Pure": (1404, 1872),
     "reMarkable 2": (1404, 1872),
 }
 
 DEVICE_PROFILE_LABELS = {
     "reMarkable Paper Pro": "Paper Pro",
     "reMarkable Paper Pro Move": "Paper Pro Move",
+    "reMarkable Paper Pure": "Paper Pure",
     "reMarkable 2": "reMarkable 2",
 }
 
