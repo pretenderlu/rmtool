@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import posixpath
+import shlex
 import shutil
 import stat
 import tempfile
@@ -34,6 +35,17 @@ class _PreparedDocumentUpload:
     @property
     def total_size(self) -> int:
         return sum(size for _local, _remote, size in self.files)
+
+
+@dataclass(frozen=True)
+class _OrphanThumbnailScan:
+    candidate_ids: Tuple[str, ...]
+    file_count: int
+    total_bytes: int
+
+    @property
+    def directory_count(self) -> int:
+        return len(self.candidate_ids)
 
 
 class _DocumentTransferService:
@@ -257,11 +269,17 @@ class DocumentsTab(QtWidgets.QWidget):
         self._active_progress: Optional[QtWidgets.QProgressDialog] = None
         self._progress_label_base: str = ""
         self._connected = False
+        self._thumbnail_cleanup_running = False
 
         # --- Toolbar ---
         self.refresh_button = QtWidgets.QPushButton("刷新列表")
         self.refresh_button.setProperty("cssClass", "secondary")
         self.upload_button = QtWidgets.QPushButton("上传文档")
+        self.cleanup_thumbnails_button = QtWidgets.QPushButton("清理缩略图")
+        self.cleanup_thumbnails_button.setProperty("cssClass", "secondary")
+        self.cleanup_thumbnails_button.setToolTip(
+            "扫描已不存在文档留下的封面缩略图，确认后再删除"
+        )
         self.delete_button = QtWidgets.QPushButton("删除文档")
         self.delete_button.setProperty("cssClass", "danger")
         self.export_button = QtWidgets.QPushButton("导出为 PDF")
@@ -306,6 +324,7 @@ class DocumentsTab(QtWidgets.QWidget):
         top_layout = QtWidgets.QHBoxLayout()
         top_layout.addWidget(self.refresh_button)
         top_layout.addWidget(self.upload_button)
+        top_layout.addWidget(self.cleanup_thumbnails_button)
         top_layout.addWidget(self.delete_button)
         top_layout.addWidget(self.export_button)
         top_layout.addStretch()
@@ -395,6 +414,7 @@ class DocumentsTab(QtWidgets.QWidget):
 
         self.refresh_button.clicked.connect(self.refresh)
         self.upload_button.clicked.connect(self.upload_document)
+        self.cleanup_thumbnails_button.clicked.connect(self._cleanup_orphan_thumbnails)
         self.delete_button.clicked.connect(self._delete_document)
         self.export_button.clicked.connect(self._export_as_pdf)
         self.search_edit.textChanged.connect(self._apply_filter)
@@ -476,6 +496,9 @@ class DocumentsTab(QtWidgets.QWidget):
         has_selection = bool(selected_documents)
         single_selection = len(selected_documents) == 1
         self.delete_button.setEnabled(self._connected and has_selection)
+        self.cleanup_thumbnails_button.setEnabled(
+            self._connected and not self._thumbnail_cleanup_running
+        )
         self.export_button.setEnabled(
             self._connected
             and selected is not None
@@ -565,10 +588,7 @@ class DocumentsTab(QtWidgets.QWidget):
         if base_dir is None:
             base_dir = remote_dir
         files: List[Tuple[str, str, int]] = []
-        try:
-            entries = sftp.listdir_attr(remote_dir)
-        except IOError:
-            return files
+        entries = sftp.listdir_attr(remote_dir)
         for entry in entries:
             remote_path = f"{remote_dir}/{entry.filename}"
             if stat.S_ISDIR(entry.st_mode):
@@ -861,6 +881,128 @@ class DocumentsTab(QtWidgets.QWidget):
                 f"rm -rf {_rmtool.DOCUMENT_ROOT}/{item.identifier} {_rmtool.DOCUMENT_ROOT}/{item.identifier}.*"
             )
         self.ssh_client.exec_checked("systemctl restart xochitl")
+
+    # -- Orphan thumbnail cleanup ---------------------------------------------
+    @staticmethod
+    def _format_bytes(value: int) -> str:
+        size = float(value)
+        for unit in ("B", "KB", "MB", "GB"):
+            if size < 1024 or unit == "GB":
+                return f"{int(size)} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+            size /= 1024
+        return f"{value} B"
+
+    def _set_thumbnail_cleanup_running(self, running: bool) -> None:
+        self._thumbnail_cleanup_running = running
+        self._update_action_state()
+
+    @require_connection
+    def _cleanup_orphan_thumbnails(self) -> None:
+        if self._thumbnail_cleanup_running:
+            return
+        self._set_thumbnail_cleanup_running(True)
+        worker = _rmtool.Worker(self._scan_orphan_thumbnails)
+
+        def on_error(exc: Exception):
+            self._close_progress_dialog()
+            self._set_thumbnail_cleanup_running(False)
+            self._on_error(exc)
+
+        worker.signals.finished.connect(self._on_orphan_thumbnail_scan_finished)
+        worker.signals.error.connect(on_error)
+        self._show_progress_dialog("清理缩略图", "正在扫描失效缩略图…")
+        self.thread_pool.start(worker)
+
+    def _scan_orphan_thumbnails(self) -> _OrphanThumbnailScan:
+        with self.ssh_client.sftp_session() as sftp:
+            active_ids = {
+                item.identifier for item in _rmtool.load_document_items(sftp)
+            }
+            entries = sftp.listdir_attr(_rmtool.DOCUMENT_ROOT)
+            candidate_ids = []
+            file_count = 0
+            total_bytes = 0
+            for entry in entries:
+                if not entry.filename.endswith(".thumbnails") or not stat.S_ISDIR(
+                    entry.st_mode
+                ):
+                    continue
+                identifier = entry.filename[: -len(".thumbnails")]
+                if not identifier or identifier in active_ids:
+                    continue
+                remote_dir = posixpath.join(_rmtool.DOCUMENT_ROOT, entry.filename)
+                files = self._collect_remote_files(sftp, remote_dir)
+                candidate_ids.append(identifier)
+                file_count += len(files)
+                total_bytes += sum(size for _path, _relative, size in files)
+        return _OrphanThumbnailScan(
+            candidate_ids=tuple(sorted(candidate_ids)),
+            file_count=file_count,
+            total_bytes=total_bytes,
+        )
+
+    def _on_orphan_thumbnail_scan_finished(self, scan: _OrphanThumbnailScan) -> None:
+        self._close_progress_dialog()
+        if not scan.candidate_ids:
+            self._set_thumbnail_cleanup_running(False)
+            show_info(self, _rmtool.APP_NAME, "没有发现需要清理的失效缩略图。")
+            return
+
+        message = (
+            f"发现 {scan.directory_count} 个孤立缩略图目录，"
+            f"共 {scan.file_count} 个文件，占用 {self._format_bytes(scan.total_bytes)}。"
+            "\n\n确定要删除这些失效缩略图吗？"
+        )
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            message,
+            confirm_text="删除",
+            cancel_text="取消",
+            danger=True,
+        ):
+            self._set_thumbnail_cleanup_running(False)
+            return
+
+        worker = _rmtool.Worker(self._delete_orphan_thumbnails, scan)
+
+        def on_finished(deleted_count: int):
+            self._close_progress_dialog()
+            self._set_thumbnail_cleanup_running(False)
+            success_text = f"已删除 {deleted_count} 个失效缩略图目录。"
+            self.status_message.emit("success", success_text, 3000)
+            show_info(self, _rmtool.APP_NAME, success_text)
+
+        def on_error(exc: Exception):
+            self._close_progress_dialog()
+            self._set_thumbnail_cleanup_running(False)
+            self._on_error(exc)
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self._show_progress_dialog("清理缩略图", "正在删除失效缩略图…")
+        self.thread_pool.start(worker)
+
+    def _delete_orphan_thumbnails(self, scan: _OrphanThumbnailScan) -> int:
+        deleted_count = 0
+        with self.ssh_client.sftp_session() as sftp:
+            active_ids = {
+                item.identifier for item in _rmtool.load_document_items(sftp)
+            }
+            entries = sftp.listdir_attr(_rmtool.DOCUMENT_ROOT)
+            directory_names = {
+                entry.filename
+                for entry in entries
+                if stat.S_ISDIR(entry.st_mode)
+            }
+            for identifier in scan.candidate_ids:
+                directory_name = f"{identifier}.thumbnails"
+                if identifier in active_ids or directory_name not in directory_names:
+                    continue
+                remote_path = posixpath.join(_rmtool.DOCUMENT_ROOT, directory_name)
+                self.ssh_client.exec_checked(f"rm -rf -- {shlex.quote(remote_path)}")
+                deleted_count += 1
+        return deleted_count
 
     # -- Export as PDF (rmrl integration) --------------------------------------
     @require_connection

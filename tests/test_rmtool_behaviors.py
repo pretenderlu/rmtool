@@ -361,6 +361,28 @@ class FakeDocumentsSSHClient(QtCore.QObject):
         return None
 
 
+class FakeThumbnailCleanupSFTP:
+    def __init__(self, entries, metadata=None):
+        self.entries = entries
+        self.metadata = metadata or {}
+
+    def listdir_attr(self, remote_path):
+        if remote_path not in self.entries:
+            raise IOError(remote_path)
+        entries = self.entries[remote_path]
+        for entry in entries:
+            if not hasattr(entry, "st_mtime"):
+                entry.st_mtime = 0
+        return entries
+
+    def open(self, remote_path, _mode="r"):
+        identifier = remote_path.rsplit("/", 1)[-1].removesuffix(".metadata")
+        payload = self.metadata.get(identifier, {})
+        if isinstance(payload, bytes):
+            return BytesIO(payload)
+        return BytesIO(json.dumps(payload).encode("utf-8"))
+
+
 class FakeDashboardTab(QtWidgets.QWidget):
     def update_device(self, _device):
         return None
@@ -1009,9 +1031,11 @@ class ConnectionSidebarUiTests(unittest.TestCase):
                 "wallpaper": "/usr/share/remarkable/suspended.png",
             },
         }
-        widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
+        with mock.patch.object(rmtool, "save_config") as save_config:
+            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config)
+            widget.device_combo.setCurrentIndex(widget.device_combo.findText("Device B"))
 
-        widget.device_combo.setCurrentIndex(widget.device_combo.findText("Device B"))
+        save_config.assert_called_once_with(config)
 
         self.assertEqual(widget.device_title_label.text(), "Device B")
         self.assertIn("reMarkable 2", widget.device_meta_label.text())
@@ -1038,23 +1062,28 @@ class ConnectionSidebarUiTests(unittest.TestCase):
         self.assertLessEqual(widget.minimumSizeHint().width(), 320)
 
     def test_edit_device_emits_non_modal_status_message(self):
-        widget = rmtool.ConnectionWidget(FakeConnectionClient(), config_with_device())
-        received = []
-        widget.status_message.connect(lambda level, text, timeout: received.append((level, text, timeout)))
+        with mock.patch.object(rmtool, "save_config") as save_config:
+            widget = rmtool.ConnectionWidget(FakeConnectionClient(), config_with_device())
+            received = []
+            widget.status_message.connect(
+                lambda level, text, timeout: received.append((level, text, timeout))
+            )
 
-        with mock.patch.object(
-            widget,
-            "_request_edit_device",
-            return_value={
-                "name": "默认设备",
-                "mode": "usb",
-                "host": "10.11.99.9",
-                "type": "reMarkable Paper Pro",
-                "password": "",
-                "remember_password": False,
-            },
-        ):
-            widget._edit_device()
+            with mock.patch.object(
+                widget,
+                "_request_edit_device",
+                return_value={
+                    "name": "默认设备",
+                    "mode": "usb",
+                    "host": "10.11.99.9",
+                    "type": "reMarkable Paper Pro",
+                    "password": "",
+                    "remember_password": False,
+                },
+            ):
+                widget._edit_device()
+
+        save_config.assert_called_once_with(widget.config)
 
         self.assertEqual(received, [("info", "已保存“默认设备”的连接配置。", 3000)])
 
@@ -1734,6 +1763,32 @@ class CoverWallWallpaperTests(unittest.TestCase):
         self.assertEqual(items[0].available_assets, ["epub", "rm"])
         self.assertEqual(items[1].available_assets, ["pdf"])
         self.assertEqual(rmtool.read_document_cover(sftp, items[0]), b"first-cover")
+
+    def test_load_document_items_filters_inactive_metadata_conservatively(self):
+        class FakeDocumentSFTP:
+            def listdir_attr(self, path):
+                if path != rmtool.DOCUMENT_ROOT:
+                    raise IOError(path)
+                return [
+                    SimpleNamespace(filename=f"{identifier}.metadata", st_mtime=index)
+                    for index, identifier in enumerate(
+                        ("active", "trash", "deleted", "malformed"), start=1
+                    )
+                ]
+
+            def open(self, path, _mode="r"):
+                identifier = path.rsplit("/", 1)[-1].removesuffix(".metadata")
+                payloads = {
+                    "active": b'{"visibleName":"Active"}',
+                    "trash": b'{"parent":"  TrAsH  "}',
+                    "deleted": b'{"deleted":true}',
+                    "malformed": b"{",
+                }
+                return BytesIO(payloads[identifier])
+
+        items = rmtool.load_document_items(FakeDocumentSFTP())
+
+        self.assertEqual([item.identifier for item in items], ["malformed", "active"])
 
     def test_cover_wall_composer_outputs_exact_rgb_size(self):
         covers = [self._cover_bytes(color) for color in ("navy", "red", "green", "gold")]
@@ -2964,6 +3019,170 @@ class DocumentWorkspaceUiTests(unittest.TestCase):
             ["systemctl restart xochitl"],
         )
 
+    def test_orphan_thumbnail_scan_classifies_directories_and_counts_nested_files(self):
+        widget = self._make_widget()
+        root = rmtool.DOCUMENT_ROOT
+        trash_ids = [f"trash-{index}" for index in range(16)]
+        widget.ssh_client.sftp = FakeThumbnailCleanupSFTP(
+            {
+                root: [
+                    SimpleNamespace(filename="current.metadata", st_mode=stat.S_IFREG | 0o644),
+                    SimpleNamespace(filename="current.thumbnails", st_mode=stat.S_IFDIR | 0o755),
+                    SimpleNamespace(filename="orphan.thumbnails", st_mode=stat.S_IFDIR | 0o755),
+                    SimpleNamespace(filename="not-a-directory.thumbnails", st_mode=stat.S_IFREG | 0o644),
+                    *[
+                        SimpleNamespace(
+                            filename=f"{identifier}.metadata",
+                            st_mode=stat.S_IFREG | 0o644,
+                        )
+                        for identifier in trash_ids
+                    ],
+                    *[
+                        SimpleNamespace(
+                            filename=f"{identifier}.thumbnails",
+                            st_mode=stat.S_IFDIR | 0o755,
+                        )
+                        for identifier in trash_ids
+                    ],
+                ],
+                f"{root}/orphan.thumbnails": [
+                    SimpleNamespace(filename="cover.png", st_mode=stat.S_IFREG | 0o644, st_size=120),
+                    SimpleNamespace(filename="nested", st_mode=stat.S_IFDIR | 0o755, st_size=0),
+                ],
+                f"{root}/orphan.thumbnails/nested": [
+                    SimpleNamespace(filename="page.png", st_mode=stat.S_IFREG | 0o644, st_size=45),
+                ],
+                **{
+                    f"{root}/{identifier}.thumbnails": []
+                    for identifier in trash_ids
+                },
+            },
+            metadata={
+                identifier: (
+                    {"deleted": True}
+                    if identifier == trash_ids[-1]
+                    else {"parent": "trash"}
+                )
+                for identifier in trash_ids
+            },
+        )
+
+        scan = widget._scan_orphan_thumbnails()
+
+        self.assertEqual(scan.candidate_ids, tuple(sorted(["orphan", *trash_ids])))
+        self.assertEqual(scan.directory_count, 17)
+        self.assertEqual(scan.file_count, 2)
+        self.assertEqual(scan.total_bytes, 165)
+
+    def test_orphan_thumbnail_scan_does_not_hide_recursive_listing_failures(self):
+        widget = self._make_widget()
+        root = rmtool.DOCUMENT_ROOT
+        widget.ssh_client.sftp = FakeThumbnailCleanupSFTP(
+            {
+                root: [
+                    SimpleNamespace(
+                        filename="orphan.thumbnails",
+                        st_mode=stat.S_IFDIR | 0o755,
+                    ),
+                ],
+            }
+        )
+
+        with self.assertRaises(IOError):
+            widget._scan_orphan_thumbnails()
+
+    def test_orphan_thumbnail_confirmation_reports_scan_and_cancel_does_not_delete(self):
+        widget = self._make_widget()
+        widget.set_connection_state(True)
+        widget._set_thumbnail_cleanup_running(True)
+        scan = _tab_documents._OrphanThumbnailScan(
+            candidate_ids=("orphan-a", "orphan-b"),
+            file_count=3,
+            total_bytes=1536,
+        )
+
+        with mock.patch.object(
+            _tab_documents, "ask_confirmation", return_value=False
+        ) as confirm, mock.patch.object(widget.thread_pool, "start") as start_worker:
+            widget._on_orphan_thumbnail_scan_finished(scan)
+
+        message = confirm.call_args.args[2]
+        self.assertIn("2 个孤立缩略图目录", message)
+        self.assertIn("3 个文件", message)
+        self.assertIn("1.5 KB", message)
+        self.assertEqual(confirm.call_args.kwargs["confirm_text"], "删除")
+        self.assertFalse(widget.ssh_client.exec_calls)
+        start_worker.assert_not_called()
+        self.assertTrue(widget.cleanup_thumbnails_button.isEnabled())
+
+    def test_empty_orphan_thumbnail_scan_only_reports_nothing_to_clean(self):
+        widget = self._make_widget()
+        widget.set_connection_state(True)
+        widget._set_thumbnail_cleanup_running(True)
+        scan = _tab_documents._OrphanThumbnailScan(
+            candidate_ids=(),
+            file_count=0,
+            total_bytes=0,
+        )
+
+        with mock.patch.object(_tab_documents, "show_info") as show_info, mock.patch.object(
+            widget.thread_pool, "start"
+        ) as start_worker:
+            widget._on_orphan_thumbnail_scan_finished(scan)
+
+        show_info.assert_called_once_with(
+            widget,
+            rmtool.APP_NAME,
+            "没有发现需要清理的失效缩略图。",
+        )
+        start_worker.assert_not_called()
+        self.assertFalse(widget.ssh_client.exec_calls)
+        self.assertTrue(widget.cleanup_thumbnails_button.isEnabled())
+
+    def test_orphan_thumbnail_cleanup_button_tracks_connection_and_running_state(self):
+        widget = self._make_widget()
+
+        self.assertFalse(widget.cleanup_thumbnails_button.isEnabled())
+        widget.set_connection_state(True)
+        self.assertTrue(widget.cleanup_thumbnails_button.isEnabled())
+        widget._set_thumbnail_cleanup_running(True)
+        self.assertFalse(widget.cleanup_thumbnails_button.isEnabled())
+
+    def test_orphan_thumbnail_delete_revalidates_and_quotes_exact_paths(self):
+        widget = self._make_widget()
+        root = rmtool.DOCUMENT_ROOT
+        widget.ssh_client.sftp = FakeThumbnailCleanupSFTP(
+            {
+                root: [
+                    SimpleNamespace(filename="orphan id.thumbnails", st_mode=stat.S_IFDIR | 0o755),
+                    SimpleNamespace(filename="restored.metadata", st_mode=stat.S_IFREG | 0o644),
+                    SimpleNamespace(filename="restored.thumbnails", st_mode=stat.S_IFDIR | 0o755),
+                    SimpleNamespace(filename="trash.metadata", st_mode=stat.S_IFREG | 0o644),
+                    SimpleNamespace(filename="trash.thumbnails", st_mode=stat.S_IFDIR | 0o755),
+                    SimpleNamespace(filename="became-file.thumbnails", st_mode=stat.S_IFREG | 0o644),
+                ]
+            },
+            metadata={"restored": {}, "trash": {"parent": "trash"}},
+        )
+        scan = _tab_documents._OrphanThumbnailScan(
+            candidate_ids=("orphan id", "restored", "trash", "became-file"),
+            file_count=4,
+            total_bytes=400,
+        )
+
+        deleted_count = widget._delete_orphan_thumbnails(scan)
+
+        self.assertEqual(deleted_count, 2)
+        expected_paths = [
+            f"{root}/orphan id.thumbnails",
+            f"{root}/trash.thumbnails",
+        ]
+        self.assertEqual(
+            widget.ssh_client.exec_calls,
+            [f"rm -rf -- {shlex.quote(path)}" for path in expected_paths],
+        )
+        self.assertNotIn("systemctl restart xochitl", widget.ssh_client.exec_calls)
+
     def test_filter_and_sort_keep_selected_document_mapping(self):
         widget = self._make_widget()
         widget.set_connection_state(True)
@@ -3130,7 +3349,10 @@ class MainWindowUiTests(unittest.TestCase):
         self.assertEqual(window.connection_widget.theme_button.toolTip(), "切换到亮色主题")
         self.assertFalse(window.connection_widget.theme_button.icon().isNull())
 
-        window._toggle_theme()
+        with mock.patch.object(rmtool, "save_config") as save_config:
+            window._toggle_theme()
+
+        save_config.assert_called_once_with(config)
 
         self.assertEqual(window.connection_widget.theme_button.toolTip(), "切换到暗色主题")
         self.assertFalse(window.connection_widget.theme_button.icon().isNull())
