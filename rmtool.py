@@ -430,6 +430,16 @@ class DocumentItem:
     available_assets: List[str]
 
 
+def is_active_document_metadata(metadata: object) -> bool:
+    """Return whether parsed metadata represents a visible document."""
+    if not isinstance(metadata, dict):
+        return True
+    parent = metadata.get("parent")
+    return metadata.get("deleted") is not True and not (
+        isinstance(parent, str) and parent.strip().casefold() == "trash"
+    )
+
+
 def load_document_items(sftp: paramiko.SFTPClient) -> List[DocumentItem]:
     """Read and sort document metadata from an existing SFTP session."""
     try:
@@ -446,6 +456,11 @@ def load_document_items(sftp: paramiko.SFTPClient) -> List[DocumentItem]:
             with sftp.open(metadata_path, "r") as file_handle:
                 metadata = json.load(file_handle)
         except Exception:
+            metadata = {}
+
+        if not is_active_document_metadata(metadata):
+            continue
+        if not isinstance(metadata, dict):
             metadata = {}
 
         available_assets = [
