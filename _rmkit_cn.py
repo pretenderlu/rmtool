@@ -64,6 +64,11 @@ FONTCONFIG_BACKUP_PATH = f"{BACKUP_DIR}/fonts.conf.before-localization"
 MANAGED_FONT_PATHS = frozenset((BUNDLED_FONT_PATH, *CUSTOM_FONT_PATHS.values()))
 PRIMARY_FONT_COMMAND = "fc-match --format='%{file}\\n' sans-serif | head -n 1"
 CJK_FONT_LIST_COMMAND = "fc-list --format='%{file}\\n' ':lang=zh-cn'"
+FONT_OVERRIDE_MATCH_PATTERNS = (
+    "sans:lang=zh-cn",
+    "reMarkable Sans:lang=zh-cn",
+    "Noto Sans SC",
+)
 
 _FIRMWARE_RE = re.compile(r"^[0-9]{14}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -468,6 +473,186 @@ def upload_font(
             except Exception:
                 logging.exception("Could not remove temporary font upload files")
             raise
+    return remote_path
+
+
+def _scan_font_family(ssh_client, remote_path: str) -> str:
+    output = ssh_client.exec_checked(f"fc-scan {shlex.quote(remote_path)}")
+    for line in output.splitlines():
+        match = re.match(r'^\s*family:\s*"([^"]+)"', line)
+        if match and match.group(1).strip():
+            return match.group(1).strip()
+    raise RuntimeError("设备无法识别所选字体的字体族，已停止应用。")
+
+
+def _matched_font_path(ssh_client, pattern: str) -> str:
+    command = (
+        "fc-match --format='%{file}\\n' "
+        f"{shlex.quote(pattern)} | head -n 1"
+    )
+    lines = ssh_client.exec_checked(command).splitlines()
+    return lines[0].strip() if lines else ""
+
+
+def install_user_font_override(
+    ssh_client,
+    local_path: str,
+    remote_dir: str,
+    remote_name: str,
+    *,
+    fontconfig_remote_path: str = FONTCONFIG_FILE,
+) -> str:
+    """Install a user font using the family and matches reported by the device."""
+    path = _validate_font_file(local_path)
+    remote_path = posixpath.join(remote_dir, remote_name)
+    fontconfig_dir = posixpath.dirname(fontconfig_remote_path)
+    token = os.urandom(6).hex()
+    remote_temp_path = f"{remote_path}.rmtool-{token}.tmp"
+    fontconfig_temp_path = f"{fontconfig_remote_path}.rmtool-{token}.tmp"
+    font_backup_path = f"{remote_path}.rmtool-{token}.bak"
+    fontconfig_backup_path = f"{fontconfig_remote_path}.rmtool-{token}.bak"
+    had_font = _file_exists(ssh_client, remote_path)
+    had_fontconfig = _file_exists(ssh_client, fontconfig_remote_path)
+    font_backed_up = False
+    fontconfig_backed_up = False
+    font_replaced = False
+    fontconfig_replaced = False
+    local_config_path: Optional[str] = None
+
+    with remount_rw(ssh_client):
+        ssh_client.exec_checked(f"mkdir -p {shlex.quote(remote_dir)}")
+        ssh_client.exec_checked(f"mkdir -p {shlex.quote(fontconfig_dir)}")
+        try:
+            ssh_client.transfer_file(str(path), remote_temp_path)
+            ssh_client.exec_checked(f"chmod 0644 {shlex.quote(remote_temp_path)}")
+            font_family = _scan_font_family(ssh_client, remote_temp_path)
+
+            with tempfile.NamedTemporaryFile(
+                delete=False, suffix=".conf", mode="w", encoding="utf-8"
+            ) as config_file:
+                config_file.write(fontconfig_override(font_family))
+                local_config_path = config_file.name
+            ssh_client.transfer_file(local_config_path, fontconfig_temp_path)
+            ssh_client.exec_checked(
+                f"chmod 0644 {shlex.quote(fontconfig_temp_path)}"
+            )
+
+            if had_font:
+                ssh_client.exec_checked(
+                    f"cp -p {shlex.quote(remote_path)} "
+                    f"{shlex.quote(font_backup_path)}"
+                )
+                font_backed_up = True
+            if had_fontconfig:
+                ssh_client.exec_checked(
+                    f"cp -p {shlex.quote(fontconfig_remote_path)} "
+                    f"{shlex.quote(fontconfig_backup_path)}"
+                )
+                fontconfig_backed_up = True
+
+            font_replaced = True
+            ssh_client.exec_checked(
+                f"mv -f {shlex.quote(remote_temp_path)} "
+                f"{shlex.quote(remote_path)}"
+            )
+            fontconfig_replaced = True
+            ssh_client.exec_checked(
+                f"mv -f {shlex.quote(fontconfig_temp_path)} "
+                f"{shlex.quote(fontconfig_remote_path)}"
+            )
+            refresh_font_cache(ssh_client, remote_dir, fontconfig_dir)
+
+            expected = posixpath.normpath(remote_path)
+            for pattern in FONT_OVERRIDE_MATCH_PATTERNS:
+                matched = _matched_font_path(ssh_client, pattern)
+                if not matched or posixpath.normpath(matched) != expected:
+                    actual = matched or "未找到匹配字体"
+                    raise RuntimeError(
+                        f"字体匹配校验失败：{pattern} 实际指向 {actual}。"
+                    )
+        except Exception as exc:
+            rollback_errors = []
+            if font_replaced:
+                try:
+                    if font_backed_up:
+                        ssh_client.exec_checked(
+                            f"mv -f {shlex.quote(font_backup_path)} "
+                            f"{shlex.quote(remote_path)}"
+                        )
+                        font_backed_up = False
+                    elif not had_font:
+                        ssh_client.exec_checked(
+                            f"rm -f {shlex.quote(remote_path)}"
+                        )
+                except Exception as rollback_exc:
+                    rollback_errors.append(f"字体恢复失败：{rollback_exc}")
+                    logging.exception("Could not restore the previous user font")
+            if fontconfig_replaced:
+                try:
+                    if fontconfig_backed_up:
+                        ssh_client.exec_checked(
+                            f"mv -f {shlex.quote(fontconfig_backup_path)} "
+                            f"{shlex.quote(fontconfig_remote_path)}"
+                        )
+                        fontconfig_backed_up = False
+                    elif not had_fontconfig:
+                        ssh_client.exec_checked(
+                            f"rm -f {shlex.quote(fontconfig_remote_path)}"
+                        )
+                except Exception as rollback_exc:
+                    rollback_errors.append(f"字体配置恢复失败：{rollback_exc}")
+                    logging.exception("Could not restore the previous fontconfig")
+            if font_replaced or fontconfig_replaced:
+                try:
+                    refresh_font_cache(ssh_client, remote_dir, fontconfig_dir)
+                except Exception as rollback_exc:
+                    rollback_errors.append(f"字体缓存恢复失败：{rollback_exc}")
+                    logging.exception("Could not refresh cache after font rollback")
+
+            cleanup_paths = [remote_temp_path, fontconfig_temp_path]
+            if not (font_replaced and font_backed_up):
+                cleanup_paths.append(font_backup_path)
+            if not (fontconfig_replaced and fontconfig_backed_up):
+                cleanup_paths.append(fontconfig_backup_path)
+            try:
+                ssh_client.exec_checked(
+                    "rm -f "
+                    + " ".join(shlex.quote(item) for item in cleanup_paths)
+                )
+            except Exception as cleanup_exc:
+                rollback_errors.append(f"临时文件清理失败：{cleanup_exc}")
+                logging.exception("Could not clean up user font override files")
+            if rollback_errors:
+                retained_backups = []
+                if font_replaced and font_backed_up:
+                    retained_backups.append(font_backup_path)
+                if fontconfig_replaced and fontconfig_backed_up:
+                    retained_backups.append(fontconfig_backup_path)
+                backup_note = (
+                    f"；保留的备份：{', '.join(retained_backups)}"
+                    if retained_backups
+                    else ""
+                )
+                raise RuntimeError(
+                    f"{exc} 自动回滚未完整完成：{'；'.join(rollback_errors)}"
+                    f"{backup_note}"
+                ) from exc
+            raise
+        else:
+            try:
+                ssh_client.exec_checked(
+                    "rm -f "
+                    + " ".join(
+                        shlex.quote(item)
+                        for item in (font_backup_path, fontconfig_backup_path)
+                    )
+                )
+            except Exception:
+                logging.exception("Could not remove user font override backups")
+        finally:
+            if local_config_path:
+                Path(local_config_path).unlink(missing_ok=True)
+
     return remote_path
 
 

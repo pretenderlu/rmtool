@@ -2146,11 +2146,10 @@ class FontUiTests(unittest.TestCase):
             widget._upload_font,
             str(font_path),
             rmtool.DEFAULT_FONT_NAME,
-            "Preview Family",
         )
         start_worker.assert_called_once_with(worker_instance)
 
-    def test_font_upload_installs_user_fontconfig_override(self):
+    def test_font_upload_delegates_device_family_detection_to_backend(self):
         ssh_client = FakeTransferSSHClient()
         widget = rmtool.FontTab(ssh_client, rmtool._default_config())
         self.addCleanup(widget.deleteLater)
@@ -2159,32 +2158,16 @@ class FontUiTests(unittest.TestCase):
             font_path = Path(temp_root) / "preview-font.ttf"
             font_path.write_bytes(b"fake-font")
 
-            widget._upload_font(str(font_path), rmtool.DEFAULT_FONT_NAME, "Preview Family")
+            with mock.patch.object(
+                _rmkit_cn, "install_user_font_override"
+            ) as install_override:
+                widget._upload_font(str(font_path), rmtool.DEFAULT_FONT_NAME)
 
-        self.assertEqual(
-            ssh_client.sftp.uploaded_files[
-                f"{rmtool.DEFAULT_FONT_DIR}{rmtool.DEFAULT_FONT_NAME}"
-            ],
-            b"fake-font",
-        )
-        config = ssh_client.sftp.uploaded_files["/home/root/.config/fontconfig/fonts.conf"].decode(
-            "utf-8"
-        )
-        self.assertIn("<family>sans-serif</family>", config)
-        self.assertIn("<family>Noto Sans SC</family>", config)
-        self.assertIn("<prefer><family>Preview Family</family></prefer>", config)
-        self.assertIn("mkdir -p /home/root/.config/fontconfig", ssh_client.exec_calls)
-        self.assertIn(
-            "fc-cache -f -v /home/root/.local/share/fonts/ /home/root/.config/fontconfig",
-            ssh_client.exec_calls,
-        )
-        self.assertNotIn(
-            f"{rmtool.DEFAULT_FONT_DIR}{rmtool.DEFAULT_FONT_NAME}.tmp",
-            ssh_client.sftp.uploaded_files,
-        )
-        self.assertNotIn(
-            "/home/root/.config/fontconfig/fonts.conf.tmp",
-            ssh_client.sftp.uploaded_files,
+        install_override.assert_called_once_with(
+            ssh_client,
+            str(font_path),
+            rmtool.DEFAULT_FONT_DIR,
+            rmtool.DEFAULT_FONT_NAME,
         )
 
 

@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import posixpath
-import tempfile
 from datetime import datetime
 from typing import Dict, Optional
 
@@ -15,10 +14,6 @@ from _dialogs import ask_confirmation, show_error, show_info, show_warning
 import _rmkit_cn
 from _ssh import SSHClientWrapper, remount_rw, require_connection
 import rmtool as _rmtool  # late-bound access to avoid circular import
-
-
-FONTCONFIG_DIR = _rmkit_cn.FONTCONFIG_DIR
-FONTCONFIG_FILE = _rmkit_cn.FONTCONFIG_FILE
 
 
 def select_font_file(parent: QtWidgets.QWidget) -> Optional[str]:
@@ -137,7 +132,6 @@ class FontTab(QtWidgets.QWidget):
             return
         file_path = self._selected_font_path
         new_name = self._target_font_name()
-        font_family = self._selected_font_family or ""
 
         self.select_button.setEnabled(False)
         self.upload_button.setEnabled(False)
@@ -149,7 +143,7 @@ class FontTab(QtWidgets.QWidget):
         progress.show()
         self._font_progress = progress
 
-        worker = _rmtool.Worker(self._upload_font, file_path, new_name, font_family)
+        worker = _rmtool.Worker(self._upload_font, file_path, new_name)
 
         def on_finished(_: object):
             self._close_font_progress()
@@ -209,25 +203,14 @@ class FontTab(QtWidgets.QWidget):
             QtGui.QFontDatabase.removeApplicationFont(self._preview_font_id)
             self._preview_font_id = -1
 
-    @staticmethod
-    def _fontconfig_override(font_family: str) -> str:
-        return _rmkit_cn.fontconfig_override(font_family)
-
-    def _upload_font(self, file_path: str, new_name: str, font_family: str):
+    def _upload_font(self, file_path: str, new_name: str):
         font_dir = self.config.get("paths", {}).get("font", _rmtool.DEFAULT_FONT_DIR)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            temp_config_path = os.path.join(tmpdir, "fonts.conf")
-            if font_family:
-                with open(temp_config_path, "w", encoding="utf-8") as config_file:
-                    config_file.write(self._fontconfig_override(font_family))
-            _rmkit_cn.upload_font(
-                self.ssh_client,
-                file_path,
-                font_dir,
-                new_name,
-                fontconfig_local_path=temp_config_path if font_family else None,
-                fontconfig_remote_path=FONTCONFIG_FILE if font_family else None,
-            )
+        _rmkit_cn.install_user_font_override(
+            self.ssh_client,
+            file_path,
+            font_dir,
+            new_name,
+        )
 
 
 class TimeTab(QtWidgets.QWidget):
