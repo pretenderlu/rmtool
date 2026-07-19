@@ -39,6 +39,8 @@ class FakeSSH:
         active_font=None,
         cjk_files=(),
         fail_exec_commands=(),
+        device_font_family="Device Font Family",
+        font_match_paths=None,
     ):
         self.files = dict(files or {})
         self.firmware = firmware
@@ -53,6 +55,8 @@ class FakeSSH:
         )
         self.cjk_files = set(cjk_files)
         self.fail_exec_commands = set(fail_exec_commands)
+        self.device_font_family = device_font_family
+        self.font_match_paths = dict(font_match_paths or {})
         if cjk_available:
             self.cjk_files.add(self.active_font)
         self.transfer_count = 0
@@ -97,6 +101,14 @@ class FakeSSH:
                 if self.files.get(path) in self.cjk_font_data
             )
             return "".join(f"{path}\n" for path in sorted(files))
+        if command.startswith("fc-scan "):
+            scanned_path = shlex.split(command)[1]
+            if scanned_path not in self.files:
+                raise IOError(scanned_path)
+            return f'family: "{self.device_font_family}"(s)\n'
+        if command.startswith("fc-match --format='%{file}\\n' "):
+            pattern = shlex.split(command)[2]
+            return f"{self.font_match_paths.get(pattern, self.active_font)}\n"
         if command.startswith("fc-cache -f -v "):
             return "cache refreshed\n"
         if command in ("mount -o remount,rw /", "mount -o remount,ro /"):
@@ -156,6 +168,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             "BUNDLED_FONT_SHA256",
             "FONT_MARKER_PATH",
             "has_cjk_font",
+            "install_user_font_override",
             "upload_font",
             "set_language_config",
             "get_localization_status",
@@ -855,6 +868,64 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         )
         self.assertNotIn(f"{target}.tmp", ssh.files)
         self.assertNotIn(f"{_rmkit_cn.FONTCONFIG_FILE}.tmp", ssh.files)
+
+    def test_user_font_override_uses_device_family_and_verifies_all_matches(self):
+        target_dir = "/home/root/.local/share/fonts/"
+        target = f"{target_dir}zwzt.ttf"
+        ssh = FakeSSH(
+            device_font_family="Linux Device Family",
+            font_match_paths={
+                pattern: target for pattern in _rmkit_cn.FONT_OVERRIDE_MATCH_PATTERNS
+            },
+        )
+
+        result = _rmkit_cn.install_user_font_override(
+            ssh,
+            self.make_font(b"new user font"),
+            target_dir,
+            "zwzt.ttf",
+        )
+
+        self.assertEqual(result, target)
+        self.assertEqual(ssh.files[target], b"new user font")
+        config = ssh.files[_rmkit_cn.FONTCONFIG_FILE].decode("utf-8")
+        self.assertIn("<prefer><family>Linux Device Family</family></prefer>", config)
+        self.assertEqual(config.count("Linux Device Family"), 2)
+        commands = [value for kind, value in ssh.events if kind == "exec"]
+        for pattern in _rmkit_cn.FONT_OVERRIDE_MATCH_PATTERNS:
+            self.assertIn(
+                "fc-match --format='%{file}\\n' "
+                f"{shlex.quote(pattern)} | head -n 1",
+                commands,
+            )
+        self.assertFalse(any(".rmtool-" in path for path in ssh.files))
+
+    def test_user_font_override_restores_previous_files_when_match_fails(self):
+        target_dir = "/home/root/.local/share/fonts/"
+        target = f"{target_dir}zwzt.ttf"
+        original = {
+            target: b"old user font",
+            _rmkit_cn.FONTCONFIG_FILE: b"old user fontconfig",
+        }
+        match_paths = {
+            pattern: target for pattern in _rmkit_cn.FONT_OVERRIDE_MATCH_PATTERNS
+        }
+        match_paths["reMarkable Sans:lang=zh-cn"] = "/usr/share/fonts/default.ttf"
+        ssh = FakeSSH(
+            original,
+            device_font_family="Linux Device Family",
+            font_match_paths=match_paths,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "字体匹配校验失败"):
+            _rmkit_cn.install_user_font_override(
+                ssh,
+                self.make_font(b"new user font"),
+                target_dir,
+                "zwzt.ttf",
+            )
+
+        self.assertEqual(ssh.files, original)
 
     def test_malformed_font_markers_are_rejected_without_writes(self):
         target = _rmkit_cn.CUSTOM_FONT_PATHS[".ttf"]
