@@ -12,6 +12,7 @@ from PyQt5 import QtWebEngineWidgets
 
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
 import _rmkit_cn
+import _tap_page_turn
 from _ssh import SSHClientWrapper, remount_rw, require_connection
 import rmtool as _rmtool  # late-bound access to avoid circular import
 
@@ -683,6 +684,251 @@ class RmkitCnSection(QtWidgets.QWidget):
         )
 
 
+class TapPageTurnSection(QtWidgets.QWidget):
+    def __init__(self, ssh_client: SSHClientWrapper, parent=None):
+        super().__init__(parent)
+        self.ssh_client = ssh_client
+        self.thread_pool = QtCore.QThreadPool.globalInstance()
+        self._status: Optional[_tap_page_turn.TapPageTurnStatus] = None
+        self._busy = False
+
+        title = QtWidgets.QLabel("点击翻页")
+        title.setObjectName("tapPageTurnStatus")
+        title_font = QtGui.QFont(title.font())
+        title_font.setPointSize(max(title_font.pointSize() + 2, 14))
+        title_font.setBold(True)
+        title.setFont(title_font)
+
+        detail = QtWidgets.QLabel(
+            "在 PDF 和 EPUB 阅读页使用屏幕分区点击上一页或下一页，滑动翻页保持可用。"
+            "功能按硬件、内部固件版本和 xochitl 哈希精确匹配，并在冷启动后持续生效。"
+        )
+        detail.setWordWrap(True)
+
+        self.catalog_label = QtWidgets.QLabel("云端点击翻页包：检测后显示")
+        self.catalog_label.setObjectName("tapPageTurnCatalog")
+        self.catalog_label.setWordWrap(True)
+        self.catalog_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+
+        self.status_label = QtWidgets.QLabel("设备已连接，尚未检测")
+        self.status_label.setObjectName("tapPageTurnDeviceStatus")
+        self.status_label.setWordWrap(True)
+
+        self.detect_button = QtWidgets.QPushButton("检测状态")
+        self.detect_button.setProperty("cssClass", "secondary")
+        self.enable_button = QtWidgets.QPushButton("启用点击翻页")
+        self.disable_button = QtWidgets.QPushButton("停用")
+        self.disable_button.setProperty("cssClass", "secondary")
+        self.project_button = QtWidgets.QPushButton("查看说明")
+        self.project_button.setProperty("cssClass", "secondary")
+
+        buttons = QtWidgets.QHBoxLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.setSpacing(_rmtool.SUBSECTION_GAP)
+        buttons.addWidget(self.detect_button)
+        buttons.addWidget(self.enable_button)
+        buttons.addWidget(self.disable_button)
+        buttons.addWidget(self.project_button)
+        buttons.addStretch()
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(_rmtool.SUBSECTION_GAP)
+        layout.addWidget(title)
+        layout.addWidget(detail)
+        layout.addWidget(self.catalog_label)
+        layout.addWidget(self.status_label)
+        layout.addLayout(buttons)
+
+        self.detect_button.clicked.connect(self._detect_status)
+        self.enable_button.clicked.connect(self._enable)
+        self.disable_button.clicked.connect(self._disable)
+        self.project_button.clicked.connect(
+            lambda: QtGui.QDesktopServices.openUrl(
+                QtCore.QUrl(f"{_tap_page_turn.REPO_URL}/tree/main/tap-page-turn")
+            )
+        )
+        self.ssh_client.connection_changed.connect(self._on_connection_changed)
+        self._on_connection_changed(self.ssh_client.is_connected())
+
+    def _on_connection_changed(self, connected: bool):
+        if not connected:
+            self._status = None
+            self.status_label.setText("设备未连接")
+        elif self._status is None:
+            self.status_label.setText("设备已连接，尚未检测")
+        self.detect_button.setEnabled(connected and not self._busy)
+        self._update_buttons()
+
+    def _update_buttons(self):
+        connected = self.ssh_client.is_connected() and not self._busy
+        state = self._status.state if self._status else None
+        self.enable_button.setEnabled(
+            connected
+            and self._status is not None
+            and self._status.package is not None
+            and state
+            in (
+                _tap_page_turn.TapPageTurnState.NOT_INSTALLED,
+                _tap_page_turn.TapPageTurnState.INSTALLED_DISABLED,
+            )
+        )
+        self.disable_button.setEnabled(
+            connected
+            and self._status is not None
+            and self._status.dropin_present
+        )
+
+    def _set_busy(self, busy: bool, message: str = ""):
+        self._busy = busy
+        self.detect_button.setEnabled(
+            self.ssh_client.is_connected() and not busy
+        )
+        if message:
+            self.status_label.setText(message)
+        self._update_buttons()
+
+    def _apply_status(self, status: _tap_page_turn.TapPageTurnStatus):
+        self._status = status
+        if status.available_packages:
+            channel_names = {"stable": "正式版", "beta": "测试版"}
+            entries = [
+                f"{item.release_version} | {channel_names[item.channel]} | "
+                f"硬件 {item.platform.title()} | 内部版本 {item.firmware}"
+                for item in status.available_packages
+            ]
+            self.catalog_label.setText(
+                "云端点击翻页包：\n" + "\n".join(entries)
+            )
+        else:
+            self.catalog_label.setText("云端点击翻页包：当前硬件没有可用版本")
+
+        messages = {
+            _tap_page_turn.TapPageTurnState.INCOMPATIBLE: (
+                "没有与当前设备、固件和 xochitl 哈希精确匹配的点击翻页包"
+            ),
+            _tap_page_turn.TapPageTurnState.NOT_INSTALLED: "尚未安装点击翻页",
+            _tap_page_turn.TapPageTurnState.INSTALLED_DISABLED: (
+                "点击翻页资源已缓存，持久化当前未启用"
+            ),
+            _tap_page_turn.TapPageTurnState.ENABLE_PENDING_REBOOT: (
+                "持久化已部署，等待冷启动生效"
+            ),
+            _tap_page_turn.TapPageTurnState.ENABLED: "点击翻页已启用并正在运行",
+            _tap_page_turn.TapPageTurnState.DISABLE_PENDING_REBOOT: (
+                "持久化已停用，当前进程将在冷启动后恢复原生"
+            ),
+            _tap_page_turn.TapPageTurnState.BROKEN: (
+                "检测到不完整或被修改的点击翻页安装，请先停用"
+            ),
+        }
+        message = messages[status.state]
+        if status.detail:
+            message = f"{message}：{status.detail}"
+        identity = status.identity
+        message += (
+            f"\n设备：{identity.platform or '未知'} | "
+            f"内部版本 {identity.firmware or '未知'}"
+        )
+        self.status_label.setText(message)
+        self._update_buttons()
+
+    def _start_worker(
+        self,
+        fn,
+        *args,
+        pending: str,
+        success: str = "",
+        close_connection: bool = False,
+    ):
+        self._set_busy(True, pending)
+        worker = _rmtool.Worker(fn, *args)
+
+        def on_finished(status: _tap_page_turn.TapPageTurnStatus):
+            self._set_busy(False)
+            self._apply_status(status)
+            if close_connection:
+                self.ssh_client.close()
+            if success:
+                show_info(self, _rmtool.APP_NAME, success)
+
+        def on_error(exc: Exception):
+            self._set_busy(False)
+            self.status_label.setText("操作失败，未自动重启设备")
+            logging.error("Tap-to-turn operation failed: %s", exc)
+            show_error(
+                self,
+                _rmtool.APP_NAME,
+                f"操作失败：{exc}\n设备不会被自动重启，请检查日志后重试。",
+            )
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self.thread_pool.start(worker)
+
+    @require_connection
+    def _detect_status(self):
+        self._start_worker(
+            _tap_page_turn.get_cloud_status,
+            self.ssh_client,
+            str(_rmtool.app_state_dir()),
+            pending="正在获取云端清单并核对设备、固件与 xochitl 哈希…",
+        )
+
+    @require_connection
+    def _enable(self):
+        if not self._status or not self._status.package:
+            return
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "将下载并校验固件专用资源，在系统中写入持久化 xochitl drop-in。"
+            "本次操作不会重启界面或设备；完成后 SSH 会话会关闭，请从设备菜单手动冷启动。"
+            "是否继续？",
+            confirm_text="部署持久化",
+            cancel_text="取消",
+        ):
+            return
+        self._start_worker(
+            _tap_page_turn.enable_cloud,
+            self.ssh_client,
+            self._status.package,
+            str(_rmtool.app_state_dir()),
+            pending="正在下载、逐文件校验并部署点击翻页资源…",
+            success=(
+                "点击翻页持久化已部署并通过校验，SSH 会话已关闭。\n"
+                "请从设备菜单手动重新启动；不要通过 rmtool 立即重启。"
+            ),
+            close_connection=True,
+        )
+
+    @require_connection
+    def _disable(self):
+        if not self._status or not self._status.dropin_present:
+            return
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "将从当前 overlay 和系统分区同时移除 rmtool 点击翻页 drop-in。"
+            "资源缓存会保留，本次操作不会重启界面或设备；完成后请手动冷启动。"
+            "是否继续？",
+            confirm_text="停用点击翻页",
+            cancel_text="取消",
+        ):
+            return
+        self._start_worker(
+            _tap_page_turn.disable,
+            self.ssh_client,
+            self._status.available_packages,
+            pending="正在移除点击翻页持久化配置…",
+            success=(
+                "点击翻页持久化已移除，SSH 会话已关闭。\n"
+                "请从设备菜单手动重新启动以恢复原生界面。"
+            ),
+            close_connection=True,
+        )
+
+
 class DashboardTab(QtWidgets.QWidget):
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent)
@@ -766,6 +1012,7 @@ class ToolboxTab(QtWidgets.QWidget):
         self.time_section = TimeTab(ssh_client)
         self.control_section = ControlTab(ssh_client)
         self.rmkit_cn_section = RmkitCnSection(ssh_client)
+        self.tap_page_turn_section = TapPageTurnSection(ssh_client)
 
         font_group = QtWidgets.QGroupBox("字体上传")
         font_layout = QtWidgets.QVBoxLayout()
@@ -790,6 +1037,14 @@ class ToolboxTab(QtWidgets.QWidget):
         rmkit_cn_layout.setContentsMargins(0, _rmtool.SUBSECTION_GAP, 0, 0)
         rmkit_cn_layout.addWidget(self.rmkit_cn_section)
         rmkit_cn_group.setLayout(rmkit_cn_layout)
+
+        tap_page_turn_group = QtWidgets.QGroupBox("阅读手势")
+        tap_page_turn_layout = QtWidgets.QVBoxLayout()
+        tap_page_turn_layout.setContentsMargins(
+            0, _rmtool.SUBSECTION_GAP, 0, 0
+        )
+        tap_page_turn_layout.addWidget(self.tap_page_turn_section)
+        tap_page_turn_group.setLayout(tap_page_turn_layout)
 
         koreader_group = QtWidgets.QGroupBox("KOReader / 第三方应用")
         koreader_info = QtWidgets.QLabel(
@@ -830,6 +1085,7 @@ class ToolboxTab(QtWidgets.QWidget):
         content_layout.addWidget(time_group)
         content_layout.addWidget(control_group)
         content_layout.addWidget(rmkit_cn_group)
+        content_layout.addWidget(tap_page_turn_group)
         content_layout.addWidget(koreader_group)
         content_layout.addStretch()
 

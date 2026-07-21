@@ -1,0 +1,63 @@
+; Persistent tap-to-turn patch for exact supported 3.28 builds.
+
+AFFECT /qml/device/view/documentview/SceneViewGestures.qml
+    TRAVERSE TouchArea#touchArea
+        LOCATE BEFORE TouchAreaClickFilter#touchClick
+        INSERT {
+            function rmtoolTapPageDirection(pos) {
+                if (touchArea.gesturesBlocked
+                    || !view.clickGestureEnabled
+                    || view.zoomedIn
+                    || view.zoomedOut
+                    || view.notePage
+                    || view.textMode
+                    || view.itemSelectionMode
+                    || view.textSelectionMode
+                    || !view.document
+                    || (view.document.fileType !== Document.Pdf
+                        && view.document.fileType !== Document.Ebook)) {
+                    return 0
+                }
+
+                const normalizedX = pos.x / touchArea.width
+                const normalizedY = pos.y / touchArea.height
+
+                if (normalizedX < 0.40
+                    && normalizedY >= 0.38
+                    && normalizedY < 0.65) {
+                    return -1
+                }
+
+                if ((normalizedX >= 0.75 && normalizedY < 0.65)
+                    || normalizedY >= 0.65) {
+                    return 1
+                }
+
+                return 0
+            }
+
+            Component.onCompleted: console.warn("RMTOOL-TAP-PAGE: loaded")
+        }
+
+        TRAVERSE TouchAreaClickFilter#touchClick
+            REBUILD onClick
+                LOCATE AFTER STREAM / { /
+                INSERT {
+                    const rmtoolDirection = touchArea.rmtoolTapPageDirection(pos)
+                    if (!linkPressed && rmtoolDirection < 0) {
+                        console.warn("RMTOOL-TAP-PAGE: previous")
+                        reset()
+                        view.moveBackward()
+                        return
+                    }
+                    if (!linkPressed && rmtoolDirection > 0) {
+                        console.warn("RMTOOL-TAP-PAGE: next")
+                        reset()
+                        view.moveForward()
+                        return
+                    }
+                }
+            END REBUILD
+        END TRAVERSE
+    END TRAVERSE
+END AFFECT

@@ -10,7 +10,7 @@ A desktop GUI management tool for reMarkable devices
 
 </div>
 
-rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, and reMarkable 2 devices over local root SSH. It provides multi-device connections, a dashboard, wallpaper and document management, font upload, time management, device controls, and native Chinese UI localization. Device operations do not depend on reMarkable cloud services. The computer needs internet access the first time it retrieves a localization manifest or firmware package; a previously validated cache can be reused offline.
+rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, and reMarkable 2 devices over local root SSH. It provides multi-device connections, a dashboard, wallpaper and document management, font upload, time management, device controls, native Chinese UI localization, and firmware-gated tap-to-turn support. Device operations do not depend on reMarkable cloud services. The computer needs internet access the first time it retrieves a localization manifest or firmware package; a previously validated cache can be reused offline.
 
 > [!WARNING]
 > rmtool directly modifies files on the device. Sync or back up important content first, and make sure you accept the data and warranty risks associated with Developer Mode, root SSH, and third-party modifications. This project is not official reMarkable software.
@@ -87,6 +87,7 @@ The main files are:
 - `known_hosts`: SSH host trust records isolated by device ID.
 - `remarkable_tool.log`: rotating runtime log.
 - `cache/localization/`: validated localization manifests and firmware-package cache.
+- `cache/tap-page-turn/`: validated tap-to-turn manifests and package cache.
 
 > [!CAUTION]
 > When "Remember password" is selected, the root password is stored in **plain text** in `.rmtool/devices.json`; it is not stored in the operating system credential manager. Do not share, upload, or sync the entire `.rmtool/` directory to an untrusted location, and do not attach it to an issue. Use "Forget password" in the sidebar to remove a saved password.
@@ -99,6 +100,7 @@ The main files are:
 - **Font upload**: Preview and upload TTF/OTF fonts, optionally rename one to `zwzt.ttf`, write it to the user font directory with a fontconfig configuration, refresh the font cache, and prompt for a restart.
 - **Time management**: Sync the computer's time, inspect system time, hardware clock, and timezone, or set the timezone to `Asia/Shanghai`.
 - **Device control**: Restart the device, enable Wi-Fi SSH, and increase frontlight brightness on devices with the `rm_frontlight` interface while installing a persistence service.
+- **Tap to turn pages**: On exactly supported firmware, enable persistent left/right tap regions in PDF and EPUB reading views while retaining native swipe navigation and document links.
 - **Theme and logs**: Light and dark themes are persisted. The bottom log panel supports level filtering, pause, automatic scrolling, clearing, and opening the log file.
 - **Third-party application links**: The toolbox links to documentation for vellum, xovi, rm-appload, and KOReader. It does not include one-click installers.
 
@@ -131,6 +133,14 @@ On the beta firmware, enable and restore have been verified on a real Paper Pro 
 
 Localization reuses xochitl's built-in French language slot, so French is unavailable while Chinese is enabled. rmtool first backs up the original configuration and `reMarkable_fr.qm`, then checks whether the current primary font supports Simplified Chinese. The official reMarkable 1 and reMarkable 2 firmware images contain no CJK fonts, so this fallback is required. If the current primary font does not support Chinese, you can install the bundled Noto Sans CJK SC or select a local TTF/OTF file. After enabling localization, repairing fonts, or restoring the original UI, rmtool closes SSH and **does not restart the device automatically**. Restart the device manually to apply the change.
 
+### Tap to turn pages
+
+The tap-to-turn feature is currently available only for Paper Pro (`ferrari`) beta firmware `3.28.0.162`, internal version `20260629074044`. rmtool requires an exact match for the hardware platform, CPU architecture, internal firmware version, and `/usr/bin/xochitl` SHA-256. Other devices and firmware versions are rejected rather than guessed.
+
+In a PDF or EPUB reading view, a short one-finger tap in the left-middle region goes to the previous page. The right edge and lower region go to the next page. Native swipes, stylus input, menus, zooming, selections, and document links remain available. The implementation uses firmware-specific Xovi/QMLDiff assets downloaded from the fixed `tap-page-turn-assets` release; archive, file, and QML hashes are validated before deployment.
+
+Enabling and disabling are intentionally separated from activation. rmtool writes and validates the persistent configuration, closes SSH, and never restarts xochitl or reboots the device automatically. Use the device menu to perform a full restart after either operation. The launcher checks the device and every runtime file on each boot and falls back to stock xochitl if any check fails. See [tap-page-turn](tap-page-turn/README.md) for the package and license details.
+
 ## Usage recommendations
 
 1. After connecting, confirm the current device and connection method on the dashboard.
@@ -138,6 +148,7 @@ Localization reuses xochitl's built-in French language slot, so French is unavai
 3. After uploading documents, you can restart xochitl immediately when prompted. If you skip it, new documents may not appear yet.
 4. Document deletion cannot be undone. PDF export only works for one document containing `.rm` or `.note` handwriting data, and the result excludes the original PDF/EPUB background and non-handwriting content.
 5. Font and localization changes are device-level modifications. Restart the device when prompted after they finish.
+6. After enabling or disabling tap-to-turn, wait for rmtool to close SSH, then restart from the device menu. Do not combine deployment with an immediate remote xochitl restart.
 
 ## Troubleshooting
 
@@ -147,6 +158,8 @@ Localization reuses xochitl's built-in French language slot, so French is unavai
 - **Uploaded document does not appear on the device**: Return to the document center and restart xochitl, or restart the device manually.
 - **"Export to PDF" is unavailable**: Select exactly one document containing `.rm` or `.note` handwriting resources. Export renders only parseable handwriting and does not merge original PDF/EPUB pages, typed text, or other non-handwriting content.
 - **Localization buttons are disabled**: Click "Check Status" first. The computer needs internet access or a valid cache, and the internal firmware version plus the SHA-256 of the original `reMarkable_fr.qm` must match the same manifest entry.
+- **Tap-to-turn cannot be enabled**: Click "Check Status" first. The current release supports only the exact Paper Pro 3.28 beta build listed above. A different model, firmware, xochitl binary, modified payload, or another persistent Xovi configuration blocks deployment.
+- **Tap-to-turn still works immediately after disabling**: This is expected because rmtool does not kill the running xochitl process. Restart the tablet from its device menu to return to the stock interface.
 - **macOS cannot create its configuration**: Move `rmtool.app` to a directory writable by the current user and make sure `.rmtool/` can be created beside it.
 - **Diagnostic information is needed**: Click the log button in the lower-left corner, filter by level, or choose "Open Log File". Before sharing a log, check it for private information such as the device address.
 
@@ -177,7 +190,7 @@ On Windows, after installing dependencies, you can also double-click `rmtool.bat
 ## Development and release checks
 
 ```bash
-python -m compileall -q rmtool.py _dialogs.py _log_viewer.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py rmrl tests
+python -m compileall -q rmtool.py _dialogs.py _log_viewer.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py rmrl tests
 python -m unittest discover -s tests -v
 git diff --check
 actionlint .github/workflows/release.yml

@@ -10,7 +10,7 @@
 
 </div>
 
-rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Paper Pure、reMarkable 1 和 reMarkable 2，提供多设备连接、仪表盘、壁纸、文档、字体、时间、设备控制和原生界面中文等功能。设备操作不依赖 reMarkable 云服务；首次获取汉化清单或固件包时需要电脑联网，已有有效缓存时可离线复用。
+rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Paper Pure、reMarkable 1 和 reMarkable 2，提供多设备连接、仪表盘、壁纸、文档、字体、时间、设备控制、原生界面中文和按固件精确匹配的点击翻页等功能。设备操作不依赖 reMarkable 云服务；首次获取汉化清单或固件包时需要电脑联网，已有有效缓存时可离线复用。
 
 > [!WARNING]
 > rmtool 会直接修改设备文件。请先同步或备份重要内容，并确认自己能够承担开发者模式、root SSH 和第三方修改带来的数据与保修风险。本项目不是 reMarkable 官方软件。
@@ -87,6 +87,7 @@ rmtool 将运行状态保存在应用旁的 `.rmtool/`：
 - `known_hosts`：按设备 ID 隔离保存的 SSH 主机信任记录。
 - `remarkable_tool.log`：滚动运行日志。
 - `cache/localization/`：已校验的汉化清单和固件包缓存。
+- `cache/tap-page-turn/`：已校验的点击翻页清单和固件包缓存。
 
 > [!CAUTION]
 > 勾选“记住密码”后，root 密码会以**明文**写入 `.rmtool/devices.json`，不会进入系统凭据库。请勿分享、上传或把整个 `.rmtool/` 同步到不受信任的位置；提交 Issue 时也不要附带该目录。可在左侧点击“忘记密码”删除已保存密码。
@@ -99,6 +100,7 @@ rmtool 将运行状态保存在应用旁的 `.rmtool/`：
 - **字体上传**：预览并上传 TTF/OTF，可重命名为 `zwzt.ttf`，写入用户字体目录和 fontconfig 配置，刷新字体缓存后提示重启。
 - **时间管理**：同步电脑时间、查看系统时间/硬件时钟/时区，或设置为 `Asia/Shanghai`。
 - **设备控制**：重启设备、开启 Wi-Fi SSH，以及为具有 `rm_frontlight` 前光接口的设备提升亮度并安装持久化服务。
+- **点击翻页**：在精确支持的固件上，为 PDF/EPUB 阅读页启用持久化的左右点击区域，同时保留原生滑动翻页和文档链接。
 - **主题与日志**：亮色/暗色主题会持久化；底部日志面板支持级别过滤、暂停、自动滚动、清屏和打开日志文件。
 - **第三方应用入口**：工具箱提供 vellum、xovi、rm-appload 和 KOReader 的文档链接，不包含一键安装器。
 
@@ -131,6 +133,14 @@ rmtool 将运行状态保存在应用旁的 `.rmtool/`：
 
 汉化借用 xochitl 内置法语槽位，启用期间不能使用法语。程序会先备份原配置和原始 `reMarkable_fr.qm`，并检查当前主字体是否支持简体中文。reMarkable 1 和 reMarkable 2 的官方固件不含 CJK 字体，因此必须经过这项字体保底检查；缺少字体时可安装随应用提供的 Noto Sans CJK SC，或选择本地 TTF/OTF。启用、修复字体或还原后，程序会关闭 SSH，且**不会自动重启设备**，请手动重启使修改生效。
 
+### 点击翻页
+
+点击翻页当前仅支持 Paper Pro（`ferrari`）的 `3.28.0.162` 测试版，内部版本为 `20260629074044`。rmtool 会精确匹配硬件平台、CPU 架构、内部固件版本和 `/usr/bin/xochitl` SHA-256；其他设备或固件不会通过猜测强行安装。
+
+在 PDF 或 EPUB 阅读页，单指短按左侧中部区域进入上一页，右侧边缘和下方区域进入下一页。原生滑动、手写笔、菜单、缩放、选区和文档链接仍然可用。实现所需的固件专用 Xovi/QMLDiff 资源从固定的 `tap-page-turn-assets` Release 按需下载，部署前会校验压缩包、每个文件和 QML 哈希。
+
+启用或停用与重启严格分离。rmtool 只写入并校验持久化配置，随后关闭 SSH，不会自动重启 xochitl 或设备。每次启用或停用后，都应从设备菜单执行完整重启。启动器会在每次开机时校验设备身份和全部运行文件；任一项不匹配时会直接启动原生 xochitl。资源包和许可证细节见 [点击翻页说明](tap-page-turn/README.md)。
+
 ## 使用建议
 
 1. 连接后先在仪表盘确认当前设备和连接方式。
@@ -138,6 +148,7 @@ rmtool 将运行状态保存在应用旁的 `.rmtool/`：
 3. 文档上传完成后，可按提示立即重启 xochitl；跳过时，新文档可能暂时不显示。
 4. 删除文档不可撤销；导出 PDF 只对包含 `.rm` 或 `.note` 笔迹数据的单个文档可用，结果不包含原 PDF/EPUB 底图或非笔迹内容。
 5. 字体和汉化属于设备级修改，完成后按提示重启设备。
+6. 启用或停用点击翻页后，等待 rmtool 关闭 SSH，再从设备菜单重启；不要把部署和远程立即重启 xochitl 放在同一个操作中。
 
 ## 常见问题
 
@@ -147,6 +158,8 @@ rmtool 将运行状态保存在应用旁的 `.rmtool/`：
 - **上传文档后设备端没显示**：回到文档中心重启 xochitl，或手动重启设备。
 - **“导出为 PDF”不可用**：只能单选包含 `.rm` 或 `.note` 笔迹资源的文档；该功能只渲染可解析笔迹，不会合并原 PDF/EPUB 页面、键入文本或其他非笔迹内容。
 - **汉化按钮不可用**：先点击“检测状态”。电脑需要联网或已有有效缓存，且内部固件版本与设备原始 `reMarkable_fr.qm` 的 SHA-256 必须命中同一清单项。
+- **无法启用点击翻页**：先点击“检测状态”。当前只支持上文列出的 Paper Pro 3.28 测试版精确构建；设备型号、固件、xochitl、载荷哈希不符，或已存在其他 Xovi 持久化配置时都会阻止部署。
+- **停用后点击翻页仍暂时有效**：这是正常现象，rmtool 不会强制结束当前 xochitl 进程。请从设备菜单完整重启，恢复原生界面。
 - **macOS 无法创建配置**：把 `rmtool.app` 移到当前用户可写目录，确保其同级可以创建 `.rmtool/`。
 - **需要诊断信息**：点击左下角日志按钮，按级别筛选，或选择“打开日志文件”。分享日志前请检查其中是否含设备地址等隐私信息。
 
@@ -177,7 +190,7 @@ Windows 也可在依赖安装完成后双击 `rmtool.bat`，通过 `pythonw.exe`
 ## 开发与发布检查
 
 ```bash
-python -m compileall -q rmtool.py _dialogs.py _log_viewer.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py rmrl tests
+python -m compileall -q rmtool.py _dialogs.py _log_viewer.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py rmrl tests
 python -m unittest discover -s tests -v
 git diff --check
 actionlint .github/workflows/release.yml

@@ -26,6 +26,7 @@ import rmrl
 import rmtool
 import _rmkit_cn
 import _ssh
+import _tap_page_turn
 import _tab_connection
 import _tab_documents
 import _tab_toolbox
@@ -1179,13 +1180,16 @@ class WallpaperUiTests(unittest.TestCase):
         time_group = toolbox.time_section.parentWidget()
         control_group = toolbox.control_section.parentWidget()
         rmkit_group = toolbox.rmkit_cn_section.parentWidget()
+        tap_page_turn_group = toolbox.tap_page_turn_section.parentWidget()
 
         self.assertIsInstance(time_group, QtWidgets.QGroupBox)
         self.assertIsInstance(control_group, QtWidgets.QGroupBox)
         self.assertIsInstance(rmkit_group, QtWidgets.QGroupBox)
+        self.assertIsInstance(tap_page_turn_group, QtWidgets.QGroupBox)
         self.assertEqual(rmkit_group.title(), "系统汉化")
+        self.assertEqual(tap_page_turn_group.title(), "阅读手势")
 
-        for group in (time_group, control_group, rmkit_group):
+        for group in (time_group, control_group, rmkit_group, tap_page_turn_group):
             margins = group.layout().contentsMargins()
             self.assertEqual(
                 (
@@ -1196,6 +1200,111 @@ class WallpaperUiTests(unittest.TestCase):
                 ),
                 (0, rmtool.SUBSECTION_GAP, 0, 0),
             )
+
+    @staticmethod
+    def tap_page_turn_package():
+        return _tap_page_turn.parse_manifest(
+            Path("tap-page-turn/manifest.json").read_bytes()
+        )[0]
+
+    def test_tap_page_turn_section_exposes_checked_actions(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.TapPageTurnSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.tap_page_turn_package()
+        identity = _tap_page_turn.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+
+        section._apply_status(
+            _tap_page_turn.TapPageTurnStatus(
+                _tap_page_turn.TapPageTurnState.NOT_INSTALLED,
+                identity,
+                package,
+                (package,),
+            )
+        )
+
+        self.assertTrue(section.enable_button.isEnabled())
+        self.assertFalse(section.disable_button.isEnabled())
+        self.assertIn(package.firmware, section.catalog_label.text())
+        self.assertIn("测试版", section.catalog_label.text())
+
+    def test_tap_page_turn_incompatible_install_keeps_recovery_enabled(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.TapPageTurnSection(client)
+        self.addCleanup(section.deleteLater)
+        identity = _tap_page_turn.DeviceIdentity(
+            "20990101000000", "ferrari", "aarch64", "f" * 64
+        )
+
+        section._apply_status(
+            _tap_page_turn.TapPageTurnStatus(
+                _tap_page_turn.TapPageTurnState.INCOMPATIBLE,
+                identity,
+                dropin_present=True,
+            )
+        )
+
+        self.assertFalse(section.enable_button.isEnabled())
+        self.assertTrue(section.disable_button.isEnabled())
+
+    def test_tap_page_turn_enable_uses_worker_then_closes_ssh(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.TapPageTurnSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.tap_page_turn_package()
+        identity = _tap_page_turn.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        section._apply_status(
+            _tap_page_turn.TapPageTurnStatus(
+                _tap_page_turn.TapPageTurnState.NOT_INSTALLED,
+                identity,
+                package,
+                (package,),
+            )
+        )
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+        state_dir = Path(".rmtool")
+        result = _tap_page_turn.TapPageTurnStatus(
+            _tap_page_turn.TapPageTurnState.ENABLE_PENDING_REBOOT,
+            identity,
+            package,
+            (package,),
+            dropin_present=True,
+        )
+
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=True
+        ), mock.patch.object(
+            rmtool, "app_state_dir", return_value=state_dir
+        ), mock.patch.object(
+            rmtool, "Worker", return_value=worker
+        ) as worker_cls, mock.patch.object(
+            section.thread_pool, "start"
+        ) as start_worker, mock.patch.object(
+            _tab_toolbox, "show_info"
+        ) as show_info:
+            section._enable()
+            worker.signals.finished.connect.call_args.args[0](result)
+
+        worker_cls.assert_called_once_with(
+            _tap_page_turn.enable_cloud,
+            client,
+            package,
+            str(state_dir),
+        )
+        start_worker.assert_called_once_with(worker)
+        self.assertEqual(client.close_calls, 1)
+        self.assertIn("手动重新启动", show_info.call_args.args[2])
 
     def test_rmkit_section_exposes_localization_actions_and_source_link(self):
         section = _tab_toolbox.RmkitCnSection(FakeConnectionClient(connected=True, host="10.11.99.1"))
