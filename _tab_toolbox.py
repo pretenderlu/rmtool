@@ -6,7 +6,7 @@ import posixpath
 from datetime import datetime
 from typing import Dict, Optional
 
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
 import _rmkit_cn
@@ -348,6 +348,10 @@ class FontTab(QtWidgets.QWidget):
                 )
 
         def on_finished(result):
+            if sip.isdeleted(self):
+                # Worker outlived the tab (e.g. pool drained during teardown);
+                # nothing safe left to update.
+                return
             if (
                 worker_generation != self._worker_generation
                 or connection_generation != self._connection_generation
@@ -368,6 +372,11 @@ class FontTab(QtWidgets.QWidget):
                 )
 
         def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; only log, touching widgets would
+                # raise RuntimeError (and abort the process on macOS).
+                logging.error("Font manager operation failed after tab close: %s", exc)
+                return
             if (
                 worker_generation != self._worker_generation
                 or connection_generation != self._connection_generation
@@ -846,12 +855,20 @@ class RmkitCnSection(QtWidgets.QWidget):
         worker = _rmtool.Worker(fn, *args)
 
         def on_finished(status: _rmkit_cn.LocalizationStatus):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; nothing safe left to update.
+                return
             self._set_busy(False)
             self._apply_status(status)
             if success:
                 show_info(self, _rmtool.APP_NAME, success)
 
         def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; only log, touching widgets would
+                # raise RuntimeError (and abort the process on macOS).
+                logging.error("Original UI localization failed after tab close: %s", exc)
+                return
             self._set_busy(False)
             self.status_label.setText("操作失败，请查看提示后重试")
             logging.error("Original UI localization failed: %s", exc)
@@ -1138,6 +1155,9 @@ class TapPageTurnSection(QtWidgets.QWidget):
         worker = _rmtool.Worker(fn, *args)
 
         def on_finished(status: _tap_page_turn.TapPageTurnStatus):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; nothing safe left to update.
+                return
             self._set_busy(False)
             self._apply_status(status)
             if close_connection:
@@ -1146,6 +1166,11 @@ class TapPageTurnSection(QtWidgets.QWidget):
                 show_info(self, _rmtool.APP_NAME, success)
 
         def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; only log, touching widgets would
+                # raise RuntimeError (and abort the process on macOS).
+                logging.error("Tap-to-turn operation failed after tab close: %s", exc)
+                return
             self._set_busy(False)
             self.status_label.setText("操作失败，未自动重启设备")
             logging.error("Tap-to-turn operation failed: %s", exc)

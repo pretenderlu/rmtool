@@ -12,13 +12,12 @@ import uuid
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime
-from functools import partial
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 import paramiko
 from PIL import Image
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
 from _ssh import SSHClientWrapper, require_connection
@@ -659,9 +658,25 @@ class DocumentsTab(QtWidgets.QWidget):
         self.preview.setPlainText("\n".join(meta_text))
         self._set_preview_placeholder("加载预览中...")
         self._current_preview_request = item.identifier
+        request_id = item.identifier
         worker = _rmtool.Worker(self._fetch_preview_cover, item)
-        worker.signals.finished.connect(partial(self._on_preview_loaded, item.identifier))
-        worker.signals.error.connect(partial(self._on_preview_error, item.identifier))
+
+        # Closures with a liveness guard: a functools.partial would still be
+        # invoked after the tab is deleted (PyQt only auto-disconnects plain
+        # bound methods), raising RuntimeError from the worker pool drain.
+        def on_finished(result):
+            if sip.isdeleted(self):
+                return
+            self._on_preview_loaded(request_id, result)
+
+        def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                logging.error("Preview load failed after tab close: %s", exc)
+                return
+            self._on_preview_error(request_id, exc)
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
         self.thread_pool.start(worker)
 
     # -- Upload ----------------------------------------------------------------
@@ -680,9 +695,17 @@ class DocumentsTab(QtWidgets.QWidget):
         worker.kwargs["progress_callback"] = worker.signals.progress.emit
 
         def on_finished(_result):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; nothing safe left to update.
+                return
             self._on_upload_finished(count)
 
         def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; only log, touching widgets would
+                # raise RuntimeError (and abort the process on macOS).
+                logging.error("Document upload failed after tab close: %s", exc)
+                return
             self._close_progress_dialog()
             self._on_error(exc)
 
@@ -805,11 +828,19 @@ class DocumentsTab(QtWidgets.QWidget):
         worker = _rmtool.Worker(self._restart_xochitl)
 
         def on_finished(_result):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; nothing safe left to update.
+                return
             self._close_progress_dialog()
             self.status_message.emit("success", "xochitl 已重启，正在刷新列表。", 3500)
             self.refresh()
 
         def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; only log, touching widgets would
+                # raise RuntimeError (and abort the process on macOS).
+                logging.error("xochitl restart failed after tab close: %s", exc)
+                return
             self._close_progress_dialog()
             self._on_error(exc)
 
@@ -860,12 +891,20 @@ class DocumentsTab(QtWidgets.QWidget):
         worker = _rmtool.Worker(self._perform_delete_documents, items)
 
         def on_finished(_result):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; nothing safe left to update.
+                return
             self._close_progress_dialog()
             self.status_message.emit("success", success_text, 3000)
             show_info(self, _rmtool.APP_NAME, success_text)
             self.refresh()
 
         def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; only log, touching widgets would
+                # raise RuntimeError (and abort the process on macOS).
+                logging.error("Document deletion failed after tab close: %s", exc)
+                return
             self._close_progress_dialog()
             self._on_error(exc)
 
@@ -907,6 +946,11 @@ class DocumentsTab(QtWidgets.QWidget):
         worker = _rmtool.Worker(self._scan_orphan_thumbnails)
 
         def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; only log, touching widgets would
+                # raise RuntimeError (and abort the process on macOS).
+                logging.error("Thumbnail scan failed after tab close: %s", exc)
+                return
             self._close_progress_dialog()
             self._set_thumbnail_cleanup_running(False)
             self._on_error(exc)
@@ -970,6 +1014,9 @@ class DocumentsTab(QtWidgets.QWidget):
         worker = _rmtool.Worker(self._delete_orphan_thumbnails, scan)
 
         def on_finished(deleted_count: int):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; nothing safe left to update.
+                return
             self._close_progress_dialog()
             self._set_thumbnail_cleanup_running(False)
             success_text = f"已删除 {deleted_count} 个失效缩略图目录。"
@@ -977,6 +1024,11 @@ class DocumentsTab(QtWidgets.QWidget):
             show_info(self, _rmtool.APP_NAME, success_text)
 
         def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; only log, touching widgets would
+                # raise RuntimeError (and abort the process on macOS).
+                logging.error("Thumbnail cleanup failed after tab close: %s", exc)
+                return
             self._close_progress_dialog()
             self._set_thumbnail_cleanup_running(False)
             self._on_error(exc)
@@ -1027,6 +1079,9 @@ class DocumentsTab(QtWidgets.QWidget):
         worker = _rmtool.Worker(self._perform_export, item, save_path)
 
         def on_finished(_result):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; nothing safe left to update.
+                return
             self._close_progress_dialog()
             self.status_message.emit("success", f"笔记已导出为 PDF：{save_path}", 4000)
             show_info(
@@ -1034,6 +1089,11 @@ class DocumentsTab(QtWidgets.QWidget):
             )
 
         def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; only log, touching widgets would
+                # raise RuntimeError (and abort the process on macOS).
+                logging.error("PDF export failed after tab close: %s", exc)
+                return
             self._close_progress_dialog()
             self._on_error(exc)
 

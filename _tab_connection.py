@@ -3,7 +3,7 @@
 import logging
 from typing import Dict, Optional
 
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
 from _ssh import SSHClientWrapper, UnknownHostKeyError
@@ -623,6 +623,9 @@ class ConnectionWidget(QtWidgets.QWidget):
         )
 
         def on_finished(_: object):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; nothing safe left to update.
+                return
             self._teardown_connection_progress()
             device = self._device_by_id(device_id) or self._device_by_name(device_name)
             if not device:
@@ -635,6 +638,11 @@ class ConnectionWidget(QtWidgets.QWidget):
             _rmtool.save_config(self.config)
 
         def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; only log, touching widgets would
+                # raise RuntimeError (and abort the process on macOS).
+                logging.error("Connection attempt failed after tab close: %s", exc)
+                return
             self._teardown_connection_progress()
             if isinstance(exc, UnknownHostKeyError):
                 if exc.key_changed:

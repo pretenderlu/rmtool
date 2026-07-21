@@ -11,7 +11,7 @@ from io import BytesIO
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
 from _dialogs import show_error, show_info, show_warning
 from _ssh import SSHClientWrapper, remount_rw, require_connection
@@ -1574,6 +1574,9 @@ class WallpaperTab(QtWidgets.QWidget):
         worker = _rmtool.Worker(self._do_upload_wallpaper, temp_path, wallpaper_path)
 
         def on_finished(_result):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; nothing safe left to update.
+                return
             self._close_wallpaper_progress(temp_path)
             if self.ssh_client.is_connected():
                 self._refresh_variant_previews()
@@ -1581,6 +1584,11 @@ class WallpaperTab(QtWidgets.QWidget):
             show_info(self, _rmtool.APP_NAME, "壁纸上传完成。")
 
         def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                # Worker outlived the tab; only log, touching widgets would
+                # raise RuntimeError (and abort the process on macOS).
+                logging.error("Wallpaper upload failed after tab close: %s", exc)
+                return
             self._close_wallpaper_progress(temp_path)
             logging.exception("Wallpaper upload failed")
             show_error(self, _rmtool.APP_NAME, f"上传壁纸失败：{exc}")
