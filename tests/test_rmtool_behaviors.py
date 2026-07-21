@@ -2604,9 +2604,17 @@ class DashboardDesignTokenTests(unittest.TestCase):
     def test_dashboard_css_uses_shared_gap_and_radius_tokens(self):
         css = rmtool.resource_path("web", "dashboard.css").read_text(encoding="utf-8")
 
-        self.assertIn(f"--panel-gap: {rmtool.PANEL_GAP}px;", css)
-        self.assertIn(f"--radius-panel: {rmtool.PANEL_RADIUS}px;", css)
-        self.assertIn(f"--radius-inner: {rmtool.INNER_PANEL_RADIUS}px;", css)
+        self.assertIn(f"--gap: {rmtool.PANEL_GAP}px;", css)
+        self.assertIn("--radius-card: 12px;", css)
+        self.assertIn("--radius-control: 8px;", css)
+
+    def test_dashboard_css_switches_theme_via_data_attribute(self):
+        css = rmtool.resource_path("web", "dashboard.css").read_text(encoding="utf-8")
+        js = rmtool.resource_path("web", "dashboard.js").read_text(encoding="utf-8")
+
+        self.assertIn('[data-theme="light"]', css)
+        self.assertIn("document.documentElement.dataset.theme", js)
+        self.assertNotIn("setProperty", js)
 
     def test_qt_stylesheets_use_shared_inner_radius_for_form_controls(self):
         expected_radius = f"border-radius: {rmtool.INNER_PANEL_RADIUS}px;"
