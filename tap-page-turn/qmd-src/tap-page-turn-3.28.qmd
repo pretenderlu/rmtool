@@ -1,4 +1,4 @@
-; Persistent tap-to-turn patch for exact supported 3.28 builds.
+; Persistent tap-to-turn patch for exact supported builds.
 
 AFFECT /qml/device/view/documentview/SceneViewGestures.qml
     TRAVERSE TouchArea#touchArea

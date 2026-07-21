@@ -135,7 +135,17 @@ Localization reuses xochitl's built-in French language slot, so French is unavai
 
 ### Tap to turn pages
 
-The tap-to-turn feature is currently available only for Paper Pro (`ferrari`) beta firmware `3.28.0.162`, internal version `20260629074044`. rmtool requires an exact match for the hardware platform, CPU architecture, internal firmware version, and `/usr/bin/xochitl` SHA-256. Other devices and firmware versions are rejected rather than guessed.
+Tap-to-turn is available for the exact builds below. rmtool requires a match for the hardware platform, CPU architecture, internal firmware version, and `/usr/bin/xochitl` SHA-256. Other devices and firmware versions are rejected rather than guessed.
+
+| Device model | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) |
+| --- | --- | --- | --- | --- |
+| reMarkable Paper Pro | `ferrari` | Offline verified | Offline verified | **Device verified** |
+| reMarkable Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified |
+| reMarkable Paper Pure | `tatsu` | Not available | Offline verified | Not available |
+| reMarkable 1 | `rm1` | Not available | Offline verified | Not available |
+| reMarkable 2 | `rm2` | Not available | Offline verified | Not available |
+
+"Offline verified" means the package passed extraction, QMLDiff compatibility, patch replay, architecture, archive, and hash checks against the corresponding official firmware. Only Paper Pro 3.28 has completed enable, disable, rollback, and cold-boot testing on a physical device so far.
 
 In a PDF or EPUB reading view, a short one-finger tap in the left-middle region goes to the previous page. The right edge and lower region go to the next page. Native swipes, stylus input, menus, zooming, selections, and document links remain available. The implementation uses firmware-specific Xovi/QMLDiff assets downloaded from the fixed `tap-page-turn-assets` release; archive, file, and QML hashes are validated before deployment.
 
@@ -158,7 +168,7 @@ Enabling and disabling are intentionally separated from activation. rmtool write
 - **Uploaded document does not appear on the device**: Return to the document center and restart xochitl, or restart the device manually.
 - **"Export to PDF" is unavailable**: Select exactly one document containing `.rm` or `.note` handwriting resources. Export renders only parseable handwriting and does not merge original PDF/EPUB pages, typed text, or other non-handwriting content.
 - **Localization buttons are disabled**: Click "Check Status" first. The computer needs internet access or a valid cache, and the internal firmware version plus the SHA-256 of the original `reMarkable_fr.qm` must match the same manifest entry.
-- **Tap-to-turn cannot be enabled**: Click "Check Status" first. The current release supports only the exact Paper Pro 3.28 beta build listed above. A different model, firmware, xochitl binary, modified payload, or another persistent Xovi configuration blocks deployment.
+- **Tap-to-turn cannot be enabled**: Click "Check Status" first. The model, firmware, architecture, and stock xochitl hash must match one exact row above. A modified xochitl or payload, or another persistent Xovi configuration, also blocks deployment.
 - **Tap-to-turn still works immediately after disabling**: This is expected because rmtool does not kill the running xochitl process. Restart the tablet from its device menu to return to the stock interface.
 - **macOS cannot create its configuration**: Move `rmtool.app` to a directory writable by the current user and make sure `.rmtool/` can be created beside it.
 - **Diagnostic information is needed**: Click the log button in the lower-left corner, filter by level, or choose "Open Log File". Before sharing a log, check it for private information such as the device address.

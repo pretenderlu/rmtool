@@ -403,6 +403,8 @@ case "$machine" in
     *Ferrari*) platform=ferrari ;;
     *Chiappa*) platform=chiappa ;;
     *Tatsu*) platform=tatsu ;;
+    *"reMarkable 1"*) platform=rm1 ;;
+    *"reMarkable 2"*) platform=rm2 ;;
     *) platform=unknown ;;
 esac
 [ "$platform" = "{package.platform}" ] || stock
