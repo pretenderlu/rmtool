@@ -669,9 +669,9 @@ from _tab_connection import ConnectionWidget
 # ---------------------------------------------------------------------------
 from _tab_wallpaper import WallpaperTab
 from _tab_documents import DocumentsTab
+from _tab_dashboard import DashboardTab
 from _tab_toolbox import (
     ControlTab,
-    DashboardTab,
     FontPage,
     FontTab,
     TimeTab,
@@ -921,7 +921,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config["theme"] = new_theme
         save_config(self.config)
 
-        # Sync dashboard web view theme
+        # Dashboard re-styles via the global QSS; set_theme is a compat no-op
         self.dashboard_tab.set_theme(new_theme)
 
         # Force status dot to re-apply its dynamic property style

@@ -98,6 +98,7 @@ DARK_TOKENS = {
     "success_border": "rgba(109, 220, 140, 0.35)",
     "warning": "#F3C76A",
     "danger": "#F06470",
+    "danger_bg": "rgba(240, 100, 112, 0.12)",
     "status_on": "#6DDC8C",
     "status_off": "#F06470",
 
@@ -255,6 +256,7 @@ LIGHT_TOKENS = {
     "success_border": "rgba(46, 155, 97, 0.25)",
     "warning": "#AF7A12",
     "danger": "#C84A5A",
+    "danger_bg": "rgba(200, 74, 90, 0.10)",
     "status_on": "#3CB870",
     "status_off": "#E85B6B",
 
