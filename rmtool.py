@@ -910,18 +910,27 @@ from _log_viewer import LogViewerPanel, attach_qt_log_handler
 
 
 
+_STYLESHEET_PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
 def _resolve_stylesheet(template: str) -> str:
-    """Replace ``{arrow_*}`` placeholders with actual icon file paths."""
-    result = template
+    """Substitute named ``{placeholder}`` fields in a stylesheet template.
+
+    Resolves the runtime-generated ``{arrow_*}`` combo box icon paths (and,
+    for backward compatibility, the legacy ``{panel_*}`` layout fields, which
+    are now normally baked in from ``_tokens.py``).  Only ``{identifier}``
+    fields are touched; the literal braces of QSS rules are left intact.
+    """
     replacements = {
         **_ARROW_ICONS,
         "panel_radius": f"{PANEL_RADIUS}px",
         "inner_panel_radius": f"{INNER_PANEL_RADIUS}px",
         "panel_padding": f"{PANEL_PADDING}px",
     }
-    for key, value in replacements.items():
-        result = result.replace("{" + key + "}", value)
-    return result
+    return _STYLESHEET_PLACEHOLDER_RE.sub(
+        lambda match: replacements.get(match.group(1), match.group(0)),
+        template,
+    )
 
 
 # Generated once at import time so the icon files exist before any stylesheet
