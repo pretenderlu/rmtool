@@ -22,8 +22,7 @@ DARK_TOKENS = {
 
     # -- Surfaces --
     "bg_base": "#1A1D27",
-    "bg_surface_top": "rgba(30, 36, 50, 0.95)",
-    "bg_surface_bottom": "rgba(22, 26, 38, 0.95)",
+    "bg_surface": "rgba(26, 31, 44, 0.95)",
     "bg_inner": "rgba(15, 17, 25, 0.6)",
     "bg_inner_readonly": "rgba(15, 17, 25, 0.35)",
     "bg_popup": "#252836",
@@ -40,10 +39,8 @@ DARK_TOKENS = {
     "bg_font_preview": "rgba(15, 17, 25, 0.34)",
     "bg_log_panel": "#14161F",
     "bg_log_text": "#0E1018",
-    "sidebar_top": "#1E2130",
-    "sidebar_bottom": "#171A24",
-    "dialog_top": "#252A3B",
-    "dialog_bottom": "#191C28",
+    "sidebar_bg": "#1B1E2A",
+    "dialog_bg": "#1F2332",
 
     # -- Borders / lines --
     "border": "rgba(255, 255, 255, 0.08)",
@@ -76,16 +73,13 @@ DARK_TOKENS = {
     "text_log_status": "#6E7488",
     "text_on_accent": "#FFFFFF",
 
-    # -- Accent (buttons / interactive emphasis) --
+    # -- Accent (single hue; used sparingly for primary actions,
+    #    selection and focus) --
     "accent": "#5B7CF7",
-    "accent_end": "#3DBBF5",
     "accent_hover": "#6E8EFF",
-    "accent_hover_end": "#55CCFF",
     "accent_pressed": "#4A6AE0",
-    "accent_pressed_end": "#2EA8E0",
     # Accent variant used by checkboxes, sliders, tabs, progress bars.
     "control_accent": "#5B7CF7",
-    "control_accent_end": "#3DBBF5",
     "accent_focus": "rgba(91, 124, 247, 0.6)",
     "indicator_hover_border": "rgba(91, 124, 247, 0.5)",
 
@@ -140,7 +134,8 @@ DARK_TOKENS = {
     "note_border": "rgba(243, 199, 106, 0.22)",
     "note_text": "#D8BE7A",
 
-    # -- Button variants (secondary / danger) --
+    # -- Button roles --
+    # secondary (the default QPushButton look)
     "btn_secondary_bg": "rgba(255, 255, 255, 0.05)",
     "btn_secondary_hover_bg": "rgba(255, 255, 255, 0.09)",
     "btn_secondary_hover_border": "rgba(255, 255, 255, 0.18)",
@@ -151,17 +146,11 @@ DARK_TOKENS = {
     "btn_secondary_disabled_bg": "rgba(255, 255, 255, 0.02)",
     "btn_secondary_disabled_text": "#3A3F54",
     "btn_secondary_disabled_border": "rgba(255, 255, 255, 0.04)",
-    "danger_btn": "#D04858",
-    "danger_btn_end": "#B83A4A",
-    "danger_btn_hover": "#E05868",
-    "danger_btn_hover_end": "#C84A5A",
-    "danger_btn_pressed": "#B83848",
-    "danger_btn_pressed_end": "#A02838",
-    "danger_btn_disabled_bg": "rgba(208, 72, 88, 0.15)",
-    "danger_tool_border": "rgba(240, 100, 112, 0.25)",
-    "danger_tool_hover_bg": "rgba(240, 100, 112, 0.12)",
-    "danger_tool_hover_border": "rgba(240, 100, 112, 0.4)",
-    "danger_tool_hover_text": "#FF7A84",
+    # danger (destructive actions; secondary look with danger accents)
+    "danger_border": "rgba(240, 100, 112, 0.25)",
+    "danger_hover_bg": "rgba(240, 100, 112, 0.12)",
+    "danger_hover_border": "rgba(240, 100, 112, 0.4)",
+    "danger_hover_text": "#FF7A84",
 
     # -- QPalette-only --
     "palette_window_text": "#E8ECF4",
@@ -190,8 +179,7 @@ LIGHT_TOKENS = {
 
     # -- Surfaces --
     "bg_base": "#F0F2F5",
-    "bg_surface_top": "#FFFFFF",
-    "bg_surface_bottom": "#FFFFFF",
+    "bg_surface": "#FFFFFF",
     "bg_inner": "#FFFFFF",
     "bg_inner_readonly": "#F5F6F8",
     "bg_popup": "#FFFFFF",
@@ -208,10 +196,8 @@ LIGHT_TOKENS = {
     "bg_font_preview": "#F7F8FB",
     "bg_log_panel": "#F5F6F9",
     "bg_log_text": "#FFFFFF",
-    "sidebar_top": "#F8F9FB",
-    "sidebar_bottom": "#F0F2F5",
-    "dialog_top": "#FFFFFF",
-    "dialog_bottom": "#FFFFFF",
+    "sidebar_bg": "#F5F6F8",
+    "dialog_bg": "#FFFFFF",
 
     # -- Borders / lines --
     "border": "#DDE0E6",
@@ -244,16 +230,13 @@ LIGHT_TOKENS = {
     "text_log_status": "#6E7488",
     "text_on_accent": "#FFFFFF",
 
-    # -- Accent (buttons / interactive emphasis) --
+    # -- Accent (single hue; used sparingly for primary actions,
+    #    selection and focus) --
     "accent": "#2563EB",
-    "accent_end": "#0284C7",
     "accent_hover": "#3B82F6",
-    "accent_hover_end": "#0EA5E9",
     "accent_pressed": "#1D4ED8",
-    "accent_pressed_end": "#0369A1",
     # Accent variant used by checkboxes, sliders, tabs, progress bars.
     "control_accent": "#4A6CF7",
-    "control_accent_end": "#2DAAF5",
     "accent_focus": "#4A6CF7",
     "indicator_hover_border": "#4A6CF7",
 
@@ -308,7 +291,8 @@ LIGHT_TOKENS = {
     "note_border": "rgba(175, 122, 18, 0.18)",
     "note_text": "#7B5A18",
 
-    # -- Button variants (secondary / danger) --
+    # -- Button roles --
+    # secondary (the default QPushButton look)
     "btn_secondary_bg": "rgba(0, 0, 0, 0.03)",
     "btn_secondary_hover_bg": "rgba(0, 0, 0, 0.05)",
     "btn_secondary_hover_border": "rgba(0, 0, 0, 0.15)",
@@ -319,17 +303,11 @@ LIGHT_TOKENS = {
     "btn_secondary_disabled_bg": "rgba(0, 0, 0, 0.02)",
     "btn_secondary_disabled_text": "#A0A6B4",
     "btn_secondary_disabled_border": "rgba(0, 0, 0, 0.04)",
-    "danger_btn": "#C84A5A",
-    "danger_btn_end": "#B83A4A",
-    "danger_btn_hover": "#E05868",
-    "danger_btn_hover_end": "#C84A5A",
-    "danger_btn_pressed": "#B83848",
-    "danger_btn_pressed_end": "#A02838",
-    "danger_btn_disabled_bg": "rgba(200, 74, 90, 0.15)",
-    "danger_tool_border": "rgba(200, 74, 90, 0.25)",
-    "danger_tool_hover_bg": "rgba(200, 74, 90, 0.10)",
-    "danger_tool_hover_border": "rgba(200, 74, 90, 0.35)",
-    "danger_tool_hover_text": "#C84A5A",
+    # danger (destructive actions; secondary look with danger accents)
+    "danger_border": "rgba(200, 74, 90, 0.25)",
+    "danger_hover_bg": "rgba(200, 74, 90, 0.10)",
+    "danger_hover_border": "rgba(200, 74, 90, 0.35)",
+    "danger_hover_text": "#C84A5A",
 
     # -- QPalette-only --
     "palette_window_text": "#1A1D27",

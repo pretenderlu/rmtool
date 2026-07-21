@@ -84,6 +84,7 @@ class FontTab(QtWidgets.QWidget):
         self.select_button = QtWidgets.QPushButton("选择字体")
         self.select_button.clicked.connect(self._select_font_file)
         self.upload_button = QtWidgets.QPushButton("上传字体")
+        self.upload_button.setProperty("btnRole", "primary")
         self.upload_button.setEnabled(False)
         self.upload_button.clicked.connect(self._upload_selected_font)
 
@@ -107,15 +108,13 @@ class FontTab(QtWidgets.QWidget):
         self.manager_status_label.setWordWrap(True)
 
         self.refresh_button = QtWidgets.QPushButton("刷新")
-        self.refresh_button.setProperty("cssClass", "secondary")
         self.refresh_button.clicked.connect(self._refresh_fonts)
         self.set_active_button = QtWidgets.QPushButton("设为系统字体")
         self.set_active_button.clicked.connect(self._set_selected_active)
         self.delete_button = QtWidgets.QPushButton("删除")
-        self.delete_button.setProperty("cssClass", "danger")
+        self.delete_button.setProperty("btnRole", "danger")
         self.delete_button.clicked.connect(self._delete_selected_font)
         self.restart_button = QtWidgets.QPushButton("重启生效")
-        self.restart_button.setProperty("cssClass", "secondary")
         self.restart_button.clicked.connect(self._restart_device)
 
         manager_actions = QtWidgets.QHBoxLayout()
@@ -522,11 +521,8 @@ class TimeTab(QtWidgets.QWidget):
         self.output.setReadOnly(True)
 
         self.sync_button = QtWidgets.QPushButton("使用本地时间同步")
-        self.sync_button.setProperty("cssClass", "secondary")
         self.info_button = QtWidgets.QPushButton("查看当前时间信息")
-        self.info_button.setProperty("cssClass", "secondary")
         self.tz_button = QtWidgets.QPushButton("设置为东八区")
-        self.tz_button.setProperty("cssClass", "secondary")
 
         button_layout = QtWidgets.QHBoxLayout()
         button_layout.addWidget(self.sync_button)
@@ -592,11 +588,9 @@ class ControlTab(QtWidgets.QWidget):
         self.ssh_client = ssh_client
 
         self.restart_button = QtWidgets.QPushButton("重启设备")
-        self.restart_button.setProperty("cssClass", "danger")
+        self.restart_button.setProperty("btnRole", "danger")
         self.enable_wifi_ssh_button = QtWidgets.QPushButton("开启 Wi-Fi SSH 通道")
-        self.enable_wifi_ssh_button.setProperty("cssClass", "secondary")
         self.brightness_button = QtWidgets.QPushButton("提升前光亮度")
-        self.brightness_button.setProperty("cssClass", "secondary")
 
         layout = QtWidgets.QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -713,14 +707,11 @@ class RmkitCnSection(QtWidgets.QWidget):
         self.status_label.setWordWrap(True)
 
         self.detect_button = QtWidgets.QPushButton("检测状态")
-        self.detect_button.setProperty("cssClass", "secondary")
         self.enable_button = QtWidgets.QPushButton("启用中文")
         self.restore_button = QtWidgets.QPushButton("还原")
-        self.restore_button.setProperty("cssClass", "secondary")
         self.enable_button.setEnabled(False)
         self.restore_button.setEnabled(False)
         self.project_button = QtWidgets.QPushButton("查看源码")
-        self.project_button.setProperty("cssClass", "secondary")
 
         buttons = QtWidgets.QHBoxLayout()
         buttons.setContentsMargins(0, 0, 0, 0)
@@ -1015,12 +1006,9 @@ class TapPageTurnSection(QtWidgets.QWidget):
         self.status_label.setWordWrap(True)
 
         self.detect_button = QtWidgets.QPushButton("检测状态")
-        self.detect_button.setProperty("cssClass", "secondary")
         self.enable_button = QtWidgets.QPushButton("启用点击翻页")
         self.disable_button = QtWidgets.QPushButton("停用")
-        self.disable_button.setProperty("cssClass", "secondary")
         self.project_button = QtWidgets.QPushButton("查看说明")
-        self.project_button.setProperty("cssClass", "secondary")
 
         buttons = QtWidgets.QHBoxLayout()
         buttons.setContentsMargins(0, 0, 0, 0)
