@@ -409,7 +409,6 @@ class FakeWallpaperTab(QtWidgets.QWidget):
 class FakeToolboxTab(QtWidgets.QWidget):
     def __init__(self, *_args, **_kwargs):
         super().__init__()
-        self.font_section = QtWidgets.QWidget()
         self.time_section = QtWidgets.QWidget()
         self.control_section = QtWidgets.QWidget()
 
@@ -1132,9 +1131,11 @@ class WallpaperUiTests(unittest.TestCase):
         wallpaper = rmtool.WallpaperTab(FakeConnectionClient(), rmtool._default_config())
         documents = rmtool.DocumentsTab(FakeConnectionClient())
         toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
+        font_page = rmtool.FontPage(FakeConnectionClient(), rmtool._default_config())
         self.addCleanup(wallpaper.deleteLater)
         self.addCleanup(documents.deleteLater)
         self.addCleanup(toolbox.deleteLater)
+        self.addCleanup(font_page.deleteLater)
 
         expected = (rmtool.TAB_PAGE_MARGIN,) * 4
 
@@ -1172,6 +1173,19 @@ class WallpaperUiTests(unittest.TestCase):
             expected,
         )
         self.assertEqual(toolbox_content.layout().spacing(), rmtool.PANEL_GAP)
+
+        font_content = font_page.findChild(QtWidgets.QScrollArea).widget()
+        font_margins = font_content.layout().contentsMargins()
+        self.assertEqual(
+            (
+                font_margins.left(),
+                font_margins.top(),
+                font_margins.right(),
+                font_margins.bottom(),
+            ),
+            expected,
+        )
+        self.assertEqual(font_content.layout().spacing(), rmtool.PANEL_GAP)
 
     def test_toolbox_group_boxes_leave_consistent_space_below_titles(self):
         toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())

@@ -672,6 +672,7 @@ from _tab_documents import DocumentsTab
 from _tab_toolbox import (
     ControlTab,
     DashboardTab,
+    FontPage,
     FontTab,
     TimeTab,
     ToolboxTab,
@@ -694,34 +695,59 @@ class MainWindow(QtWidgets.QMainWindow):
         self._log_bridge = log_bridge
         self._log_panel = None
 
-        # -- Sidebar (connection panel) --
+        # -- Sidebar (connection panel + page navigation) --
         self.connection_widget = ConnectionWidget(self.ssh_client, self.config)
         sidebar = QtWidgets.QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(320)
+        sidebar.setFixedWidth(272)
         sidebar_layout = QtWidgets.QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.addWidget(self.connection_widget)
 
-        # -- Tabs --
-        self.tabs = QtWidgets.QTabWidget()
+        # -- Pages --
+        self.pages = QtWidgets.QStackedWidget()
         self.dashboard_tab = DashboardTab()
         self.wallpaper_tab = WallpaperTab(self.ssh_client, self.config)
         self.documents_tab = DocumentsTab(self.ssh_client)
+        self.font_page = FontPage(self.ssh_client, self.config)
         self.toolbox_tab = ToolboxTab(self.ssh_client, self.config)
 
-        self.tabs.addTab(self.dashboard_tab, "仪表盘")
-        self.tabs.addTab(self.wallpaper_tab, "壁纸管理")
-        self.tabs.addTab(self.documents_tab, "文档中心")
-        self.tabs.addTab(self.toolbox_tab, "设备工具箱")
+        for page in (
+            self.dashboard_tab,
+            self.wallpaper_tab,
+            self.documents_tab,
+            self.font_page,
+            self.toolbox_tab,
+        ):
+            self.pages.addWidget(page)
 
-        # -- Horizontal layout: sidebar | tabs --
+        # -- Sidebar navigation (switches stacked pages) --
+        nav_container = QtWidgets.QWidget()
+        nav_container.setObjectName("sidebarNavSection")
+        nav_layout = QtWidgets.QVBoxLayout(nav_container)
+        nav_layout.setContentsMargins(0, 12, 0, 0)
+        nav_layout.setSpacing(6)
+        nav_label = QtWidgets.QLabel("导航")
+        nav_label.setObjectName("sidebarSectionLabel")
+        nav_layout.addWidget(nav_label)
+        self.nav_list = QtWidgets.QListWidget()
+        self.nav_list.setObjectName("sidebarNav")
+        for title in ("仪表盘", "壁纸管理", "文档中心", "字体管理", "设备工具"):
+            self.nav_list.addItem(title)
+        row_height = max(self.nav_list.sizeHintForRow(0), 36)
+        self.nav_list.setFixedHeight(row_height * self.nav_list.count() + 6)
+        self.nav_list.currentRowChanged.connect(self.pages.setCurrentIndex)
+        self.nav_list.setCurrentRow(0)
+        nav_layout.addWidget(self.nav_list)
+        self.connection_widget.add_sidebar_section(nav_container)
+
+        # -- Horizontal layout: sidebar | pages --
         upper_widget = QtWidgets.QWidget()
         upper_layout = QtWidgets.QHBoxLayout(upper_widget)
         upper_layout.setContentsMargins(0, 0, 0, 0)
         upper_layout.setSpacing(0)
         upper_layout.addWidget(sidebar)
-        upper_layout.addWidget(self.tabs, 1)
+        upper_layout.addWidget(self.pages, 1)
 
         # -- Vertical splitter: main area on top, log panel on bottom --
         if self._log_bridge is not None:
@@ -755,8 +781,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.connection_status_chip.setObjectName("appConnectionChip")
         status_bar.addPermanentWidget(self.connection_status_chip)
 
-        # Shorthand references for sub-widgets inside the toolbox
-        self.font_tab = self.toolbox_tab.font_section
+        # Shorthand references for tool sections
+        self.font_tab = self.font_page.font_section
         self.time_tab = self.toolbox_tab.time_section
         self.control_tab = self.toolbox_tab.control_section
 
@@ -789,11 +815,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self._set_connection_chip(False, initial_device)
 
     def _update_tabs_enabled(self, enabled: bool):
-        for idx in range(self.tabs.count()):
-            widget = self.tabs.widget(idx)
+        for idx in range(self.pages.count()):
+            widget = self.pages.widget(idx)
             if widget is self.dashboard_tab:
                 continue
             widget.setEnabled(enabled)
+            item = self.nav_list.item(idx)
+            flags = item.flags()
+            if enabled:
+                item.setFlags(flags | QtCore.Qt.ItemIsEnabled)
+            else:
+                item.setFlags(flags & ~QtCore.Qt.ItemIsEnabled)
 
     def _show_status_message(self, level: str, text: str, timeout: int = 4000) -> None:
         status_bar = self.statusBar()

@@ -434,6 +434,35 @@ QStatusBar#appStatusBar[level="error"] {
     padding: 12px 0;
 }
 
+/* ===== Sidebar navigation ===== */
+#sidebarNavSection {
+    background: transparent;
+}
+#sidebarNav {
+    background: transparent;
+    border: none;
+    outline: none;
+}
+#sidebarNav::item {
+    color: {text_secondary};
+    padding: 9px 12px;
+    border-left: 3px solid transparent;
+    border-radius: {radius_control};
+}
+#sidebarNav::item:hover:!selected {
+    background: {tab_hover_bg};
+    color: {text_primary};
+}
+#sidebarNav::item:selected {
+    background: {tab_selected_bg};
+    color: {text_primary};
+    border-left: 3px solid {control_accent};
+    font-weight: 600;
+}
+#sidebarNav::item:disabled {
+    color: {text_disabled};
+}
+
 /* ===== Status dot ===== */
 #statusDot {
     border-radius: 6px;

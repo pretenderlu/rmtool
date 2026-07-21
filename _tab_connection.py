@@ -138,6 +138,9 @@ class ConnectionWidget(QtWidgets.QWidget):
         layout.addLayout(button_layout)
 
         # -- Bottom area: theme toggle + branding --
+        # Extra sidebar sections (e.g. page navigation) are inserted above
+        # this stretch so the footer stays pinned to the bottom.
+        self._footer_stretch_index = layout.count()
         layout.addStretch()
         footer_actions = QtWidgets.QHBoxLayout()
         footer_actions.setContentsMargins(0, 0, 0, 0)
@@ -825,6 +828,11 @@ class ConnectionWidget(QtWidgets.QWidget):
 
         self.log_button.setIcon(_rmtool._make_sidebar_icon("log", icon_color))
         self.github_button.setIcon(_rmtool._make_sidebar_icon("github", icon_color))
+
+    def add_sidebar_section(self, widget: QtWidgets.QWidget) -> None:
+        """Insert a sidebar section above the pinned footer row."""
+        self.layout().insertWidget(self._footer_stretch_index, widget)
+        self._footer_stretch_index += 1
 
     def _open_github_repo(self) -> None:
         QtGui.QDesktopServices.openUrl(QtCore.QUrl(_rmtool.GITHUB_REPO_URL))
