@@ -611,11 +611,16 @@ class PreviewImageLabel(QtWidgets.QLabel):
         target = rect.size()
         if not target.isValid():
             target = self.size()
-        return self._original_pixmap.scaled(
-            target,
+        # Render at physical pixels and tag the pixmap, otherwise Qt upscales
+        # the logical-size pixmap on high-DPI screens and previews look soft.
+        dpr = self.devicePixelRatioF()
+        scaled = self._original_pixmap.scaled(
+            target * dpr,
             QtCore.Qt.KeepAspectRatio,
             QtCore.Qt.SmoothTransformation,
         )
+        scaled.setDevicePixelRatio(dpr)
+        return scaled
 
 
 class CompactComboBox(QtWidgets.QComboBox):
