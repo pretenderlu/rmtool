@@ -291,6 +291,11 @@ QLabel {
     border: 1px solid {border_panel};
     border-radius: {radius_panel};
 }
+#wallpaperVariantCard {
+    background: {bg_card};
+    border: 1px solid {border_panel};
+    border-radius: {radius_control};
+}
 
 /* ===== Sliders ===== */
 QSlider::groove:horizontal {
