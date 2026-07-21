@@ -14,12 +14,12 @@ whole UI shares one px-based ladder (no pt mixing).
 """
 
 # -- Type scale (px; identical for both themes) --
-FONT_XS = 12  # auxiliary captions, timestamps, status footnotes
-FONT_SM = 13  # secondary text, field labels, badges
-FONT_BASE = 14  # body text: buttons, inputs, list items, plain labels
-FONT_MD = 16  # card/group titles, emphasized values
-FONT_LG = 20  # page and dialog titles
-FONT_METRIC = 36  # dashboard stat figures only
+FONT_XS = 15  # auxiliary captions, timestamps, status footnotes
+FONT_SM = 16  # secondary text, field labels, badges
+FONT_BASE = 17  # body text: buttons, inputs, list items, plain labels
+FONT_MD = 20  # card/group titles, emphasized values
+FONT_LG = 24  # page and dialog titles
+FONT_METRIC = 42  # dashboard stat figures only
 
 FONT_SCALE_TOKENS = {
     "font_xs": f"{FONT_XS}px",
