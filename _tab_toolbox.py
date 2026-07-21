@@ -41,13 +41,19 @@ class FontTab(QtWidgets.QWidget):
         self.config = config
         self.thread_pool = QtCore.QThreadPool.globalInstance()
         self._font_progress: Optional[QtWidgets.QProgressDialog] = None
+        self._fonts: tuple[_rmkit_cn.UserFont, ...] = ()
+        self._busy = False
+        self._connected: Optional[bool] = None
+        self._worker_generation = 0
+        self._connection_generation = 0
+        self._pending_refresh: Optional[tuple[str, str]] = None
         self._selected_font_path: Optional[str] = None
         self._selected_font_family: Optional[str] = None
         self._preview_font_id = -1
 
         self.font_path_label = QtWidgets.QLabel("未选择文件")
         self.rename_checkbox = QtWidgets.QCheckBox(f"上传时重命名为 {_rmtool.DEFAULT_FONT_NAME}")
-        self.rename_checkbox.setChecked(True)
+        self.rename_checkbox.setChecked(False)
         self.rename_checkbox.toggled.connect(self._update_target_name_label)
 
         self.target_name_label = QtWidgets.QLabel()
@@ -81,6 +87,46 @@ class FontTab(QtWidgets.QWidget):
         self.upload_button.setEnabled(False)
         self.upload_button.clicked.connect(self._upload_selected_font)
 
+        self.font_table = QtWidgets.QTableWidget(0, 3)
+        self.font_table.setObjectName("fontManagerTable")
+        self.font_table.setHorizontalHeaderLabels(("文件名", "字体族", "状态"))
+        self.font_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.font_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        self.font_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.font_table.setAlternatingRowColors(True)
+        self.font_table.verticalHeader().setVisible(False)
+        self.font_table.setMinimumHeight(180)
+        table_header = self.font_table.horizontalHeader()
+        table_header.setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
+        table_header.setSectionResizeMode(1, QtWidgets.QHeaderView.Stretch)
+        table_header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeToContents)
+        self.font_table.itemSelectionChanged.connect(self._update_action_buttons)
+
+        self.manager_status_label = QtWidgets.QLabel("连接设备后可刷新已上传字体。")
+        self.manager_status_label.setObjectName("fontManagerStatus")
+        self.manager_status_label.setWordWrap(True)
+
+        self.refresh_button = QtWidgets.QPushButton("刷新")
+        self.refresh_button.setProperty("cssClass", "secondary")
+        self.refresh_button.clicked.connect(self._refresh_fonts)
+        self.set_active_button = QtWidgets.QPushButton("设为系统字体")
+        self.set_active_button.clicked.connect(self._set_selected_active)
+        self.delete_button = QtWidgets.QPushButton("删除")
+        self.delete_button.setProperty("cssClass", "danger")
+        self.delete_button.clicked.connect(self._delete_selected_font)
+        self.restart_button = QtWidgets.QPushButton("重启生效")
+        self.restart_button.setProperty("cssClass", "secondary")
+        self.restart_button.clicked.connect(self._restart_device)
+
+        manager_actions = QtWidgets.QHBoxLayout()
+        manager_actions.setContentsMargins(0, 0, 0, 0)
+        manager_actions.setSpacing(_rmtool.SUBSECTION_GAP)
+        manager_actions.addWidget(self.refresh_button)
+        manager_actions.addWidget(self.set_active_button)
+        manager_actions.addWidget(self.delete_button)
+        manager_actions.addStretch()
+        manager_actions.addWidget(self.restart_button)
+
         actions_layout = QtWidgets.QHBoxLayout()
         actions_layout.setContentsMargins(0, 0, 0, 0)
         actions_layout.setSpacing(_rmtool.SUBSECTION_GAP)
@@ -90,6 +136,9 @@ class FontTab(QtWidgets.QWidget):
         layout = QtWidgets.QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(_rmtool.SUBSECTION_GAP)
+        layout.addWidget(self.manager_status_label)
+        layout.addWidget(self.font_table)
+        layout.addLayout(manager_actions)
         layout.addWidget(self.font_path_label)
         layout.addWidget(self.rename_checkbox)
         layout.addWidget(self.target_name_label)
@@ -98,6 +147,12 @@ class FontTab(QtWidgets.QWidget):
         self.setLayout(layout)
         self._reset_font_preview()
         self._update_target_name_label()
+        connection_changed = getattr(self.ssh_client, "connection_changed", None)
+        if connection_changed is not None:
+            connection_changed.connect(self._on_connection_changed)
+        self._on_connection_changed(self.ssh_client.is_connected(), refresh=False)
+        if self.ssh_client.is_connected():
+            QtCore.QTimer.singleShot(0, self._refresh_fonts)
 
     def _select_font_file(self):
         file_path = select_font_file(self)
@@ -123,7 +178,7 @@ class FontTab(QtWidgets.QWidget):
         preview_font.setStyleStrategy(QtGui.QFont.PreferAntialias)
         self.preview_sample_label.setFont(preview_font)
         self.preview_sample_label.setText(_rmtool.FONT_PREVIEW_TEXT)
-        self.upload_button.setEnabled(True)
+        self._update_action_buttons()
         self._update_target_name_label()
 
     @require_connection
@@ -133,57 +188,41 @@ class FontTab(QtWidgets.QWidget):
             return
         file_path = self._selected_font_path
         new_name = self._target_font_name()
-
-        self.select_button.setEnabled(False)
-        self.upload_button.setEnabled(False)
-        progress = QtWidgets.QProgressDialog("正在上传字体…", "", 0, 0, self)
-        progress.setWindowTitle(_rmtool.APP_NAME)
-        progress.setWindowModality(QtCore.Qt.ApplicationModal)
-        progress.setCancelButton(None)
-        progress.setMinimumDuration(0)
-        progress.show()
-        self._font_progress = progress
-
-        worker = _rmtool.Worker(self._upload_font, file_path, new_name)
-
-        def on_finished(_: object):
-            self._close_font_progress()
-            show_info(
+        active_target = next(
+            (
+                font
+                for font in self._fonts
+                if font.filename == new_name and font.active
+            ),
+            None,
+        )
+        if active_target is not None:
+            show_warning(
                 self,
                 _rmtool.APP_NAME,
-                "字体上传完成，并已刷新字体缓存。\n字体将在设备重启后生效。",
+                f"{new_name} 当前正作为系统字体使用。上传不会隐式切换系统字体，"
+                "请取消重命名或先切换到其他字体。",
             )
-            confirm = ask_confirmation(
-                self,
-                _rmtool.APP_NAME,
-                "是否立即重启设备以应用新字体？",
-                confirm_text="立即重启",
-                cancel_text="稍后再说",
-            )
-            if confirm:
-                try:
-                    self.ssh_client.exec_command("reboot")
-                    show_info(self, _rmtool.APP_NAME, "已发送重启命令。")
-                except Exception as exc:
-                    logging.exception("Reboot after font upload failed")
-                    show_error(self, _rmtool.APP_NAME, f"重启失败：{exc}")
+            return
 
-        def on_error(exc: Exception):
-            self._close_font_progress()
-            logging.exception("Font upload failed")
-            show_error(self, _rmtool.APP_NAME, f"字体上传失败：{exc}")
-
-        worker.signals.finished.connect(on_finished)
-        worker.signals.error.connect(on_error)
-        self.thread_pool.start(worker)
+        self._start_font_worker(
+            self._upload_font,
+            file_path,
+            new_name,
+            pending="正在上传字体并刷新缓存…",
+            on_success=lambda font: self._refresh_fonts(
+                select_filename=font.filename,
+                success="字体已上传。上传不会切换系统字体，请按需点击“设为系统字体”。",
+            ),
+            error_prefix="字体上传失败",
+        )
 
     def _close_font_progress(self):
         if self._font_progress:
             self._font_progress.close()
             self._font_progress.deleteLater()
             self._font_progress = None
-        self.select_button.setEnabled(True)
-        self.upload_button.setEnabled(bool(self._selected_font_path))
+        self._set_busy(False)
 
     def _target_font_name(self) -> str:
         if self.rename_checkbox.isChecked() or not self._selected_font_path:
@@ -206,12 +245,273 @@ class FontTab(QtWidgets.QWidget):
 
     def _upload_font(self, file_path: str, new_name: str):
         font_dir = self.config.get("paths", {}).get("font", _rmtool.DEFAULT_FONT_DIR)
-        _rmkit_cn.install_user_font_override(
+        return _rmkit_cn.upload_user_font(
             self.ssh_client,
             file_path,
             font_dir,
             new_name,
         )
+
+    def _font_dir(self) -> str:
+        return self.config.get("paths", {}).get("font", _rmtool.DEFAULT_FONT_DIR)
+
+    def _on_connection_changed(self, connected: bool, *, refresh: bool = True):
+        connected = bool(connected)
+        if connected != self._connected:
+            self._connected = connected
+            self._connection_generation += 1
+            self._worker_generation += 1
+            self._pending_refresh = None
+            if self._font_progress:
+                self._font_progress.close()
+                self._font_progress.deleteLater()
+                self._font_progress = None
+        if not connected:
+            self._fonts = ()
+            self.font_table.setRowCount(0)
+            self.manager_status_label.setText("设备未连接。")
+        else:
+            self.manager_status_label.setText("设备已连接，可刷新已上传字体。")
+        self._update_action_buttons()
+        if connected and refresh:
+            if self._busy:
+                self._pending_refresh = ("", "")
+            else:
+                self._refresh_fonts()
+
+    def _selected_device_font(self) -> Optional[_rmkit_cn.UserFont]:
+        rows = self.font_table.selectionModel().selectedRows()
+        if len(rows) != 1:
+            return None
+        row = rows[0].row()
+        if 0 <= row < len(self._fonts):
+            return self._fonts[row]
+        return None
+
+    def _update_action_buttons(self):
+        connected = self.ssh_client.is_connected() and not self._busy
+        selected = self._selected_device_font()
+        self.refresh_button.setEnabled(connected)
+        self.select_button.setEnabled(not self._busy)
+        self.upload_button.setEnabled(
+            connected and bool(self._selected_font_path)
+        )
+        self.set_active_button.setEnabled(
+            connected and selected is not None and not selected.active
+        )
+        self.delete_button.setEnabled(
+            connected and selected is not None and not selected.active
+        )
+        self.restart_button.setEnabled(connected)
+
+    def _set_busy(self, busy: bool, message: str = ""):
+        self._busy = busy
+        if message:
+            self.manager_status_label.setText(message)
+        self._update_action_buttons()
+
+    def _start_font_worker(
+        self,
+        fn,
+        *args,
+        pending: str,
+        on_success,
+        error_prefix: str,
+    ):
+        if self._busy:
+            raise RuntimeError("已有字体操作正在进行。")
+        self._worker_generation += 1
+        worker_generation = self._worker_generation
+        connection_generation = self._connection_generation
+        self._set_busy(True, pending)
+        progress = QtWidgets.QProgressDialog(pending, "", 0, 0, self)
+        progress.setWindowTitle(_rmtool.APP_NAME)
+        progress.setWindowModality(QtCore.Qt.ApplicationModal)
+        progress.setCancelButton(None)
+        progress.setMinimumDuration(0)
+        progress.show()
+        self._font_progress = progress
+        worker = _rmtool.Worker(fn, *args)
+
+        def finish_stale_worker():
+            pending_refresh = self._pending_refresh
+            self._pending_refresh = None
+            self._busy = False
+            self._update_action_buttons()
+            if pending_refresh is not None and self.ssh_client.is_connected():
+                self._refresh_fonts(
+                    select_filename=pending_refresh[0], success=pending_refresh[1]
+                )
+
+        def on_finished(result):
+            if (
+                worker_generation != self._worker_generation
+                or connection_generation != self._connection_generation
+            ):
+                finish_stale_worker()
+                return
+            pending_refresh = self._pending_refresh
+            self._pending_refresh = None
+            self._close_font_progress()
+            on_success(result)
+            if (
+                pending_refresh is not None
+                and not self._busy
+                and self.ssh_client.is_connected()
+            ):
+                self._refresh_fonts(
+                    select_filename=pending_refresh[0], success=pending_refresh[1]
+                )
+
+        def on_error(exc: Exception):
+            if (
+                worker_generation != self._worker_generation
+                or connection_generation != self._connection_generation
+            ):
+                finish_stale_worker()
+                return
+            pending_refresh = self._pending_refresh
+            self._pending_refresh = None
+            self._close_font_progress()
+            self.manager_status_label.setText("操作失败，请查看提示后重试。")
+            logging.error("Font manager operation failed: %s", exc)
+            show_error(self, _rmtool.APP_NAME, f"{error_prefix}：{exc}")
+            if (
+                pending_refresh is not None
+                and not self._busy
+                and self.ssh_client.is_connected()
+            ):
+                self._refresh_fonts(
+                    select_filename=pending_refresh[0], success=pending_refresh[1]
+                )
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self.thread_pool.start(worker)
+
+    @require_connection
+    def _refresh_fonts(self, *, select_filename: str = "", success: str = ""):
+        if self._busy:
+            self._pending_refresh = (select_filename, success)
+            return
+        self._pending_refresh = None
+        self._start_font_worker(
+            _rmkit_cn.list_user_fonts,
+            self.ssh_client,
+            self._font_dir(),
+            pending="正在读取设备字体…",
+            on_success=lambda fonts: self._apply_font_inventory(
+                fonts, select_filename=select_filename, success=success
+            ),
+            error_prefix="字体列表刷新失败",
+        )
+
+    def _apply_font_inventory(
+        self,
+        fonts: tuple[_rmkit_cn.UserFont, ...],
+        *,
+        select_filename: str = "",
+        success: str = "",
+    ):
+        previous = select_filename
+        if not previous:
+            selected = self._selected_device_font()
+            previous = selected.filename if selected else ""
+        self._fonts = tuple(fonts)
+        self.font_table.setRowCount(len(self._fonts))
+        selected_row = -1
+        for row, font in enumerate(self._fonts):
+            values = (font.filename, font.family, "当前系统字体" if font.active else "已上传")
+            for column, value in enumerate(values):
+                self.font_table.setItem(row, column, QtWidgets.QTableWidgetItem(value))
+            if font.filename == previous:
+                selected_row = row
+        if selected_row >= 0:
+            self.font_table.selectRow(selected_row)
+        else:
+            self.font_table.clearSelection()
+        active_fonts = [font.filename for font in self._fonts if font.active]
+        active = "、".join(active_fonts) if active_fonts else "未在列表中"
+        legacy_note = (
+            "；检测到多个 Fontconfig 匹配，切换前均按当前系统字体保护"
+            if len(active_fonts) > 1
+            else ""
+        )
+        self.manager_status_label.setText(
+            f"已读取 {len(self._fonts)} 个用户字体；当前系统字体：{active}{legacy_note}。"
+        )
+        self._update_action_buttons()
+        if success:
+            show_info(self, _rmtool.APP_NAME, success)
+
+    @require_connection
+    def _set_selected_active(self):
+        selected = self._selected_device_font()
+        if not selected or selected.active:
+            return
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            f"将 {selected.filename} 设为系统界面字体。操作完成后需手动重启设备才会完整生效，是否继续？",
+            confirm_text="设为系统字体",
+            cancel_text="取消",
+        ):
+            return
+        self._start_font_worker(
+            _rmkit_cn.set_active_user_font,
+            self.ssh_client,
+            self._font_dir(),
+            selected.filename,
+            pending="正在设置并验证系统字体…",
+            on_success=lambda font: self._refresh_fonts(
+                select_filename=font.filename,
+                success="系统字体配置已更新。请在准备好后点击“重启生效”。",
+            ),
+            error_prefix="设置系统字体失败",
+        )
+
+    @require_connection
+    def _delete_selected_font(self):
+        selected = self._selected_device_font()
+        if not selected:
+            return
+        if selected.active:
+            show_warning(self, _rmtool.APP_NAME, "当前系统字体不能删除，请先切换到其他字体。")
+            return
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            f"将从设备删除字体 {selected.filename}。此操作不会影响其他字体，是否继续？",
+            confirm_text="删除字体",
+            cancel_text="取消",
+        ):
+            return
+        self._start_font_worker(
+            _rmkit_cn.delete_user_font,
+            self.ssh_client,
+            self._font_dir(),
+            selected.filename,
+            pending="正在删除字体并刷新缓存…",
+            on_success=lambda _: self._refresh_fonts(success="所选字体已删除。"),
+            error_prefix="删除字体失败",
+        )
+
+    @require_connection
+    def _restart_device(self):
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "设备将立即重启，尚未保存的内容可能丢失。是否继续？",
+            confirm_text="重启设备",
+            cancel_text="取消",
+        ):
+            return
+        try:
+            self.ssh_client.exec_command("reboot")
+            show_info(self, _rmtool.APP_NAME, "已发送重启命令。")
+        except Exception as exc:
+            logging.exception("Device reboot from font manager failed")
+            show_error(self, _rmtool.APP_NAME, f"重启失败：{exc}")
 
 
 class TimeTab(QtWidgets.QWidget):
@@ -777,6 +1077,11 @@ class TapPageTurnSection(QtWidgets.QWidget):
             connected
             and self._status is not None
             and self._status.dropin_present
+            and state
+            not in (
+                _tap_page_turn.TapPageTurnState.NOT_INSTALLED,
+                _tap_page_turn.TapPageTurnState.INSTALLED_DISABLED,
+            )
         )
 
     def _set_busy(self, busy: bool, message: str = ""):
@@ -813,6 +1118,9 @@ class TapPageTurnSection(QtWidgets.QWidget):
             ),
             _tap_page_turn.TapPageTurnState.ENABLE_PENDING_REBOOT: (
                 "持久化已部署，等待冷启动生效"
+            ),
+            _tap_page_turn.TapPageTurnState.WAITING_FOR_XOVI: (
+                "点击翻页已部署，等待 AppLoader/Xovi 激活"
             ),
             _tap_page_turn.TapPageTurnState.ENABLED: "点击翻页已启用并正在运行",
             _tap_page_turn.TapPageTurnState.DISABLE_PENDING_REBOOT: (
@@ -882,7 +1190,10 @@ class TapPageTurnSection(QtWidgets.QWidget):
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
-            "将下载并校验固件专用资源，在系统中写入持久化 xochitl drop-in。"
+            "将下载并校验固件专用资源。若设备已有兼容的 AppLoader/Xovi，"
+            "rmtool 会生成固件专用 Vellum APK，并通过 Vellum 安装；"
+            "否则部署 rmtool 自有持久化配置。Vellum 模式不增加设备端开关，"
+            "安装期间 QMD 始终随 Xovi 加载。"
             "本次操作不会重启界面或设备；完成后 SSH 会话会关闭，请从设备菜单手动冷启动。"
             "是否继续？",
             confirm_text="部署持久化",
@@ -909,7 +1220,8 @@ class TapPageTurnSection(QtWidgets.QWidget):
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
-            "将从当前 overlay 和系统分区同时移除 rmtool 点击翻页 drop-in。"
+            "将停用 rmtool 的点击翻页配置；Vellum 模式只卸载 rmtool 的独立 APK，"
+            "不会删除或修改 AppLoader 及其他 Xovi 扩展。"
             "资源缓存会保留，本次操作不会重启界面或设备；完成后请手动冷启动。"
             "是否继续？",
             confirm_text="停用点击翻页",
@@ -1014,7 +1326,7 @@ class ToolboxTab(QtWidgets.QWidget):
         self.rmkit_cn_section = RmkitCnSection(ssh_client)
         self.tap_page_turn_section = TapPageTurnSection(ssh_client)
 
-        font_group = QtWidgets.QGroupBox("字体上传")
+        font_group = QtWidgets.QGroupBox("字体管理")
         font_layout = QtWidgets.QVBoxLayout()
         font_layout.setContentsMargins(0, 0, 0, 0)
         font_layout.addWidget(self.font_section)

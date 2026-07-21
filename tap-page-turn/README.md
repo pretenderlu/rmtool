@@ -39,6 +39,24 @@ The persistent launcher verifies the architecture, platform, internal firmware
 version, xochitl SHA-256, and every runtime payload hash on each boot. A
 mismatch starts stock xochitl without `LD_PRELOAD`.
 
+If Vellum owns the standard AppLoader/Xovi layout, rmtool verifies the Vellum
+database entries and file ownership for `xovi`, `qt-resource-rebuilder`, and
+`appload`, then checks the runtime hashes against the selected firmware asset.
+After checking the QMD against the existing hashtab, rmtool builds a
+deterministic unsigned noarch APK containing only the QMD, license, and source
+metadata. The APK has exact OS and device dependencies and conflicts with the
+known tap-to-page packages. Installation and removal use only `vellum add` and
+`vellum del`.
+
+The Vellum package has no AppLoader icon and no on-device toggle. While the
+package is installed, qt-resource-rebuilder always discovers its QMD whenever
+Xovi is active; rmtool's enable and disable actions are the only management
+switch. AppLoader's drop-in, hashtab, applications, and other extensions are
+never changed. Custom layouts, unknown persistence, and runtime hash mismatches
+are rejected rather than falling back to standalone deployment. AppLoader
+installations that need manual Xovi activation after a restart keep that
+behavior, and rmtool reports the waiting state.
+
 Enabling or disabling never restarts xochitl or reboots the tablet. The user
 must use the device menu to perform a full restart after the SSH deployment
 session has closed. Immediately restarting xochitl from the same SSH session
