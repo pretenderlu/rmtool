@@ -31,6 +31,7 @@ import _tab_connection
 import _tab_documents
 import _tab_toolbox
 import _tab_wallpaper
+import _tokens
 
 
 _APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
@@ -1110,7 +1111,7 @@ class ConnectionSidebarUiTests(unittest.TestCase):
         light = rmtool._resolve_stylesheet(rmtool._LIGHT_STYLESHEET)
         status_text_rule = light.split("#statusText {", 1)[1].split("}", 1)[0]
 
-        self.assertIn("font-size: 18px;", status_text_rule)
+        self.assertIn(f"font-size: {_tokens.FONT_MD}px;", status_text_rule)
         self.assertIn("line-height: 1.3;", status_text_rule)
 
 
@@ -2706,6 +2707,36 @@ class DashboardTabTests(unittest.TestCase):
             self.assertIn("#dashboardMetric", resolved)
             self.assertIn("#dashboardTipsCard", resolved)
             self.assertNotIn("{danger_bg}", resolved)
+            self.assertNotIn("{font_", resolved)
+
+
+class TypeScaleTests(unittest.TestCase):
+    @staticmethod
+    def _declarations(property_name):
+        for stylesheet in (rmtool._DARK_STYLESHEET, rmtool._LIGHT_STYLESHEET):
+            resolved = rmtool._resolve_stylesheet(stylesheet)
+            for match in re.finditer(rf"{property_name}:\s*([^;]+);", resolved):
+                yield match.group(1).strip()
+
+    def test_qss_font_sizes_stay_on_the_type_scale(self):
+        allowed = {
+            f"{size}px"
+            for size in (
+                _tokens.FONT_XS,
+                _tokens.FONT_SM,
+                _tokens.FONT_BASE,
+                _tokens.FONT_MD,
+                _tokens.FONT_LG,
+                _tokens.FONT_METRIC,
+            )
+        }
+
+        for value in self._declarations("font-size"):
+            self.assertIn(value, allowed)
+
+    def test_qss_font_weights_are_limited_to_regular_semibold_bold(self):
+        for value in self._declarations("font-weight"):
+            self.assertIn(value, {"normal", "400", "600", "700"})
 
 
 class DashboardDesignTokenTests(unittest.TestCase):
@@ -3747,9 +3778,9 @@ class DocumentWorkspaceUiTests(unittest.TestCase):
             return int(match.group(1))
 
         for stylesheet in (rmtool._DARK_STYLESHEET, rmtool._LIGHT_STYLESHEET):
-            self.assertGreaterEqual(font_size(stylesheet, "#restartConfirmSubtitle"), 14)
-            self.assertGreaterEqual(font_size(stylesheet, "#restartConfirmBody"), 16)
-            self.assertGreaterEqual(font_size(stylesheet, "#restartConfirmNoteText"), 15)
+            self.assertEqual(font_size(stylesheet, "#restartConfirmSubtitle"), _tokens.FONT_SM)
+            self.assertEqual(font_size(stylesheet, "#restartConfirmBody"), _tokens.FONT_BASE)
+            self.assertEqual(font_size(stylesheet, "#restartConfirmNoteText"), _tokens.FONT_SM)
 
     def test_shared_dialog_text_uses_restart_dialog_readable_scale(self):
         def font_size(stylesheet, selector):
@@ -3762,9 +3793,9 @@ class DocumentWorkspaceUiTests(unittest.TestCase):
             return int(match.group(1))
 
         for stylesheet in (rmtool._DARK_STYLESHEET, rmtool._LIGHT_STYLESHEET):
-            self.assertGreaterEqual(font_size(stylesheet, "#appDialogTitle"), 21)
-            self.assertGreaterEqual(font_size(stylesheet, "#appDialogBody"), 16)
-            self.assertGreaterEqual(font_size(stylesheet, "#appDialogNoteText"), 15)
+            self.assertEqual(font_size(stylesheet, "#appDialogTitle"), _tokens.FONT_LG)
+            self.assertEqual(font_size(stylesheet, "#appDialogBody"), _tokens.FONT_BASE)
+            self.assertEqual(font_size(stylesheet, "#appDialogNoteText"), _tokens.FONT_SM)
 
     def test_export_without_selection_shows_warning_instead_of_crashing(self):
         widget = self._make_widget()

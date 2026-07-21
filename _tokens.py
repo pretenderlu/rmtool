@@ -7,13 +7,35 @@ once with :data:`DARK_TOKENS` and once with :data:`LIGHT_TOKENS``.
 Keys are semantic; values are CSS/QSS color strings (hex or ``rgba()``).
 Radius tokens carry their unit (``px``) so they can be dropped into QSS
 declarations directly.
+
+The type scale below is the single source for font sizes: every QSS
+``font-size`` rule and the application font use these six levels, so the
+whole UI shares one px-based ladder (no pt mixing).
 """
+
+# -- Type scale (px; identical for both themes) --
+FONT_XS = 12  # auxiliary captions, timestamps, status footnotes
+FONT_SM = 13  # secondary text, field labels, badges
+FONT_BASE = 14  # body text: buttons, inputs, list items, plain labels
+FONT_MD = 16  # card/group titles, emphasized values
+FONT_LG = 20  # page and dialog titles
+FONT_METRIC = 36  # dashboard stat figures only
+
+FONT_SCALE_TOKENS = {
+    "font_xs": f"{FONT_XS}px",
+    "font_sm": f"{FONT_SM}px",
+    "font_base": f"{FONT_BASE}px",
+    "font_md": f"{FONT_MD}px",
+    "font_lg": f"{FONT_LG}px",
+    "font_metric": f"{FONT_METRIC}px",
+}
 
 # ---------------------------------------------------------------------------
 # Dark theme
 # ---------------------------------------------------------------------------
 
 DARK_TOKENS = {
+    **FONT_SCALE_TOKENS,
     # -- Radii / spacing --
     "radius_panel": "16px",
     "radius_inner": "12px",
@@ -172,6 +194,7 @@ DARK_TOKENS = {
 # ---------------------------------------------------------------------------
 
 LIGHT_TOKENS = {
+    **FONT_SCALE_TOKENS,
     # -- Radii / spacing --
     "radius_panel": "16px",
     "radius_inner": "12px",

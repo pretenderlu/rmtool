@@ -44,6 +44,7 @@ QGroupBox::title {
     left: 16px;
     top: 10px;
     color: {text_muted};
+    font-size: {font_md};
     font-weight: 600;
     letter-spacing: 0.5px;
 }
@@ -55,6 +56,7 @@ QPushButton {
     border: 1px solid {border_popup};
     border-radius: {radius_control};
     padding: 10px 24px;
+    font-size: {font_base};
     font-weight: 600;
 }
 QPushButton:hover:!disabled {
@@ -110,6 +112,7 @@ QToolButton {
     border: 1px solid {border_control};
     border-radius: {radius_control};
     padding: 7px 10px;
+    font-size: {font_base};
 }
 QToolButton:hover {
     background: {tool_bg_hover};
@@ -133,6 +136,7 @@ QLineEdit, QComboBox, QPlainTextEdit, QTextEdit {
     border: 1px solid {border_control};
     border-radius: {radius_inner};
     padding: 8px 12px;
+    font-size: {font_base};
     selection-background-color: {selection_bg};
     selection-color: {text_primary};
 }
@@ -166,15 +170,21 @@ QComboBox QAbstractItemView {
     background: {bg_popup};
     border: 1px solid {border_popup};
     border-radius: {radius_inner};
+    font-size: {font_base};
     selection-background-color: {selection_bg_popup};
     padding: 4px;
     outline: none;
+}
+
+QMenu {
+    font-size: {font_base};
 }
 
 /* ===== Checkbox & Radio ===== */
 QCheckBox, QRadioButton {
     spacing: 8px;
     color: {text_secondary};
+    font-size: {font_base};
 }
 QCheckBox::indicator, QRadioButton::indicator {
     width: 20px;
@@ -212,7 +222,7 @@ QTabBar::tab {
     padding: 14px 28px;
     margin: 0 1px;
     border-bottom: 3px solid transparent;
-    font-weight: 500;
+    font-size: {font_base};
 }
 QTabBar::tab:selected {
     color: {text_primary};
@@ -232,6 +242,7 @@ QTableWidget {
     border: 1px solid {border_subtle};
     border-radius: {radius_inner};
     gridline-color: {gridline};
+    font-size: {font_base};
     selection-background-color: {table_selection_bg};
     selection-color: {text_primary};
     padding: 2px;
@@ -250,6 +261,7 @@ QHeaderView::section {
     padding: 10px 12px;
     border: none;
     border-bottom: 1px solid {border_subtle};
+    font-size: {font_sm};
     font-weight: 600;
 }
 
@@ -278,12 +290,6 @@ QLabel {
     background: {bg_panel};
     border: 1px solid {border_panel};
     border-radius: {radius_panel};
-}
-#connectionStatusLabel {
-    font-size: 16pt;
-    font-weight: 700;
-    padding: 10px 0;
-    letter-spacing: 0.5px;
 }
 
 /* ===== Sliders ===== */
@@ -375,17 +381,20 @@ QToolTip {
     border: 1px solid {border_popup};
     border-radius: 6px;
     padding: 6px 10px;
+    font-size: {font_sm};
 }
 
 /* ===== Message Box ===== */
 QMessageBox {
     background: {bg_messagebox};
+    font-size: {font_base};
 }
 
 QStatusBar#appStatusBar {
     background: {bg_statusbar};
     color: {text_secondary};
     border-top: 1px solid {border_subtle};
+    font-size: {font_base};
 }
 QStatusBar#appStatusBar[level="success"] {
     color: {success};
@@ -403,6 +412,7 @@ QStatusBar#appStatusBar[level="error"] {
     border-radius: 10px;
     padding: 4px 10px;
     margin-left: 8px;
+    font-size: {font_sm};
 }
 #appConnectionChip[connected="true"] {
     color: {success};
@@ -420,7 +430,7 @@ QStatusBar#appStatusBar[level="error"] {
 }
 #sidebarSectionLabel {
     color: {text_faded};
-    font-size: 20px;
+    font-size: {font_md};
     font-weight: 600;
     letter-spacing: 0.02em;
     padding: 0;
@@ -428,8 +438,7 @@ QStatusBar#appStatusBar[level="error"] {
 }
 #sidebarBrand {
     color: {text_brand};
-    font-size: 13px;
-    font-weight: 500;
+    font-size: {font_xs};
     letter-spacing: 0.04em;
     padding: 12px 0;
 }
@@ -442,6 +451,7 @@ QStatusBar#appStatusBar[level="error"] {
     background: transparent;
     border: none;
     outline: none;
+    font-size: {font_base};
 }
 #sidebarNav::item {
     color: {text_secondary};
@@ -475,7 +485,7 @@ QStatusBar#appStatusBar[level="error"] {
     border: none;
 }
 #statusText {
-    font-size: 18px;
+    font-size: {font_md};
     font-weight: 700;
     color: {text_secondary};
     line-height: 1.3;
@@ -488,37 +498,36 @@ QStatusBar#appStatusBar[level="error"] {
 }
 #deviceCardTitle {
     color: {text_primary};
-    font-size: 22px;
+    font-size: {font_md};
     font-weight: 700;
 }
 #deviceCardMeta {
     color: {text_soft};
-    font-size: 14px;
+    font-size: {font_sm};
 }
 #deviceCardHost {
     color: {text_secondary};
-    font-size: 14px;
+    font-size: {font_sm};
     font-weight: 600;
 }
 #credentialStatusLabel {
     color: {text_faded};
-    font-size: 13px;
-    font-weight: 600;
+    font-size: {font_xs};
 }
 #forgetPasswordButton {
     padding: 5px 8px;
-    font-size: 12px;
+    font-size: {font_xs};
     border-radius: 7px;
 }
 
 #documentsSummaryLabel {
     color: {text_soft};
-    font-size: 13px;
+    font-size: {font_sm};
     font-weight: 600;
 }
 #panelSectionLabel {
     color: {text_muted};
-    font-size: 18px;
+    font-size: {font_md};
     font-weight: 600;
     padding: 0;
 }
@@ -532,13 +541,14 @@ QStatusBar#appStatusBar[level="error"] {
 }
 #fontPreviewTitle {
     color: {text_soft};
-    font-size: 13px;
+    font-size: {font_sm};
     font-weight: 600;
 }
 #fontPreviewSample {
     color: {text_primary};
     background: transparent;
     padding: 0;
+    font-size: {font_lg};
 }
 #documentsEmptyState {
     color: {text_faded};
@@ -551,17 +561,17 @@ QStatusBar#appStatusBar[level="error"] {
 /* ===== Dashboard ===== */
 #dashboardTitle {
     color: {text_primary};
-    font-size: 24px;
+    font-size: {font_lg};
     font-weight: 700;
 }
 #dashboardSubtitle {
     color: {text_muted};
-    font-size: 14px;
+    font-size: {font_base};
 }
 #dashboardStatusBadge {
     padding: 8px 16px;
     border-radius: {radius_control};
-    font-size: 13px;
+    font-size: {font_sm};
     font-weight: 600;
     letter-spacing: 1px;
     background: {danger_bg};
@@ -581,29 +591,29 @@ QStatusBar#appStatusBar[level="error"] {
 }
 #dashboardFieldLabel {
     color: {text_muted};
-    font-size: 13px;
+    font-size: {font_sm};
     font-weight: 600;
     letter-spacing: 1px;
 }
 #dashboardFieldValue {
     color: {text_primary};
-    font-size: 16px;
+    font-size: {font_md};
     font-weight: 600;
 }
 #dashboardMetric {
     color: {text_primary};
-    font-size: 40px;
+    font-size: {font_metric};
     font-weight: 700;
 }
 #dashboardMetricLabel {
     color: {text_muted};
-    font-size: 13px;
+    font-size: {font_sm};
     font-weight: 600;
     letter-spacing: 1px;
 }
 #dashboardDocUpdated {
     color: {text_muted};
-    font-size: 13px;
+    font-size: {font_sm};
 }
 #dashboardTipsCard {
     background: {badge_bg};
@@ -612,13 +622,13 @@ QStatusBar#appStatusBar[level="error"] {
 }
 #dashboardTipsTitle {
     color: {accent};
-    font-size: 15px;
-    font-weight: 700;
+    font-size: {font_md};
+    font-weight: 600;
     letter-spacing: 1px;
 }
 #dashboardTipsBody {
     color: {text_secondary};
-    font-size: 14px;
+    font-size: {font_base};
     background: transparent;
     border: none;
 }
@@ -646,6 +656,14 @@ QStatusBar#appStatusBar[level="error"] {
     background: {pill_bg_pressed};
 }
 
+/* ===== Toolbox section titles ===== */
+#rmkitCnStatus,
+#tapPageTurnStatus {
+    color: {text_primary};
+    font-size: {font_md};
+    font-weight: 700;
+}
+
 /* ===== Log viewer panel ===== */
 #logViewerPanel {
     background: {bg_log_panel};
@@ -654,7 +672,7 @@ QStatusBar#appStatusBar[level="error"] {
 #logViewerTitle {
     color: {text_contrast};
     font-weight: 700;
-    font-size: 18px;
+    font-size: {font_md};
     letter-spacing: 0.02em;
 }
 #logViewerText {
@@ -662,19 +680,20 @@ QStatusBar#appStatusBar[level="error"] {
     color: {text_contrast};
     border: 1px solid {border_popup};
     border-radius: {radius_control};
+    font-size: {font_sm};
     padding: 8px;
     selection-background-color: {selection_log};
 }
 #logViewerStatus {
     color: {text_log_status};
-    font-size: 12px;
+    font-size: {font_xs};
 }
 #logViewerClose {
     background: {pill_bg};
     color: {text_pill};
     border: 1px solid {border_popup};
     border-radius: 19px;
-    font-size: 22px;
+    font-size: {font_lg};
     font-weight: 600;
     padding: 0;
     padding-bottom: 4px;
@@ -708,8 +727,8 @@ QSplitter#mainSplitter::handle:hover {
     color: {badge_text};
     border: 1px solid {badge_border};
     border-radius: 23px;
-    font-size: 24px;
-    font-weight: 800;
+    font-size: {font_lg};
+    font-weight: 700;
 }
 #appDialogBadge[kind="warning"],
 #appDialogBadge[kind="confirm"] {
@@ -724,12 +743,12 @@ QSplitter#mainSplitter::handle:hover {
 }
 #appDialogTitle {
     color: {text_primary};
-    font-size: 21px;
-    font-weight: 800;
+    font-size: {font_lg};
+    font-weight: 700;
 }
 #appDialogBody {
     color: {text_secondary};
-    font-size: 16px;
+    font-size: {font_base};
 }
 #appDialogNote {
     background: {note_bg};
@@ -738,7 +757,7 @@ QSplitter#mainSplitter::handle:hover {
 }
 #appDialogNoteText {
     color: {note_text};
-    font-size: 15px;
+    font-size: {font_sm};
 }
 #appDialogPrimary,
 #appDialogSecondary {
@@ -761,22 +780,22 @@ QSplitter#mainSplitter::handle:hover {
     color: {badge_text};
     border: 1px solid {badge_border};
     border-radius: 23px;
-    font-size: 24px;
+    font-size: {font_lg};
     font-weight: 700;
 }
 #restartConfirmTitle {
     color: {text_primary};
-    font-size: 21px;
-    font-weight: 800;
+    font-size: {font_lg};
+    font-weight: 700;
 }
 #restartConfirmSubtitle {
     color: {text_subtitle};
-    font-size: 14px;
+    font-size: {font_sm};
     font-weight: 600;
 }
 #restartConfirmBody {
     color: {text_secondary};
-    font-size: 16px;
+    font-size: {font_base};
 }
 #restartConfirmNote {
     background: {note_bg};
@@ -785,7 +804,7 @@ QSplitter#mainSplitter::handle:hover {
 }
 #restartConfirmNoteText {
     color: {note_text};
-    font-size: 15px;
+    font-size: {font_sm};
 }
 #restartConfirmPrimary,
 #restartConfirmSecondary {
