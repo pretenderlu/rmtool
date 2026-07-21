@@ -1041,9 +1041,9 @@ class ConnectionSidebarUiTests(unittest.TestCase):
         self.assertIn("reMarkable 2", widget.device_meta_label.text())
         self.assertIn("Wi-Fi", widget.device_meta_label.text())
         self.assertIn("192.168.1.23", widget.device_host_label.text())
-        self.assertIn("Device B", widget.connect_button.text())
+        self.assertEqual(widget.connect_button.text(), "连接设备")
 
-    def test_narrow_sidebar_uses_compact_connect_label_and_shrinks_device_type_combo(self):
+    def test_narrow_sidebar_keeps_full_connect_label_and_minimum_width(self):
         app = QtWidgets.QApplication.instance()
         original_stylesheet = app.styleSheet()
         self.addCleanup(app.setStyleSheet, original_stylesheet)

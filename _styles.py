@@ -551,15 +551,15 @@ QStatusBar#appStatusBar[level="error"] {
 /* ===== Dashboard ===== */
 #dashboardTitle {
     color: {text_primary};
-    font-size: 30px;
+    font-size: 24px;
     font-weight: 700;
 }
 #dashboardSubtitle {
     color: {text_muted};
-    font-size: 15px;
+    font-size: 14px;
 }
 #dashboardStatusBadge {
-    padding: 6px 14px;
+    padding: 8px 16px;
     border-radius: {radius_control};
     font-size: 13px;
     font-weight: 600;
@@ -581,7 +581,7 @@ QStatusBar#appStatusBar[level="error"] {
 }
 #dashboardFieldLabel {
     color: {text_muted};
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
     letter-spacing: 1px;
 }
@@ -592,12 +592,12 @@ QStatusBar#appStatusBar[level="error"] {
 }
 #dashboardMetric {
     color: {text_primary};
-    font-size: 34px;
+    font-size: 40px;
     font-weight: 700;
 }
 #dashboardMetricLabel {
     color: {text_muted};
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
     letter-spacing: 1px;
 }

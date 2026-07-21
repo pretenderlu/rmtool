@@ -60,7 +60,7 @@ class DashboardTab(QtWidgets.QWidget):
         content = QtWidgets.QWidget()
         content.setObjectName("dashboardPage")
         content_layout = QtWidgets.QVBoxLayout(content)
-        content_layout.setContentsMargins(24, 24, 24, 24)
+        content_layout.setContentsMargins(28, 28, 28, 28)
         content_layout.setSpacing(16)
 
         # -- Hero: headline + connection badge --
@@ -116,7 +116,7 @@ class DashboardTab(QtWidgets.QWidget):
         cell = QtWidgets.QFrame()
         cell.setObjectName("dashboardFieldCell")
         cell_layout = QtWidgets.QVBoxLayout(cell)
-        cell_layout.setContentsMargins(14, 10, 14, 10)
+        cell_layout.setContentsMargins(16, 12, 16, 12)
         cell_layout.setSpacing(6)
         caption_label = QtWidgets.QLabel(caption)
         caption_label.setObjectName("dashboardFieldLabel")
@@ -129,7 +129,7 @@ class DashboardTab(QtWidgets.QWidget):
     def _build_device_card(self) -> QtWidgets.QGroupBox:
         group = QtWidgets.QGroupBox("当前设备")
         grid = QtWidgets.QGridLayout()
-        grid.setSpacing(12)
+        grid.setSpacing(16)
         self._device_value_labels: Dict[str, QtWidgets.QLabel] = {}
         for index, (key, caption) in enumerate(_DEVICE_FIELDS):
             cell, value_label = self._make_field_cell(caption)
@@ -141,16 +141,16 @@ class DashboardTab(QtWidgets.QWidget):
     def _build_documents_card(self) -> QtWidgets.QGroupBox:
         group = QtWidgets.QGroupBox("文档概览")
         card_layout = QtWidgets.QVBoxLayout()
-        card_layout.setSpacing(12)
+        card_layout.setSpacing(16)
 
         counts = QtWidgets.QHBoxLayout()
-        counts.setSpacing(12)
+        counts.setSpacing(16)
         self._doc_value_labels: Dict[str, QtWidgets.QLabel] = {}
         for key, caption in _DOC_METRICS:
             cell = QtWidgets.QFrame()
             cell.setObjectName("dashboardMetricCell")
             cell_layout = QtWidgets.QVBoxLayout(cell)
-            cell_layout.setContentsMargins(12, 14, 12, 14)
+            cell_layout.setContentsMargins(16, 16, 16, 16)
             cell_layout.setSpacing(4)
             metric_label = QtWidgets.QLabel("0")
             metric_label.setObjectName("dashboardMetric")
@@ -175,8 +175,8 @@ class DashboardTab(QtWidgets.QWidget):
         card = QtWidgets.QFrame()
         card.setObjectName("dashboardTipsCard")
         card_layout = QtWidgets.QVBoxLayout(card)
-        card_layout.setContentsMargins(24, 20, 24, 20)
-        card_layout.setSpacing(12)
+        card_layout.setContentsMargins(28, 24, 28, 24)
+        card_layout.setSpacing(16)
         title = QtWidgets.QLabel("下一步建议")
         title.setObjectName("dashboardTipsTitle")
         self.tips_body = QtWidgets.QLabel()
@@ -242,7 +242,11 @@ class DashboardTab(QtWidgets.QWidget):
         updated = self._documents.get("lastUpdated") or "—"
         self.doc_updated_label.setText(f"最近更新：{updated}")
 
-        self.tips_body.setText("\n".join(f"• {item}" for item in self._next_actions()))
+        items = "".join(
+            f'<p style="margin: 0 0 8px 0;">• {item}</p>'
+            for item in self._next_actions()
+        )
+        self.tips_body.setText(items)
 
     def _next_actions(self) -> List[str]:
         total = self._documents.get("total") or 0

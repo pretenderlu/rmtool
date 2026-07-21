@@ -101,15 +101,14 @@ class ConnectionWidget(QtWidgets.QWidget):
         credential_status_row.addWidget(self.credential_status_label, 1)
         credential_status_row.addWidget(self.forget_password_button)
 
-        # -- Buttons --
-        self.connect_button = QtWidgets.QPushButton("连接")
-        self.disconnect_button = QtWidgets.QPushButton("断开")
+        # -- Buttons (stacked so both keep their full text at sidebar width) --
+        self.connect_button = QtWidgets.QPushButton("连接设备")
+        self.disconnect_button = QtWidgets.QPushButton("断开连接")
         self.connect_button.setProperty("btnRole", "primary")
         self.disconnect_button.setProperty("btnRole", "danger")
-        self.connect_button.setText("连接到当前设备")
-        self.disconnect_button.setText("断开连接")
-        button_layout = QtWidgets.QHBoxLayout()
+        button_layout = QtWidgets.QVBoxLayout()
         button_layout.setContentsMargins(0, 0, 0, 0)
+        button_layout.setSpacing(8)
         button_layout.addWidget(self.connect_button)
         button_layout.addWidget(self.disconnect_button)
 
@@ -780,30 +779,12 @@ class ConnectionWidget(QtWidgets.QWidget):
         self._refresh_device_summary(device)
         self.device_changed.emit(device)
 
-    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # pragma: no cover - layout reaction
-        super().resizeEvent(event)
-        self._update_connect_button_text()
-
-    def _preferred_connect_button_text(self, device: Optional[Dict]) -> str:
-        if not device:
-            return "连接设备"
-        device_name = device.get("name", "").strip()
-        if not device_name:
-            return "连接设备"
-        if self.width() and self.width() < 360:
-            return "连接设备"
-        return f"连接 {device_name}"
-
-    def _update_connect_button_text(self, device: Optional[Dict] = None) -> None:
-        self.connect_button.setText(self._preferred_connect_button_text(device or self._current_device()))
-
     def _refresh_device_summary(self, device: Optional[Dict] = None) -> None:
         device = device or self._current_device()
         if not device:
             self.device_title_label.setText("未选择设备")
             self.device_meta_label.setText("选择一个设备后开始连接。")
             self.device_host_label.setText("地址：-")
-            self._update_connect_button_text(None)
             return
 
         device_name = device.get("name", "未命名设备")
@@ -814,7 +795,6 @@ class ConnectionWidget(QtWidgets.QWidget):
         self.device_title_label.setText(device_name)
         self.device_meta_label.setText(f"{self._device_type_display(device_type)} · {mode_label}")
         self.device_host_label.setText(f"地址：{host}")
-        self._update_connect_button_text(device)
 
     def set_footer_theme(self, theme: str) -> None:
         is_dark = theme == "dark"
