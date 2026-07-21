@@ -8,6 +8,11 @@ rendered once per theme via :func:`_render_stylesheet`, producing
 The rendered stylesheets still contain ``{arrow_*}`` placeholders for the
 runtime-generated combo box arrow icons; those are substituted by
 ``rmtool._resolve_stylesheet``.
+
+Buttons follow a three-level hierarchy selected with the ``btnRole``
+dynamic property: ``primary`` (one emphasized action per region, solid
+accent), ``danger`` (destructive actions) and the default ``secondary``
+look (every QPushButton without a ``btnRole``).
 """
 
 from PyQt5 import QtGui
@@ -27,8 +32,7 @@ QMainWindow {
 
 /* ===== Group Box ===== */
 QGroupBox {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-        stop:0 {bg_surface_top}, stop:1 {bg_surface_bottom});
+    background: {bg_surface};
     border: 1px solid {border};
     border-radius: {radius_panel};
     margin-top: 0px;
@@ -44,27 +48,60 @@ QGroupBox::title {
     letter-spacing: 0.5px;
 }
 
-/* ===== Buttons ===== */
+/* ===== Buttons: default is secondary ===== */
 QPushButton {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 {accent}, stop:1 {accent_end});
-    color: {text_on_accent};
-    border: none;
+    background: {btn_secondary_bg};
+    color: {text_secondary};
+    border: 1px solid {border_popup};
     border-radius: {radius_control};
     padding: 10px 24px;
     font-weight: 600;
 }
 QPushButton:hover:!disabled {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 {accent_hover}, stop:1 {accent_hover_end});
+    background: {btn_secondary_hover_bg};
+    border-color: {btn_secondary_hover_border};
+    color: {text_primary};
 }
 QPushButton:pressed:!disabled {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 {accent_pressed}, stop:1 {accent_pressed_end});
+    background: {btn_secondary_pressed_bg};
+}
+QPushButton:checked {
+    background: {btn_secondary_checked_bg};
+    color: {btn_secondary_checked_text};
+    border-color: {btn_secondary_checked_border};
 }
 QPushButton:disabled {
+    background: {btn_secondary_disabled_bg};
+    color: {btn_secondary_disabled_text};
+    border-color: {btn_secondary_disabled_border};
+}
+
+/* Primary: the single emphasized action per region, solid accent */
+QPushButton[btnRole="primary"] {
+    background: {accent};
+    color: {text_on_accent};
+    border: none;
+}
+QPushButton[btnRole="primary"]:hover:!disabled {
+    background: {accent_hover};
+}
+QPushButton[btnRole="primary"]:pressed:!disabled {
+    background: {accent_pressed};
+}
+QPushButton[btnRole="primary"]:disabled {
     background: {btn_disabled_bg};
     color: {text_disabled};
+}
+
+/* Danger: destructive actions stay quiet until hovered */
+QPushButton[btnRole="danger"] {
+    color: {danger};
+    border-color: {danger_border};
+}
+QPushButton[btnRole="danger"]:hover:!disabled {
+    background: {danger_hover_bg};
+    border-color: {danger_hover_border};
+    color: {danger_hover_text};
 }
 
 QToolButton {
@@ -78,6 +115,15 @@ QToolButton:hover {
     background: {tool_bg_hover};
     border-color: {tool_border_hover};
     color: {text_primary};
+}
+QToolButton[btnRole="danger"] {
+    color: {danger};
+    border-color: {danger_border};
+}
+QToolButton[btnRole="danger"]:hover {
+    background: {danger_hover_bg};
+    border-color: {danger_hover_border};
+    color: {danger_hover_text};
 }
 
 /* ===== Input Fields ===== */
@@ -143,8 +189,7 @@ QRadioButton::indicator {
     border-radius: 11px;
 }
 QCheckBox::indicator:checked, QRadioButton::indicator:checked {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 {control_accent}, stop:1 {control_accent_end});
+    background: {control_accent};
     border-color: transparent;
 }
 QCheckBox::indicator:hover, QRadioButton::indicator:hover {
@@ -250,14 +295,12 @@ QSlider::groove:horizontal {
 QSlider::handle:horizontal {
     width: 20px;
     height: 20px;
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 {control_accent}, stop:1 {control_accent_end});
+    background: {control_accent};
     border-radius: 10px;
     margin: -7px 0;
 }
 QSlider::sub-page:horizontal {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 {control_accent}, stop:1 {control_accent_end});
+    background: {control_accent};
     border-radius: 3px;
 }
 
@@ -321,8 +364,7 @@ QProgressBar {
     color: transparent;
 }
 QProgressBar::chunk {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 {control_accent}, stop:1 {control_accent_end});
+    background: {control_accent};
     border-radius: 5px;
 }
 
@@ -370,8 +412,7 @@ QStatusBar#appStatusBar[level="error"] {
 
 /* ===== Sidebar ===== */
 #sidebar {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-        stop:0 {sidebar_top}, stop:1 {sidebar_bottom});
+    background: {sidebar_bg};
     border-right: 1px solid {border_subtle};
 }
 #sidebarConnection {
@@ -478,8 +519,6 @@ QStatusBar#appStatusBar[level="error"] {
     margin-top: 8px;
 }
 
-{extra_rules}
-
 /* ===== Theme toggle ===== */
 #themeToggle,
 #logViewerButton,
@@ -556,8 +595,7 @@ QSplitter#mainSplitter::handle:hover {
     background: transparent;
 }
 #appDialogSurface {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-        stop:0 {dialog_top}, stop:1 {dialog_bottom});
+    background: {dialog_bg};
     border: 1px solid {border_dialog};
     border-radius: {radius_panel};
 }
@@ -610,8 +648,7 @@ QSplitter#mainSplitter::handle:hover {
     background: transparent;
 }
 #restartConfirmSurface {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-        stop:0 {dialog_top}, stop:1 {dialog_bottom});
+    background: {dialog_bg};
     border: 1px solid {border_dialog};
     border-radius: {radius_panel};
 }
@@ -655,66 +692,6 @@ QSplitter#mainSplitter::handle:hover {
 """
 
 
-# Dark-theme-only rules: the legacy stylesheets defined ``cssClass`` button
-# variants for the dark theme only.  Kept as a template fragment so the light
-# theme stays visually unchanged (rendered into the ``{extra_rules}`` slot).
-_DARK_EXTRA_RULES_TEMPLATE = """
-/* ===== Button variants ===== */
-QPushButton[cssClass="secondary"] {
-    background: {btn_secondary_bg};
-    color: {text_secondary};
-    border: 1px solid {border_popup};
-}
-QPushButton[cssClass="secondary"]:hover:!disabled {
-    background: {btn_secondary_hover_bg};
-    border-color: {btn_secondary_hover_border};
-    color: {text_primary};
-}
-QPushButton[cssClass="secondary"]:pressed:!disabled {
-    background: {btn_secondary_pressed_bg};
-}
-QPushButton[cssClass="secondary"]:checked {
-    background: {btn_secondary_checked_bg};
-    color: {btn_secondary_checked_text};
-    border-color: {btn_secondary_checked_border};
-}
-QPushButton[cssClass="secondary"]:disabled {
-    background: {btn_secondary_disabled_bg};
-    color: {btn_secondary_disabled_text};
-    border-color: {btn_secondary_disabled_border};
-}
-
-QPushButton[cssClass="danger"] {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 {danger_btn}, stop:1 {danger_btn_end});
-    color: {text_on_accent};
-    border: none;
-}
-QPushButton[cssClass="danger"]:hover:!disabled {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 {danger_btn_hover}, stop:1 {danger_btn_hover_end});
-}
-QPushButton[cssClass="danger"]:pressed:!disabled {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 {danger_btn_pressed}, stop:1 {danger_btn_pressed_end});
-}
-QPushButton[cssClass="danger"]:disabled {
-    background: {danger_btn_disabled_bg};
-    color: {text_disabled};
-}
-
-QToolButton[cssClass="danger"] {
-    color: {danger};
-    border-color: {danger_tool_border};
-}
-QToolButton[cssClass="danger"]:hover {
-    background: {danger_tool_hover_bg};
-    border-color: {danger_tool_hover_border};
-    color: {danger_tool_hover_text};
-}
-"""
-
-
 def _render_stylesheet(template: str, tokens: dict) -> str:
     """Render ``{token}`` placeholders in *template* via ``str.format``.
 
@@ -730,14 +707,8 @@ def _render_stylesheet(template: str, tokens: dict) -> str:
     return escaped.format(**tokens)
 
 
-_dark_tokens = dict(
-    DARK_TOKENS,
-    extra_rules=_render_stylesheet(_DARK_EXTRA_RULES_TEMPLATE, DARK_TOKENS),
-)
-_light_tokens = dict(LIGHT_TOKENS, extra_rules="")
-
-_DARK_STYLESHEET = _render_stylesheet(_STYLESHEET_TEMPLATE, _dark_tokens)
-_LIGHT_STYLESHEET = _render_stylesheet(_STYLESHEET_TEMPLATE, _light_tokens)
+_DARK_STYLESHEET = _render_stylesheet(_STYLESHEET_TEMPLATE, DARK_TOKENS)
+_LIGHT_STYLESHEET = _render_stylesheet(_STYLESHEET_TEMPLATE, LIGHT_TOKENS)
 
 
 def _build_palette(tokens: dict) -> QtGui.QPalette:

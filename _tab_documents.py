@@ -273,15 +273,14 @@ class DocumentsTab(QtWidgets.QWidget):
 
         # --- Toolbar ---
         self.refresh_button = QtWidgets.QPushButton("刷新列表")
-        self.refresh_button.setProperty("cssClass", "secondary")
         self.upload_button = QtWidgets.QPushButton("上传文档")
+        self.upload_button.setProperty("btnRole", "primary")
         self.cleanup_thumbnails_button = QtWidgets.QPushButton("清理缩略图")
-        self.cleanup_thumbnails_button.setProperty("cssClass", "secondary")
         self.cleanup_thumbnails_button.setToolTip(
             "扫描已不存在文档留下的封面缩略图，确认后再删除"
         )
         self.delete_button = QtWidgets.QPushButton("删除文档")
-        self.delete_button.setProperty("cssClass", "danger")
+        self.delete_button.setProperty("btnRole", "danger")
         self.export_button = QtWidgets.QPushButton("导出为 PDF")
         self.export_button.setToolTip("将笔记渲染并导出为 PDF 文件（需要 rm/note 数据）")
         self.search_edit = QtWidgets.QLineEdit()
@@ -342,11 +341,9 @@ class DocumentsTab(QtWidgets.QWidget):
         self._preview_stack.addWidget(self.preview_image)  # index 1
 
         self._meta_btn = QtWidgets.QPushButton("元数据")
-        self._meta_btn.setProperty("cssClass", "secondary")
         self._meta_btn.setCheckable(True)
         self._meta_btn.setChecked(True)
         self._image_btn = QtWidgets.QPushButton("图像预览")
-        self._image_btn.setProperty("cssClass", "secondary")
         self._image_btn.setCheckable(True)
 
         preview_btn_group = QtWidgets.QButtonGroup(self)
@@ -784,11 +781,11 @@ class DocumentsTab(QtWidgets.QWidget):
 
         later_button = QtWidgets.QPushButton("稍后再说")
         later_button.setObjectName("restartConfirmSecondary")
-        later_button.setProperty("cssClass", "secondary")
         later_button.clicked.connect(dialog.reject)
 
         restart_button = QtWidgets.QPushButton("现在重启")
         restart_button.setObjectName("restartConfirmPrimary")
+        restart_button.setProperty("btnRole", "primary")
         restart_button.setDefault(True)
         restart_button.clicked.connect(dialog.accept)
 

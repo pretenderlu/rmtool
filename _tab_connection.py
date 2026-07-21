@@ -75,7 +75,7 @@ class ConnectionWidget(QtWidgets.QWidget):
         self.remove_device_button.setText("-")
         self.remove_device_button.setText("删除")
         self.remove_device_button.setToolTip("删除当前设备配置")
-        self.remove_device_button.setProperty("cssClass", "danger")
+        self.remove_device_button.setProperty("btnRole", "danger")
         self.edit_device_button = QtWidgets.QToolButton()
         self.edit_device_button.setText("编辑")
         self.edit_device_button.setToolTip("编辑当前设备配置")
@@ -104,7 +104,8 @@ class ConnectionWidget(QtWidgets.QWidget):
         # -- Buttons --
         self.connect_button = QtWidgets.QPushButton("连接")
         self.disconnect_button = QtWidgets.QPushButton("断开")
-        self.disconnect_button.setProperty("cssClass", "danger")
+        self.connect_button.setProperty("btnRole", "primary")
+        self.disconnect_button.setProperty("btnRole", "danger")
         self.connect_button.setText("连接到当前设备")
         self.disconnect_button.setText("断开连接")
         button_layout = QtWidgets.QHBoxLayout()

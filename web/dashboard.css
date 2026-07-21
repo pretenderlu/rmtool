@@ -4,9 +4,9 @@
     --bg-card: rgba(22, 26, 38, 0.75);
     --bg-card-inner: rgba(255, 255, 255, 0.03);
     --border: rgba(255, 255, 255, 0.06);
-    --border-accent: rgba(99, 102, 241, 0.4);
-    --accent: #6366f1;
-    --accent-cyan: #06b6d4;
+    --border-accent: rgba(91, 124, 247, 0.4);
+    --accent: #5B7CF7;
+    --accent-cyan: #6E8EFF;
     --text: #F8FAFC;
     --muted: #94A3B8;
     --green: #10B981;
@@ -24,9 +24,9 @@
 
 body {
     background:
-        radial-gradient(ellipse at 15% 20%, rgba(99, 102, 241, 0.15), transparent 45%),
-        radial-gradient(ellipse at 85% 15%, rgba(6, 182, 212, 0.1), transparent 40%),
-        radial-gradient(ellipse at 50% 90%, rgba(99, 102, 241, 0.08), transparent 50%),
+        radial-gradient(ellipse at 15% 20%, rgba(91, 124, 247, 0.15), transparent 45%),
+        radial-gradient(ellipse at 85% 15%, rgba(110, 142, 255, 0.1), transparent 40%),
+        radial-gradient(ellipse at 50% 90%, rgba(91, 124, 247, 0.08), transparent 50%),
         var(--bg-base);
     color: var(--text);
     min-height: 100vh;
@@ -122,7 +122,7 @@ body {
 }
 .card:hover {
     border-color: var(--border-accent);
-    box-shadow: 0 16px 48px rgba(99, 102, 241, 0.12);
+    box-shadow: 0 16px 48px rgba(91, 124, 247, 0.12);
     transform: translateY(-2px);
 }
 
@@ -202,7 +202,7 @@ body {
     -webkit-text-fill-color: transparent;
     line-height: 1.1;
     margin-bottom: 8px;
-    filter: drop-shadow(0 2px 8px rgba(99, 102, 241, 0.25));
+    filter: drop-shadow(0 2px 8px rgba(91, 124, 247, 0.25));
 }
 
 .doc-counts small {
@@ -222,10 +222,10 @@ body {
 
 /* ===== Tips ===== */
 .tips {
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.06), rgba(6, 182, 212, 0.03));
+    background: linear-gradient(135deg, rgba(91, 124, 247, 0.06), rgba(110, 142, 255, 0.03));
     border-radius: var(--radius-panel);
     padding: var(--panel-padding);
-    border: 1px solid rgba(99, 102, 241, 0.25);
+    border: 1px solid rgba(91, 124, 247, 0.25);
     display: flex;
     flex-direction: column;
     gap: 16px;

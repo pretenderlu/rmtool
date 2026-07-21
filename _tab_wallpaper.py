@@ -733,14 +733,12 @@ class WallpaperTab(QtWidgets.QWidget):
         self.info_label = QtWidgets.QLabel("未选择图片")
         self.resolution_label = QtWidgets.QLabel(self._resolution_text())
         self.choose_button = QtWidgets.QPushButton("选择本地图片")
-        self.choose_button.setProperty("cssClass", "secondary")
         self.cover_wall_button = QtWidgets.QPushButton("生成封面墙")
-        self.cover_wall_button.setProperty("cssClass", "secondary")
         self.cover_wall_button.setEnabled(self.ssh_client.is_connected())
         self.upload_button = QtWidgets.QPushButton("上传为壁纸")
+        self.upload_button.setProperty("btnRole", "primary")
         self.upload_button.setEnabled(False)
         self.rescan_button = QtWidgets.QPushButton("重新扫描")
-        self.rescan_button.setProperty("cssClass", "secondary")
 
         self.variant_group = QtWidgets.QButtonGroup(self)
         self.variant_previews: Dict[str, _rmtool.PreviewImageLabel] = {}
