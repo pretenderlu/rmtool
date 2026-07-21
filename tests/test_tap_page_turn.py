@@ -111,9 +111,28 @@ class TapPageTurnTests(unittest.TestCase):
 
     def test_repository_manifest_is_valid(self):
         parsed = tap.parse_manifest(Path("tap-page-turn/manifest.json").read_bytes())
-        self.assertEqual(len(parsed), 1)
-        self.assertEqual(parsed[0].platform, "ferrari")
-        self.assertEqual(parsed[0].firmware, "20260629074044")
+        self.assertEqual(len(parsed), 9)
+        self.assertEqual(
+            {(item.platform, item.firmware) for item in parsed},
+            {
+                ("ferrari", "20260506100933"),
+                ("chiappa", "20260506100933"),
+                ("ferrari", "20260612085811"),
+                ("chiappa", "20260612085811"),
+                ("tatsu", "20260612085811"),
+                ("rm1", "20260612085811"),
+                ("rm2", "20260612085811"),
+                ("ferrari", "20260629074044"),
+                ("chiappa", "20260629074044"),
+            },
+        )
+        architecture_by_platform = {
+            item.platform: item.architecture for item in parsed
+        }
+        self.assertEqual(architecture_by_platform["rm1"], "armv7l")
+        self.assertEqual(architecture_by_platform["rm2"], "armv7l")
+        for platform in ("ferrari", "chiappa", "tatsu"):
+            self.assertEqual(architecture_by_platform[platform], "aarch64")
 
     def test_manifest_rejects_traversal_path(self):
         package = self.package()
@@ -167,6 +186,17 @@ class TapPageTurnTests(unittest.TestCase):
         for path in tap._RUNTIME_PATHS:
             self.assertIn(f"{tap.REMOTE_BASE}/{path}", launcher)
 
+    def test_launcher_recognizes_every_supported_platform(self):
+        launcher = tap._launcher(self.package())
+        for machine, platform in (
+            ("Ferrari", "ferrari"),
+            ("Chiappa", "chiappa"),
+            ("Tatsu", "tatsu"),
+            ('"reMarkable 1"', "rm1"),
+            ('"reMarkable 2"', "rm2"),
+        ):
+            self.assertIn(f"*{machine}*) platform={platform}", launcher)
+
     def test_dropin_has_boot_guards_without_hard_home_dependency(self):
         dropin = tap._dropin(self.package())
         self.assertIn("After=home.mount", dropin)
@@ -200,6 +230,18 @@ class TapPageTurnTests(unittest.TestCase):
         status = tap.get_status(FakeSSH(), (self.package(),))
         self.assertEqual(status.state, tap.TapPageTurnState.NOT_INSTALLED)
         self.assertEqual(status.package, self.package())
+
+    def test_status_lists_only_packages_for_connected_platform(self):
+        matching = self.package()
+        other = tap.TapPageTurnPackage(
+            **{
+                **matching.__dict__,
+                "platform": "chiappa",
+                "asset": "tap-chiappa.tar.gz",
+            }
+        )
+        status = tap.get_status(FakeSSH(), (other, matching))
+        self.assertEqual(status.available_packages, (matching,))
 
     def test_active_detection_uses_loaded_library_map(self):
         class ActiveSSH:

@@ -8,8 +8,20 @@ rmtool downloads firmware-specific tap-to-turn packages from the fixed
 - the 14-digit internal firmware version; and
 - the SHA-256 of `/usr/bin/xochitl`.
 
-The first package supports Paper Pro (`ferrari`) beta firmware `3.28.0.162`,
-internal version `20260629074044`.
+## Support matrix
+
+| Device | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) |
+| --- | --- | --- | --- | --- |
+| Paper Pro | `ferrari` | Offline verified | Offline verified | **Device verified** |
+| Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified |
+| Paper Pure | `tatsu` | - | Offline verified | - |
+| reMarkable 1 | `rm1` | - | Offline verified | - |
+| reMarkable 2 | `rm2` | - | Offline verified | - |
+
+Offline validation uses the official firmware image and includes QML resource
+recovery, QMLDiff compatibility and replay, binary architecture, archive, and
+hash checks. Only the Paper Pro 3.28 package has completed enable, disable,
+rollback, and cold-boot validation on physical hardware so far.
 
 In PDF and EPUB reading views, a short one-finger tap in the left-middle
 region opens the previous page. The right edge and lower region open the next

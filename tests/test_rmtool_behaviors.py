@@ -1231,7 +1231,10 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertTrue(section.enable_button.isEnabled())
         self.assertFalse(section.disable_button.isEnabled())
         self.assertIn(package.firmware, section.catalog_label.text())
-        self.assertIn("测试版", section.catalog_label.text())
+        self.assertIn(
+            {"stable": "正式版", "beta": "测试版"}[package.channel],
+            section.catalog_label.text(),
+        )
 
     def test_tap_page_turn_incompatible_install_keeps_recovery_enabled(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")
