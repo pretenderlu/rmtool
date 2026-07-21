@@ -454,26 +454,28 @@ QStatusBar#appStatusBar[level="error"] {
 }
 #sidebarNav {
     background: transparent;
-    border: none;
-    outline: none;
-    font-size: {font_base};
 }
-#sidebarNav::item {
+#sidebarNav QPushButton {
     color: {text_secondary};
+    background: {bg_card};
     padding: 10px 14px;
-    border: none;
+    border: 1px solid {border_panel};
     border-radius: {radius_control};
+    text-align: left;
+    font-size: {font_base};
+    font-weight: normal;
 }
-#sidebarNav::item:hover:!selected {
+#sidebarNav QPushButton:hover:!checked:!disabled {
     background: {tab_hover_bg};
     color: {text_primary};
 }
-#sidebarNav::item:selected {
+#sidebarNav QPushButton:checked {
     background: {badge_bg};
     color: {accent};
+    border-color: {badge_border};
     font-weight: 600;
 }
-#sidebarNav::item:disabled {
+#sidebarNav QPushButton:disabled {
     color: {text_disabled};
 }
 

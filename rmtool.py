@@ -709,26 +709,25 @@ class MainWindow(QtWidgets.QMainWindow):
         nav_label = QtWidgets.QLabel("导航")
         nav_label.setObjectName("sidebarSectionLabel")
         nav_layout.addWidget(nav_label)
-        self.nav_list = QtWidgets.QListWidget()
-        self.nav_list.setObjectName("sidebarNav")
-        self.nav_list.setSpacing(6)
-        self.nav_list.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        self.nav_list.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        # sizeHintForRow() ignores QSS padding, so derive the row height from
-        # the font metrics plus the stylesheet's vertical padding (10px x 2).
-        row_height = self.nav_list.fontMetrics().height() + 22
-        for title in ("仪表盘", "壁纸管理", "文档中心", "字体管理", "设备工具"):
-            item = QtWidgets.QListWidgetItem(title)
-            item.setSizeHint(QtCore.QSize(-1, row_height))
-            self.nav_list.addItem(item)
-        self.nav_list.setFixedHeight(
-            row_height * self.nav_list.count()
-            + self.nav_list.spacing() * (self.nav_list.count() - 1)
-            + 2
-        )
-        self.nav_list.currentRowChanged.connect(self.pages.setCurrentIndex)
-        self.nav_list.setCurrentRow(0)
-        nav_layout.addWidget(self.nav_list)
+        # Plain checkable buttons in a vertical layout: the layout sizes them
+        # natively, so no fixed-height math and no scroll area can ever clip.
+        self.nav_buttons = []
+        self.nav_button_group = QtWidgets.QButtonGroup(self)
+        self.nav_button_group.setExclusive(True)
+        nav_widget = QtWidgets.QWidget()
+        nav_widget.setObjectName("sidebarNav")
+        nav_buttons_layout = QtWidgets.QVBoxLayout(nav_widget)
+        nav_buttons_layout.setContentsMargins(0, 0, 0, 0)
+        nav_buttons_layout.setSpacing(6)
+        for idx, title in enumerate(("仪表盘", "壁纸管理", "文档中心", "字体管理", "设备工具")):
+            button = QtWidgets.QPushButton(title)
+            button.setCheckable(True)
+            self.nav_button_group.addButton(button, idx)
+            nav_buttons_layout.addWidget(button)
+            self.nav_buttons.append(button)
+        self.nav_button_group.idClicked.connect(self.pages.setCurrentIndex)
+        self.nav_buttons[0].setChecked(True)
+        nav_layout.addWidget(nav_widget)
         self.connection_widget.add_sidebar_section(nav_container)
 
         # -- Horizontal layout: sidebar | pages --
@@ -810,12 +809,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if widget is self.dashboard_tab:
                 continue
             widget.setEnabled(enabled)
-            item = self.nav_list.item(idx)
-            flags = item.flags()
-            if enabled:
-                item.setFlags(flags | QtCore.Qt.ItemIsEnabled)
-            else:
-                item.setFlags(flags & ~QtCore.Qt.ItemIsEnabled)
+            self.nav_buttons[idx].setEnabled(enabled)
 
     def _show_status_message(self, level: str, text: str, timeout: int = 4000) -> None:
         status_bar = self.statusBar()
