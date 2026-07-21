@@ -1654,6 +1654,38 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertTrue(results["sleeping"].missing)
         self.assertNotIn("/usr/share/remarkable/sleeping.png", client.open_calls)
 
+    def test_transparent_carousel_placeholder_is_explained_instead_of_blank(self):
+        transparent = BytesIO()
+        Image.new("RGBA", (1, 1), (0, 0, 0, 0)).save(transparent, format="PNG")
+        opaque = BytesIO()
+        Image.new("RGB", (16, 12), (120, 30, 30)).save(opaque, format="PNG")
+
+        self.assertTrue(_tab_wallpaper._is_transparent_placeholder(transparent.getvalue()))
+        self.assertFalse(_tab_wallpaper._is_transparent_placeholder(opaque.getvalue()))
+
+        widget = rmtool.WallpaperTab(
+            FakeConnectionClient(connected=True), rmtool._default_config()
+        )
+        self.addCleanup(widget.deleteLater)
+        widget._apply_variant_previews({
+            "sleep_carousel_1": _tab_wallpaper._WallpaperPreviewResult(
+                data=transparent.getvalue()
+            ),
+            "sleep_carousel_2": _tab_wallpaper._WallpaperPreviewResult(
+                data=opaque.getvalue()
+            ),
+        })
+
+        cleared = widget.variant_previews["sleep_carousel_1"]
+        self.assertEqual(cleared.text(), "已被透明覆盖")
+        self.assertTrue(cleared.pixmap() is None or cleared.pixmap().isNull())
+        self.assertTrue(widget.variant_buttons["sleep_carousel_1"].isEnabled())
+        self.assertIn("透明", cleared.toolTip())
+
+        normal = widget.variant_previews["sleep_carousel_2"]
+        self.assertEqual(normal.text(), "")
+        self.assertFalse(normal.pixmap() is None or normal.pixmap().isNull())
+
 
 class DeviceFramePreviewTests(unittest.TestCase):
     SCREEN_RECT = (0.2, 0.1, 0.8, 0.9)
