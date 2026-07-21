@@ -20,6 +20,8 @@ import rmtool as _rmtool  # late-bound access to avoid circular import
 _LEGACY_WALLPAPER_PATHS = {
     "/usr/share/remarkable/hibernate.png": "/usr/share/remarkable/suspended.png",
 }
+_CAROUSEL_DIR = "/usr/share/remarkable/carousel"
+_CAROUSEL_BACKUP_SUFFIX = ".backup"
 _MONOCHROME_DEVICE_PROFILES = {
     "reMarkable Paper Pure",
     "reMarkable 1",
@@ -67,6 +69,7 @@ class _WallpaperPreviewResult:
 class _WallpaperResourceScan:
     available_paths: Set[str]
     complete: bool
+    carousel_backed_up: bool = False
 
 
 def _is_transparent_placeholder(data: bytes) -> bool:
@@ -735,6 +738,7 @@ class WallpaperTab(QtWidgets.QWidget):
         self._cached_source_image: Optional[Image.Image] = None
         self.current_resolution: Tuple[int, int] = _rmtool.DEVICE_PROFILES["reMarkable Paper Pro"]
         self._unavailable_wallpaper_paths: Set[str] = set()
+        self._carousel_blank_active = False
 
         self.base_resolution = _rmtool.DEVICE_PROFILES["reMarkable Paper Pro"]
         self.orientation_combo = QtWidgets.QComboBox()
@@ -827,6 +831,15 @@ class WallpaperTab(QtWidgets.QWidget):
         variants_header.addWidget(self.rescan_button)
         variants_section_layout.addLayout(variants_header)
         variants_section_layout.addLayout(variants_layout)
+
+        self.blank_carousel_checkbox = QtWidgets.QCheckBox("使用空白壁纸替换休眠轮播")
+        self.blank_carousel_checkbox.setToolTip(
+            "开启后把设备上的休眠轮播插图替换为空白图"
+            "（原始插图会先备份到设备上的同名 .backup 文件）；\n"
+            "关闭时从备份恢复原始插图。"
+        )
+        self.blank_carousel_checkbox.setEnabled(False)
+        variants_section_layout.addWidget(self.blank_carousel_checkbox)
 
         self.target_label = QtWidgets.QLabel()
 
@@ -925,6 +938,7 @@ class WallpaperTab(QtWidgets.QWidget):
         self.offset_x_slider.valueChanged.connect(self._render_preview)
         self.offset_y_slider.valueChanged.connect(self._render_preview)
         self.variant_group.buttonClicked.connect(self._on_variant_selected)
+        self.blank_carousel_checkbox.toggled.connect(self._on_blank_carousel_toggled)
         self.ssh_client.connection_changed.connect(self._on_connection_changed)
         QtCore.QTimer.singleShot(0, self._apply_initial_splitter_sizes)
 
@@ -971,12 +985,127 @@ class WallpaperTab(QtWidgets.QWidget):
 
     def _on_connection_changed(self, connected: bool) -> None:
         self.cover_wall_button.setEnabled(connected)
+        if not connected:
+            self._carousel_blank_active = False
+        self._sync_blank_carousel_checkbox()
         if connected:
             self._refresh_variant_previews()
         else:
             for preview in self.variant_previews.values():
                 preview.clear_preview()
                 preview.setText("未连接")
+
+    def _sync_blank_carousel_checkbox(self) -> None:
+        connected = self.ssh_client.is_connected()
+        self.blank_carousel_checkbox.blockSignals(True)
+        self.blank_carousel_checkbox.setChecked(connected and self._carousel_blank_active)
+        self.blank_carousel_checkbox.setEnabled(connected)
+        self.blank_carousel_checkbox.blockSignals(False)
+
+    def _on_blank_carousel_toggled(self, checked: bool) -> None:
+        if not self.ssh_client.is_connected():
+            self._sync_blank_carousel_checkbox()
+            return
+        self.blank_carousel_checkbox.setEnabled(False)
+        if checked:
+            worker = _rmtool.Worker(self._blank_carousel_overlays)
+            worker.signals.finished.connect(self._on_blank_carousel_done)
+        else:
+            worker = _rmtool.Worker(self._restore_carousel_overlays)
+            worker.signals.finished.connect(self._on_restore_carousel_done)
+        worker.signals.error.connect(self._on_carousel_option_error)
+        self.thread_pool.start(worker)
+
+    def _on_blank_carousel_done(self, count: int) -> None:
+        if count:
+            show_info(
+                self,
+                _rmtool.APP_NAME,
+                "休眠轮播插图已替换为空白壁纸，原始插图已备份到设备。",
+            )
+        else:
+            show_info(self, _rmtool.APP_NAME, "设备上没有找到休眠轮播插图。")
+        self._refresh_variant_previews()
+
+    def _on_restore_carousel_done(self, count: int) -> None:
+        if count:
+            show_info(self, _rmtool.APP_NAME, "已从备份恢复休眠轮播插图。")
+            self._refresh_variant_previews()
+        else:
+            show_info(
+                self,
+                _rmtool.APP_NAME,
+                "设备上没有找到原始插图的备份，无法恢复；原始插图只能随固件重置找回。",
+            )
+            self._sync_blank_carousel_checkbox()
+
+    def _on_carousel_option_error(self, exc: Exception) -> None:
+        logging.exception("Failed to update carousel overlays")
+        show_error(self, _rmtool.APP_NAME, f"休眠轮播设置失败：{exc}")
+        self._sync_blank_carousel_checkbox()
+
+    def _blank_carousel_overlays(self) -> int:
+        """Worker entry: back up originals (once), then blank every overlay."""
+        with remount_rw(self.ssh_client):
+            return self._blank_carousel_overlays_locked()
+
+    def _blank_carousel_overlays_locked(self) -> int:
+        """Blank carousel overlays; caller must hold a read-write mount."""
+        try:
+            entries = self.ssh_client.listdir_attr(_CAROUSEL_DIR)
+        except Exception:
+            return 0
+        png_files = [
+            entry.filename
+            for entry in entries
+            if entry.filename.lower().endswith(".png")
+        ]
+        if not png_files:
+            return 0
+
+        fd, transparent_path = tempfile.mkstemp(suffix=".png")
+        os.close(fd)
+        try:
+            Image.new("RGBA", (1, 1), (0, 0, 0, 0)).save(transparent_path, format="PNG")
+            for filename in png_files:
+                remote = f"{_CAROUSEL_DIR}/{filename}"
+                backup = remote + _CAROUSEL_BACKUP_SUFFIX
+                if not self.ssh_client.file_exists(backup):
+                    # Never back up an already-blanked placeholder as if it
+                    # were the original artwork.
+                    try:
+                        with self.ssh_client.open_remote(remote, "rb") as remote_file:
+                            current = remote_file.read()
+                    except Exception:
+                        current = b""
+                    if current and not _is_transparent_placeholder(current):
+                        self.ssh_client.exec_checked(f"cp {remote} {backup}")
+                self.ssh_client.transfer_file(transparent_path, remote)
+            logging.info("Blanked %d carousel overlay(s)", len(png_files))
+            return len(png_files)
+        finally:
+            if os.path.exists(transparent_path):
+                os.remove(transparent_path)
+
+    def _restore_carousel_overlays(self) -> int:
+        """Worker entry: restore backed-up overlays. Returns restored count."""
+        with remount_rw(self.ssh_client):
+            try:
+                entries = self.ssh_client.listdir_attr(_CAROUSEL_DIR)
+            except Exception:
+                return 0
+            backups = [
+                entry.filename
+                for entry in entries
+                if entry.filename.lower().endswith(f".png{_CAROUSEL_BACKUP_SUFFIX}")
+            ]
+            for filename in backups:
+                original = filename[: -len(_CAROUSEL_BACKUP_SUFFIX)]
+                self.ssh_client.exec_checked(
+                    f"mv {_CAROUSEL_DIR}/{filename} {_CAROUSEL_DIR}/{original}"
+                )
+            logging.info("Restored %d carousel overlay(s)", len(backups))
+            return len(backups)
 
     def _refresh_variant_previews(self) -> None:
         if not self.ssh_client.is_connected():
@@ -986,6 +1115,7 @@ class WallpaperTab(QtWidgets.QWidget):
                 preview.setText("未连接")
             for button in self.variant_buttons.values():
                 button.setEnabled(True)
+            self._sync_blank_carousel_checkbox()
             self._update_target_label()
             self._update_upload_button_state()
             return
@@ -999,9 +1129,10 @@ class WallpaperTab(QtWidgets.QWidget):
     def _scan_wallpaper_resource_paths(self) -> _WallpaperResourceScan:
         available_paths: Set[str] = set()
         complete = True
+        carousel_backed_up = False
 
         def add_pngs_from_dir(remote_dir: str, *, required: bool = False) -> None:
-            nonlocal complete
+            nonlocal complete, carousel_backed_up
             try:
                 entries = self.ssh_client.listdir_attr(remote_dir)
             except Exception:
@@ -1011,11 +1142,16 @@ class WallpaperTab(QtWidgets.QWidget):
                 return
             for entry in entries:
                 filename = getattr(entry, "filename", "")
-                if filename.lower().endswith(".png"):
+                lowered = filename.lower()
+                if remote_dir == _CAROUSEL_DIR and lowered.endswith(
+                    f".png{_CAROUSEL_BACKUP_SUFFIX}"
+                ):
+                    carousel_backed_up = True
+                if lowered.endswith(".png"):
                     available_paths.add(posixpath.normpath(posixpath.join(remote_dir, filename)))
 
         add_pngs_from_dir("/usr/share/remarkable", required=True)
-        add_pngs_from_dir("/usr/share/remarkable/carousel")
+        add_pngs_from_dir(_CAROUSEL_DIR)
 
         try:
             with self.ssh_client.open_remote(
@@ -1033,11 +1169,16 @@ class WallpaperTab(QtWidgets.QWidget):
         except Exception:
             pass
 
-        return _WallpaperResourceScan(available_paths=available_paths, complete=complete)
+        return _WallpaperResourceScan(
+            available_paths=available_paths,
+            complete=complete,
+            carousel_backed_up=carousel_backed_up,
+        )
 
     def _download_all_variant_previews(self) -> Dict[str, _WallpaperPreviewResult]:
         results: Dict[str, _WallpaperPreviewResult] = {}
         scan = self._scan_wallpaper_resource_paths()
+        self._carousel_blank_active = scan.carousel_backed_up
         for variant_key, _display_name, remote_path in _rmtool.WALLPAPER_VARIANTS:
             try:
                 normalized_path = posixpath.normpath(remote_path)
@@ -1117,6 +1258,19 @@ class WallpaperTab(QtWidgets.QWidget):
                 except Exception:
                     preview.clear_preview()
                     preview.setText("无预览")
+        # The checkbox state follows the device: originals backed up, or the
+        # carousel files themselves are transparent placeholders (legacy
+        # devices blanked before backups existed).
+        carousel_results = [
+            results[key]
+            for key, _name, path in _rmtool.WALLPAPER_VARIANTS
+            if path.startswith(_CAROUSEL_DIR + "/") and key in results
+        ]
+        if any(r.data and not _is_transparent_placeholder(r.data) for r in carousel_results):
+            self._carousel_blank_active = False
+        elif any(r.data and _is_transparent_placeholder(r.data) for r in carousel_results):
+            self._carousel_blank_active = True
+        self._sync_blank_carousel_checkbox()
         self._update_target_label()
         self._update_upload_button_state()
 
@@ -1441,35 +1595,7 @@ class WallpaperTab(QtWidgets.QWidget):
             self.ssh_client.transfer_file(temp_path, wallpaper_path)
 
             if wallpaper_path.endswith("suspended.png"):
-                self._clear_carousel_overlays()
-
-    def _clear_carousel_overlays(self):
-        carousel_dir = "/usr/share/remarkable/carousel"
-        try:
-            entries = self.ssh_client.listdir_attr(carousel_dir)
-        except Exception:
-            return
-        png_files = [
-            e.filename for e in entries
-            if e.filename.lower().endswith(".png")
-        ]
-        if not png_files:
-            return
-
-        transparent_path = None
-        try:
-            fd, transparent_path = tempfile.mkstemp(suffix=".png")
-            os.close(fd)
-            img = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
-            img.save(transparent_path, format="PNG")
-
-            for filename in png_files:
-                remote = f"{carousel_dir}/{filename}"
-                self.ssh_client.transfer_file(transparent_path, remote)
-            logging.info("Cleared %d carousel overlay(s)", len(png_files))
-        finally:
-            if transparent_path and os.path.exists(transparent_path):
-                os.remove(transparent_path)
+                self._blank_carousel_overlays_locked()
 
     def _close_wallpaper_progress(self, temp_path: str):
         if hasattr(self, "_wallpaper_progress") and self._wallpaper_progress:
