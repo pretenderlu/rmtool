@@ -1,7 +1,6 @@
 import json
 import logging
 import logging.handlers
-import math
 import os
 import re
 import sys
@@ -137,86 +136,66 @@ def _generate_arrow_icons() -> Dict[str, str]:
     return paths
 
 
-def _draw_sun_icon(painter: QtGui.QPainter, color: QtGui.QColor, size: int) -> None:
-    pen = QtGui.QPen(color, 1.8, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap)
-    painter.setPen(pen)
-    painter.setBrush(QtCore.Qt.NoBrush)
-    center = QtCore.QPointF(size / 2, size / 2)
-    core_radius = size * 0.18
-    painter.drawEllipse(center, core_radius, core_radius)
-
-    inner = size * 0.33
-    outer = size * 0.45
-    for angle in range(0, 360, 45):
-        radians = math.radians(angle)
-        start = QtCore.QPointF(
-            center.x() + math.cos(radians) * inner,
-            center.y() + math.sin(radians) * inner,
-        )
-        end = QtCore.QPointF(
-            center.x() + math.cos(radians) * outer,
-            center.y() + math.sin(radians) * outer,
-        )
-        painter.drawLine(start, end)
-
-
-def _draw_moon_icon(painter: QtGui.QPainter, color: QtGui.QColor, size: int) -> None:
-    outer = QtGui.QPainterPath()
-    outer.addEllipse(QtCore.QRectF(size * 0.2, size * 0.14, size * 0.52, size * 0.68))
-    inner = QtGui.QPainterPath()
-    inner.addEllipse(QtCore.QRectF(size * 0.38, size * 0.1, size * 0.48, size * 0.72))
-    painter.fillPath(outer.subtracted(inner), color)
-
-
-def _draw_github_icon(painter: QtGui.QPainter, color: QtGui.QColor, size: int) -> None:
-    svg_markup = (
+# Inline SVG sources for the sidebar footer icons. ``{color}`` is substituted
+# per state so the same shapes serve normal and hover variants. sun/moon/log
+# share a 24px grid with stroke width 2 for a consistent visual weight; the
+# GitHub mark keeps its official solid silhouette.
+_SIDEBAR_ICON_SVGS = {
+    "sun": (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'"
+        " stroke='{color}' stroke-width='2' stroke-linecap='round'>"
+        "<circle cx='12' cy='12' r='5'/>"
+        "<path d='M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2"
+        "M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4'/></svg>"
+    ),
+    "moon": (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'"
+        " stroke='{color}' stroke-width='2' stroke-linecap='round'"
+        " stroke-linejoin='round'>"
+        "<path d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'/></svg>"
+    ),
+    "log": (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'"
+        " stroke='{color}' stroke-width='2' stroke-linecap='round'>"
+        "<rect x='4.3' y='4.3' width='15.4' height='15.4' rx='2.9'/>"
+        "<path d='M7.2 8.6h9.6M7.2 12h9.6M7.2 15.4h6.7'/></svg>"
+    ),
+    "github": (
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'>"
-        f"<path fill='{color.name()}' d='{GITHUB_MARK_PATH}'/></svg>"
-    )
+        f"<path fill='{{color}}' d='{GITHUB_MARK_PATH}'/></svg>"
+    ),
+}
+
+# Oversampling factor: icons are rasterized 3x and carry a matching
+# devicePixelRatio, so they stay sharp on high-DPI screens.
+_SIDEBAR_ICON_SCALE = 3
+
+
+def _sidebar_icon_pixmap(kind: str, color_hex: str, size: int) -> QtGui.QPixmap:
+    svg_markup = _SIDEBAR_ICON_SVGS[kind].replace("{color}", color_hex)
     renderer = QtSvg.QSvgRenderer(QtCore.QByteArray(svg_markup.encode("utf-8")))
-    renderer.render(painter, QtCore.QRectF(0, 0, size, size))
-
-
-def _draw_log_icon(painter: QtGui.QPainter, color: QtGui.QColor, size: int) -> None:
-    pen = QtGui.QPen(color)
-    pen.setWidthF(size * 0.11)
-    pen.setCapStyle(QtCore.Qt.RoundCap)
-    pen.setJoinStyle(QtCore.Qt.RoundJoin)
-    painter.setPen(pen)
-    painter.setBrush(QtCore.Qt.NoBrush)
-
-    rect = QtCore.QRectF(size * 0.18, size * 0.18, size * 0.64, size * 0.64)
-    radius = size * 0.12
-    painter.drawRoundedRect(rect, radius, radius)
-
-    line_x1 = size * 0.30
-    line_x2 = size * 0.70
-    for i, frac in enumerate((0.36, 0.50, 0.64)):
-        y = size * frac
-        x2 = line_x2 if i != 2 else size * 0.58
-        painter.drawLine(QtCore.QPointF(line_x1, y), QtCore.QPointF(x2, y))
-
-
-def _make_sidebar_icon(kind: str, color_hex: str, size: int = 18) -> QtGui.QIcon:
-    pixmap = QtGui.QPixmap(size, size)
+    pixels = size * _SIDEBAR_ICON_SCALE
+    pixmap = QtGui.QPixmap(pixels, pixels)
     pixmap.fill(QtCore.Qt.transparent)
     painter = QtGui.QPainter(pixmap)
-    painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
-    color = QtGui.QColor(color_hex)
-
-    if kind == "sun":
-        _draw_sun_icon(painter, color, size)
-    elif kind == "moon":
-        _draw_moon_icon(painter, color, size)
-    elif kind == "github":
-        _draw_github_icon(painter, color, size)
-    elif kind == "log":
-        _draw_log_icon(painter, color, size)
-    else:  # pragma: no cover - defensive programming
-        raise ValueError(f"Unsupported sidebar icon kind: {kind}")
-
+    renderer.render(painter, QtCore.QRectF(0, 0, pixels, pixels))
     painter.end()
-    return QtGui.QIcon(pixmap)
+    pixmap.setDevicePixelRatio(_SIDEBAR_ICON_SCALE)
+    return pixmap
+
+
+def _make_sidebar_icon(
+    kind: str, color_hex: str, hover_hex: Optional[str] = None, size: int = 18
+) -> QtGui.QIcon:
+    """Build a HiDPI-crisp sidebar icon from inline SVG.
+
+    ``hover_hex`` adds a brighter ``QIcon.Active`` variant used on hover;
+    without it the icon has a single normal state.
+    """
+    icon = QtGui.QIcon(_sidebar_icon_pixmap(kind, color_hex, size))
+    if hover_hex:
+        icon.addPixmap(_sidebar_icon_pixmap(kind, hover_hex, size), QtGui.QIcon.Active)
+    return icon
 
 
 # SSH transport (SSHClientWrapper, UnknownHostKeyError, remount_rw,

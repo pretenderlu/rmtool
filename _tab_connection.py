@@ -7,6 +7,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
 from _ssh import SSHClientWrapper, UnknownHostKeyError
+import _tokens
 import rmtool as _rmtool  # late-bound access to avoid circular import
 
 
@@ -798,16 +799,24 @@ class ConnectionWidget(QtWidgets.QWidget):
 
     def set_footer_theme(self, theme: str) -> None:
         is_dark = theme == "dark"
-        icon_color = "#C0C8E0" if is_dark else "#5A6070"
+        tokens = _tokens.DARK_TOKENS if is_dark else _tokens.LIGHT_TOKENS
+        icon_color = tokens["text_secondary"]
+        icon_hover_color = tokens["text_primary"]
         target_theme_label = "亮色主题" if is_dark else "暗色主题"
-        theme_icon = _rmtool._make_sidebar_icon("sun" if is_dark else "moon", icon_color)
+        theme_icon = _rmtool._make_sidebar_icon(
+            "sun" if is_dark else "moon", icon_color, icon_hover_color
+        )
 
         self.theme_button.setIcon(theme_icon)
         self.theme_button.setToolTip(f"切换到{target_theme_label}")
         self.theme_button.setAccessibleName(f"切换到{target_theme_label}")
 
-        self.log_button.setIcon(_rmtool._make_sidebar_icon("log", icon_color))
-        self.github_button.setIcon(_rmtool._make_sidebar_icon("github", icon_color))
+        self.log_button.setIcon(
+            _rmtool._make_sidebar_icon("log", icon_color, icon_hover_color)
+        )
+        self.github_button.setIcon(
+            _rmtool._make_sidebar_icon("github", icon_color, icon_hover_color)
+        )
 
     def add_sidebar_section(self, widget: QtWidgets.QWidget) -> None:
         """Insert a sidebar section above the pinned footer row."""
