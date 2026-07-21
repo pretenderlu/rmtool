@@ -113,6 +113,69 @@ class FakeWallpaperResourceClient(QtCore.QObject):
         raise AssertionError("wallpaper scan should use directory listings first")
 
 
+class FakeCarouselClient(QtCore.QObject):
+    """In-memory device for carousel blank/restore flows."""
+
+    connection_changed = QtCore.pyqtSignal(bool)
+
+    def __init__(self, files):
+        super().__init__()
+        self.files = dict(files)
+        self.commands = []
+
+    def is_connected(self):
+        return True
+
+    def listdir_attr(self, remote_path):
+        prefix = remote_path.rstrip("/") + "/"
+        children = [
+            SimpleNamespace(filename=path[len(prefix):])
+            for path in self.files
+            if path.startswith(prefix) and "/" not in path[len(prefix):]
+        ]
+        if not children:
+            raise IOError(remote_path)
+        return children
+
+    def open_remote(self, remote_path, _mode="rb"):
+        if remote_path not in self.files:
+            raise IOError(remote_path)
+
+        @contextmanager
+        def _remote_file():
+            yield BytesIO(self.files[remote_path])
+
+        return _remote_file()
+
+    def file_exists(self, remote_path):
+        return remote_path in self.files
+
+    def transfer_file(self, local_path, remote_path):
+        self.files[remote_path] = Path(local_path).read_bytes()
+
+    def exec_checked(self, command):
+        self.commands.append(command)
+        parts = command.split(" ")
+        if parts[0] == "cp":
+            self.files[parts[2]] = self.files[parts[1]]
+        elif parts[0] == "mv":
+            self.files[parts[2]] = self.files.pop(parts[1])
+        return ""
+
+
+def make_png_bytes(color, size=(16, 12), mode="RGB"):
+    buffer = BytesIO()
+    Image.new(mode, size, color).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def carousel_files(payload):
+    return {
+        f"/usr/share/remarkable/carousel/sleep_Illustration_0{i}.png": payload
+        for i in (1, 2, 3)
+    }
+
+
 class FakeHostKey:
     def __init__(self, fingerprint=b"\x01\x23\x45\x67"):
         self._fingerprint = fingerprint
@@ -1685,6 +1748,97 @@ class WallpaperUiTests(unittest.TestCase):
         normal = widget.variant_previews["sleep_carousel_2"]
         self.assertEqual(normal.text(), "")
         self.assertFalse(normal.pixmap() is None or normal.pixmap().isNull())
+
+    def test_blank_carousel_backs_up_originals_once_then_blanks(self):
+        original = make_png_bytes((120, 30, 30))
+        client = FakeCarouselClient(carousel_files(original))
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+
+        self.assertEqual(widget._blank_carousel_overlays(), 3)
+
+        for path in carousel_files(original):
+            self.assertTrue(_tab_wallpaper._is_transparent_placeholder(client.files[path]))
+            self.assertEqual(client.files[path + ".backup"], original)
+
+        # A second run must not overwrite the backups with placeholders.
+        self.assertEqual(widget._blank_carousel_overlays(), 3)
+        for path in carousel_files(original):
+            self.assertEqual(client.files[path + ".backup"], original)
+
+    def test_blank_carousel_does_not_back_up_existing_placeholders(self):
+        placeholder = make_png_bytes((0, 0, 0, 0), size=(1, 1), mode="RGBA")
+        client = FakeCarouselClient(carousel_files(placeholder))
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+
+        self.assertEqual(widget._blank_carousel_overlays(), 3)
+
+        self.assertFalse(any(path.endswith(".backup") for path in client.files))
+
+    def test_restore_carousel_recovers_backups_and_removes_them(self):
+        original = make_png_bytes((120, 30, 30))
+        client = FakeCarouselClient(carousel_files(original))
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        widget._blank_carousel_overlays()
+
+        self.assertEqual(widget._restore_carousel_overlays(), 3)
+
+        for path in carousel_files(original):
+            self.assertEqual(client.files[path], original)
+            self.assertNotIn(path + ".backup", client.files)
+
+    def test_restore_carousel_without_backup_returns_zero_and_informs(self):
+        placeholder = make_png_bytes((0, 0, 0, 0), size=(1, 1), mode="RGBA")
+        client = FakeCarouselClient(carousel_files(placeholder))
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        widget._carousel_blank_active = True
+        widget._sync_blank_carousel_checkbox()
+        self.assertTrue(widget.blank_carousel_checkbox.isChecked())
+
+        self.assertEqual(widget._restore_carousel_overlays(), 0)
+
+        with mock.patch.object(_tab_wallpaper, "show_info") as info:
+            widget._on_restore_carousel_done(0)
+
+        info.assert_called_once()
+        self.assertIn("无法恢复", info.call_args.args[2])
+        self.assertTrue(widget.blank_carousel_checkbox.isChecked())
+
+    def test_blank_carousel_checkbox_follows_device_state(self):
+        original = make_png_bytes((120, 30, 30))
+        client = FakeCarouselClient(carousel_files(original))
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        widget._blank_carousel_overlays()
+
+        widget._apply_variant_previews(widget._download_all_variant_previews())
+        self.assertTrue(widget.blank_carousel_checkbox.isChecked())
+
+        widget._restore_carousel_overlays()
+        widget._apply_variant_previews(widget._download_all_variant_previews())
+        self.assertFalse(widget.blank_carousel_checkbox.isChecked())
+
+    def test_upload_suspended_wallpaper_backs_up_carousel_before_blanking(self):
+        original = make_png_bytes((120, 30, 30))
+        files = carousel_files(original)
+        files["/usr/share/remarkable/suspended.png"] = original
+        client = FakeCarouselClient(files)
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+
+        fd, temp_path = tempfile.mkstemp(suffix=".png")
+        os.close(fd)
+        self.addCleanup(lambda: os.path.exists(temp_path) and os.remove(temp_path))
+        Image.new("RGB", (8, 8), (1, 2, 3)).save(temp_path, format="PNG")
+
+        widget._do_upload_wallpaper(temp_path, "/usr/share/remarkable/suspended.png")
+
+        for path in carousel_files(original):
+            self.assertEqual(client.files[path + ".backup"], original)
+            self.assertTrue(_tab_wallpaper._is_transparent_placeholder(client.files[path]))
 
 
 class DeviceFramePreviewTests(unittest.TestCase):
