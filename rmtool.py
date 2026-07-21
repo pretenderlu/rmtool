@@ -1,7 +1,6 @@
 import json
 import logging
 import logging.handlers
-import math
 import os
 import re
 import sys
@@ -137,86 +136,66 @@ def _generate_arrow_icons() -> Dict[str, str]:
     return paths
 
 
-def _draw_sun_icon(painter: QtGui.QPainter, color: QtGui.QColor, size: int) -> None:
-    pen = QtGui.QPen(color, 1.8, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap)
-    painter.setPen(pen)
-    painter.setBrush(QtCore.Qt.NoBrush)
-    center = QtCore.QPointF(size / 2, size / 2)
-    core_radius = size * 0.18
-    painter.drawEllipse(center, core_radius, core_radius)
-
-    inner = size * 0.33
-    outer = size * 0.45
-    for angle in range(0, 360, 45):
-        radians = math.radians(angle)
-        start = QtCore.QPointF(
-            center.x() + math.cos(radians) * inner,
-            center.y() + math.sin(radians) * inner,
-        )
-        end = QtCore.QPointF(
-            center.x() + math.cos(radians) * outer,
-            center.y() + math.sin(radians) * outer,
-        )
-        painter.drawLine(start, end)
-
-
-def _draw_moon_icon(painter: QtGui.QPainter, color: QtGui.QColor, size: int) -> None:
-    outer = QtGui.QPainterPath()
-    outer.addEllipse(QtCore.QRectF(size * 0.2, size * 0.14, size * 0.52, size * 0.68))
-    inner = QtGui.QPainterPath()
-    inner.addEllipse(QtCore.QRectF(size * 0.38, size * 0.1, size * 0.48, size * 0.72))
-    painter.fillPath(outer.subtracted(inner), color)
-
-
-def _draw_github_icon(painter: QtGui.QPainter, color: QtGui.QColor, size: int) -> None:
-    svg_markup = (
+# Inline SVG sources for the sidebar footer icons. ``{color}`` is substituted
+# per state so the same shapes serve normal and hover variants. sun/moon/log
+# share a 24px grid with stroke width 2 for a consistent visual weight; the
+# GitHub mark keeps its official solid silhouette.
+_SIDEBAR_ICON_SVGS = {
+    "sun": (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'"
+        " stroke='{color}' stroke-width='2' stroke-linecap='round'>"
+        "<circle cx='12' cy='12' r='5'/>"
+        "<path d='M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2"
+        "M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4'/></svg>"
+    ),
+    "moon": (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'"
+        " stroke='{color}' stroke-width='2' stroke-linecap='round'"
+        " stroke-linejoin='round'>"
+        "<path d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'/></svg>"
+    ),
+    "log": (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'"
+        " stroke='{color}' stroke-width='2' stroke-linecap='round'>"
+        "<rect x='4.3' y='4.3' width='15.4' height='15.4' rx='2.9'/>"
+        "<path d='M7.2 8.6h9.6M7.2 12h9.6M7.2 15.4h6.7'/></svg>"
+    ),
+    "github": (
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'>"
-        f"<path fill='{color.name()}' d='{GITHUB_MARK_PATH}'/></svg>"
-    )
+        f"<path fill='{{color}}' d='{GITHUB_MARK_PATH}'/></svg>"
+    ),
+}
+
+# Oversampling factor: icons are rasterized 3x and carry a matching
+# devicePixelRatio, so they stay sharp on high-DPI screens.
+_SIDEBAR_ICON_SCALE = 3
+
+
+def _sidebar_icon_pixmap(kind: str, color_hex: str, size: int) -> QtGui.QPixmap:
+    svg_markup = _SIDEBAR_ICON_SVGS[kind].replace("{color}", color_hex)
     renderer = QtSvg.QSvgRenderer(QtCore.QByteArray(svg_markup.encode("utf-8")))
-    renderer.render(painter, QtCore.QRectF(0, 0, size, size))
-
-
-def _draw_log_icon(painter: QtGui.QPainter, color: QtGui.QColor, size: int) -> None:
-    pen = QtGui.QPen(color)
-    pen.setWidthF(size * 0.11)
-    pen.setCapStyle(QtCore.Qt.RoundCap)
-    pen.setJoinStyle(QtCore.Qt.RoundJoin)
-    painter.setPen(pen)
-    painter.setBrush(QtCore.Qt.NoBrush)
-
-    rect = QtCore.QRectF(size * 0.18, size * 0.18, size * 0.64, size * 0.64)
-    radius = size * 0.12
-    painter.drawRoundedRect(rect, radius, radius)
-
-    line_x1 = size * 0.30
-    line_x2 = size * 0.70
-    for i, frac in enumerate((0.36, 0.50, 0.64)):
-        y = size * frac
-        x2 = line_x2 if i != 2 else size * 0.58
-        painter.drawLine(QtCore.QPointF(line_x1, y), QtCore.QPointF(x2, y))
-
-
-def _make_sidebar_icon(kind: str, color_hex: str, size: int = 18) -> QtGui.QIcon:
-    pixmap = QtGui.QPixmap(size, size)
+    pixels = size * _SIDEBAR_ICON_SCALE
+    pixmap = QtGui.QPixmap(pixels, pixels)
     pixmap.fill(QtCore.Qt.transparent)
     painter = QtGui.QPainter(pixmap)
-    painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
-    color = QtGui.QColor(color_hex)
-
-    if kind == "sun":
-        _draw_sun_icon(painter, color, size)
-    elif kind == "moon":
-        _draw_moon_icon(painter, color, size)
-    elif kind == "github":
-        _draw_github_icon(painter, color, size)
-    elif kind == "log":
-        _draw_log_icon(painter, color, size)
-    else:  # pragma: no cover - defensive programming
-        raise ValueError(f"Unsupported sidebar icon kind: {kind}")
-
+    renderer.render(painter, QtCore.QRectF(0, 0, pixels, pixels))
     painter.end()
-    return QtGui.QIcon(pixmap)
+    pixmap.setDevicePixelRatio(_SIDEBAR_ICON_SCALE)
+    return pixmap
+
+
+def _make_sidebar_icon(
+    kind: str, color_hex: str, hover_hex: Optional[str] = None, size: int = 18
+) -> QtGui.QIcon:
+    """Build a HiDPI-crisp sidebar icon from inline SVG.
+
+    ``hover_hex`` adds a brighter ``QIcon.Active`` variant used on hover;
+    without it the icon has a single normal state.
+    """
+    icon = QtGui.QIcon(_sidebar_icon_pixmap(kind, color_hex, size))
+    if hover_hex:
+        icon.addPixmap(_sidebar_icon_pixmap(kind, hover_hex, size), QtGui.QIcon.Active)
+    return icon
 
 
 # SSH transport (SSHClientWrapper, UnknownHostKeyError, remount_rw,
@@ -617,7 +596,10 @@ class PreviewImageLabel(QtWidgets.QLabel):
 
         pixmap = self.pixmap()
         assert pixmap is not None
-        pixmap_rect = QtCore.QRectF(pixmap.rect())
+        # Qt5 QPixmap.rect() is in physical pixels; derive the logical size
+        # manually so DPR-tagged pixmaps are placed at their logical size.
+        logical_size = QtCore.QSizeF(pixmap.size()) / pixmap.devicePixelRatioF()
+        pixmap_rect = QtCore.QRectF(QtCore.QPointF(0, 0), logical_size)
         pixmap_rect.moveCenter(rect.center())
         painter.drawPixmap(pixmap_rect.topLeft(), pixmap)
 
@@ -632,11 +614,16 @@ class PreviewImageLabel(QtWidgets.QLabel):
         target = rect.size()
         if not target.isValid():
             target = self.size()
-        return self._original_pixmap.scaled(
-            target,
+        # Render at physical pixels and tag the pixmap, otherwise Qt upscales
+        # the logical-size pixmap on high-DPI screens and previews look soft.
+        dpr = self.devicePixelRatioF()
+        scaled = self._original_pixmap.scaled(
+            target * dpr,
             QtCore.Qt.KeepAspectRatio,
             QtCore.Qt.SmoothTransformation,
         )
+        scaled.setDevicePixelRatio(dpr)
+        return scaled
 
 
 class CompactComboBox(QtWidgets.QComboBox):
@@ -669,9 +656,10 @@ from _tab_connection import ConnectionWidget
 # ---------------------------------------------------------------------------
 from _tab_wallpaper import WallpaperTab
 from _tab_documents import DocumentsTab
+from _tab_dashboard import DashboardTab
 from _tab_toolbox import (
     ControlTab,
-    DashboardTab,
+    FontPage,
     FontTab,
     TimeTab,
     ToolboxTab,
@@ -694,34 +682,69 @@ class MainWindow(QtWidgets.QMainWindow):
         self._log_bridge = log_bridge
         self._log_panel = None
 
-        # -- Sidebar (connection panel) --
+        # -- Sidebar (connection panel + page navigation) --
         self.connection_widget = ConnectionWidget(self.ssh_client, self.config)
         sidebar = QtWidgets.QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(320)
+        sidebar.setFixedWidth(272)
         sidebar_layout = QtWidgets.QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.addWidget(self.connection_widget)
 
-        # -- Tabs --
-        self.tabs = QtWidgets.QTabWidget()
+        # -- Pages --
+        self.pages = QtWidgets.QStackedWidget()
         self.dashboard_tab = DashboardTab()
         self.wallpaper_tab = WallpaperTab(self.ssh_client, self.config)
         self.documents_tab = DocumentsTab(self.ssh_client)
+        self.font_page = FontPage(self.ssh_client, self.config)
         self.toolbox_tab = ToolboxTab(self.ssh_client, self.config)
 
-        self.tabs.addTab(self.dashboard_tab, "仪表盘")
-        self.tabs.addTab(self.wallpaper_tab, "壁纸管理")
-        self.tabs.addTab(self.documents_tab, "文档中心")
-        self.tabs.addTab(self.toolbox_tab, "设备工具箱")
+        for page in (
+            self.dashboard_tab,
+            self.wallpaper_tab,
+            self.documents_tab,
+            self.font_page,
+            self.toolbox_tab,
+        ):
+            self.pages.addWidget(page)
 
-        # -- Horizontal layout: sidebar | tabs --
+        # -- Sidebar navigation (switches stacked pages) --
+        nav_container = QtWidgets.QWidget()
+        nav_container.setObjectName("sidebarNavSection")
+        nav_layout = QtWidgets.QVBoxLayout(nav_container)
+        nav_layout.setContentsMargins(0, 12, 0, 0)
+        nav_layout.setSpacing(6)
+        nav_label = QtWidgets.QLabel("导航")
+        nav_label.setObjectName("sidebarSectionLabel")
+        nav_layout.addWidget(nav_label)
+        # Plain checkable buttons in a vertical layout: the layout sizes them
+        # natively, so no fixed-height math and no scroll area can ever clip.
+        self.nav_buttons = []
+        self.nav_button_group = QtWidgets.QButtonGroup(self)
+        self.nav_button_group.setExclusive(True)
+        nav_widget = QtWidgets.QWidget()
+        nav_widget.setObjectName("sidebarNav")
+        nav_buttons_layout = QtWidgets.QVBoxLayout(nav_widget)
+        nav_buttons_layout.setContentsMargins(0, 0, 0, 0)
+        nav_buttons_layout.setSpacing(6)
+        for idx, title in enumerate(("仪表盘", "壁纸管理", "文档中心", "字体管理", "设备工具")):
+            button = QtWidgets.QPushButton(title)
+            button.setCheckable(True)
+            self.nav_button_group.addButton(button, idx)
+            nav_buttons_layout.addWidget(button)
+            self.nav_buttons.append(button)
+        self.nav_button_group.idClicked.connect(self.pages.setCurrentIndex)
+        self.nav_buttons[0].setChecked(True)
+        nav_layout.addWidget(nav_widget)
+        self.connection_widget.add_sidebar_section(nav_container)
+
+        # -- Horizontal layout: sidebar | pages --
         upper_widget = QtWidgets.QWidget()
         upper_layout = QtWidgets.QHBoxLayout(upper_widget)
         upper_layout.setContentsMargins(0, 0, 0, 0)
         upper_layout.setSpacing(0)
         upper_layout.addWidget(sidebar)
-        upper_layout.addWidget(self.tabs, 1)
+        upper_layout.addWidget(self.pages, 1)
 
         # -- Vertical splitter: main area on top, log panel on bottom --
         if self._log_bridge is not None:
@@ -755,8 +778,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.connection_status_chip.setObjectName("appConnectionChip")
         status_bar.addPermanentWidget(self.connection_status_chip)
 
-        # Shorthand references for sub-widgets inside the toolbox
-        self.font_tab = self.toolbox_tab.font_section
+        # Shorthand references for tool sections
+        self.font_tab = self.font_page.font_section
         self.time_tab = self.toolbox_tab.time_section
         self.control_tab = self.toolbox_tab.control_section
 
@@ -789,11 +812,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._set_connection_chip(False, initial_device)
 
     def _update_tabs_enabled(self, enabled: bool):
-        for idx in range(self.tabs.count()):
-            widget = self.tabs.widget(idx)
+        for idx in range(self.pages.count()):
+            widget = self.pages.widget(idx)
             if widget is self.dashboard_tab:
                 continue
             widget.setEnabled(enabled)
+            self.nav_buttons[idx].setEnabled(enabled)
 
     def _show_status_message(self, level: str, text: str, timeout: int = 4000) -> None:
         status_bar = self.statusBar()
@@ -889,7 +913,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config["theme"] = new_theme
         save_config(self.config)
 
-        # Sync dashboard web view theme
+        # Dashboard re-styles via the global QSS; set_theme is a compat no-op
         self.dashboard_tab.set_theme(new_theme)
 
         # Force status dot to re-apply its dynamic property style
@@ -905,23 +929,33 @@ class MainWindow(QtWidgets.QMainWindow):
 # Stylesheets and palette definitions live in _styles.py to keep this file
 # focused on application logic.
 from _styles import _DARK_STYLESHEET, _LIGHT_STYLESHEET, _dark_palette, _light_palette
+from _tokens import FONT_BASE
 from _log_viewer import LogViewerPanel, attach_qt_log_handler
 
 
 
 
+_STYLESHEET_PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
 def _resolve_stylesheet(template: str) -> str:
-    """Replace ``{arrow_*}`` placeholders with actual icon file paths."""
-    result = template
+    """Substitute named ``{placeholder}`` fields in a stylesheet template.
+
+    Resolves the runtime-generated ``{arrow_*}`` combo box icon paths (and,
+    for backward compatibility, the legacy ``{panel_*}`` layout fields, which
+    are now normally baked in from ``_tokens.py``).  Only ``{identifier}``
+    fields are touched; the literal braces of QSS rules are left intact.
+    """
     replacements = {
         **_ARROW_ICONS,
         "panel_radius": f"{PANEL_RADIUS}px",
         "inner_panel_radius": f"{INNER_PANEL_RADIUS}px",
         "panel_padding": f"{PANEL_PADDING}px",
     }
-    for key, value in replacements.items():
-        result = result.replace("{" + key + "}", value)
-    return result
+    return _STYLESHEET_PLACEHOLDER_RE.sub(
+        lambda match: replacements.get(match.group(1), match.group(0)),
+        template,
+    )
 
 
 # Generated once at import time so the icon files exist before any stylesheet
@@ -930,11 +964,20 @@ _ARROW_ICONS = _generate_arrow_icons()
 
 
 def main():
+    # -- High-DPI: let Qt scale the UI by the OS display factor (must be set
+    # before QApplication is created) so text stays readable on 4K screens --
+    QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling, True)
+    QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps, True)
+    QtWidgets.QApplication.setHighDpiScaleFactorRoundingPolicy(
+        QtCore.Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
+
     app = QtWidgets.QApplication(sys.argv)
     QtWidgets.QApplication.setStyle("Fusion")
 
-    # -- Global font: use point size so it scales with system DPI --
-    font = QtGui.QFont("Segoe UI", 12)
+    # -- Global font: px size from the shared type scale (single unit) --
+    font = QtGui.QFont("Segoe UI")
+    font.setPixelSize(FONT_BASE)
     font.setStyleHint(QtGui.QFont.SansSerif)
     app.setFont(font)
 

@@ -31,6 +31,7 @@ import _tab_connection
 import _tab_documents
 import _tab_toolbox
 import _tab_wallpaper
+import _tokens
 
 
 _APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
@@ -110,6 +111,69 @@ class FakeWallpaperResourceClient(QtCore.QObject):
 
     def file_exists(self, _remote_path):
         raise AssertionError("wallpaper scan should use directory listings first")
+
+
+class FakeCarouselClient(QtCore.QObject):
+    """In-memory device for carousel blank/restore flows."""
+
+    connection_changed = QtCore.pyqtSignal(bool)
+
+    def __init__(self, files):
+        super().__init__()
+        self.files = dict(files)
+        self.commands = []
+
+    def is_connected(self):
+        return True
+
+    def listdir_attr(self, remote_path):
+        prefix = remote_path.rstrip("/") + "/"
+        children = [
+            SimpleNamespace(filename=path[len(prefix):])
+            for path in self.files
+            if path.startswith(prefix) and "/" not in path[len(prefix):]
+        ]
+        if not children:
+            raise IOError(remote_path)
+        return children
+
+    def open_remote(self, remote_path, _mode="rb"):
+        if remote_path not in self.files:
+            raise IOError(remote_path)
+
+        @contextmanager
+        def _remote_file():
+            yield BytesIO(self.files[remote_path])
+
+        return _remote_file()
+
+    def file_exists(self, remote_path):
+        return remote_path in self.files
+
+    def transfer_file(self, local_path, remote_path):
+        self.files[remote_path] = Path(local_path).read_bytes()
+
+    def exec_checked(self, command):
+        self.commands.append(command)
+        parts = command.split(" ")
+        if parts[0] == "cp":
+            self.files[parts[2]] = self.files[parts[1]]
+        elif parts[0] == "mv":
+            self.files[parts[2]] = self.files.pop(parts[1])
+        return ""
+
+
+def make_png_bytes(color, size=(16, 12), mode="RGB"):
+    buffer = BytesIO()
+    Image.new(mode, size, color).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def carousel_files(payload):
+    return {
+        f"/usr/share/remarkable/carousel/sleep_Illustration_0{i}.png": payload
+        for i in (1, 2, 3)
+    }
 
 
 class FakeHostKey:
@@ -409,7 +473,6 @@ class FakeWallpaperTab(QtWidgets.QWidget):
 class FakeToolboxTab(QtWidgets.QWidget):
     def __init__(self, *_args, **_kwargs):
         super().__init__()
-        self.font_section = QtWidgets.QWidget()
         self.time_section = QtWidgets.QWidget()
         self.control_section = QtWidgets.QWidget()
 
@@ -1042,9 +1105,9 @@ class ConnectionSidebarUiTests(unittest.TestCase):
         self.assertIn("reMarkable 2", widget.device_meta_label.text())
         self.assertIn("Wi-Fi", widget.device_meta_label.text())
         self.assertIn("192.168.1.23", widget.device_host_label.text())
-        self.assertIn("Device B", widget.connect_button.text())
+        self.assertEqual(widget.connect_button.text(), "连接设备")
 
-    def test_narrow_sidebar_uses_compact_connect_label_and_shrinks_device_type_combo(self):
+    def test_narrow_sidebar_keeps_full_connect_label_and_minimum_width(self):
         app = QtWidgets.QApplication.instance()
         original_stylesheet = app.styleSheet()
         self.addCleanup(app.setStyleSheet, original_stylesheet)
@@ -1111,7 +1174,7 @@ class ConnectionSidebarUiTests(unittest.TestCase):
         light = rmtool._resolve_stylesheet(rmtool._LIGHT_STYLESHEET)
         status_text_rule = light.split("#statusText {", 1)[1].split("}", 1)[0]
 
-        self.assertIn("font-size: 18px;", status_text_rule)
+        self.assertIn(f"font-size: {_tokens.FONT_MD}px;", status_text_rule)
         self.assertIn("line-height: 1.3;", status_text_rule)
 
 
@@ -1132,9 +1195,11 @@ class WallpaperUiTests(unittest.TestCase):
         wallpaper = rmtool.WallpaperTab(FakeConnectionClient(), rmtool._default_config())
         documents = rmtool.DocumentsTab(FakeConnectionClient())
         toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
+        font_page = rmtool.FontPage(FakeConnectionClient(), rmtool._default_config())
         self.addCleanup(wallpaper.deleteLater)
         self.addCleanup(documents.deleteLater)
         self.addCleanup(toolbox.deleteLater)
+        self.addCleanup(font_page.deleteLater)
 
         expected = (rmtool.TAB_PAGE_MARGIN,) * 4
 
@@ -1172,6 +1237,19 @@ class WallpaperUiTests(unittest.TestCase):
             expected,
         )
         self.assertEqual(toolbox_content.layout().spacing(), rmtool.PANEL_GAP)
+
+        font_content = font_page.findChild(QtWidgets.QScrollArea).widget()
+        font_margins = font_content.layout().contentsMargins()
+        self.assertEqual(
+            (
+                font_margins.left(),
+                font_margins.top(),
+                font_margins.right(),
+                font_margins.bottom(),
+            ),
+            expected,
+        )
+        self.assertEqual(font_content.layout().spacing(), rmtool.PANEL_GAP)
 
     def test_toolbox_group_boxes_leave_consistent_space_below_titles(self):
         toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
@@ -1638,6 +1716,129 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertFalse(results["sleep_carousel_1"].missing)
         self.assertTrue(results["sleeping"].missing)
         self.assertNotIn("/usr/share/remarkable/sleeping.png", client.open_calls)
+
+    def test_transparent_carousel_placeholder_is_explained_instead_of_blank(self):
+        transparent = BytesIO()
+        Image.new("RGBA", (1, 1), (0, 0, 0, 0)).save(transparent, format="PNG")
+        opaque = BytesIO()
+        Image.new("RGB", (16, 12), (120, 30, 30)).save(opaque, format="PNG")
+
+        self.assertTrue(_tab_wallpaper._is_transparent_placeholder(transparent.getvalue()))
+        self.assertFalse(_tab_wallpaper._is_transparent_placeholder(opaque.getvalue()))
+
+        widget = rmtool.WallpaperTab(
+            FakeConnectionClient(connected=True), rmtool._default_config()
+        )
+        self.addCleanup(widget.deleteLater)
+        widget._apply_variant_previews({
+            "sleep_carousel_1": _tab_wallpaper._WallpaperPreviewResult(
+                data=transparent.getvalue()
+            ),
+            "sleep_carousel_2": _tab_wallpaper._WallpaperPreviewResult(
+                data=opaque.getvalue()
+            ),
+        })
+
+        cleared = widget.variant_previews["sleep_carousel_1"]
+        self.assertEqual(cleared.text(), "已被透明覆盖")
+        self.assertTrue(cleared.pixmap() is None or cleared.pixmap().isNull())
+        self.assertTrue(widget.variant_buttons["sleep_carousel_1"].isEnabled())
+        self.assertIn("透明", cleared.toolTip())
+
+        normal = widget.variant_previews["sleep_carousel_2"]
+        self.assertEqual(normal.text(), "")
+        self.assertFalse(normal.pixmap() is None or normal.pixmap().isNull())
+
+    def test_blank_carousel_backs_up_originals_once_then_blanks(self):
+        original = make_png_bytes((120, 30, 30))
+        client = FakeCarouselClient(carousel_files(original))
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+
+        self.assertEqual(widget._blank_carousel_overlays(), 3)
+
+        for path in carousel_files(original):
+            self.assertTrue(_tab_wallpaper._is_transparent_placeholder(client.files[path]))
+            self.assertEqual(client.files[path + ".backup"], original)
+
+        # A second run must not overwrite the backups with placeholders.
+        self.assertEqual(widget._blank_carousel_overlays(), 3)
+        for path in carousel_files(original):
+            self.assertEqual(client.files[path + ".backup"], original)
+
+    def test_blank_carousel_does_not_back_up_existing_placeholders(self):
+        placeholder = make_png_bytes((0, 0, 0, 0), size=(1, 1), mode="RGBA")
+        client = FakeCarouselClient(carousel_files(placeholder))
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+
+        self.assertEqual(widget._blank_carousel_overlays(), 3)
+
+        self.assertFalse(any(path.endswith(".backup") for path in client.files))
+
+    def test_restore_carousel_recovers_backups_and_removes_them(self):
+        original = make_png_bytes((120, 30, 30))
+        client = FakeCarouselClient(carousel_files(original))
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        widget._blank_carousel_overlays()
+
+        self.assertEqual(widget._restore_carousel_overlays(), 3)
+
+        for path in carousel_files(original):
+            self.assertEqual(client.files[path], original)
+            self.assertNotIn(path + ".backup", client.files)
+
+    def test_restore_carousel_without_backup_returns_zero_and_informs(self):
+        placeholder = make_png_bytes((0, 0, 0, 0), size=(1, 1), mode="RGBA")
+        client = FakeCarouselClient(carousel_files(placeholder))
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        widget._carousel_blank_active = True
+        widget._sync_blank_carousel_checkbox()
+        self.assertTrue(widget.blank_carousel_checkbox.isChecked())
+
+        self.assertEqual(widget._restore_carousel_overlays(), 0)
+
+        with mock.patch.object(_tab_wallpaper, "show_info") as info:
+            widget._on_restore_carousel_done(0)
+
+        info.assert_called_once()
+        self.assertIn("无法恢复", info.call_args.args[2])
+        self.assertTrue(widget.blank_carousel_checkbox.isChecked())
+
+    def test_blank_carousel_checkbox_follows_device_state(self):
+        original = make_png_bytes((120, 30, 30))
+        client = FakeCarouselClient(carousel_files(original))
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        widget._blank_carousel_overlays()
+
+        widget._apply_variant_previews(widget._download_all_variant_previews())
+        self.assertTrue(widget.blank_carousel_checkbox.isChecked())
+
+        widget._restore_carousel_overlays()
+        widget._apply_variant_previews(widget._download_all_variant_previews())
+        self.assertFalse(widget.blank_carousel_checkbox.isChecked())
+
+    def test_upload_suspended_wallpaper_backs_up_carousel_before_blanking(self):
+        original = make_png_bytes((120, 30, 30))
+        files = carousel_files(original)
+        files["/usr/share/remarkable/suspended.png"] = original
+        client = FakeCarouselClient(files)
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+
+        fd, temp_path = tempfile.mkstemp(suffix=".png")
+        os.close(fd)
+        self.addCleanup(lambda: os.path.exists(temp_path) and os.remove(temp_path))
+        Image.new("RGB", (8, 8), (1, 2, 3)).save(temp_path, format="PNG")
+
+        widget._do_upload_wallpaper(temp_path, "/usr/share/remarkable/suspended.png")
+
+        for path in carousel_files(original):
+            self.assertEqual(client.files[path + ".backup"], original)
+            self.assertTrue(_tab_wallpaper._is_transparent_placeholder(client.files[path]))
 
 
 class DeviceFramePreviewTests(unittest.TestCase):
@@ -2592,7 +2793,7 @@ class FontUiTests(unittest.TestCase):
         client.exec_command.assert_called_once_with("reboot")
 
 
-class MainWindowUiTests(unittest.TestCase):
+class MainWindowConstructionTests(unittest.TestCase):
     def test_main_window_opens_wider_by_default(self):
         window = rmtool.MainWindow()
         self.addCleanup(window.deleteLater)
@@ -2600,14 +2801,131 @@ class MainWindowUiTests(unittest.TestCase):
         self.assertGreaterEqual(window.size().width(), 1760)
 
 
+class DashboardTabTests(unittest.TestCase):
+    def _make_tab(self):
+        tab = rmtool.DashboardTab()
+        self.addCleanup(tab.deleteLater)
+        return tab
+
+    def test_initial_state_shows_disconnected_badge_and_placeholders(self):
+        tab = self._make_tab()
+
+        self.assertEqual(tab.status_badge.text(), "未连接")
+        self.assertFalse(tab.status_badge.property("connected"))
+        for label in tab._device_value_labels.values():
+            self.assertEqual(label.text(), "—")
+        for label in tab._doc_value_labels.values():
+            self.assertEqual(label.text(), "0")
+        self.assertIn("建立连接", tab.tips_body.text())
+
+    def test_update_device_populates_fields(self):
+        tab = self._make_tab()
+
+        tab.update_device(
+            {
+                "name": "Device A",
+                "type": "reMarkable 2",
+                "mode": "usb",
+                "host": "10.11.99.1",
+            }
+        )
+
+        self.assertEqual(tab._device_value_labels["name"].text(), "Device A")
+        self.assertEqual(tab._device_value_labels["type"].text(), "reMarkable 2")
+        self.assertEqual(tab._device_value_labels["mode"].text(), "USB")
+        self.assertEqual(tab._device_value_labels["host"].text(), "10.11.99.1")
+
+    def test_update_connection_toggles_badge_and_timestamp(self):
+        tab = self._make_tab()
+        device = {
+            "name": "Device A",
+            "type": "reMarkable 2",
+            "mode": "wifi",
+            "host": "192.168.0.8",
+        }
+
+        tab.update_connection(True, device)
+
+        self.assertEqual(tab.status_badge.text(), "已连接")
+        self.assertTrue(tab.status_badge.property("connected"))
+        self.assertEqual(tab._device_value_labels["mode"].text(), "Wi-Fi")
+        self.assertNotEqual(tab._device_value_labels["updated"].text(), "—")
+
+        tab.update_connection(False)
+
+        self.assertEqual(tab.status_badge.text(), "未连接")
+        self.assertFalse(tab.status_badge.property("connected"))
+
+    def test_update_documents_populates_metrics_and_updated_time(self):
+        tab = self._make_tab()
+
+        tab.update_documents(
+            {"total": 7, "pdf": 4, "epub": 2, "notes": 1, "lastUpdated": "2026-07-01 10:00"}
+        )
+
+        self.assertEqual(tab._doc_value_labels["total"].text(), "7")
+        self.assertEqual(tab._doc_value_labels["pdf"].text(), "4")
+        self.assertEqual(tab._doc_value_labels["epub"].text(), "2")
+        self.assertEqual(tab._doc_value_labels["notes"].text(), "1")
+        self.assertIn("2026-07-01 10:00", tab.doc_updated_label.text())
+
+    def test_suggestions_reflect_connection_state(self):
+        tab = self._make_tab()
+        self.assertIn("建立连接", tab.tips_body.text())
+
+        tab.update_connection(
+            True, {"name": "A", "type": "", "mode": "usb", "host": ""}
+        )
+
+        self.assertIn("壁纸管理", tab.tips_body.text())
+        self.assertIn("暂无文档", tab.tips_body.text())
+
+    def test_set_theme_kept_for_interface_compatibility(self):
+        tab = self._make_tab()
+
+        tab.set_theme("light")
+        tab.set_theme("dark")
+
+    def test_dashboard_styles_render_from_tokens(self):
+        for stylesheet in (rmtool._DARK_STYLESHEET, rmtool._LIGHT_STYLESHEET):
+            resolved = rmtool._resolve_stylesheet(stylesheet)
+            self.assertIn("#dashboardStatusBadge[connected=\"true\"]", resolved)
+            self.assertIn("#dashboardMetric", resolved)
+            self.assertIn("#dashboardTipsCard", resolved)
+            self.assertNotIn("{danger_bg}", resolved)
+            self.assertNotIn("{font_", resolved)
+
+
+class TypeScaleTests(unittest.TestCase):
+    @staticmethod
+    def _declarations(property_name):
+        for stylesheet in (rmtool._DARK_STYLESHEET, rmtool._LIGHT_STYLESHEET):
+            resolved = rmtool._resolve_stylesheet(stylesheet)
+            for match in re.finditer(rf"{property_name}:\s*([^;]+);", resolved):
+                yield match.group(1).strip()
+
+    def test_qss_font_sizes_stay_on_the_type_scale(self):
+        allowed = {
+            f"{size}px"
+            for size in (
+                _tokens.FONT_XS,
+                _tokens.FONT_SM,
+                _tokens.FONT_BASE,
+                _tokens.FONT_MD,
+                _tokens.FONT_LG,
+                _tokens.FONT_METRIC,
+            )
+        }
+
+        for value in self._declarations("font-size"):
+            self.assertIn(value, allowed)
+
+    def test_qss_font_weights_are_limited_to_regular_semibold_bold(self):
+        for value in self._declarations("font-weight"):
+            self.assertIn(value, {"normal", "400", "600", "700"})
+
+
 class DashboardDesignTokenTests(unittest.TestCase):
-    def test_dashboard_css_uses_shared_gap_and_radius_tokens(self):
-        css = rmtool.resource_path("web", "dashboard.css").read_text(encoding="utf-8")
-
-        self.assertIn(f"--panel-gap: {rmtool.PANEL_GAP}px;", css)
-        self.assertIn(f"--radius-panel: {rmtool.PANEL_RADIUS}px;", css)
-        self.assertIn(f"--radius-inner: {rmtool.INNER_PANEL_RADIUS}px;", css)
-
     def test_qt_stylesheets_use_shared_inner_radius_for_form_controls(self):
         expected_radius = f"border-radius: {rmtool.INNER_PANEL_RADIUS}px;"
 
@@ -2623,14 +2941,6 @@ class DashboardDesignTokenTests(unittest.TestCase):
         self.assertIn(expected_radius, dark_dropdown)
         self.assertIn(expected_radius, light_inputs)
         self.assertIn(expected_radius, light_dropdown)
-
-    def test_dashboard_hero_uses_relaxed_spacing_and_line_height(self):
-        css = rmtool.resource_path("web", "dashboard.css").read_text(encoding="utf-8")
-
-        self.assertIn(".headline {", css)
-        self.assertIn("gap: 12px;", css)
-        self.assertIn("line-height: 1.75;", css)
-        self.assertIn("margin-bottom: 8px;", css)
 
     def test_github_icon_uses_official_mark_path(self):
         self.assertEqual(
@@ -3654,9 +3964,9 @@ class DocumentWorkspaceUiTests(unittest.TestCase):
             return int(match.group(1))
 
         for stylesheet in (rmtool._DARK_STYLESHEET, rmtool._LIGHT_STYLESHEET):
-            self.assertGreaterEqual(font_size(stylesheet, "#restartConfirmSubtitle"), 14)
-            self.assertGreaterEqual(font_size(stylesheet, "#restartConfirmBody"), 16)
-            self.assertGreaterEqual(font_size(stylesheet, "#restartConfirmNoteText"), 15)
+            self.assertEqual(font_size(stylesheet, "#restartConfirmSubtitle"), _tokens.FONT_SM)
+            self.assertEqual(font_size(stylesheet, "#restartConfirmBody"), _tokens.FONT_BASE)
+            self.assertEqual(font_size(stylesheet, "#restartConfirmNoteText"), _tokens.FONT_SM)
 
     def test_shared_dialog_text_uses_restart_dialog_readable_scale(self):
         def font_size(stylesheet, selector):
@@ -3669,9 +3979,9 @@ class DocumentWorkspaceUiTests(unittest.TestCase):
             return int(match.group(1))
 
         for stylesheet in (rmtool._DARK_STYLESHEET, rmtool._LIGHT_STYLESHEET):
-            self.assertGreaterEqual(font_size(stylesheet, "#appDialogTitle"), 21)
-            self.assertGreaterEqual(font_size(stylesheet, "#appDialogBody"), 16)
-            self.assertGreaterEqual(font_size(stylesheet, "#appDialogNoteText"), 15)
+            self.assertEqual(font_size(stylesheet, "#appDialogTitle"), _tokens.FONT_LG)
+            self.assertEqual(font_size(stylesheet, "#appDialogBody"), _tokens.FONT_BASE)
+            self.assertEqual(font_size(stylesheet, "#appDialogNoteText"), _tokens.FONT_SM)
 
     def test_export_without_selection_shows_warning_instead_of_crashing(self):
         widget = self._make_widget()

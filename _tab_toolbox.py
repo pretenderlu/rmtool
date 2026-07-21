@@ -1,6 +1,5 @@
-"""FontTab, TimeTab, ControlTab, DashboardTab, and ToolboxTab extracted from rmtool.py."""
+"""FontTab, TimeTab, ControlTab, ToolboxTab, and FontPage extracted from rmtool.py."""
 
-import json
 import logging
 import os
 import posixpath
@@ -8,7 +7,6 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5 import QtWebEngineWidgets
 
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
 import _rmkit_cn
@@ -84,6 +82,7 @@ class FontTab(QtWidgets.QWidget):
         self.select_button = QtWidgets.QPushButton("选择字体")
         self.select_button.clicked.connect(self._select_font_file)
         self.upload_button = QtWidgets.QPushButton("上传字体")
+        self.upload_button.setProperty("btnRole", "primary")
         self.upload_button.setEnabled(False)
         self.upload_button.clicked.connect(self._upload_selected_font)
 
@@ -107,15 +106,13 @@ class FontTab(QtWidgets.QWidget):
         self.manager_status_label.setWordWrap(True)
 
         self.refresh_button = QtWidgets.QPushButton("刷新")
-        self.refresh_button.setProperty("cssClass", "secondary")
         self.refresh_button.clicked.connect(self._refresh_fonts)
         self.set_active_button = QtWidgets.QPushButton("设为系统字体")
         self.set_active_button.clicked.connect(self._set_selected_active)
         self.delete_button = QtWidgets.QPushButton("删除")
-        self.delete_button.setProperty("cssClass", "danger")
+        self.delete_button.setProperty("btnRole", "danger")
         self.delete_button.clicked.connect(self._delete_selected_font)
         self.restart_button = QtWidgets.QPushButton("重启生效")
-        self.restart_button.setProperty("cssClass", "secondary")
         self.restart_button.clicked.connect(self._restart_device)
 
         manager_actions = QtWidgets.QHBoxLayout()
@@ -174,7 +171,9 @@ class FontTab(QtWidgets.QWidget):
         self._preview_font_id = preview_font_id
         self._selected_font_family = preview_family
         self.preview_title_label.setText(f"{preview_family} 预览")
-        preview_font = QtGui.QFont(preview_family, 18)
+        # Family comes from the loaded file; the size lives in the
+        # #fontPreviewSample QSS rule (type scale font_lg).
+        preview_font = QtGui.QFont(preview_family)
         preview_font.setStyleStrategy(QtGui.QFont.PreferAntialias)
         self.preview_sample_label.setFont(preview_font)
         self.preview_sample_label.setText(_rmtool.FONT_PREVIEW_TEXT)
@@ -522,11 +521,8 @@ class TimeTab(QtWidgets.QWidget):
         self.output.setReadOnly(True)
 
         self.sync_button = QtWidgets.QPushButton("使用本地时间同步")
-        self.sync_button.setProperty("cssClass", "secondary")
         self.info_button = QtWidgets.QPushButton("查看当前时间信息")
-        self.info_button.setProperty("cssClass", "secondary")
         self.tz_button = QtWidgets.QPushButton("设置为东八区")
-        self.tz_button.setProperty("cssClass", "secondary")
 
         button_layout = QtWidgets.QHBoxLayout()
         button_layout.addWidget(self.sync_button)
@@ -592,11 +588,9 @@ class ControlTab(QtWidgets.QWidget):
         self.ssh_client = ssh_client
 
         self.restart_button = QtWidgets.QPushButton("重启设备")
-        self.restart_button.setProperty("cssClass", "danger")
+        self.restart_button.setProperty("btnRole", "danger")
         self.enable_wifi_ssh_button = QtWidgets.QPushButton("开启 Wi-Fi SSH 通道")
-        self.enable_wifi_ssh_button.setProperty("cssClass", "secondary")
         self.brightness_button = QtWidgets.QPushButton("提升前光亮度")
-        self.brightness_button.setProperty("cssClass", "secondary")
 
         layout = QtWidgets.QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -692,10 +686,6 @@ class RmkitCnSection(QtWidgets.QWidget):
 
         title = QtWidgets.QLabel("原生界面中文")
         title.setObjectName("rmkitCnStatus")
-        title_font = QtGui.QFont(title.font())
-        title_font.setPointSize(max(title_font.pointSize() + 2, 14))
-        title_font.setBold(True)
-        title.setFont(title_font)
 
         detail = QtWidgets.QLabel(
             "连接设备后会按固件版本精确匹配并下载云端汉化包。"
@@ -713,14 +703,11 @@ class RmkitCnSection(QtWidgets.QWidget):
         self.status_label.setWordWrap(True)
 
         self.detect_button = QtWidgets.QPushButton("检测状态")
-        self.detect_button.setProperty("cssClass", "secondary")
         self.enable_button = QtWidgets.QPushButton("启用中文")
         self.restore_button = QtWidgets.QPushButton("还原")
-        self.restore_button.setProperty("cssClass", "secondary")
         self.enable_button.setEnabled(False)
         self.restore_button.setEnabled(False)
         self.project_button = QtWidgets.QPushButton("查看源码")
-        self.project_button.setProperty("cssClass", "secondary")
 
         buttons = QtWidgets.QHBoxLayout()
         buttons.setContentsMargins(0, 0, 0, 0)
@@ -994,10 +981,6 @@ class TapPageTurnSection(QtWidgets.QWidget):
 
         title = QtWidgets.QLabel("点击翻页")
         title.setObjectName("tapPageTurnStatus")
-        title_font = QtGui.QFont(title.font())
-        title_font.setPointSize(max(title_font.pointSize() + 2, 14))
-        title_font.setBold(True)
-        title.setFont(title_font)
 
         detail = QtWidgets.QLabel(
             "在 PDF 和 EPUB 阅读页使用屏幕分区点击上一页或下一页，滑动翻页保持可用。"
@@ -1015,12 +998,9 @@ class TapPageTurnSection(QtWidgets.QWidget):
         self.status_label.setWordWrap(True)
 
         self.detect_button = QtWidgets.QPushButton("检测状态")
-        self.detect_button.setProperty("cssClass", "secondary")
         self.enable_button = QtWidgets.QPushButton("启用点击翻页")
         self.disable_button = QtWidgets.QPushButton("停用")
-        self.disable_button.setProperty("cssClass", "secondary")
         self.project_button = QtWidgets.QPushButton("查看说明")
-        self.project_button.setProperty("cssClass", "secondary")
 
         buttons = QtWidgets.QHBoxLayout()
         buttons.setContentsMargins(0, 0, 0, 0)
@@ -1241,77 +1221,6 @@ class TapPageTurnSection(QtWidgets.QWidget):
         )
 
 
-class DashboardTab(QtWidgets.QWidget):
-    def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
-        super().__init__(parent)
-        self.view = QtWebEngineWidgets.QWebEngineView(self)
-        self.view.setContextMenuPolicy(QtCore.Qt.NoContextMenu)
-        self._state: Dict[str, object] = {
-            "connected": False,
-            "lastConnectionChange": "",
-            "device": {"name": "", "type": "", "mode": "", "host": ""},
-            "documents": {
-                "total": 0,
-                "pdf": 0,
-                "epub": 0,
-                "notes": 0,
-                "lastUpdated": "",
-            },
-        }
-        self._loaded = False
-        self._pending_script: Optional[str] = None
-
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.view)
-
-        html_path = _rmtool.resource_path("web", "dashboard.html")
-        self.view.setUrl(QtCore.QUrl.fromLocalFile(str(html_path)))
-        self.view.loadFinished.connect(self._on_load_finished)
-
-    def update_device(self, device: Dict):
-        self._state["device"] = {
-            "name": device.get("name", ""),
-            "type": device.get("type", ""),
-            "mode": device.get("mode", ""),
-            "host": device.get("host", ""),
-        }
-        self._apply_state()
-
-    def update_connection(self, connected: bool, device: Optional[Dict] = None):
-        if device:
-            self._state["device"] = {
-                "name": device.get("name", ""),
-                "type": device.get("type", ""),
-                "mode": device.get("mode", ""),
-                "host": device.get("host", ""),
-            }
-        self._state["connected"] = connected
-        self._state["lastConnectionChange"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-        self._apply_state()
-
-    def update_documents(self, summary: Dict[str, object]):
-        self._state["documents"].update(summary)
-        self._apply_state()
-
-    def _on_load_finished(self, ok: bool):
-        self._loaded = ok
-        if ok and self._pending_script:
-            self.view.page().runJavaScript(self._pending_script)
-            self._pending_script = None
-
-    def set_theme(self, theme: str):
-        self._state["theme"] = theme
-        self._apply_state()
-
-    def _apply_state(self):
-        script = f"window.updateDashboard({json.dumps(self._state, ensure_ascii=False)});"
-        if self._loaded:
-            self.view.page().runJavaScript(script)
-        else:
-            self._pending_script = script
-
-
 class ToolboxTab(QtWidgets.QWidget):
     def __init__(
         self,
@@ -1320,17 +1229,10 @@ class ToolboxTab(QtWidgets.QWidget):
         parent: Optional[QtWidgets.QWidget] = None,
     ):
         super().__init__(parent)
-        self.font_section = FontTab(ssh_client, config)
         self.time_section = TimeTab(ssh_client)
         self.control_section = ControlTab(ssh_client)
         self.rmkit_cn_section = RmkitCnSection(ssh_client)
         self.tap_page_turn_section = TapPageTurnSection(ssh_client)
-
-        font_group = QtWidgets.QGroupBox("字体管理")
-        font_layout = QtWidgets.QVBoxLayout()
-        font_layout.setContentsMargins(0, 0, 0, 0)
-        font_layout.addWidget(self.font_section)
-        font_group.setLayout(font_layout)
 
         time_group = QtWidgets.QGroupBox("时间管理")
         time_layout = QtWidgets.QVBoxLayout()
@@ -1393,7 +1295,6 @@ class ToolboxTab(QtWidgets.QWidget):
             _rmtool.TAB_PAGE_MARGIN,
         )
         content_layout.setSpacing(_rmtool.PANEL_GAP)
-        content_layout.addWidget(font_group)
         content_layout.addWidget(time_group)
         content_layout.addWidget(control_group)
         content_layout.addWidget(rmkit_cn_group)
@@ -1405,6 +1306,46 @@ class ToolboxTab(QtWidgets.QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
         scroll.setWidget(self.content_widget)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(scroll)
+
+
+class FontPage(QtWidgets.QWidget):
+    """Top-level font management page (FontTab extracted from ToolboxTab)."""
+
+    def __init__(
+        self,
+        ssh_client: SSHClientWrapper,
+        config: Dict,
+        parent: Optional[QtWidgets.QWidget] = None,
+    ):
+        super().__init__(parent)
+        self.font_section = FontTab(ssh_client, config)
+
+        font_group = QtWidgets.QGroupBox("字体管理")
+        font_layout = QtWidgets.QVBoxLayout()
+        font_layout.setContentsMargins(0, 0, 0, 0)
+        font_layout.addWidget(self.font_section)
+        font_group.setLayout(font_layout)
+
+        content_widget = QtWidgets.QWidget()
+        content_layout = QtWidgets.QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(
+            _rmtool.TAB_PAGE_MARGIN,
+            _rmtool.TAB_PAGE_MARGIN,
+            _rmtool.TAB_PAGE_MARGIN,
+            _rmtool.TAB_PAGE_MARGIN,
+        )
+        content_layout.setSpacing(_rmtool.PANEL_GAP)
+        content_layout.addWidget(font_group)
+        content_layout.addStretch()
+
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setWidget(content_widget)
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

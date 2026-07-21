@@ -104,14 +104,14 @@ def _build_dialog(
     if secondary_text:
         secondary_button = QtWidgets.QPushButton(secondary_text)
         secondary_button.setObjectName("appDialogSecondary")
-        secondary_button.setProperty("cssClass", "secondary")
         secondary_button.clicked.connect(dialog.reject)
         button_row.addWidget(secondary_button)
 
     primary_button = QtWidgets.QPushButton(primary_text)
     primary_button.setObjectName("appDialogPrimary")
-    if primary_role == "danger":
-        primary_button.setProperty("cssClass", "danger")
+    primary_button.setProperty(
+        "btnRole", "danger" if primary_role == "danger" else "primary"
+    )
     primary_button.setDefault(True)
     primary_button.clicked.connect(dialog.accept)
     button_row.addWidget(primary_button)

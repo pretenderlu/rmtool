@@ -154,7 +154,6 @@ class LogViewerPanel(QtWidgets.QWidget):
         self.text_view.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
         mono = QtGui.QFont("Consolas")
         mono.setStyleHint(QtGui.QFont.Monospace)
-        mono.setPointSize(10)
         self.text_view.setFont(mono)
         self.text_view.setMaximumBlockCount(_MAX_LINES)
         layout.addWidget(self.text_view, 1)

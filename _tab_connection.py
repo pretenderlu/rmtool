@@ -7,6 +7,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
 from _ssh import SSHClientWrapper, UnknownHostKeyError
+import _tokens
 import rmtool as _rmtool  # late-bound access to avoid circular import
 
 
@@ -75,17 +76,22 @@ class ConnectionWidget(QtWidgets.QWidget):
         self.remove_device_button.setText("-")
         self.remove_device_button.setText("删除")
         self.remove_device_button.setToolTip("删除当前设备配置")
-        self.remove_device_button.setProperty("cssClass", "danger")
+        self.remove_device_button.setProperty("btnRole", "danger")
         self.edit_device_button = QtWidgets.QToolButton()
         self.edit_device_button.setText("编辑")
         self.edit_device_button.setToolTip("编辑当前设备配置")
         device_btn_row = QtWidgets.QHBoxLayout()
         device_btn_row.setContentsMargins(0, 0, 0, 0)
-        device_btn_row.setSpacing(4)
-        device_btn_row.addWidget(self.add_device_button)
-        device_btn_row.addWidget(self.edit_device_button)
-        device_btn_row.addWidget(self.remove_device_button)
-        device_btn_row.addStretch()
+        device_btn_row.setSpacing(8)
+        for button in (
+            self.add_device_button,
+            self.edit_device_button,
+            self.remove_device_button,
+        ):
+            button.setSizePolicy(
+                QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
+            )
+            device_btn_row.addWidget(button, 1)
 
         self.credential_status_label = QtWidgets.QLabel("未保存")
         self.credential_status_label.setObjectName("credentialStatusLabel")
@@ -101,14 +107,14 @@ class ConnectionWidget(QtWidgets.QWidget):
         credential_status_row.addWidget(self.credential_status_label, 1)
         credential_status_row.addWidget(self.forget_password_button)
 
-        # -- Buttons --
-        self.connect_button = QtWidgets.QPushButton("连接")
-        self.disconnect_button = QtWidgets.QPushButton("断开")
-        self.disconnect_button.setProperty("cssClass", "danger")
-        self.connect_button.setText("连接到当前设备")
-        self.disconnect_button.setText("断开连接")
-        button_layout = QtWidgets.QHBoxLayout()
+        # -- Buttons (stacked so both keep their full text at sidebar width) --
+        self.connect_button = QtWidgets.QPushButton("连接设备")
+        self.disconnect_button = QtWidgets.QPushButton("断开连接")
+        self.connect_button.setProperty("btnRole", "primary")
+        self.disconnect_button.setProperty("btnRole", "danger")
+        button_layout = QtWidgets.QVBoxLayout()
         button_layout.setContentsMargins(0, 0, 0, 0)
+        button_layout.setSpacing(8)
         button_layout.addWidget(self.connect_button)
         button_layout.addWidget(self.disconnect_button)
 
@@ -137,6 +143,9 @@ class ConnectionWidget(QtWidgets.QWidget):
         layout.addLayout(button_layout)
 
         # -- Bottom area: theme toggle + branding --
+        # Extra sidebar sections (e.g. page navigation) are inserted above
+        # this stretch so the footer stays pinned to the bottom.
+        self._footer_stretch_index = layout.count()
         layout.addStretch()
         footer_actions = QtWidgets.QHBoxLayout()
         footer_actions.setContentsMargins(0, 0, 0, 0)
@@ -776,30 +785,12 @@ class ConnectionWidget(QtWidgets.QWidget):
         self._refresh_device_summary(device)
         self.device_changed.emit(device)
 
-    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # pragma: no cover - layout reaction
-        super().resizeEvent(event)
-        self._update_connect_button_text()
-
-    def _preferred_connect_button_text(self, device: Optional[Dict]) -> str:
-        if not device:
-            return "连接设备"
-        device_name = device.get("name", "").strip()
-        if not device_name:
-            return "连接设备"
-        if self.width() and self.width() < 360:
-            return "连接设备"
-        return f"连接 {device_name}"
-
-    def _update_connect_button_text(self, device: Optional[Dict] = None) -> None:
-        self.connect_button.setText(self._preferred_connect_button_text(device or self._current_device()))
-
     def _refresh_device_summary(self, device: Optional[Dict] = None) -> None:
         device = device or self._current_device()
         if not device:
             self.device_title_label.setText("未选择设备")
             self.device_meta_label.setText("选择一个设备后开始连接。")
             self.device_host_label.setText("地址：-")
-            self._update_connect_button_text(None)
             return
 
         device_name = device.get("name", "未命名设备")
@@ -810,20 +801,32 @@ class ConnectionWidget(QtWidgets.QWidget):
         self.device_title_label.setText(device_name)
         self.device_meta_label.setText(f"{self._device_type_display(device_type)} · {mode_label}")
         self.device_host_label.setText(f"地址：{host}")
-        self._update_connect_button_text(device)
 
     def set_footer_theme(self, theme: str) -> None:
         is_dark = theme == "dark"
-        icon_color = "#C0C8E0" if is_dark else "#5A6070"
+        tokens = _tokens.DARK_TOKENS if is_dark else _tokens.LIGHT_TOKENS
+        icon_color = tokens["text_secondary"]
+        icon_hover_color = tokens["text_primary"]
         target_theme_label = "亮色主题" if is_dark else "暗色主题"
-        theme_icon = _rmtool._make_sidebar_icon("sun" if is_dark else "moon", icon_color)
+        theme_icon = _rmtool._make_sidebar_icon(
+            "sun" if is_dark else "moon", icon_color, icon_hover_color
+        )
 
         self.theme_button.setIcon(theme_icon)
         self.theme_button.setToolTip(f"切换到{target_theme_label}")
         self.theme_button.setAccessibleName(f"切换到{target_theme_label}")
 
-        self.log_button.setIcon(_rmtool._make_sidebar_icon("log", icon_color))
-        self.github_button.setIcon(_rmtool._make_sidebar_icon("github", icon_color))
+        self.log_button.setIcon(
+            _rmtool._make_sidebar_icon("log", icon_color, icon_hover_color)
+        )
+        self.github_button.setIcon(
+            _rmtool._make_sidebar_icon("github", icon_color, icon_hover_color)
+        )
+
+    def add_sidebar_section(self, widget: QtWidgets.QWidget) -> None:
+        """Insert a sidebar section above the pinned footer row."""
+        self.layout().insertWidget(self._footer_stretch_index, widget)
+        self._footer_stretch_index += 1
 
     def _open_github_repo(self) -> None:
         QtGui.QDesktopServices.openUrl(QtCore.QUrl(_rmtool.GITHUB_REPO_URL))

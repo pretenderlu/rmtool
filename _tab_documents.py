@@ -273,15 +273,14 @@ class DocumentsTab(QtWidgets.QWidget):
 
         # --- Toolbar ---
         self.refresh_button = QtWidgets.QPushButton("刷新列表")
-        self.refresh_button.setProperty("cssClass", "secondary")
         self.upload_button = QtWidgets.QPushButton("上传文档")
+        self.upload_button.setProperty("btnRole", "primary")
         self.cleanup_thumbnails_button = QtWidgets.QPushButton("清理缩略图")
-        self.cleanup_thumbnails_button.setProperty("cssClass", "secondary")
         self.cleanup_thumbnails_button.setToolTip(
             "扫描已不存在文档留下的封面缩略图，确认后再删除"
         )
         self.delete_button = QtWidgets.QPushButton("删除文档")
-        self.delete_button.setProperty("cssClass", "danger")
+        self.delete_button.setProperty("btnRole", "danger")
         self.export_button = QtWidgets.QPushButton("导出为 PDF")
         self.export_button.setToolTip("将笔记渲染并导出为 PDF 文件（需要 rm/note 数据）")
         self.search_edit = QtWidgets.QLineEdit()
@@ -289,6 +288,8 @@ class DocumentsTab(QtWidgets.QWidget):
         self.search_edit.setPlaceholderText("🔍 搜索文档…")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setPlaceholderText("搜索文档名称")
+        # Never let the toolbar squeeze the search box below its placeholder.
+        self.search_edit.setMinimumWidth(180)
 
         self.preview = QtWidgets.QPlainTextEdit()
         self.preview.setReadOnly(True)
@@ -342,11 +343,9 @@ class DocumentsTab(QtWidgets.QWidget):
         self._preview_stack.addWidget(self.preview_image)  # index 1
 
         self._meta_btn = QtWidgets.QPushButton("元数据")
-        self._meta_btn.setProperty("cssClass", "secondary")
         self._meta_btn.setCheckable(True)
         self._meta_btn.setChecked(True)
         self._image_btn = QtWidgets.QPushButton("图像预览")
-        self._image_btn.setProperty("cssClass", "secondary")
         self._image_btn.setCheckable(True)
 
         preview_btn_group = QtWidgets.QButtonGroup(self)
@@ -395,8 +394,12 @@ class DocumentsTab(QtWidgets.QWidget):
         self.content_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         self.content_splitter.addWidget(self.list_panel)
         self.content_splitter.addWidget(self.preview_panel)
-        self.content_splitter.setStretchFactor(0, 1)
-        self.content_splitter.setStretchFactor(1, 1)
+        # Default to a ~58:42 list/preview split: the list panel stays wide
+        # enough for its toolbar (incl. the search box) while the preview
+        # still shows covers near full height.
+        self.content_splitter.setStretchFactor(0, 7)
+        self.content_splitter.setStretchFactor(1, 5)
+        self.content_splitter.setSizes([1160, 840])
         self.content_splitter.setChildrenCollapsible(False)
         self.content_splitter.setHandleWidth(_rmtool.PANEL_GAP)
         self.preview_panel.setMinimumWidth(360)
@@ -784,11 +787,11 @@ class DocumentsTab(QtWidgets.QWidget):
 
         later_button = QtWidgets.QPushButton("稍后再说")
         later_button.setObjectName("restartConfirmSecondary")
-        later_button.setProperty("cssClass", "secondary")
         later_button.clicked.connect(dialog.reject)
 
         restart_button = QtWidgets.QPushButton("现在重启")
         restart_button.setObjectName("restartConfirmPrimary")
+        restart_button.setProperty("btnRole", "primary")
         restart_button.setDefault(True)
         restart_button.clicked.connect(dialog.accept)
 
@@ -1099,6 +1102,7 @@ class DocumentsTab(QtWidgets.QWidget):
             self.preview_image.setPixmap(QtGui.QPixmap.fromImage(image))
             self.preview_image.setText("")
         self._preview_stack.setCurrentIndex(1)
+        self._image_btn.setChecked(True)
 
     def _on_preview_error(self, identifier: str, exc: Exception):
         if identifier != self._current_preview_request:
