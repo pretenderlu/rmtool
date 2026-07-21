@@ -937,6 +937,7 @@ class MainWindow(QtWidgets.QMainWindow):
 # Stylesheets and palette definitions live in _styles.py to keep this file
 # focused on application logic.
 from _styles import _DARK_STYLESHEET, _LIGHT_STYLESHEET, _dark_palette, _light_palette
+from _tokens import FONT_BASE
 from _log_viewer import LogViewerPanel, attach_qt_log_handler
 
 
@@ -974,8 +975,9 @@ def main():
     app = QtWidgets.QApplication(sys.argv)
     QtWidgets.QApplication.setStyle("Fusion")
 
-    # -- Global font: use point size so it scales with system DPI --
-    font = QtGui.QFont("Segoe UI", 12)
+    # -- Global font: px size from the shared type scale (single unit) --
+    font = QtGui.QFont("Segoe UI")
+    font.setPixelSize(FONT_BASE)
     font.setStyleHint(QtGui.QFont.SansSerif)
     app.setFont(font)
 

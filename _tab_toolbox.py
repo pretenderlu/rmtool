@@ -171,7 +171,9 @@ class FontTab(QtWidgets.QWidget):
         self._preview_font_id = preview_font_id
         self._selected_font_family = preview_family
         self.preview_title_label.setText(f"{preview_family} 预览")
-        preview_font = QtGui.QFont(preview_family, 18)
+        # Family comes from the loaded file; the size lives in the
+        # #fontPreviewSample QSS rule (type scale font_lg).
+        preview_font = QtGui.QFont(preview_family)
         preview_font.setStyleStrategy(QtGui.QFont.PreferAntialias)
         self.preview_sample_label.setFont(preview_font)
         self.preview_sample_label.setText(_rmtool.FONT_PREVIEW_TEXT)
@@ -684,10 +686,6 @@ class RmkitCnSection(QtWidgets.QWidget):
 
         title = QtWidgets.QLabel("原生界面中文")
         title.setObjectName("rmkitCnStatus")
-        title_font = QtGui.QFont(title.font())
-        title_font.setPointSize(max(title_font.pointSize() + 2, 14))
-        title_font.setBold(True)
-        title.setFont(title_font)
 
         detail = QtWidgets.QLabel(
             "连接设备后会按固件版本精确匹配并下载云端汉化包。"
@@ -983,10 +981,6 @@ class TapPageTurnSection(QtWidgets.QWidget):
 
         title = QtWidgets.QLabel("点击翻页")
         title.setObjectName("tapPageTurnStatus")
-        title_font = QtGui.QFont(title.font())
-        title_font.setPointSize(max(title_font.pointSize() + 2, 14))
-        title_font.setBold(True)
-        title.setFont(title_font)
 
         detail = QtWidgets.QLabel(
             "在 PDF 和 EPUB 阅读页使用屏幕分区点击上一页或下一页，滑动翻页保持可用。"
