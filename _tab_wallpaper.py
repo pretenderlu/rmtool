@@ -834,7 +834,7 @@ class WallpaperTab(QtWidgets.QWidget):
 
         self.blank_carousel_checkbox = QtWidgets.QCheckBox("使用空白壁纸替换休眠轮播")
         self.blank_carousel_checkbox.setToolTip(
-            "开启后把设备上的休眠轮播插图替换为空白图"
+            "开启后把设备上的休眠轮播插图替换为带透明通道的全透明 PNG"
             "（原始插图会先备份到设备上的同名 .backup 文件）；\n"
             "关闭时从备份恢复原始插图。"
         )
@@ -1021,7 +1021,7 @@ class WallpaperTab(QtWidgets.QWidget):
             show_info(
                 self,
                 _rmtool.APP_NAME,
-                "休眠轮播插图已替换为空白壁纸，原始插图已备份到设备。",
+                "休眠轮播插图已替换为全透明壁纸（带透明通道），原始插图已备份到设备。",
             )
         else:
             show_info(self, _rmtool.APP_NAME, "设备上没有找到休眠轮播插图。")
