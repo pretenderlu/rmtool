@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "firmware": "20260629074044",
+      "release_version": "3.28.0.162",
+      "channel": "beta",
+      "platform": "ferrari",
+      "architecture": "aarch64",
+      "xochitl_sha256": "10082aeb857c69c3f404ab189d7403318ba97d0c169e756ae9a5b3532b248a4a",
+      "asset": "rmtool-tap-page-turn-ferrari-20260629074044.tar.gz",
+      "sha256": "dd34a1e8016449cf4980d3eec80ebb0d0d1b46ffa002e02b06a84f310596493c",
+      "size": 3907994,
+      "files": [
+        {
+          "path": "LICENSE.qmd-tool",
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "size": 35149,
+          "mode": 420
+        },
+        {
+          "path": "LICENSE.rm-xovi-extensions",
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "size": 35823,
+          "mode": 420
+        },
+        {
+          "path": "LICENSE.xovi",
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "size": 7819,
+          "mode": 420
+        },
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "size": 9496456,
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "sha256": "6c2ff2bc0c3152c87345a57f759dff95ec0940c24b7f8880fd40f4281b01c365",
+          "size": 673884,
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
+          "sha256": "5e50757fd50a76851c01c2f572b37dbcf87f1d6eb31f0ebe215f6fcab09150b9",
+          "size": 3082,
+          "mode": 420
+        },
+        {
+          "path": "qmd-tool",
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "size": 1966264,
+          "mode": 493
+        },
+        {
+          "path": "xovi.so",
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "size": 103008,
+          "mode": 420
+        }
+      ]
+    }
+  ]
+}

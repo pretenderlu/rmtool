@@ -18,3 +18,17 @@ are not redistributed by this repository.
 Simplified Chinese font from [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk).
 It is distributed under the SIL Open Font License 1.1; the complete upstream
 license is included at `assets/fonts/LICENSE`.
+
+## Persistent tap-to-turn dependencies
+
+Firmware-specific tap-to-turn release archives redistribute unmodified builds
+of [asivery/xovi](https://github.com/asivery/xovi), licensed under the GNU
+Lesser General Public License v3.0, and the qt-resource-rebuilder extension
+from [asivery/rm-xovi-extensions](https://github.com/asivery/rm-xovi-extensions),
+licensed under the GNU General Public License v3.0. They also include the
+`qmd-tool` validator from [boangs/rmkit](https://github.com/boangs/rmkit),
+licensed under the GNU General Public License v3.0.
+
+Each asset archive includes the corresponding license texts. Source code and
+installation information are available from the linked upstream repositories;
+rmtool's QMLDiff source is maintained under `tap-page-turn/qmd-src/`.
