@@ -392,8 +392,11 @@ class DocumentsTab(QtWidgets.QWidget):
         self.content_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         self.content_splitter.addWidget(self.list_panel)
         self.content_splitter.addWidget(self.preview_panel)
-        self.content_splitter.setStretchFactor(0, 1)
-        self.content_splitter.setStretchFactor(1, 1)
+        # Default to a near-even split that leans slightly toward the list,
+        # so the preview panel is wide enough to show covers near full height.
+        self.content_splitter.setStretchFactor(0, 9)
+        self.content_splitter.setStretchFactor(1, 8)
+        self.content_splitter.setSizes([900, 800])
         self.content_splitter.setChildrenCollapsible(False)
         self.content_splitter.setHandleWidth(_rmtool.PANEL_GAP)
         self.preview_panel.setMinimumWidth(360)
