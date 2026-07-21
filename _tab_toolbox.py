@@ -1,4 +1,4 @@
-"""FontTab, TimeTab, ControlTab, DashboardTab, and ToolboxTab extracted from rmtool.py."""
+"""FontTab, TimeTab, ControlTab, DashboardTab, ToolboxTab, and FontPage extracted from rmtool.py."""
 
 import json
 import logging
@@ -1308,17 +1308,10 @@ class ToolboxTab(QtWidgets.QWidget):
         parent: Optional[QtWidgets.QWidget] = None,
     ):
         super().__init__(parent)
-        self.font_section = FontTab(ssh_client, config)
         self.time_section = TimeTab(ssh_client)
         self.control_section = ControlTab(ssh_client)
         self.rmkit_cn_section = RmkitCnSection(ssh_client)
         self.tap_page_turn_section = TapPageTurnSection(ssh_client)
-
-        font_group = QtWidgets.QGroupBox("字体管理")
-        font_layout = QtWidgets.QVBoxLayout()
-        font_layout.setContentsMargins(0, 0, 0, 0)
-        font_layout.addWidget(self.font_section)
-        font_group.setLayout(font_layout)
 
         time_group = QtWidgets.QGroupBox("时间管理")
         time_layout = QtWidgets.QVBoxLayout()
@@ -1381,7 +1374,6 @@ class ToolboxTab(QtWidgets.QWidget):
             _rmtool.TAB_PAGE_MARGIN,
         )
         content_layout.setSpacing(_rmtool.PANEL_GAP)
-        content_layout.addWidget(font_group)
         content_layout.addWidget(time_group)
         content_layout.addWidget(control_group)
         content_layout.addWidget(rmkit_cn_group)
@@ -1393,6 +1385,46 @@ class ToolboxTab(QtWidgets.QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
         scroll.setWidget(self.content_widget)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(scroll)
+
+
+class FontPage(QtWidgets.QWidget):
+    """Top-level font management page (FontTab extracted from ToolboxTab)."""
+
+    def __init__(
+        self,
+        ssh_client: SSHClientWrapper,
+        config: Dict,
+        parent: Optional[QtWidgets.QWidget] = None,
+    ):
+        super().__init__(parent)
+        self.font_section = FontTab(ssh_client, config)
+
+        font_group = QtWidgets.QGroupBox("字体管理")
+        font_layout = QtWidgets.QVBoxLayout()
+        font_layout.setContentsMargins(0, 0, 0, 0)
+        font_layout.addWidget(self.font_section)
+        font_group.setLayout(font_layout)
+
+        content_widget = QtWidgets.QWidget()
+        content_layout = QtWidgets.QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(
+            _rmtool.TAB_PAGE_MARGIN,
+            _rmtool.TAB_PAGE_MARGIN,
+            _rmtool.TAB_PAGE_MARGIN,
+            _rmtool.TAB_PAGE_MARGIN,
+        )
+        content_layout.setSpacing(_rmtool.PANEL_GAP)
+        content_layout.addWidget(font_group)
+        content_layout.addStretch()
+
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setWidget(content_widget)
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
