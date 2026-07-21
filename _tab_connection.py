@@ -82,11 +82,16 @@ class ConnectionWidget(QtWidgets.QWidget):
         self.edit_device_button.setToolTip("编辑当前设备配置")
         device_btn_row = QtWidgets.QHBoxLayout()
         device_btn_row.setContentsMargins(0, 0, 0, 0)
-        device_btn_row.setSpacing(4)
-        device_btn_row.addWidget(self.add_device_button)
-        device_btn_row.addWidget(self.edit_device_button)
-        device_btn_row.addWidget(self.remove_device_button)
-        device_btn_row.addStretch()
+        device_btn_row.setSpacing(8)
+        for button in (
+            self.add_device_button,
+            self.edit_device_button,
+            self.remove_device_button,
+        ):
+            button.setSizePolicy(
+                QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
+            )
+            device_btn_row.addWidget(button, 1)
 
         self.credential_status_label = QtWidgets.QLabel("未保存")
         self.credential_status_label.setObjectName("credentialStatusLabel")
