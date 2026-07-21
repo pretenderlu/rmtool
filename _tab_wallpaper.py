@@ -69,6 +69,24 @@ class _WallpaperResourceScan:
     complete: bool
 
 
+def _is_transparent_placeholder(data: bytes) -> bool:
+    """Detect the tiny transparent PNG written by ``_clear_carousel_overlays``.
+
+    Uploading a suspended wallpaper rewrites every carousel overlay on the
+    device to a fully transparent 1x1 PNG so the stock illustrations stop
+    covering the custom sleep screen.  Such files load as valid pixmaps but
+    render as an empty card, so the preview shows a note instead.
+    """
+    try:
+        with Image.open(BytesIO(data)) as image:
+            if image.width * image.height > 4:
+                return False
+            alpha_extrema = image.convert("RGBA").getextrema()[3]
+            return alpha_extrema == (0, 0)
+    except Exception:
+        return False
+
+
 @dataclass(frozen=True)
 class _CoverWallEntry:
     item: _rmtool.DocumentItem
@@ -1071,6 +1089,17 @@ class WallpaperTab(QtWidgets.QWidget):
             if not data:
                 preview.clear_preview()
                 preview.setText("加载失败")
+                continue
+            if _is_transparent_placeholder(data):
+                preview.clear_preview()
+                preview.setText("已被透明覆盖")
+                placeholder_tooltip = (
+                    f"{remote_path}\n上传休眠壁纸时已将该轮播覆盖图清空为透明，"
+                    "自定义休眠壁纸才会显示。"
+                )
+                preview.setToolTip(placeholder_tooltip)
+                if button:
+                    button.setToolTip(placeholder_tooltip)
                 continue
             pixmap = QtGui.QPixmap()
             if pixmap.loadFromData(data):
