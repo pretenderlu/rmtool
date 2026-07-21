@@ -712,13 +712,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.nav_list = QtWidgets.QListWidget()
         self.nav_list.setObjectName("sidebarNav")
         self.nav_list.setSpacing(6)
+        self.nav_list.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.nav_list.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        # sizeHintForRow() ignores QSS padding, so derive the row height from
+        # the font metrics plus the stylesheet's vertical padding (10px x 2).
+        row_height = self.nav_list.fontMetrics().height() + 22
         for title in ("仪表盘", "壁纸管理", "文档中心", "字体管理", "设备工具"):
-            self.nav_list.addItem(title)
-        row_height = max(self.nav_list.sizeHintForRow(0), 36)
+            item = QtWidgets.QListWidgetItem(title)
+            item.setSizeHint(QtCore.QSize(-1, row_height))
+            self.nav_list.addItem(item)
         self.nav_list.setFixedHeight(
             row_height * self.nav_list.count()
             + self.nav_list.spacing() * (self.nav_list.count() - 1)
-            + 8
+            + 2
         )
         self.nav_list.currentRowChanged.connect(self.pages.setCurrentIndex)
         self.nav_list.setCurrentRow(0)
