@@ -1,6 +1,5 @@
-"""FontTab, TimeTab, ControlTab, DashboardTab, ToolboxTab, and FontPage extracted from rmtool.py."""
+"""FontTab, TimeTab, ControlTab, ToolboxTab, and FontPage extracted from rmtool.py."""
 
-import json
 import logging
 import os
 import posixpath
@@ -8,7 +7,6 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5 import QtWebEngineWidgets
 
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
 import _rmkit_cn
@@ -1227,77 +1225,6 @@ class TapPageTurnSection(QtWidgets.QWidget):
             ),
             close_connection=True,
         )
-
-
-class DashboardTab(QtWidgets.QWidget):
-    def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
-        super().__init__(parent)
-        self.view = QtWebEngineWidgets.QWebEngineView(self)
-        self.view.setContextMenuPolicy(QtCore.Qt.NoContextMenu)
-        self._state: Dict[str, object] = {
-            "connected": False,
-            "lastConnectionChange": "",
-            "device": {"name": "", "type": "", "mode": "", "host": ""},
-            "documents": {
-                "total": 0,
-                "pdf": 0,
-                "epub": 0,
-                "notes": 0,
-                "lastUpdated": "",
-            },
-        }
-        self._loaded = False
-        self._pending_script: Optional[str] = None
-
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.view)
-
-        html_path = _rmtool.resource_path("web", "dashboard.html")
-        self.view.setUrl(QtCore.QUrl.fromLocalFile(str(html_path)))
-        self.view.loadFinished.connect(self._on_load_finished)
-
-    def update_device(self, device: Dict):
-        self._state["device"] = {
-            "name": device.get("name", ""),
-            "type": device.get("type", ""),
-            "mode": device.get("mode", ""),
-            "host": device.get("host", ""),
-        }
-        self._apply_state()
-
-    def update_connection(self, connected: bool, device: Optional[Dict] = None):
-        if device:
-            self._state["device"] = {
-                "name": device.get("name", ""),
-                "type": device.get("type", ""),
-                "mode": device.get("mode", ""),
-                "host": device.get("host", ""),
-            }
-        self._state["connected"] = connected
-        self._state["lastConnectionChange"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-        self._apply_state()
-
-    def update_documents(self, summary: Dict[str, object]):
-        self._state["documents"].update(summary)
-        self._apply_state()
-
-    def _on_load_finished(self, ok: bool):
-        self._loaded = ok
-        if ok and self._pending_script:
-            self.view.page().runJavaScript(self._pending_script)
-            self._pending_script = None
-
-    def set_theme(self, theme: str):
-        self._state["theme"] = theme
-        self._apply_state()
-
-    def _apply_state(self):
-        script = f"window.updateDashboard({json.dumps(self._state, ensure_ascii=False)});"
-        if self._loaded:
-            self.view.page().runJavaScript(script)
-        else:
-            self._pending_script = script
 
 
 class ToolboxTab(QtWidgets.QWidget):

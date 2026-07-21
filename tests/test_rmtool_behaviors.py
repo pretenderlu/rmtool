@@ -2606,7 +2606,7 @@ class FontUiTests(unittest.TestCase):
         client.exec_command.assert_called_once_with("reboot")
 
 
-class MainWindowUiTests(unittest.TestCase):
+class MainWindowConstructionTests(unittest.TestCase):
     def test_main_window_opens_wider_by_default(self):
         window = rmtool.MainWindow()
         self.addCleanup(window.deleteLater)
@@ -2614,22 +2614,101 @@ class MainWindowUiTests(unittest.TestCase):
         self.assertGreaterEqual(window.size().width(), 1760)
 
 
+class DashboardTabTests(unittest.TestCase):
+    def _make_tab(self):
+        tab = rmtool.DashboardTab()
+        self.addCleanup(tab.deleteLater)
+        return tab
+
+    def test_initial_state_shows_disconnected_badge_and_placeholders(self):
+        tab = self._make_tab()
+
+        self.assertEqual(tab.status_badge.text(), "未连接")
+        self.assertFalse(tab.status_badge.property("connected"))
+        for label in tab._device_value_labels.values():
+            self.assertEqual(label.text(), "—")
+        for label in tab._doc_value_labels.values():
+            self.assertEqual(label.text(), "0")
+        self.assertIn("建立连接", tab.tips_body.text())
+
+    def test_update_device_populates_fields(self):
+        tab = self._make_tab()
+
+        tab.update_device(
+            {
+                "name": "Device A",
+                "type": "reMarkable 2",
+                "mode": "usb",
+                "host": "10.11.99.1",
+            }
+        )
+
+        self.assertEqual(tab._device_value_labels["name"].text(), "Device A")
+        self.assertEqual(tab._device_value_labels["type"].text(), "reMarkable 2")
+        self.assertEqual(tab._device_value_labels["mode"].text(), "USB")
+        self.assertEqual(tab._device_value_labels["host"].text(), "10.11.99.1")
+
+    def test_update_connection_toggles_badge_and_timestamp(self):
+        tab = self._make_tab()
+        device = {
+            "name": "Device A",
+            "type": "reMarkable 2",
+            "mode": "wifi",
+            "host": "192.168.0.8",
+        }
+
+        tab.update_connection(True, device)
+
+        self.assertEqual(tab.status_badge.text(), "已连接")
+        self.assertTrue(tab.status_badge.property("connected"))
+        self.assertEqual(tab._device_value_labels["mode"].text(), "Wi-Fi")
+        self.assertNotEqual(tab._device_value_labels["updated"].text(), "—")
+
+        tab.update_connection(False)
+
+        self.assertEqual(tab.status_badge.text(), "未连接")
+        self.assertFalse(tab.status_badge.property("connected"))
+
+    def test_update_documents_populates_metrics_and_updated_time(self):
+        tab = self._make_tab()
+
+        tab.update_documents(
+            {"total": 7, "pdf": 4, "epub": 2, "notes": 1, "lastUpdated": "2026-07-01 10:00"}
+        )
+
+        self.assertEqual(tab._doc_value_labels["total"].text(), "7")
+        self.assertEqual(tab._doc_value_labels["pdf"].text(), "4")
+        self.assertEqual(tab._doc_value_labels["epub"].text(), "2")
+        self.assertEqual(tab._doc_value_labels["notes"].text(), "1")
+        self.assertIn("2026-07-01 10:00", tab.doc_updated_label.text())
+
+    def test_suggestions_reflect_connection_state(self):
+        tab = self._make_tab()
+        self.assertIn("建立连接", tab.tips_body.text())
+
+        tab.update_connection(
+            True, {"name": "A", "type": "", "mode": "usb", "host": ""}
+        )
+
+        self.assertIn("壁纸管理", tab.tips_body.text())
+        self.assertIn("暂无文档", tab.tips_body.text())
+
+    def test_set_theme_kept_for_interface_compatibility(self):
+        tab = self._make_tab()
+
+        tab.set_theme("light")
+        tab.set_theme("dark")
+
+    def test_dashboard_styles_render_from_tokens(self):
+        for stylesheet in (rmtool._DARK_STYLESHEET, rmtool._LIGHT_STYLESHEET):
+            resolved = rmtool._resolve_stylesheet(stylesheet)
+            self.assertIn("#dashboardStatusBadge[connected=\"true\"]", resolved)
+            self.assertIn("#dashboardMetric", resolved)
+            self.assertIn("#dashboardTipsCard", resolved)
+            self.assertNotIn("{danger_bg}", resolved)
+
+
 class DashboardDesignTokenTests(unittest.TestCase):
-    def test_dashboard_css_uses_shared_gap_and_radius_tokens(self):
-        css = rmtool.resource_path("web", "dashboard.css").read_text(encoding="utf-8")
-
-        self.assertIn(f"--gap: {rmtool.PANEL_GAP}px;", css)
-        self.assertIn("--radius-card: 12px;", css)
-        self.assertIn("--radius-control: 8px;", css)
-
-    def test_dashboard_css_switches_theme_via_data_attribute(self):
-        css = rmtool.resource_path("web", "dashboard.css").read_text(encoding="utf-8")
-        js = rmtool.resource_path("web", "dashboard.js").read_text(encoding="utf-8")
-
-        self.assertIn('[data-theme="light"]', css)
-        self.assertIn("document.documentElement.dataset.theme", js)
-        self.assertNotIn("setProperty", js)
-
     def test_qt_stylesheets_use_shared_inner_radius_for_form_controls(self):
         expected_radius = f"border-radius: {rmtool.INNER_PANEL_RADIUS}px;"
 
@@ -2645,14 +2724,6 @@ class DashboardDesignTokenTests(unittest.TestCase):
         self.assertIn(expected_radius, dark_dropdown)
         self.assertIn(expected_radius, light_inputs)
         self.assertIn(expected_radius, light_dropdown)
-
-    def test_dashboard_hero_uses_relaxed_spacing_and_line_height(self):
-        css = rmtool.resource_path("web", "dashboard.css").read_text(encoding="utf-8")
-
-        self.assertIn(".headline {", css)
-        self.assertIn("gap: 12px;", css)
-        self.assertIn("line-height: 1.75;", css)
-        self.assertIn("margin-bottom: 8px;", css)
 
     def test_github_icon_uses_official_mark_path(self):
         self.assertEqual(

@@ -548,6 +548,81 @@ QStatusBar#appStatusBar[level="error"] {
     margin-top: 8px;
 }
 
+/* ===== Dashboard ===== */
+#dashboardTitle {
+    color: {text_primary};
+    font-size: 30px;
+    font-weight: 700;
+}
+#dashboardSubtitle {
+    color: {text_muted};
+    font-size: 15px;
+}
+#dashboardStatusBadge {
+    padding: 6px 14px;
+    border-radius: {radius_control};
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    background: {danger_bg};
+    color: {danger};
+    border: 1px solid {danger_border};
+}
+#dashboardStatusBadge[connected="true"] {
+    background: {success_bg};
+    color: {success};
+    border-color: {success_border};
+}
+#dashboardFieldCell,
+#dashboardMetricCell {
+    background: {bg_panel};
+    border: 1px solid {border_panel};
+    border-radius: {radius_control};
+}
+#dashboardFieldLabel {
+    color: {text_muted};
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+#dashboardFieldValue {
+    color: {text_primary};
+    font-size: 16px;
+    font-weight: 600;
+}
+#dashboardMetric {
+    color: {text_primary};
+    font-size: 34px;
+    font-weight: 700;
+}
+#dashboardMetricLabel {
+    color: {text_muted};
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+#dashboardDocUpdated {
+    color: {text_muted};
+    font-size: 13px;
+}
+#dashboardTipsCard {
+    background: {badge_bg};
+    border: 1px solid {badge_border};
+    border-radius: {radius_inner};
+}
+#dashboardTipsTitle {
+    color: {accent};
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+#dashboardTipsBody {
+    color: {text_secondary};
+    font-size: 14px;
+    background: transparent;
+    border: none;
+}
+
 /* ===== Theme toggle ===== */
 #themeToggle,
 #logViewerButton,
