@@ -460,18 +460,19 @@ QStatusBar#appStatusBar[level="error"] {
 }
 #sidebarNav::item {
     color: {text_secondary};
-    padding: 9px 12px;
-    border-left: 3px solid transparent;
+    padding: 10px 14px;
+    border: 1px solid {nav_item_border};
     border-radius: {radius_control};
 }
 #sidebarNav::item:hover:!selected {
     background: {tab_hover_bg};
     color: {text_primary};
+    border-color: {badge_border};
 }
 #sidebarNav::item:selected {
-    background: {tab_selected_bg};
-    color: {text_primary};
-    border-left: 3px solid {control_accent};
+    background: {badge_bg};
+    color: {accent};
+    border: 1px solid {badge_border};
     font-weight: 600;
 }
 #sidebarNav::item:disabled {
