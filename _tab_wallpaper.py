@@ -758,9 +758,14 @@ class WallpaperTab(QtWidgets.QWidget):
         self.offset_x_slider.setEnabled(False)
         self.offset_y_slider.setEnabled(False)
 
-        offset_layout = QtWidgets.QFormLayout()
-        offset_layout.addRow("水平偏移", self.offset_x_slider)
-        offset_layout.addRow("垂直偏移", self.offset_y_slider)
+        # Processing settings share one form so labels and controls align.
+        settings_form = QtWidgets.QFormLayout()
+        settings_form.setContentsMargins(0, 0, 0, 0)
+        settings_form.setSpacing(8)
+        settings_form.addRow("壁纸方向", self.orientation_combo)
+        settings_form.addRow("处理模式", self.mode_combo)
+        settings_form.addRow("水平偏移", self.offset_x_slider)
+        settings_form.addRow("垂直偏移", self.offset_y_slider)
 
         variants_layout = QtWidgets.QGridLayout()
         variants_layout.setContentsMargins(0, 0, 0, 0)
@@ -779,9 +784,10 @@ class WallpaperTab(QtWidgets.QWidget):
             self.variant_previews[variant_key] = preview
             self.variant_buttons[variant_key] = radio
 
-            container = QtWidgets.QWidget()
+            container = QtWidgets.QFrame()
+            container.setObjectName("wallpaperVariantCard")
             container_layout = QtWidgets.QVBoxLayout(container)
-            container_layout.setContentsMargins(0, 0, 0, 0)
+            container_layout.setContentsMargins(8, 8, 8, 8)
             container_layout.setSpacing(8)
             container_layout.addWidget(preview)
             container_layout.addWidget(radio, alignment=QtCore.Qt.AlignHCenter)
@@ -804,12 +810,19 @@ class WallpaperTab(QtWidgets.QWidget):
         variants_section_layout.addLayout(variants_header)
         variants_section_layout.addLayout(variants_layout)
 
-        orientation_row = QtWidgets.QHBoxLayout()
-        orientation_row.addWidget(QtWidgets.QLabel("壁纸方向"))
-        orientation_row.addWidget(self.orientation_combo)
-        orientation_row.addStretch()
-
         self.target_label = QtWidgets.QLabel()
+
+        # -- Source section: pick an image, then see what was picked --
+        source_section_label = QtWidgets.QLabel("图片来源")
+        source_section_label.setObjectName("panelSectionLabel")
+        source_buttons = QtWidgets.QHBoxLayout()
+        source_buttons.setContentsMargins(0, 0, 0, 0)
+        source_buttons.setSpacing(8)
+        source_buttons.addWidget(self.choose_button, 1)
+        source_buttons.addWidget(self.cover_wall_button, 1)
+
+        settings_section_label = QtWidgets.QLabel("处理设置")
+        settings_section_label.setObjectName("panelSectionLabel")
 
         self.control_inner = QtWidgets.QWidget()
         self.control_inner.setObjectName("wallpaperControlInner")
@@ -818,18 +831,13 @@ class WallpaperTab(QtWidgets.QWidget):
         control_layout.setContentsMargins(0, 0, 0, 0)
         control_layout.setSpacing(_rmtool.SUBSECTION_GAP)
         control_layout.addWidget(self.variants_section)
-        control_layout.addLayout(orientation_row)
+        control_layout.addWidget(source_section_label)
+        control_layout.addLayout(source_buttons)
+        control_layout.addWidget(self.info_label)
+        control_layout.addWidget(settings_section_label)
+        control_layout.addLayout(settings_form)
         control_layout.addWidget(self.resolution_label)
         control_layout.addWidget(self.target_label)
-        control_layout.addWidget(self.info_label)
-        control_layout.addWidget(QtWidgets.QLabel("处理模式"))
-        control_layout.addWidget(self.mode_combo)
-        control_layout.addLayout(offset_layout)
-        source_buttons = QtWidgets.QHBoxLayout()
-        source_buttons.setContentsMargins(0, 0, 0, 0)
-        source_buttons.addWidget(self.choose_button)
-        source_buttons.addWidget(self.cover_wall_button)
-        control_layout.addLayout(source_buttons)
         control_layout.addWidget(self.upload_button)
 
         self.control_scroll = QtWidgets.QScrollArea()
