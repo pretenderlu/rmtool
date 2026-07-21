@@ -31,42 +31,10 @@
     };
 
     window.updateDashboard = (state = {}) => {
-        // Theme switching via CSS custom properties
-        if (state.theme === "light") {
-            const root = document.documentElement;
-            root.style.setProperty("color-scheme", "light");
-            root.style.setProperty("--bg-base", "#F8FAFC");
-            root.style.setProperty("--bg-card", "rgba(255, 255, 255, 0.85)");
-            root.style.setProperty("--bg-card-inner", "rgba(0, 0, 0, 0.02)");
-            root.style.setProperty("--border", "rgba(0, 0, 0, 0.08)");
-            root.style.setProperty("--border-accent", "rgba(37, 99, 235, 0.3)");
-            root.style.setProperty("--accent", "#2563EB");
-            root.style.setProperty("--accent-cyan", "#3B82F6");
-            root.style.setProperty("--text", "#0F172A");
-            root.style.setProperty("--muted", "#64748B");
-            root.style.setProperty("--green", "#059669");
-            root.style.setProperty("--red", "#DC2626");
-            document.body.style.background = `
-                radial-gradient(ellipse at 15% 20%, rgba(37, 99, 235, 0.08), transparent 45%),
-                radial-gradient(ellipse at 85% 15%, rgba(59, 130, 246, 0.05), transparent 40%),
-                radial-gradient(ellipse at 50% 90%, rgba(37, 99, 235, 0.04), transparent 50%),
-                var(--bg-base)
-            `;
-        } else if (state.theme === "dark") {
-            const root = document.documentElement;
-            root.style.setProperty("color-scheme", "dark");
-            root.style.setProperty("--bg-base", "#0B0E14");
-            root.style.setProperty("--bg-card", "rgba(22, 26, 38, 0.75)");
-            root.style.setProperty("--bg-card-inner", "rgba(255, 255, 255, 0.03)");
-            root.style.setProperty("--border", "rgba(255, 255, 255, 0.06)");
-            root.style.setProperty("--border-accent", "rgba(91, 124, 247, 0.4)");
-            root.style.setProperty("--accent", "#5B7CF7");
-            root.style.setProperty("--accent-cyan", "#6E8EFF");
-            root.style.setProperty("--text", "#F8FAFC");
-            root.style.setProperty("--muted", "#94A3B8");
-            root.style.setProperty("--green", "#10B981");
-            root.style.setProperty("--red", "#EF4444");
-            document.body.style.background = "";
+        // Theme switching: variables live in dashboard.css under
+        // :root (dark) and [data-theme="light"]; here we only flip the flag.
+        if (state.theme === "light" || state.theme === "dark") {
+            document.documentElement.dataset.theme = state.theme;
         }
 
         const connected = Boolean(state.connected);
