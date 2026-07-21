@@ -596,7 +596,11 @@ class PreviewImageLabel(QtWidgets.QLabel):
 
         pixmap = self.pixmap()
         assert pixmap is not None
-        pixmap_rect = QtCore.QRectF(pixmap.rect())
+        # Qt5 QPixmap.rect() is in physical pixels; use the device-independent
+        # size so DPR-tagged pixmaps are placed at their logical size.
+        pixmap_rect = QtCore.QRectF(
+            QtCore.QPointF(0, 0), pixmap.deviceIndependentSize()
+        )
         pixmap_rect.moveCenter(rect.center())
         painter.drawPixmap(pixmap_rect.topLeft(), pixmap)
 
