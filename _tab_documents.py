@@ -1096,6 +1096,7 @@ class DocumentsTab(QtWidgets.QWidget):
             self.preview_image.setPixmap(QtGui.QPixmap.fromImage(image))
             self.preview_image.setText("")
         self._preview_stack.setCurrentIndex(1)
+        self._image_btn.setChecked(True)
 
     def _on_preview_error(self, identifier: str, exc: Exception):
         if identifier != self._current_preview_request:
