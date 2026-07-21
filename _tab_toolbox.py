@@ -217,10 +217,15 @@ class FontTab(QtWidgets.QWidget):
         )
 
     def _close_font_progress(self):
-        if self._font_progress:
-            self._font_progress.close()
-            self._font_progress.deleteLater()
-            self._font_progress = None
+        progress, self._font_progress = self._font_progress, None
+        if progress is not None:
+            try:
+                progress.close()
+                progress.deleteLater()
+            except RuntimeError:
+                # The C++ dialog may already be deleted if its parent was
+                # destroyed while a worker signal was still queued.
+                pass
         self._set_busy(False)
 
     def _target_font_name(self) -> str:
