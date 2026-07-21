@@ -10,6 +10,7 @@ from pathlib import Path
 import posixpath
 import re
 import shlex
+import stat
 import tempfile
 from typing import Optional, Union
 from urllib import request
@@ -69,6 +70,15 @@ FONT_OVERRIDE_MATCH_PATTERNS = (
     "reMarkable Sans:lang=zh-cn",
     "Noto Sans SC",
 )
+
+
+@dataclass(frozen=True)
+class UserFont:
+    filename: str
+    family: str
+    remote_path: str
+    active: bool
+
 
 _FIRMWARE_RE = re.compile(r"^[0-9]{14}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -392,21 +402,34 @@ def _validate_font_file(local_path: str) -> Path:
     return path
 
 
-def fontconfig_override(font_family: str) -> str:
-    family = escape(font_family.strip())
+def fontconfig_override(font_family: str, remote_path: str) -> str:
+    family = font_family.strip()
     if not family:
         raise RuntimeError("无法识别所选字体的字体族。")
+    normalized_path = posixpath.normpath(remote_path)
+    if not posixpath.isabs(normalized_path):
+        raise RuntimeError("字体上传路径必须是设备上的绝对路径。")
+    private_family = escape(f"rmtool UI Font ({family})")
+    escaped_path = escape(normalized_path)
     return f"""<?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
 <fontconfig>
   <!-- ponytail: user-level UI font override; restore the prior file to undo. -->
+  <match target="scan">
+    <test name="file" compare="eq">
+      <string>{escaped_path}</string>
+    </test>
+    <edit name="family" mode="prepend" binding="strong">
+      <string>{private_family}</string>
+    </edit>
+  </match>
   <alias binding="strong">
     <family>sans-serif</family>
-    <prefer><family>{family}</family></prefer>
+    <prefer><family>{private_family}</family></prefer>
   </alias>
   <alias binding="strong">
     <family>Noto Sans SC</family>
-    <prefer><family>{family}</family></prefer>
+    <prefer><family>{private_family}</family></prefer>
   </alias>
 </fontconfig>
 """
@@ -494,6 +517,311 @@ def _matched_font_path(ssh_client, pattern: str) -> str:
     return lines[0].strip() if lines else ""
 
 
+def _verify_font_override_matches(ssh_client, remote_path: str) -> None:
+    expected = posixpath.normpath(remote_path)
+    for pattern in FONT_OVERRIDE_MATCH_PATTERNS:
+        matched = _matched_font_path(ssh_client, pattern)
+        if not matched or posixpath.normpath(matched) != expected:
+            actual = matched or "未找到匹配字体"
+            raise RuntimeError(f"字体匹配校验失败：{pattern} 实际指向 {actual}。")
+
+
+def _normalize_user_font_dir(remote_dir: str) -> str:
+    if not isinstance(remote_dir, str) or not remote_dir.strip():
+        raise RuntimeError("用户字体目录无效。")
+    candidate = remote_dir.strip()
+    if any(ord(character) < 32 for character in candidate):
+        raise RuntimeError("用户字体目录包含无效字符。")
+    normalized = posixpath.normpath(candidate)
+    if not posixpath.isabs(normalized) or not normalized.startswith("/home/root/"):
+        raise RuntimeError("用户字体目录必须位于 /home/root 下。")
+    internal_dir = posixpath.normpath(FONT_DIR)
+    if normalized == internal_dir or normalized.startswith(f"{internal_dir}/"):
+        raise RuntimeError("汉化内部字体目录不能由字体管理器操作。")
+    return normalized
+
+
+def _user_font_path(remote_dir: str, filename: str) -> tuple[str, str]:
+    directory = _normalize_user_font_dir(remote_dir)
+    if (
+        not isinstance(filename, str)
+        or not filename
+        or any(ord(character) < 32 for character in filename)
+        or filename in (".", "..")
+        or posixpath.basename(filename) != filename
+        or posixpath.splitext(filename)[1].lower() not in CUSTOM_FONT_PATHS
+    ):
+        raise RuntimeError("只能操作用户字体目录顶层的 TTF/OTF 文件。")
+    remote_path = posixpath.normpath(posixpath.join(directory, filename))
+    if posixpath.dirname(remote_path) != directory:
+        raise RuntimeError("字体文件路径超出用户字体目录。")
+    return directory, remote_path
+
+
+def _top_level_font_entries(sftp, remote_dir: str):
+    try:
+        entries = sftp.listdir_attr(remote_dir)
+    except IOError:
+        return []
+    return [
+        entry
+        for entry in entries
+        if (
+            isinstance(getattr(entry, "filename", None), str)
+            and posixpath.basename(entry.filename) == entry.filename
+            and posixpath.splitext(entry.filename)[1].lower() in CUSTOM_FONT_PATHS
+            and stat.S_ISREG(entry.st_mode)
+        )
+    ]
+
+
+def _lstat_regular_file(sftp, remote_path: str):
+    try:
+        attributes = sftp.lstat(remote_path)
+    except IOError as exc:
+        raise RuntimeError("所选字体不存在、不是普通文件或已发生变化。") from exc
+    if not stat.S_ISREG(attributes.st_mode):
+        raise RuntimeError("所选字体不存在、不是普通文件或已发生变化。")
+    return attributes
+
+
+def _remove_sftp_path_if_present(sftp, remote_path: str) -> None:
+    try:
+        sftp.remove(remote_path)
+    except IOError as exc:
+        try:
+            sftp.lstat(remote_path)
+        except IOError:
+            return
+        raise exc
+
+
+def _require_top_level_regular_font(sftp, remote_dir: str, filename: str) -> str:
+    _, remote_path = _user_font_path(remote_dir, filename)
+    _lstat_regular_file(sftp, remote_path)
+    return remote_path
+
+
+def _ui_font_match_paths(ssh_client) -> tuple[str, ...]:
+    return tuple(
+        posixpath.normpath(path)
+        for path in (
+            _matched_font_path(ssh_client, pattern)
+            for pattern in FONT_OVERRIDE_MATCH_PATTERNS
+        )
+        if path
+    )
+
+
+def list_user_fonts(ssh_client, remote_dir: str) -> tuple[UserFont, ...]:
+    """List manageable top-level user fonts without traversing subdirectories."""
+    directory = _normalize_user_font_dir(remote_dir)
+    with ssh_client.sftp_session() as sftp:
+        entries = _top_level_font_entries(sftp, directory)
+    matched_paths = set(_ui_font_match_paths(ssh_client))
+    fonts = []
+    for entry in sorted(entries, key=lambda item: (item.filename.casefold(), item.filename)):
+        _, remote_path = _user_font_path(directory, entry.filename)
+        try:
+            family = _scan_font_family(ssh_client, remote_path)
+        except Exception:
+            logging.warning("Could not identify font family for %s", remote_path)
+            family = "无法识别"
+        fonts.append(
+            UserFont(
+                filename=entry.filename,
+                family=family,
+                remote_path=remote_path,
+                active=remote_path in matched_paths,
+            )
+        )
+    return tuple(fonts)
+
+
+def upload_user_font(
+    ssh_client, local_path: str, remote_dir: str, remote_name: str
+) -> UserFont:
+    """Upload or replace one top-level user font without changing Fontconfig."""
+    local_font = _validate_font_file(local_path)
+    directory, remote_path = _user_font_path(remote_dir, remote_name)
+    token = os.urandom(6).hex()
+    temp_path = f"{remote_path}.rmtool-{token}.tmp"
+    backup_path = f"{remote_path}.rmtool-{token}.bak"
+    had_font = False
+    replaced = False
+    backup_created = False
+    active_before = _ui_font_match_paths(ssh_client)
+    if remote_path in active_before:
+        raise RuntimeError(
+            "上传目标正被系统字体配置使用。请改用其他文件名，或先切换系统字体。"
+        )
+
+    with remount_rw(ssh_client):
+        ssh_client.exec_checked(f"mkdir -p {shlex.quote(directory)}")
+        try:
+            ssh_client.transfer_file(str(local_font), temp_path)
+            with ssh_client.sftp_session() as sftp:
+                _lstat_regular_file(sftp, temp_path)
+            ssh_client.exec_checked(f"chmod 0644 {shlex.quote(temp_path)}")
+            with ssh_client.sftp_session() as sftp:
+                _lstat_regular_file(sftp, temp_path)
+                if remote_path in _ui_font_match_paths(ssh_client):
+                    raise RuntimeError(
+                        "上传目标在操作期间成为系统字体，已停止上传。"
+                    )
+                try:
+                    existing = sftp.lstat(remote_path)
+                except IOError:
+                    existing = None
+                if existing is not None:
+                    if not stat.S_ISREG(existing.st_mode):
+                        raise RuntimeError("目标路径已被非普通字体文件占用。")
+                    had_font = True
+                    sftp.rename(remote_path, backup_path)
+                    backup_created = True
+                _lstat_regular_file(sftp, temp_path)
+                sftp.rename(temp_path, remote_path)
+                replaced = True
+            refresh_font_cache(ssh_client, directory)
+            family = _scan_font_family(ssh_client, remote_path)
+            if _ui_font_match_paths(ssh_client) != active_before:
+                raise RuntimeError(
+                    "上传导致系统字体匹配发生变化，已恢复上传前的字体。"
+                )
+            if backup_created:
+                with ssh_client.sftp_session() as sftp:
+                    sftp.remove(backup_path)
+                backup_created = False
+        except Exception as exc:
+            rollback_errors = []
+            try:
+                if backup_created:
+                    ssh_client.exec_checked(
+                        f"mv -f {shlex.quote(backup_path)} {shlex.quote(remote_path)}"
+                    )
+                    backup_created = False
+                elif replaced and not had_font:
+                    with ssh_client.sftp_session() as sftp:
+                        _remove_sftp_path_if_present(sftp, remote_path)
+            except Exception as rollback_exc:
+                rollback_errors.append(f"字体文件恢复失败：{rollback_exc}")
+            try:
+                with ssh_client.sftp_session() as sftp:
+                    _remove_sftp_path_if_present(sftp, temp_path)
+            except Exception as rollback_exc:
+                rollback_errors.append(f"临时文件清理失败：{rollback_exc}")
+            if replaced or had_font:
+                try:
+                    refresh_font_cache(ssh_client, directory)
+                except Exception as rollback_exc:
+                    rollback_errors.append(f"字体缓存恢复失败：{rollback_exc}")
+            if rollback_errors:
+                raise RuntimeError(
+                    f"{exc} 自动回滚未完整完成：{'；'.join(rollback_errors)}"
+                ) from exc
+            raise
+
+    return UserFont(
+        filename=remote_name,
+        family=family,
+        remote_path=remote_path,
+        active=False,
+    )
+
+
+def set_active_user_font(
+    ssh_client,
+    remote_dir: str,
+    filename: str,
+    *,
+    fontconfig_remote_path: str = FONTCONFIG_FILE,
+) -> UserFont:
+    """Select an existing user font by exact path with byte-exact rollback."""
+    directory, remote_path = _user_font_path(remote_dir, filename)
+    with ssh_client.sftp_session() as sftp:
+        _require_top_level_regular_font(sftp, directory, filename)
+    family = _scan_font_family(ssh_client, remote_path)
+    previous = (
+        _read_bytes(ssh_client, fontconfig_remote_path)
+        if _file_exists(ssh_client, fontconfig_remote_path)
+        else None
+    )
+    config = fontconfig_override(family, remote_path).encode("utf-8")
+    config_dir = posixpath.dirname(fontconfig_remote_path)
+
+    try:
+        with remount_rw(ssh_client):
+            with ssh_client.sftp_session() as sftp:
+                _require_top_level_regular_font(sftp, directory, filename)
+            ssh_client.exec_checked(f"mkdir -p {shlex.quote(config_dir)}")
+            _write_remote_bytes(ssh_client, fontconfig_remote_path, config)
+            refresh_font_cache(ssh_client, directory, config_dir)
+            _verify_font_override_matches(ssh_client, remote_path)
+    except Exception as exc:
+        rollback_errors = []
+        try:
+            with remount_rw(ssh_client):
+                if previous is None:
+                    ssh_client.exec_checked(
+                        f"rm -f {shlex.quote(fontconfig_remote_path)} "
+                        f"{shlex.quote(fontconfig_remote_path + '.tmp')}"
+                    )
+                else:
+                    _write_remote_bytes(ssh_client, fontconfig_remote_path, previous)
+                refresh_font_cache(ssh_client, directory, config_dir)
+        except Exception as rollback_exc:
+            rollback_errors.append(f"字体配置恢复失败：{rollback_exc}")
+        if rollback_errors:
+            raise RuntimeError(
+                f"{exc} 自动回滚未完整完成：{'；'.join(rollback_errors)}"
+            ) from exc
+        raise
+    return UserFont(filename, family, remote_path, True)
+
+
+def delete_user_font(ssh_client, remote_dir: str, filename: str) -> None:
+    """Delete one inactive top-level user font transactionally."""
+    directory, remote_path = _user_font_path(remote_dir, filename)
+    active_before = _ui_font_match_paths(ssh_client)
+    if remote_path in active_before:
+        raise RuntimeError("当前系统字体不能删除，请先切换到其他字体。")
+    backup_path = f"{remote_path}.rmtool-delete-{os.urandom(6).hex()}.bak"
+    moved = False
+    with remount_rw(ssh_client):
+        try:
+            with ssh_client.sftp_session() as sftp:
+                _require_top_level_regular_font(sftp, directory, filename)
+                if remote_path in _ui_font_match_paths(ssh_client):
+                    raise RuntimeError("当前系统字体不能删除，请先切换到其他字体。")
+                sftp.rename(remote_path, backup_path)
+                moved = True
+            refresh_font_cache(ssh_client, directory)
+            if _ui_font_match_paths(ssh_client) != active_before:
+                raise RuntimeError(
+                    "删除导致系统字体匹配发生变化，已恢复所选字体。"
+                )
+            with ssh_client.sftp_session() as sftp:
+                sftp.remove(backup_path)
+            moved = False
+        except Exception as exc:
+            rollback_errors = []
+            if moved:
+                try:
+                    with ssh_client.sftp_session() as sftp:
+                        sftp.rename(backup_path, remote_path)
+                except Exception as rollback_exc:
+                    rollback_errors.append(f"字体文件恢复失败：{rollback_exc}")
+                try:
+                    refresh_font_cache(ssh_client, directory)
+                except Exception as rollback_exc:
+                    rollback_errors.append(f"字体缓存恢复失败：{rollback_exc}")
+            if rollback_errors:
+                raise RuntimeError(
+                    f"{exc} 自动回滚未完整完成：{'；'.join(rollback_errors)}"
+                ) from exc
+            raise
+
+
 def install_user_font_override(
     ssh_client,
     local_path: str,
@@ -504,7 +832,7 @@ def install_user_font_override(
 ) -> str:
     """Install a user font using the family and matches reported by the device."""
     path = _validate_font_file(local_path)
-    remote_path = posixpath.join(remote_dir, remote_name)
+    remote_path = posixpath.normpath(posixpath.join(remote_dir, remote_name))
     fontconfig_dir = posixpath.dirname(fontconfig_remote_path)
     token = os.urandom(6).hex()
     remote_temp_path = f"{remote_path}.rmtool-{token}.tmp"
@@ -530,7 +858,7 @@ def install_user_font_override(
             with tempfile.NamedTemporaryFile(
                 delete=False, suffix=".conf", mode="w", encoding="utf-8"
             ) as config_file:
-                config_file.write(fontconfig_override(font_family))
+                config_file.write(fontconfig_override(font_family, remote_path))
                 local_config_path = config_file.name
             ssh_client.transfer_file(local_config_path, fontconfig_temp_path)
             ssh_client.exec_checked(
@@ -562,14 +890,7 @@ def install_user_font_override(
             )
             refresh_font_cache(ssh_client, remote_dir, fontconfig_dir)
 
-            expected = posixpath.normpath(remote_path)
-            for pattern in FONT_OVERRIDE_MATCH_PATTERNS:
-                matched = _matched_font_path(ssh_client, pattern)
-                if not matched or posixpath.normpath(matched) != expected:
-                    actual = matched or "未找到匹配字体"
-                    raise RuntimeError(
-                        f"字体匹配校验失败：{pattern} 实际指向 {actual}。"
-                    )
+            _verify_font_override_matches(ssh_client, remote_path)
         except Exception as exc:
             rollback_errors = []
             if font_replaced:
@@ -785,7 +1106,6 @@ def _install_managed_font(
     ssh_client, local_path: str, font_family: Optional[str]
 ) -> None:
     path = _validate_font_file(local_path)
-    override = fontconfig_override(font_family or "")
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     if path.name == BUNDLED_FONT_NAME and digest != BUNDLED_FONT_SHA256:
         raise RuntimeError("内置 Noto 字体校验失败，已停止操作。")
@@ -795,6 +1115,7 @@ def _install_managed_font(
         if digest == BUNDLED_FONT_SHA256
         else CUSTOM_FONT_PATHS[path.suffix.lower()]
     )
+    override = fontconfig_override(font_family or "", target)
     previous = _font_marker(ssh_client)
     previous_marker = _read_bytes(ssh_client, FONT_MARKER_PATH) if previous else None
     if _file_exists(ssh_client, target):
@@ -853,6 +1174,7 @@ def _install_managed_font(
         )
         if _remote_sha256(ssh_client, target) != digest:
             raise RuntimeError("字体上传后校验失败，已停止操作。")
+        _verify_font_override_matches(ssh_client, target)
         if not has_cjk_font(ssh_client):
             raise RuntimeError("所选字体不能作为支持简体中文的主界面字体，已撤销上传。")
         _write_font_marker(

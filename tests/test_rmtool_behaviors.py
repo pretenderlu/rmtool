@@ -2250,6 +2250,23 @@ class RmkitCnExternalLinkTests(unittest.TestCase):
 
 
 class FontUiTests(unittest.TestCase):
+    def test_connected_font_manager_schedules_initial_inventory_refresh(self):
+        callbacks = []
+        with mock.patch.object(
+            QtCore.QTimer,
+            "singleShot",
+            side_effect=lambda delay, callback: callbacks.append((delay, callback)),
+        ):
+            widget = rmtool.FontTab(
+                FakeConnectionClient(connected=True), rmtool._default_config()
+            )
+        self.addCleanup(widget.deleteLater)
+
+        self.assertEqual(len(callbacks), 1)
+        self.assertEqual(callbacks[0][0], 0)
+        self.assertIs(callbacks[0][1].__self__, widget)
+        self.assertEqual(callbacks[0][1].__name__, "_refresh_fonts")
+
     def test_font_selection_previews_before_upload(self):
         widget = rmtool.FontTab(FakeConnectionClient(connected=True), rmtool._default_config())
         self.addCleanup(widget.deleteLater)
@@ -2278,9 +2295,11 @@ class FontUiTests(unittest.TestCase):
         self.assertTrue(widget.upload_button.isEnabled())
         self.assertFalse(start_worker.called)
 
-    def test_font_upload_starts_only_after_confirm_click(self):
+    def test_font_upload_preserves_original_filename_by_default(self):
         widget = rmtool.FontTab(FakeConnectionClient(connected=True), rmtool._default_config())
         self.addCleanup(widget.deleteLater)
+
+        self.assertFalse(widget.rename_checkbox.isChecked())
 
         with tempfile.TemporaryDirectory() as temp_root:
             font_path = Path(temp_root) / "preview-font.ttf"
@@ -2312,9 +2331,49 @@ class FontUiTests(unittest.TestCase):
         worker_cls.assert_called_once_with(
             widget._upload_font,
             str(font_path),
-            rmtool.DEFAULT_FONT_NAME,
+            "preview-font.ttf",
         )
         start_worker.assert_called_once_with(worker_instance)
+
+    def test_font_upload_renames_to_default_filename_when_requested(self):
+        widget = rmtool.FontTab(FakeConnectionClient(connected=True), rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        widget._selected_font_path = "C:/Fonts/preview-font.ttf"
+        widget.rename_checkbox.setChecked(True)
+
+        with mock.patch.object(widget, "_start_font_worker") as start_worker:
+            widget._upload_selected_font()
+
+        start_worker.assert_called_once()
+        self.assertEqual(start_worker.call_args.args[1:3], (
+            "C:/Fonts/preview-font.ttf",
+            rmtool.DEFAULT_FONT_NAME,
+        ))
+
+    def test_font_upload_blocks_overwriting_active_target_before_worker(self):
+        widget = rmtool.FontTab(
+            FakeConnectionClient(connected=True), rmtool._default_config()
+        )
+        self.addCleanup(widget.deleteLater)
+        widget._selected_font_path = "C:/Fonts/replacement.ttf"
+        widget.rename_checkbox.setChecked(True)
+        widget._fonts = (
+            _rmkit_cn.UserFont(
+                rmtool.DEFAULT_FONT_NAME,
+                "Active Family",
+                f"{rmtool.DEFAULT_FONT_DIR}{rmtool.DEFAULT_FONT_NAME}",
+                True,
+            ),
+        )
+
+        with mock.patch.object(widget, "_start_font_worker") as start_worker, mock.patch.object(
+            _tab_toolbox, "show_warning"
+        ) as warning:
+            widget._upload_selected_font()
+
+        start_worker.assert_not_called()
+        warning.assert_called_once()
+        self.assertIn("当前正作为系统字体使用", warning.call_args.args[2])
 
     def test_font_upload_delegates_device_family_detection_to_backend(self):
         ssh_client = FakeTransferSSHClient()
@@ -2325,17 +2384,212 @@ class FontUiTests(unittest.TestCase):
             font_path = Path(temp_root) / "preview-font.ttf"
             font_path.write_bytes(b"fake-font")
 
+            uploaded = _rmkit_cn.UserFont(
+                rmtool.DEFAULT_FONT_NAME,
+                "Preview Family",
+                f"{rmtool.DEFAULT_FONT_DIR}{rmtool.DEFAULT_FONT_NAME}",
+                False,
+            )
             with mock.patch.object(
-                _rmkit_cn, "install_user_font_override"
-            ) as install_override:
+                _rmkit_cn, "upload_user_font", return_value=uploaded
+            ) as upload_font:
                 widget._upload_font(str(font_path), rmtool.DEFAULT_FONT_NAME)
 
-        install_override.assert_called_once_with(
+        upload_font.assert_called_once_with(
             ssh_client,
             str(font_path),
             rmtool.DEFAULT_FONT_DIR,
             rmtool.DEFAULT_FONT_NAME,
         )
+
+    def test_font_inventory_table_is_single_select_and_marks_active_font(self):
+        widget = rmtool.FontTab(FakeConnectionClient(connected=True), rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        fonts = (
+            _rmkit_cn.UserFont(
+                "alpha.ttf", "Shared Family", f"{rmtool.DEFAULT_FONT_DIR}alpha.ttf", True
+            ),
+            _rmkit_cn.UserFont(
+                "beta.ttf", "Shared Family", f"{rmtool.DEFAULT_FONT_DIR}beta.ttf", False
+            ),
+        )
+
+        widget._apply_font_inventory(fonts, select_filename="beta.ttf")
+
+        self.assertEqual(
+            widget.font_table.selectionMode(), QtWidgets.QAbstractItemView.SingleSelection
+        )
+        self.assertEqual(widget.font_table.rowCount(), 2)
+        self.assertEqual(widget.font_table.item(0, 2).text(), "当前系统字体")
+        self.assertEqual(widget.font_table.currentRow(), 1)
+        self.assertTrue(widget.set_active_button.isEnabled())
+        self.assertTrue(widget.delete_button.isEnabled())
+
+    def test_font_inventory_shows_and_protects_all_legacy_active_matches(self):
+        widget = rmtool.FontTab(
+            FakeConnectionClient(connected=True), rmtool._default_config()
+        )
+        self.addCleanup(widget.deleteLater)
+        fonts = (
+            _rmkit_cn.UserFont(
+                "alpha.ttf", "Alpha", f"{rmtool.DEFAULT_FONT_DIR}alpha.ttf", True
+            ),
+            _rmkit_cn.UserFont(
+                "beta.ttf", "Beta", f"{rmtool.DEFAULT_FONT_DIR}beta.ttf", True
+            ),
+        )
+
+        widget._apply_font_inventory(fonts, select_filename="beta.ttf")
+
+        self.assertEqual(widget.font_table.item(0, 2).text(), "当前系统字体")
+        self.assertEqual(widget.font_table.item(1, 2).text(), "当前系统字体")
+        self.assertIn("alpha.ttf、beta.ttf", widget.manager_status_label.text())
+        self.assertIn("切换前均按当前系统字体保护", widget.manager_status_label.text())
+        self.assertFalse(widget.set_active_button.isEnabled())
+        self.assertFalse(widget.delete_button.isEnabled())
+
+    def test_disconnect_invalidates_in_flight_inventory_result(self):
+        client = FakeConnectionClient(connected=False)
+        widget = rmtool.FontTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        client._connected = True
+        worker_instance = mock.Mock()
+        worker_instance.signals = mock.Mock()
+
+        with mock.patch.object(QtWidgets, "QProgressDialog"), mock.patch.object(
+            rmtool, "Worker", return_value=worker_instance
+        ), mock.patch.object(widget.thread_pool, "start"):
+            widget._on_connection_changed(True)
+            on_finished = worker_instance.signals.finished.connect.call_args.args[0]
+            client._connected = False
+            widget._on_connection_changed(False)
+            on_finished(
+                (
+                    _rmkit_cn.UserFont(
+                        "stale.ttf",
+                        "Stale",
+                        f"{rmtool.DEFAULT_FONT_DIR}stale.ttf",
+                        False,
+                    ),
+                )
+            )
+
+        self.assertEqual(widget.font_table.rowCount(), 0)
+        self.assertEqual(widget.manager_status_label.text(), "设备未连接。")
+        self.assertFalse(widget._busy)
+
+    def test_reconnect_waits_for_stale_worker_before_refreshing(self):
+        client = FakeConnectionClient(connected=False)
+        widget = rmtool.FontTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        client._connected = True
+        stale_worker = mock.Mock()
+        stale_worker.signals = mock.Mock()
+        refresh_worker = mock.Mock()
+        refresh_worker.signals = mock.Mock()
+
+        with mock.patch.object(QtWidgets, "QProgressDialog"), mock.patch.object(
+            rmtool, "Worker", side_effect=[stale_worker, refresh_worker]
+        ) as worker_cls, mock.patch.object(widget.thread_pool, "start"):
+            widget._on_connection_changed(True)
+            client._connected = False
+            widget._on_connection_changed(False)
+            client._connected = True
+            widget._on_connection_changed(True)
+
+            self.assertTrue(widget._busy)
+            self.assertEqual(worker_cls.call_count, 1)
+            stale_worker.signals.finished.connect.call_args.args[0](())
+
+            self.assertTrue(widget._busy)
+            self.assertEqual(worker_cls.call_count, 2)
+            refresh_worker.signals.finished.connect.call_args.args[0](())
+
+        self.assertFalse(widget._busy)
+
+    def test_mutation_success_can_start_nested_inventory_worker_cleanly(self):
+        client = FakeConnectionClient(connected=False)
+        widget = rmtool.FontTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        client._connected = True
+        widget._on_connection_changed(True, refresh=False)
+        mutation_worker = mock.Mock()
+        mutation_worker.signals = mock.Mock()
+        refresh_worker = mock.Mock()
+        refresh_worker.signals = mock.Mock()
+
+        with mock.patch.object(QtWidgets, "QProgressDialog"), mock.patch.object(
+            rmtool, "Worker", side_effect=[mutation_worker, refresh_worker]
+        ) as worker_cls, mock.patch.object(widget.thread_pool, "start"):
+            widget._start_font_worker(
+                lambda: "done",
+                pending="正在修改…",
+                on_success=lambda _: widget._refresh_fonts(),
+                error_prefix="修改失败",
+            )
+            mutation_worker.signals.finished.connect.call_args.args[0]("done")
+
+            self.assertEqual(worker_cls.call_count, 2)
+            self.assertTrue(widget._busy)
+            refresh_worker.signals.finished.connect.call_args.args[0](())
+
+        self.assertFalse(widget._busy)
+        self.assertEqual(widget.font_table.rowCount(), 0)
+
+    def test_upload_completion_refreshes_and_selects_without_reboot_prompt(self):
+        client = FakeConnectionClient(connected=True)
+        widget = rmtool.FontTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        widget._selected_font_path = "C:/Fonts/new.ttf"
+        uploaded = _rmkit_cn.UserFont(
+            "new.ttf",
+            "New Family",
+            f"{rmtool.DEFAULT_FONT_DIR}new.ttf",
+            False,
+        )
+        worker_instance = mock.Mock()
+        worker_instance.signals = mock.Mock()
+
+        with mock.patch.object(QtWidgets, "QProgressDialog"), mock.patch.object(
+            rmtool, "Worker", return_value=worker_instance
+        ), mock.patch.object(widget.thread_pool, "start"), mock.patch.object(
+            widget, "_refresh_fonts"
+        ) as refresh, mock.patch.object(_tab_toolbox, "ask_confirmation") as confirm:
+            widget._upload_selected_font()
+            worker_instance.signals.finished.connect.call_args.args[0](uploaded)
+
+        refresh.assert_called_once_with(
+            select_filename="new.ttf",
+            success="字体已上传。上传不会切换系统字体，请按需点击“设为系统字体”。",
+        )
+        confirm.assert_not_called()
+
+    def test_active_font_cannot_be_deleted_from_ui(self):
+        widget = rmtool.FontTab(FakeConnectionClient(connected=True), rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        active = _rmkit_cn.UserFont(
+            "active.ttf", "Active Family", f"{rmtool.DEFAULT_FONT_DIR}active.ttf", True
+        )
+        widget._apply_font_inventory((active,), select_filename="active.ttf")
+
+        self.assertFalse(widget.delete_button.isEnabled())
+        self.assertFalse(widget.set_active_button.isEnabled())
+
+    def test_restart_is_only_sent_by_dedicated_confirmed_action(self):
+        client = FakeConnectionClient(connected=True)
+        client.exec_command = mock.Mock()
+        widget = rmtool.FontTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+
+        with mock.patch.object(_tab_toolbox, "ask_confirmation", return_value=False):
+            widget._restart_device()
+        client.exec_command.assert_not_called()
+
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=True
+        ), mock.patch.object(_tab_toolbox, "show_info"):
+            widget._restart_device()
+        client.exec_command.assert_called_once_with("reboot")
 
 
 class MainWindowUiTests(unittest.TestCase):
