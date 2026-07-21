@@ -711,10 +711,15 @@ class MainWindow(QtWidgets.QMainWindow):
         nav_layout.addWidget(nav_label)
         self.nav_list = QtWidgets.QListWidget()
         self.nav_list.setObjectName("sidebarNav")
+        self.nav_list.setSpacing(6)
         for title in ("仪表盘", "壁纸管理", "文档中心", "字体管理", "设备工具"):
             self.nav_list.addItem(title)
         row_height = max(self.nav_list.sizeHintForRow(0), 36)
-        self.nav_list.setFixedHeight(row_height * self.nav_list.count() + 6)
+        self.nav_list.setFixedHeight(
+            row_height * self.nav_list.count()
+            + self.nav_list.spacing() * (self.nav_list.count() - 1)
+            + 8
+        )
         self.nav_list.currentRowChanged.connect(self.pages.setCurrentIndex)
         self.nav_list.setCurrentRow(0)
         nav_layout.addWidget(self.nav_list)
