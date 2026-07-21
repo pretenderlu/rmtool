@@ -96,6 +96,7 @@ jobs:
       - build-macos
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
       - name: Download build artifacts
         uses: actions/download-artifact@v8
         with:
@@ -106,9 +107,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          notes_file="docs/releases/${GITHUB_REF_NAME}.md"
+          if [[ -f "$notes_file" ]]; then
+            notes_args=(--notes-file "$notes_file")
+          else
+            notes_args=(--generate-notes)
+          fi
           gh release create "$GITHUB_REF_NAME" \
             dist/rmtool-windows-x64.zip \
             dist/rmtool-windows-x64-onefile.exe \
             dist/rmtool-macos-arm64.app.zip \
             --verify-tag \
-            --generate-notes
+            "${notes_args[@]}"
