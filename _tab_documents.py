@@ -288,6 +288,8 @@ class DocumentsTab(QtWidgets.QWidget):
         self.search_edit.setPlaceholderText("🔍 搜索文档…")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setPlaceholderText("搜索文档名称")
+        # Never let the toolbar squeeze the search box below its placeholder.
+        self.search_edit.setMinimumWidth(180)
 
         self.preview = QtWidgets.QPlainTextEdit()
         self.preview.setReadOnly(True)
@@ -392,11 +394,12 @@ class DocumentsTab(QtWidgets.QWidget):
         self.content_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         self.content_splitter.addWidget(self.list_panel)
         self.content_splitter.addWidget(self.preview_panel)
-        # Default to a near-even split that leans slightly toward the list,
-        # so the preview panel is wide enough to show covers near full height.
-        self.content_splitter.setStretchFactor(0, 9)
-        self.content_splitter.setStretchFactor(1, 8)
-        self.content_splitter.setSizes([900, 800])
+        # Default to a ~58:42 list/preview split: the list panel stays wide
+        # enough for its toolbar (incl. the search box) while the preview
+        # still shows covers near full height.
+        self.content_splitter.setStretchFactor(0, 7)
+        self.content_splitter.setStretchFactor(1, 5)
+        self.content_splitter.setSizes([1160, 840])
         self.content_splitter.setChildrenCollapsible(False)
         self.content_splitter.setHandleWidth(_rmtool.PANEL_GAP)
         self.preview_panel.setMinimumWidth(360)
