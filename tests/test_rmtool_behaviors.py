@@ -2799,11 +2799,28 @@ class FontUiTests(unittest.TestCase):
 
 
 class MainWindowConstructionTests(unittest.TestCase):
-    def test_main_window_opens_wider_by_default(self):
-        window = rmtool.MainWindow()
+    def _make_window_with_screen(self, width, height):
+        screen = mock.Mock()
+        screen.availableGeometry.return_value = QtCore.QRect(0, 0, width, height)
+        with mock.patch.object(
+            QtWidgets.QApplication, "primaryScreen", return_value=screen
+        ):
+            window = rmtool.MainWindow()
         self.addCleanup(window.deleteLater)
+        return window
 
-        self.assertGreaterEqual(window.size().width(), 1760)
+    def test_main_window_opens_wider_by_default(self):
+        window = self._make_window_with_screen(2560, 1440)
+
+        self.assertEqual(window.size().width(), 1760)
+        self.assertEqual(window.size().height(), 1100)
+
+    def test_main_window_default_size_shrinks_on_small_screens(self):
+        window = self._make_window_with_screen(1440, 900)
+
+        self.assertGreaterEqual(window.size().width(), 1280)
+        self.assertLess(window.size().width(), 1760)
+        self.assertLessEqual(window.size().height(), 900)
 
 
 class DashboardTabTests(unittest.TestCase):
@@ -3295,19 +3312,25 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(actual, executable.resolve().parent / ".rmtool")
             self.assertTrue(actual.is_dir())
 
-    def test_frozen_macos_app_state_dir_is_beside_bundle(self):
+    def test_frozen_macos_app_state_dir_is_in_application_support(self):
         with tempfile.TemporaryDirectory() as temp_root:
+            home = Path(temp_root)
             executable = (
-                Path(temp_root) / "Renamed.app" / "Contents" / "MacOS" / "rmtool"
+                home / "Renamed.app" / "Contents" / "MacOS" / "rmtool"
             )
             with mock.patch.object(
                 rmtool.sys, "frozen", True, create=True
             ), mock.patch.object(
                 rmtool.sys, "platform", "darwin"
-            ), mock.patch.object(rmtool.sys, "executable", str(executable)):
+            ), mock.patch.object(
+                rmtool.sys, "executable", str(executable)
+            ), mock.patch.object(
+                rmtool.Path, "home", classmethod(lambda cls: home)
+            ):
                 actual = rmtool.app_state_dir()
 
-            self.assertEqual(actual, Path(temp_root).resolve() / ".rmtool")
+            expected = home / "Library" / "Application Support" / "rmtool"
+            self.assertEqual(actual, expected)
             self.assertTrue(actual.is_dir())
 
     def test_first_load_creates_empty_devices_file(self):
