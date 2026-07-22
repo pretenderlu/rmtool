@@ -67,12 +67,15 @@ FONT_PREVIEW_TEXT = "字体预览\nAaBbCc 1234567890\n你好，reMarkable"
 
 def app_state_dir() -> Path:
     frozen = getattr(sys, "frozen", False)
-    anchor = Path(sys.executable if frozen else __file__).resolve()
     if frozen and sys.platform == "darwin":
-        anchor = next(
-            (parent for parent in anchor.parents if parent.suffix == ".app"), anchor
-        )
-    path = anchor.parent / ".rmtool"
+        # A .app launched from Finder may sit on a read-only mount (Gatekeeper
+        # app translocation) or in a folder the user cannot write to, so keep
+        # state in the per-user Application Support directory instead of
+        # beside the bundle.
+        path = Path.home() / "Library" / "Application Support" / "rmtool"
+    else:
+        anchor = Path(sys.executable if frozen else __file__).resolve()
+        path = anchor.parent / ".rmtool"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -80,12 +83,17 @@ def app_state_dir() -> Path:
 # ---------------------------------------------------------------------------
 # Logging – use rotating handler to prevent unbounded log growth
 # ---------------------------------------------------------------------------
-_log_handler = logging.handlers.RotatingFileHandler(
-    str(app_state_dir() / "remarkable_tool.log"),
-    maxBytes=5 * 1024 * 1024,
-    backupCount=3,
-    encoding="utf-8",
-)
+# Logging must never abort startup: if the state directory is not writable
+# (read-only mount, translocated .app), fall back to stderr logging.
+try:
+    _log_handler = logging.handlers.RotatingFileHandler(
+        str(app_state_dir() / "remarkable_tool.log"),
+        maxBytes=5 * 1024 * 1024,
+        backupCount=3,
+        encoding="utf-8",
+    )
+except OSError:
+    _log_handler = logging.StreamHandler()
 _log_handler.setFormatter(
     logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 )
@@ -671,11 +679,16 @@ from _tab_toolbox import (
 # Main window
 # ---------------------------------------------------------------------------
 class MainWindow(QtWidgets.QMainWindow):
+    DEFAULT_WIDTH = 1760
+    DEFAULT_HEIGHT = 1100
+    MIN_WIDTH = 1280
+    MIN_HEIGHT = 900
+
     def __init__(self, log_bridge=None):
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        self.setMinimumSize(1280, 900)
-        self.resize(1760, 1100)
+        self.setMinimumSize(self.MIN_WIDTH, self.MIN_HEIGHT)
+        self.resize(self._default_window_size())
 
         self.config = load_config()
         self._current_theme = self.config.get("theme", "dark")
@@ -828,6 +841,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.dashboard_tab.update_connection(False, initial_device)
         self.documents_tab.set_connection_state(False)
         self._set_connection_chip(False, initial_device)
+
+    def _default_window_size(self) -> QtCore.QSize:
+        """Size the window to ~80% of the usable screen, within design bounds."""
+        screen = QtWidgets.QApplication.primaryScreen()
+        if screen is None:
+            return QtCore.QSize(self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT)
+        available = screen.availableGeometry()
+        width = max(self.MIN_WIDTH, min(self.DEFAULT_WIDTH, int(available.width() * 0.8)))
+        height = max(self.MIN_HEIGHT, min(self.DEFAULT_HEIGHT, int(available.height() * 0.85)))
+        return QtCore.QSize(width, height)
 
     def _update_tabs_enabled(self, enabled: bool):
         for idx in range(self.pages.count()):
