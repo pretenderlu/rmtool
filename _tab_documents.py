@@ -268,6 +268,7 @@ class DocumentsTab(QtWidgets.QWidget):
         self._active_progress: Optional[QtWidgets.QProgressDialog] = None
         self._progress_label_base: str = ""
         self._connected = False
+        self._connection_generation = 0
         self._thumbnail_cleanup_running = False
 
         # --- Toolbar ---
@@ -445,6 +446,10 @@ class DocumentsTab(QtWidgets.QWidget):
         self._update_empty_state()
 
     def set_connection_state(self, connected: bool) -> None:
+        if self._connected and not connected:
+            # Invalidate results of workers started before the disconnect so a
+            # stale list from the previous connection is never applied.
+            self._connection_generation += 1
         self._connected = connected
         self.refresh_button.setEnabled(connected)
         self.upload_button.setEnabled(connected)
@@ -605,6 +610,54 @@ class DocumentsTab(QtWidgets.QWidget):
         worker = _rmtool.Worker(self._load_documents)
         worker.signals.finished.connect(self._on_documents_loaded)
         worker.signals.error.connect(self._on_error)
+        self.thread_pool.start(worker)
+
+    def refresh_quiet(self, on_done) -> None:
+        """Post-connect refresh driven by the MainWindow serial coordinator.
+
+        Loads and applies the document list like ``refresh`` but never pops an
+        error dialog: failures go to the log and the status bar only. Calls
+        ``on_done`` exactly once, on success and on failure, so the
+        coordinator can start the next step. Results produced before a
+        disconnect/reconnect are discarded via ``_connection_generation``.
+        """
+        if not self.ssh_client.is_connected():
+            on_done()
+            return
+        connection_generation = self._connection_generation
+        worker = _rmtool.Worker(self._load_documents)
+
+        def on_finished(documents):
+            try:
+                if sip.isdeleted(self):
+                    return
+                if connection_generation != self._connection_generation:
+                    # Stale result from a previous connection; discard it.
+                    logging.info(
+                        "Discarding stale document list from a previous connection"
+                    )
+                    return
+                self._on_documents_loaded(documents)
+            except Exception:
+                # Never let an apply failure stall the serial coordinator.
+                logging.exception("Failed to apply post-connect document list")
+            finally:
+                on_done()
+
+        def on_error(exc: Exception):
+            try:
+                if sip.isdeleted(self):
+                    logging.error(
+                        "Post-connect document refresh failed after tab close: %s", exc
+                    )
+                    return
+                logging.error("Post-connect document refresh failed: %s", exc)
+                self.status_message.emit("error", f"文档列表刷新失败：{exc}", 4000)
+            finally:
+                on_done()
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
         self.thread_pool.start(worker)
 
     def _load_documents(self) -> List[_rmtool.DocumentItem]:

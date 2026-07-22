@@ -2451,22 +2451,20 @@ class RmkitCnExternalLinkTests(unittest.TestCase):
 
 
 class FontUiTests(unittest.TestCase):
-    def test_connected_font_manager_schedules_initial_inventory_refresh(self):
-        callbacks = []
-        with mock.patch.object(
-            QtCore.QTimer,
-            "singleShot",
-            side_effect=lambda delay, callback: callbacks.append((delay, callback)),
-        ):
-            widget = rmtool.FontTab(
-                FakeConnectionClient(connected=True), rmtool._default_config()
-            )
+    def test_connect_does_not_auto_refresh_font_inventory(self):
+        widget = rmtool.FontTab(
+            FakeConnectionClient(connected=True), rmtool._default_config()
+        )
         self.addCleanup(widget.deleteLater)
 
-        self.assertEqual(len(callbacks), 1)
-        self.assertEqual(callbacks[0][0], 0)
-        self.assertIs(callbacks[0][1].__self__, widget)
-        self.assertEqual(callbacks[0][1].__name__, "_refresh_fonts")
+        # Connecting only updates widget state; the post-connect refresh is
+        # driven by the MainWindow serial coordinator (refresh_fonts_quiet).
+        self.assertIsNone(widget._font_progress)
+        self.assertEqual(widget.manager_status_label.text(), "设备已连接，可刷新已上传字体。")
+        with mock.patch.object(widget.thread_pool, "start") as start_worker:
+            widget._on_connection_changed(True)
+        start_worker.assert_not_called()
+        self.assertIsNone(widget._font_progress)
 
     def test_font_selection_previews_before_upload(self):
         widget = rmtool.FontTab(FakeConnectionClient(connected=True), rmtool._default_config())
@@ -2661,6 +2659,7 @@ class FontUiTests(unittest.TestCase):
             rmtool, "Worker", return_value=worker_instance
         ), mock.patch.object(widget.thread_pool, "start"):
             widget._on_connection_changed(True)
+            widget._refresh_fonts()
             on_finished = worker_instance.signals.finished.connect.call_args.args[0]
             client._connected = False
             widget._on_connection_changed(False)
@@ -2688,17 +2687,23 @@ class FontUiTests(unittest.TestCase):
         stale_worker.signals = mock.Mock()
         refresh_worker = mock.Mock()
         refresh_worker.signals = mock.Mock()
+        done_calls = []
 
         with mock.patch.object(QtWidgets, "QProgressDialog"), mock.patch.object(
             rmtool, "Worker", side_effect=[stale_worker, refresh_worker]
         ) as worker_cls, mock.patch.object(widget.thread_pool, "start"):
             widget._on_connection_changed(True)
+            widget._refresh_fonts()
             client._connected = False
             widget._on_connection_changed(False)
             client._connected = True
+            # Connecting no longer refreshes by itself; the coordinator's
+            # quiet refresh queues behind the stale in-flight worker.
             widget._on_connection_changed(True)
+            widget.refresh_fonts_quiet(lambda: done_calls.append(True))
 
             self.assertTrue(widget._busy)
+            self.assertEqual(done_calls, [True])
             self.assertEqual(worker_cls.call_count, 1)
             stale_worker.signals.finished.connect.call_args.args[0](())
 
@@ -2713,7 +2718,7 @@ class FontUiTests(unittest.TestCase):
         widget = rmtool.FontTab(client, rmtool._default_config())
         self.addCleanup(widget.deleteLater)
         client._connected = True
-        widget._on_connection_changed(True, refresh=False)
+        widget._on_connection_changed(True)
         mutation_worker = mock.Mock()
         mutation_worker.signals = mock.Mock()
         refresh_worker = mock.Mock()

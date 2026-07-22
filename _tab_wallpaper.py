@@ -739,6 +739,8 @@ class WallpaperTab(QtWidgets.QWidget):
         self.current_resolution: Tuple[int, int] = _rmtool.DEVICE_PROFILES["reMarkable Paper Pro"]
         self._unavailable_wallpaper_paths: Set[str] = set()
         self._carousel_blank_active = False
+        self._connected = False
+        self._connection_generation = 0
 
         self.base_resolution = _rmtool.DEVICE_PROFILES["reMarkable Paper Pro"]
         self.orientation_combo = QtWidgets.QComboBox()
@@ -984,16 +986,22 @@ class WallpaperTab(QtWidgets.QWidget):
         self._update_target_label()
 
     def _on_connection_changed(self, connected: bool) -> None:
+        if self._connected and not connected:
+            # Invalidate results of workers started before the disconnect so
+            # stale previews from the previous connection are never applied.
+            self._connection_generation += 1
+        self._connected = connected
         self.cover_wall_button.setEnabled(connected)
         if not connected:
             self._carousel_blank_active = False
         self._sync_blank_carousel_checkbox()
-        if connected:
-            self._refresh_variant_previews()
-        else:
+        if not connected:
             for preview in self.variant_previews.values():
                 preview.clear_preview()
                 preview.setText("未连接")
+        # Connect-time preview refresh is driven by the MainWindow serial
+        # post-connect coordinator (refresh_previews_quiet), so connecting
+        # here only updates widget state.
 
     def _sync_blank_carousel_checkbox(self) -> None:
         connected = self.ssh_client.is_connected()
@@ -1124,6 +1132,58 @@ class WallpaperTab(QtWidgets.QWidget):
         worker = _rmtool.Worker(self._download_all_variant_previews)
         worker.signals.finished.connect(self._apply_variant_previews)
         worker.signals.error.connect(self._on_variant_preview_error)
+        self.thread_pool.start(worker)
+
+    def refresh_previews_quiet(self, on_done) -> None:
+        """Post-connect preview refresh driven by the MainWindow serial
+        coordinator.
+
+        Same download/apply pipeline as ``_refresh_variant_previews`` but
+        errors only reach the log and the inline "加载失败" labels — never a
+        dialog. Calls ``on_done`` exactly once; when not connected it returns
+        immediately after calling ``on_done``. Results produced before a
+        disconnect/reconnect are discarded via ``_connection_generation``.
+        """
+        if not self.ssh_client.is_connected():
+            on_done()
+            return
+        connection_generation = self._connection_generation
+        for preview in self.variant_previews.values():
+            preview.setText("加载中…")
+        worker = _rmtool.Worker(self._download_all_variant_previews)
+
+        def on_finished(results):
+            try:
+                if sip.isdeleted(self):
+                    return
+                if connection_generation != self._connection_generation:
+                    # Stale result from a previous connection; discard it.
+                    logging.info(
+                        "Discarding stale wallpaper previews from a previous connection"
+                    )
+                    return
+                self._apply_variant_previews(results)
+            except Exception:
+                # Never let an apply failure stall the serial coordinator.
+                logging.exception("Failed to apply post-connect wallpaper previews")
+            finally:
+                on_done()
+
+        def on_error(exc: Exception):
+            try:
+                if sip.isdeleted(self):
+                    logging.error(
+                        "Post-connect wallpaper preview refresh failed after tab close: %s",
+                        exc,
+                    )
+                    return
+                logging.error("Post-connect wallpaper preview refresh failed: %s", exc)
+                self._on_variant_preview_error(exc)
+            finally:
+                on_done()
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
         self.thread_pool.start(worker)
 
     def _scan_wallpaper_resource_paths(self) -> _WallpaperResourceScan:
