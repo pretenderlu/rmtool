@@ -656,6 +656,7 @@ from _tab_connection import ConnectionWidget
 # ---------------------------------------------------------------------------
 from _tab_wallpaper import WallpaperTab
 from _tab_documents import DocumentsTab
+from _tab_koreader import KOReaderTab
 from _tab_dashboard import DashboardTab
 from _tab_toolbox import (
     ControlTab,
@@ -696,6 +697,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.dashboard_tab = DashboardTab()
         self.wallpaper_tab = WallpaperTab(self.ssh_client, self.config)
         self.documents_tab = DocumentsTab(self.ssh_client)
+        self.koreader_tab = KOReaderTab(self.ssh_client)
         self.font_page = FontPage(self.ssh_client, self.config)
         self.toolbox_tab = ToolboxTab(self.ssh_client, self.config)
 
@@ -703,6 +705,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.dashboard_tab,
             self.wallpaper_tab,
             self.documents_tab,
+            self.koreader_tab,
             self.font_page,
             self.toolbox_tab,
         ):
@@ -727,7 +730,7 @@ class MainWindow(QtWidgets.QMainWindow):
         nav_buttons_layout = QtWidgets.QVBoxLayout(nav_widget)
         nav_buttons_layout.setContentsMargins(0, 0, 0, 0)
         nav_buttons_layout.setSpacing(6)
-        for idx, title in enumerate(("仪表盘", "壁纸管理", "文档中心", "字体管理", "设备工具")):
+        for idx, title in enumerate(("仪表盘", "壁纸管理", "文档中心", "KOReader", "字体管理", "设备工具")):
             button = QtWidgets.QPushButton(title)
             button.setCheckable(True)
             self.nav_button_group.addButton(button, idx)
@@ -790,6 +793,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.connection_widget.disconnected.connect(lambda: self._update_tabs_enabled(False))
         self.connection_widget.connected.connect(lambda: self.documents_tab.set_connection_state(True))
         self.connection_widget.disconnected.connect(lambda: self.documents_tab.set_connection_state(False))
+        self.connection_widget.connected.connect(self.koreader_tab.refresh)
+        self.connection_widget.connected.connect(lambda: self.koreader_tab.set_connection_state(True))
+        self.connection_widget.disconnected.connect(lambda: self.koreader_tab.set_connection_state(False))
         self.connection_widget.device_changed.connect(self.wallpaper_tab.update_device)
         self.connection_widget.device_changed.connect(self._on_device_changed)
         self.connection_widget.device_changed.connect(self.dashboard_tab.update_device)
@@ -800,6 +806,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.connection_widget.status_message.connect(self._show_status_message)
         self.documents_tab.status_message.connect(self._show_status_message)
         self.documents_tab.summary_changed.connect(self.dashboard_tab.update_documents)
+        self.koreader_tab.status_message.connect(self._show_status_message)
 
         # Initialize wallpaper profile preview
         initial_device = active_device(self.config)
