@@ -147,9 +147,10 @@ class FontTab(QtWidgets.QWidget):
         connection_changed = getattr(self.ssh_client, "connection_changed", None)
         if connection_changed is not None:
             connection_changed.connect(self._on_connection_changed)
-        self._on_connection_changed(self.ssh_client.is_connected(), refresh=False)
-        if self.ssh_client.is_connected():
-            QtCore.QTimer.singleShot(0, self._refresh_fonts)
+        # Connect-time inventory refresh is driven by the MainWindow serial
+        # post-connect coordinator (refresh_fonts_quiet); connecting here only
+        # updates widget state.
+        self._on_connection_changed(self.ssh_client.is_connected())
 
     def _select_font_file(self):
         file_path = select_font_file(self)
@@ -259,7 +260,7 @@ class FontTab(QtWidgets.QWidget):
     def _font_dir(self) -> str:
         return self.config.get("paths", {}).get("font", _rmtool.DEFAULT_FONT_DIR)
 
-    def _on_connection_changed(self, connected: bool, *, refresh: bool = True):
+    def _on_connection_changed(self, connected: bool):
         connected = bool(connected)
         if connected != self._connected:
             self._connected = connected
@@ -277,11 +278,6 @@ class FontTab(QtWidgets.QWidget):
         else:
             self.manager_status_label.setText("设备已连接，可刷新已上传字体。")
         self._update_action_buttons()
-        if connected and refresh:
-            if self._busy:
-                self._pending_refresh = ("", "")
-            else:
-                self._refresh_fonts()
 
     def _selected_device_font(self) -> Optional[_rmkit_cn.UserFont]:
         rows = self.font_table.selectionModel().selectedRows()
@@ -456,6 +452,84 @@ class FontTab(QtWidgets.QWidget):
         self._update_action_buttons()
         if success:
             show_info(self, _rmtool.APP_NAME, success)
+
+    def refresh_fonts_quiet(self, on_done) -> None:
+        """Post-connect inventory refresh driven by the MainWindow serial
+        coordinator.
+
+        Unlike ``_refresh_fonts`` this runs without the modal progress dialog
+        and never pops an error dialog; failures only reach the log and the
+        status label. Calls ``on_done`` exactly once. When another font
+        operation is busy, the refresh is queued via ``_pending_refresh`` and
+        ``on_done`` is called immediately so the coordinator is not blocked.
+        ``_busy`` is held for the duration so a manual refresh or upload
+        cannot open a second SSH channel alongside the quiet one; a refresh
+        queued by the user meanwhile runs after this one finishes.
+        """
+        if self._busy:
+            self._pending_refresh = ("", "")
+            on_done()
+            return
+        if not self.ssh_client.is_connected():
+            on_done()
+            return
+        connection_generation = self._connection_generation
+        self._set_busy(True)
+        worker = _rmtool.Worker(
+            _rmkit_cn.list_user_fonts, self.ssh_client, self._font_dir()
+        )
+
+        def finish_quiet():
+            self._set_busy(False)
+            pending_refresh = self._pending_refresh
+            self._pending_refresh = None
+            if pending_refresh is not None and self.ssh_client.is_connected():
+                self._refresh_fonts(
+                    select_filename=pending_refresh[0], success=pending_refresh[1]
+                )
+
+        def on_finished(fonts):
+            if sip.isdeleted(self):
+                on_done()
+                return
+            try:
+                if connection_generation != self._connection_generation:
+                    # Stale result from a previous connection; discard it.
+                    return
+                self._apply_font_inventory(fonts)
+            except Exception:
+                # Never let an apply failure stall the serial coordinator.
+                logging.exception("Failed to apply post-connect font inventory")
+            finally:
+                try:
+                    finish_quiet()
+                except Exception:
+                    logging.exception("Failed to finish post-connect font refresh")
+                on_done()
+
+        def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                logging.error(
+                    "Post-connect font refresh failed after tab close: %s", exc
+                )
+                on_done()
+                return
+            try:
+                logging.error("Post-connect font refresh failed: %s", exc)
+                if connection_generation == self._connection_generation:
+                    self.manager_status_label.setText(
+                        "字体列表刷新失败，请点击“刷新”重试。"
+                    )
+            finally:
+                try:
+                    finish_quiet()
+                except Exception:
+                    logging.exception("Failed to finish post-connect font refresh")
+                on_done()
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self.thread_pool.start(worker)
 
     @require_connection
     def _set_selected_active(self):

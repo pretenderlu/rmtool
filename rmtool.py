@@ -18,7 +18,7 @@ from typing import Callable, Dict, List, Optional
 
 import paramiko
 from PIL import Image
-from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
+from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets, sip
 
 
 APP_NAME = "reMarkable 管理工具"
@@ -682,6 +682,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ssh_client = SSHClientWrapper()
         self._log_bridge = log_bridge
         self._log_panel = None
+        self._post_connect_active = False
 
         # -- Sidebar (connection panel + page navigation) --
         self.connection_widget = ConnectionWidget(self.ssh_client, self.config)
@@ -790,7 +791,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_tabs_enabled(False)
         self.connection_widget.set_footer_theme(self._current_theme)
         self.connection_widget.connected.connect(lambda: self._update_tabs_enabled(True))
-        self.connection_widget.connected.connect(self.documents_tab.refresh)
+        # Post-connect background refreshes run strictly in series via the
+        # coordinator: concurrent SSH channels from simultaneous tab refreshes
+        # have made the device's dropbear server drop the connection
+        # (2026-07-22 incident).
+        self.connection_widget.connected.connect(self._start_post_connect_refresh)
         self.connection_widget.disconnected.connect(lambda: self._update_tabs_enabled(False))
         self.connection_widget.connected.connect(lambda: self.documents_tab.set_connection_state(True))
         self.connection_widget.disconnected.connect(lambda: self.documents_tab.set_connection_state(False))
@@ -897,10 +902,57 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_device_changed(self, device: Dict):
         if self.ssh_client.is_connected():
-            self.documents_tab.refresh()
+            self._start_post_connect_refresh()
             self._set_connection_chip(True, device)
         else:
             self._set_connection_chip(False, device)
+
+    def _start_post_connect_refresh(self) -> None:
+        """Run the post-connect background refreshes strictly in series.
+
+        Steps run in a fixed order — documents, wallpaper previews, fonts —
+        and each step starts only after the previous one called its
+        ``on_done`` callback, so at most one background task uses SSH at any
+        moment. Concurrent post-connect refreshes opened several SSH channels
+        within milliseconds, under which the device's dropbear server has
+        dropped the connection (2026-07-22 incident). A failing step never
+        blocks the remaining steps. Reentrant while a sequence is active.
+        """
+        if self._post_connect_active:
+            logging.info("Post-connect refresh already running; skipping duplicate start")
+            return
+        self._post_connect_active = True
+        steps = (
+            self.documents_tab.refresh_quiet,
+            self.wallpaper_tab.refresh_previews_quiet,
+            self.font_tab.refresh_fonts_quiet,
+        )
+
+        def run_step(index: int) -> None:
+            if sip.isdeleted(self):
+                return
+            if index >= len(steps):
+                self._post_connect_active = False
+                return
+            step = steps[index]
+            done_called = False
+
+            def on_done() -> None:
+                nonlocal done_called
+                if sip.isdeleted(self):
+                    return
+                if done_called:
+                    return
+                done_called = True
+                run_step(index + 1)
+
+            try:
+                step(on_done)
+            except Exception as exc:
+                logging.error("Post-connect refresh step failed: %s", exc)
+                on_done()
+
+        run_step(0)
 
     def _on_connected(self):
         device = self.connection_widget.current_device()
