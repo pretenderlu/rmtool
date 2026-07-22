@@ -35,6 +35,8 @@ class KOReaderTab(QtWidgets.QWidget):
         self._active_progress: Optional[QtWidgets.QProgressDialog] = None
         self._progress_label_base = ""
         self._connected = False
+        self._loading = False
+        self._loaded_once = False
 
         # --- Toolbar ---
         self.refresh_button = QtWidgets.QPushButton("刷新列表")
@@ -169,6 +171,7 @@ class KOReaderTab(QtWidgets.QWidget):
         if not connected:
             self._install_dir = None
             self._current_dir = ""
+            self._loaded_once = False
             self.entries = []
             self._entries_by_path = {}
             self.table.setRowCount(0)
@@ -279,17 +282,40 @@ class KOReaderTab(QtWidgets.QWidget):
 
     # -- Refresh / navigation ----------------------------------------------------
     def refresh(self):
+        if self._loading:
+            return
+        self._loading = True
         worker = _rmtool.Worker(self._detect_and_load, self._current_dir)
+
+        def on_finished(result):
+            if sip.isdeleted(self):
+                return
+            self._loading = False
+            self._on_listing_loaded(result)
 
         def on_error(exc: Exception):
             if sip.isdeleted(self):
                 logging.error("KOReader refresh failed after tab close: %s", exc)
                 return
+            self._loading = False
+            self._loaded_once = True
             self._on_error(exc)
 
-        worker.signals.finished.connect(self._on_listing_loaded)
+        worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
         self.thread_pool.start(worker)
+
+    def ensure_loaded(self) -> None:
+        """Lazy initial load, called when the tab becomes visible.
+
+        Refreshing on the ``connected`` signal would add several SSH channels
+        to the burst of background tasks that starts right after connect; the
+        reMarkable dropbear server has dropped connections under that load.
+        Loading on first activation keeps the post-connect burst unchanged.
+        """
+        if not self._connected or self._loading or self._loaded_once:
+            return
+        self.refresh()
 
     def _detect_and_load(self, current_dir: str):
         install_dir = _koreader.detect_installation(self.ssh_client)
@@ -310,6 +336,7 @@ class KOReaderTab(QtWidgets.QWidget):
         install_dir, directory, entries = result
         self._install_dir = install_dir
         self._current_dir = directory
+        self._loaded_once = True
         self.entries = entries
         self._entries_by_path = {entry.path: entry for entry in entries}
         self.path_edit.setText(directory)

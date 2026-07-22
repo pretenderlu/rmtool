@@ -737,6 +737,7 @@ class MainWindow(QtWidgets.QMainWindow):
             nav_buttons_layout.addWidget(button)
             self.nav_buttons.append(button)
         self.nav_button_group.idClicked.connect(self.pages.setCurrentIndex)
+        self.pages.currentChanged.connect(self._on_page_changed)
         self.nav_buttons[0].setChecked(True)
         nav_layout.addWidget(nav_widget)
         self.connection_widget.add_sidebar_section(nav_container)
@@ -793,9 +794,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.connection_widget.disconnected.connect(lambda: self._update_tabs_enabled(False))
         self.connection_widget.connected.connect(lambda: self.documents_tab.set_connection_state(True))
         self.connection_widget.disconnected.connect(lambda: self.documents_tab.set_connection_state(False))
-        self.connection_widget.connected.connect(self.koreader_tab.refresh)
         self.connection_widget.connected.connect(lambda: self.koreader_tab.set_connection_state(True))
         self.connection_widget.disconnected.connect(lambda: self.koreader_tab.set_connection_state(False))
+        # KOReader loads lazily: refreshing on connect would add SSH channels
+        # to the post-connect background burst, which the device's dropbear
+        # server has dropped connections under (see KOReaderTab.ensure_loaded).
+        self.connection_widget.connected.connect(
+            lambda: self._on_page_changed(self.pages.currentIndex())
+        )
         self.connection_widget.device_changed.connect(self.wallpaper_tab.update_device)
         self.connection_widget.device_changed.connect(self._on_device_changed)
         self.connection_widget.device_changed.connect(self.dashboard_tab.update_device)
@@ -825,6 +831,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 continue
             widget.setEnabled(enabled)
             self.nav_buttons[idx].setEnabled(enabled)
+
+    def _on_page_changed(self, index: int) -> None:
+        if self.pages.widget(index) is self.koreader_tab:
+            self.koreader_tab.ensure_loaded()
 
     def _show_status_message(self, level: str, text: str, timeout: int = 4000) -> None:
         status_bar = self.statusBar()

@@ -741,5 +741,47 @@ class TabConnectionGuardTests(TabTestBase):
             self.assertIn("请先连接设备", warning.call_args.args[2])
 
 
+class LazyLoadTests(TabTestBase):
+    def test_ensure_loaded_refreshes_once_when_connected(self):
+        self.tab.set_connection_state(True)
+        with mock.patch.object(self.tab, "refresh") as refresh:
+            self.tab.ensure_loaded()
+            refresh.assert_called_once()
+
+    def test_ensure_loaded_skips_when_disconnected(self):
+        with mock.patch.object(self.tab, "refresh") as refresh:
+            self.tab.ensure_loaded()
+            refresh.assert_not_called()
+
+    def test_ensure_loaded_skips_after_first_load(self):
+        self.load()
+        with mock.patch.object(self.tab, "refresh") as refresh:
+            self.tab.ensure_loaded()
+            refresh.assert_not_called()
+
+    def test_ensure_loaded_skips_while_loading(self):
+        self.tab.set_connection_state(True)
+        self.tab._loading = True
+        with mock.patch.object(self.tab, "refresh") as refresh:
+            self.tab.ensure_loaded()
+            refresh.assert_not_called()
+
+    def test_disconnect_resets_lazy_state(self):
+        self.load()
+        self.tab.set_connection_state(False)
+        self.assertFalse(self.tab._loaded_once)
+        self.tab.set_connection_state(True)
+        with mock.patch.object(self.tab, "refresh") as refresh:
+            self.tab.ensure_loaded()
+            refresh.assert_called_once()
+
+    def test_refresh_guard_blocks_concurrent_workers(self):
+        self.tab.set_connection_state(True)
+        self.tab.thread_pool = mock.Mock()
+        self.tab.refresh()
+        self.tab.refresh()
+        self.assertEqual(self.tab.thread_pool.start.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
