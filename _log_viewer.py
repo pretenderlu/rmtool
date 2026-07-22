@@ -1,7 +1,8 @@
 """In-app runtime log viewer.
 
 Pythonw launches without a console, so stdout/stderr disappear.  The root
-logger already writes to ``%APPDATA%\\rmtool\\remarkable_tool.log`` via a
+logger already writes to ``<app_state_dir>/remarkable_tool.log`` (the
+``.rmtool`` directory beside the source file, exe, or ``.app`` bundle) via a
 RotatingFileHandler; this module exposes the same stream as a permanent
 panel embedded at the bottom of the main window.
 
