@@ -793,6 +793,13 @@ class WallpaperTab(QtWidgets.QWidget):
         settings_form.setContentsMargins(0, 0, 0, 0)
         settings_form.setSpacing(8)
         settings_form.addRow("壁纸方向", self.orientation_combo)
+        # Landscape sleep screens are unused in practice; force portrait and
+        # hide the row for now. The landscape item and all orientation logic
+        # stay intact so the option can be re-enabled by showing the row.
+        self.orientation_combo.hide()
+        orientation_label = settings_form.labelForField(self.orientation_combo)
+        if orientation_label is not None:
+            orientation_label.hide()
         settings_form.addRow("处理模式", self.mode_combo)
         settings_form.addRow("水平偏移", self.offset_x_slider)
         settings_form.addRow("垂直偏移", self.offset_y_slider)
