@@ -1067,6 +1067,18 @@ def main():
     app = QtWidgets.QApplication(sys.argv)
     QtWidgets.QApplication.setStyle("Fusion")
 
+    # -- Window/taskbar icon: the exe embeds the file icon, but Windows uses
+    # the runtime window icon for the title bar and taskbar button --
+    icon_path = resource_path("assets", "rmtool-icon.ico")
+    if icon_path.exists():
+        app.setWindowIcon(QtGui.QIcon(str(icon_path)))
+    if sys.platform == "win32":
+        # Give the process a stable AppUserModelID so the taskbar shows our
+        # icon instead of the generic pythonw.exe one.
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("rmtool.app")
+
     # -- Global font: px size from the shared type scale (single unit) --
     font = QtGui.QFont("Segoe UI")
     font.setPixelSize(FONT_BASE)

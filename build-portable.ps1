@@ -70,6 +70,7 @@ $commonArguments = @(
     "--icon", (Join-Path $root "assets\rmtool-icon.ico"),
     "--add-data", "$(Join-Path $root 'assets\fonts');assets\fonts",
     "--add-data", "$(Join-Path $root 'assets\device_frames');assets\device_frames",
+    "--add-data", "$(Join-Path $root 'assets\rmtool-icon.ico');assets",
     "--distpath", (Join-Path $root "dist"),
     "--specpath", (Join-Path $root "build")
 )
