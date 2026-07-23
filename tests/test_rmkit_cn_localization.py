@@ -154,6 +154,8 @@ class FakeSSH:
             return "cache refreshed\n"
         if command in ("mount -o remount,rw /", "mount -o remount,ro /"):
             return ""
+        if command == "sync":
+            return ""
 
         args = shlex.split(command)
         if args[:2] == ["mkdir", "-p"]:
@@ -396,6 +398,13 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertLess(backup_index, qm_upload_index)
         self.assertLess(ready_index, qm_upload_index)
         self.assertLess(qm_upload_index, config_upload_index)
+        # Writes must hit disk before the ready marker and before the
+        # operation reports success (hard power-off zeroed unsynced
+        # backups on real hardware).
+        sync_index = ssh.events.index(("exec", "sync"))
+        self.assertLess(sync_index, ready_index)
+        exec_events = [value for kind, value in ssh.events if kind == "exec"]
+        self.assertEqual(exec_events[-1], "sync")
         self.assertEqual(ssh.close_count, 1)
         commands = "\n".join(value for kind, value in ssh.events if kind == "exec")
         self.assertIn("mount -o remount,rw /", commands)

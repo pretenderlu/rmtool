@@ -1085,6 +1085,17 @@ def _write_remote_bytes(ssh_client, remote_path: str, data: bytes) -> None:
         Path(local_path).unlink(missing_ok=True)
 
 
+def _flush_remote_writes(ssh_client) -> None:
+    """Persist device writes before declaring an operation complete.
+
+    Files under /home sit in the ext4 page cache until writeback; a hard
+    power-off in that window leaves zero-byte files with intact metadata
+    (observed on real hardware as empty localization backups). Mutating
+    flows must sync before reporting success.
+    """
+    ssh_client.exec_checked("sync")
+
+
 def _remove_managed_font(ssh_client) -> bool:
     if not _file_exists(ssh_client, FONT_MARKER_PATH):
         return False
@@ -1438,6 +1449,7 @@ def _prepare_backup(
     ssh_client.exec_checked(f"cp -p {QM_PATH} {BACKUP_QM_PATH}.tmp")
     ssh_client.exec_checked(f"mv -f {BACKUP_QM_PATH}.tmp {BACKUP_QM_PATH}")
     _validate_backup(ssh_client, package)
+    _flush_remote_writes(ssh_client)
     ssh_client.exec_checked(f"touch {BACKUP_READY_PATH}")
     return True
 
@@ -1525,6 +1537,7 @@ def enable_localization(
         finally:
             Path(local_config_path).unlink(missing_ok=True)
 
+        _flush_remote_writes(ssh_client)
         return LocalizationStatus(
             LocalizationState.ENABLED, firmware, True, package
         )
@@ -1617,6 +1630,7 @@ def restore_localization(
         ssh_client.exec_checked(
             f"rm -f {BACKUP_READY_PATH} {BACKUP_CONFIG_PATH} {BACKUP_QM_PATH}"
         )
+        _flush_remote_writes(ssh_client)
         return get_localization_status(ssh_client, package)
     finally:
         ssh_client.close()
