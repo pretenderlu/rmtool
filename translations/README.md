@@ -64,6 +64,11 @@ The manifest also supports beta `3.28.0.162`, internal version
 - Ferrari stock French SHA-256:
   `24393f00d9edb933933b436ffe5020990dd97d31d7788172907d75ff1d42d3a5`
 
+Beta `3.28.0.163`, internal version `20260702125656`, ships byte-identical
+stock English, French, German, and Spanish catalogs on both Chiappa and
+Ferrari, so it reuses the same 178170-byte Chinese asset and the same stock
+French SHA-256 values as `3.28.0.162`.
+
 Paper Pro (Ferrari) enable and restore were validated on a real device.
 Paper Pro Move (Chiappa), Paper Pure (Tatsu), RM1, and RM2 `3.27.3.0` were
 validated offline against official firmware only and remain pending

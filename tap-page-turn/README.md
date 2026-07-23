@@ -10,13 +10,13 @@ rmtool downloads firmware-specific tap-to-turn packages from the fixed
 
 ## Support matrix
 
-| Device | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) |
-| --- | --- | --- | --- | --- |
-| Paper Pro | `ferrari` | Offline verified | Offline verified | **Device verified** |
-| Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified |
-| Paper Pure | `tatsu` | - | Offline verified | - |
-| reMarkable 1 | `rm1` | - | Offline verified | - |
-| reMarkable 2 | `rm2` | - | Offline verified | - |
+| Device | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) |
+| --- | --- | --- | --- | --- | --- |
+| Paper Pro | `ferrari` | Offline verified | Offline verified | **Device verified** | Offline verified |
+| Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified | Offline verified |
+| Paper Pure | `tatsu` | - | Offline verified | - | - |
+| reMarkable 1 | `rm1` | - | Offline verified | - | - |
+| reMarkable 2 | `rm2` | - | Offline verified | - | - |
 
 Offline validation uses the official firmware image and includes QML resource
 recovery, QMLDiff compatibility and replay, binary architecture, archive, and
