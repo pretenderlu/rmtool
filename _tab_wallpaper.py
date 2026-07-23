@@ -22,6 +22,12 @@ _LEGACY_WALLPAPER_PATHS = {
 }
 _CAROUSEL_DIR = "/usr/share/remarkable/carousel"
 _CAROUSEL_BACKUP_SUFFIX = ".backup"
+# Firmware iterates EVERY file in the carousel directory regardless of
+# extension, so backups kept beside the originals (<name>.png.backup) were
+# shown in the sleep-screen rotation, alternating with the blanked
+# placeholders. Subdirectories are ignored by the firmware, so originals are
+# backed up under this hidden subdirectory instead.
+_CAROUSEL_BACKUP_DIR = _CAROUSEL_DIR + "/.backup"
 _MONOCHROME_DEVICE_PROFILES = {
     "reMarkable Paper Pure",
     "reMarkable 1",
@@ -837,7 +843,7 @@ class WallpaperTab(QtWidgets.QWidget):
         self.blank_carousel_checkbox = QtWidgets.QCheckBox("使用空白壁纸替换休眠轮播")
         self.blank_carousel_checkbox.setToolTip(
             "开启后把设备上的休眠轮播插图替换为带透明通道的全透明 PNG"
-            "（原始插图会先备份到设备上的同名 .backup 文件）；\n"
+            "（原始插图会先备份到 carousel/.backup/ 子目录，固件不会读取子目录）；\n"
             "关闭时从备份恢复原始插图。"
         )
         self.blank_carousel_checkbox.setEnabled(False)
@@ -1057,6 +1063,31 @@ class WallpaperTab(QtWidgets.QWidget):
         with remount_rw(self.ssh_client):
             return self._blank_carousel_overlays_locked()
 
+    def _migrate_legacy_carousel_backups(self) -> None:
+        """Move legacy ``<name>.png.backup`` files into ``.backup/``.
+
+        Builds before the subdirectory scheme stored backups next to the
+        originals, where the firmware picks them up as rotation entries.
+        """
+        try:
+            entries = self.ssh_client.listdir_attr(_CAROUSEL_DIR)
+        except Exception:
+            return
+        legacy = [
+            entry.filename
+            for entry in entries
+            if entry.filename.lower().endswith(f".png{_CAROUSEL_BACKUP_SUFFIX}")
+        ]
+        if not legacy:
+            return
+        self.ssh_client.exec_checked(f"mkdir -p {_CAROUSEL_BACKUP_DIR}")
+        for filename in legacy:
+            original = filename[: -len(_CAROUSEL_BACKUP_SUFFIX)]
+            self.ssh_client.exec_checked(
+                f"mv {_CAROUSEL_DIR}/{filename} {_CAROUSEL_BACKUP_DIR}/{original}"
+            )
+        logging.info("Migrated %d legacy carousel backup(s)", len(legacy))
+
     def _blank_carousel_overlays_locked(self) -> int:
         """Blank carousel overlays; caller must hold a read-write mount."""
         try:
@@ -1071,13 +1102,16 @@ class WallpaperTab(QtWidgets.QWidget):
         if not png_files:
             return 0
 
+        self.ssh_client.exec_checked(f"mkdir -p {_CAROUSEL_BACKUP_DIR}")
+        self._migrate_legacy_carousel_backups()
+
         fd, transparent_path = tempfile.mkstemp(suffix=".png")
         os.close(fd)
         try:
             Image.new("RGBA", (1, 1), (0, 0, 0, 0)).save(transparent_path, format="PNG")
             for filename in png_files:
                 remote = f"{_CAROUSEL_DIR}/{filename}"
-                backup = remote + _CAROUSEL_BACKUP_SUFFIX
+                backup = f"{_CAROUSEL_BACKUP_DIR}/{filename}"
                 if not self.ssh_client.file_exists(backup):
                     # Never back up an already-blanked placeholder as if it
                     # were the original artwork.
@@ -1098,19 +1132,19 @@ class WallpaperTab(QtWidgets.QWidget):
     def _restore_carousel_overlays(self) -> int:
         """Worker entry: restore backed-up overlays. Returns restored count."""
         with remount_rw(self.ssh_client):
+            self._migrate_legacy_carousel_backups()
             try:
-                entries = self.ssh_client.listdir_attr(_CAROUSEL_DIR)
+                entries = self.ssh_client.listdir_attr(_CAROUSEL_BACKUP_DIR)
             except Exception:
                 return 0
             backups = [
                 entry.filename
                 for entry in entries
-                if entry.filename.lower().endswith(f".png{_CAROUSEL_BACKUP_SUFFIX}")
+                if entry.filename.lower().endswith(".png")
             ]
             for filename in backups:
-                original = filename[: -len(_CAROUSEL_BACKUP_SUFFIX)]
                 self.ssh_client.exec_checked(
-                    f"mv {_CAROUSEL_DIR}/{filename} {_CAROUSEL_DIR}/{original}"
+                    f"mv {_CAROUSEL_BACKUP_DIR}/{filename} {_CAROUSEL_DIR}/{filename}"
                 )
             logging.info("Restored %d carousel overlay(s)", len(backups))
             return len(backups)
@@ -1212,6 +1246,19 @@ class WallpaperTab(QtWidgets.QWidget):
 
         add_pngs_from_dir("/usr/share/remarkable", required=True)
         add_pngs_from_dir(_CAROUSEL_DIR)
+
+        # Backups live in a firmware-ignored subdirectory; legacy builds kept
+        # them beside the originals (<name>.png.backup), which the firmware
+        # still rotates in. Detect both so the checkbox reflects reality.
+        try:
+            backup_entries = self.ssh_client.listdir_attr(_CAROUSEL_BACKUP_DIR)
+        except Exception:
+            backup_entries = []
+        if any(
+            getattr(entry, "filename", "").lower().endswith(".png")
+            for entry in backup_entries
+        ):
+            carousel_backed_up = True
 
         try:
             with self.ssh_client.open_remote(
