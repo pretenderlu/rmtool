@@ -176,6 +176,12 @@ def carousel_files(payload):
     }
 
 
+def carousel_backup_path(path):
+    """Expected backup location: firmware-ignored .backup/ subdirectory."""
+    directory, _, name = path.rpartition("/")
+    return f"{directory}/.backup/{name}"
+
+
 class FakeHostKey:
     def __init__(self, fingerprint=b"\x01\x23\x45\x67"):
         self._fingerprint = fingerprint
@@ -1759,12 +1765,59 @@ class WallpaperUiTests(unittest.TestCase):
 
         for path in carousel_files(original):
             self.assertTrue(_tab_wallpaper._is_transparent_placeholder(client.files[path]))
-            self.assertEqual(client.files[path + ".backup"], original)
+            self.assertEqual(client.files[carousel_backup_path(path)], original)
 
         # A second run must not overwrite the backups with placeholders.
         self.assertEqual(widget._blank_carousel_overlays(), 3)
         for path in carousel_files(original):
-            self.assertEqual(client.files[path + ".backup"], original)
+            self.assertEqual(client.files[carousel_backup_path(path)], original)
+
+    def test_blank_carousel_leaves_only_placeholders_in_rotation(self):
+        """Firmware rotates every file in the carousel directory regardless of
+        extension, so after blanking nothing but transparent PNGs may remain
+        at the top level. Regression: side-by-side <name>.png.backup files
+        were rotated in as originals (3.25+ firmware alternated original /
+        transparent frames)."""
+        original = make_png_bytes((120, 30, 30))
+        client = FakeCarouselClient(carousel_files(original))
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+
+        widget._blank_carousel_overlays()
+
+        carousel_prefix = "/usr/share/remarkable/carousel/"
+        top_level = [
+            path
+            for path in client.files
+            if path.startswith(carousel_prefix)
+            and "/" not in path[len(carousel_prefix):]
+        ]
+        self.assertEqual(len(top_level), 3)
+        for path in top_level:
+            self.assertTrue(_tab_wallpaper._is_transparent_placeholder(client.files[path]))
+
+    def test_blank_carousel_migrates_legacy_side_by_side_backups(self):
+        original = make_png_bytes((120, 30, 30))
+        placeholder = make_png_bytes((0, 0, 0, 0), size=(1, 1), mode="RGBA")
+        files = carousel_files(placeholder)
+        for path in carousel_files(original):
+            files[path + ".backup"] = original
+        client = FakeCarouselClient(files)
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+
+        widget._blank_carousel_overlays()
+
+        # Legacy backups moved into the firmware-ignored subdirectory, so the
+        # rotation directory no longer contains any original artwork.
+        for path in carousel_files(original):
+            self.assertNotIn(path + ".backup", client.files)
+            self.assertEqual(client.files[carousel_backup_path(path)], original)
+
+        # Restore still works from the migrated location.
+        self.assertEqual(widget._restore_carousel_overlays(), 3)
+        for path in carousel_files(original):
+            self.assertEqual(client.files[path], original)
 
     def test_blank_carousel_does_not_back_up_existing_placeholders(self):
         placeholder = make_png_bytes((0, 0, 0, 0), size=(1, 1), mode="RGBA")
@@ -1774,7 +1827,7 @@ class WallpaperUiTests(unittest.TestCase):
 
         self.assertEqual(widget._blank_carousel_overlays(), 3)
 
-        self.assertFalse(any(path.endswith(".backup") for path in client.files))
+        self.assertFalse(any("/.backup/" in path for path in client.files))
 
     def test_restore_carousel_recovers_backups_and_removes_them(self):
         original = make_png_bytes((120, 30, 30))
@@ -1787,7 +1840,7 @@ class WallpaperUiTests(unittest.TestCase):
 
         for path in carousel_files(original):
             self.assertEqual(client.files[path], original)
-            self.assertNotIn(path + ".backup", client.files)
+            self.assertNotIn(carousel_backup_path(path), client.files)
 
     def test_restore_carousel_without_backup_returns_zero_and_informs(self):
         placeholder = make_png_bytes((0, 0, 0, 0), size=(1, 1), mode="RGBA")
@@ -1837,7 +1890,7 @@ class WallpaperUiTests(unittest.TestCase):
         widget._do_upload_wallpaper(temp_path, "/usr/share/remarkable/suspended.png")
 
         for path in carousel_files(original):
-            self.assertEqual(client.files[path + ".backup"], original)
+            self.assertEqual(client.files[carousel_backup_path(path)], original)
             self.assertTrue(_tab_wallpaper._is_transparent_placeholder(client.files[path]))
 
 
