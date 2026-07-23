@@ -24,18 +24,28 @@ rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, a
       <sub><b>Dashboard</b></sub>
     </td>
     <td width="50%" align="center">
-      <a href="assets/screenshots/02-documents.png"><img src="assets/screenshots/02-documents.png" alt="rmtool document center" width="100%"></a><br>
-      <sub><b>Document Center</b></sub>
+      <a href="assets/screenshots/02-wallpaper.png"><img src="assets/screenshots/02-wallpaper.png" alt="rmtool wallpaper management" width="100%"></a><br>
+      <sub><b>Wallpaper Management</b></sub>
     </td>
   </tr>
   <tr>
     <td width="50%" align="center">
-      <a href="assets/screenshots/03-wallpaper.png"><img src="assets/screenshots/03-wallpaper.png" alt="rmtool wallpaper management" width="100%"></a><br>
-      <sub><b>Wallpaper Management</b></sub>
+      <a href="assets/screenshots/03-documents.png"><img src="assets/screenshots/03-documents.png" alt="rmtool document center" width="100%"></a><br>
+      <sub><b>Document Center</b></sub>
     </td>
     <td width="50%" align="center">
-      <a href="assets/screenshots/04-localization.png"><img src="assets/screenshots/04-localization.png" alt="rmtool system localization" width="100%"></a><br>
-      <sub><b>System Localization</b></sub>
+      <a href="assets/screenshots/04-koreader.png"><img src="assets/screenshots/04-koreader.png" alt="rmtool KOReader library manager" width="100%"></a><br>
+      <sub><b>KOReader Library</b></sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/05-fonts.png"><img src="assets/screenshots/05-fonts.png" alt="rmtool font management" width="100%"></a><br>
+      <sub><b>Font Management</b></sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/06-toolbox.png"><img src="assets/screenshots/06-toolbox.png" alt="rmtool device toolbox" width="100%"></a><br>
+      <sub><b>Device Toolbox</b></sub>
     </td>
   </tr>
 </table>

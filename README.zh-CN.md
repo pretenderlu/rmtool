@@ -24,18 +24,28 @@ rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Pape
       <sub><b>仪表盘</b></sub>
     </td>
     <td width="50%" align="center">
-      <a href="assets/screenshots/02-documents.png"><img src="assets/screenshots/02-documents.png" alt="rmtool 文档中心" width="100%"></a><br>
-      <sub><b>文档中心</b></sub>
+      <a href="assets/screenshots/02-wallpaper.png"><img src="assets/screenshots/02-wallpaper.png" alt="rmtool 壁纸管理" width="100%"></a><br>
+      <sub><b>壁纸管理</b></sub>
     </td>
   </tr>
   <tr>
     <td width="50%" align="center">
-      <a href="assets/screenshots/03-wallpaper.png"><img src="assets/screenshots/03-wallpaper.png" alt="rmtool 壁纸管理" width="100%"></a><br>
-      <sub><b>壁纸管理</b></sub>
+      <a href="assets/screenshots/03-documents.png"><img src="assets/screenshots/03-documents.png" alt="rmtool 文档中心" width="100%"></a><br>
+      <sub><b>文档中心</b></sub>
     </td>
     <td width="50%" align="center">
-      <a href="assets/screenshots/04-localization.png"><img src="assets/screenshots/04-localization.png" alt="rmtool 系统汉化" width="100%"></a><br>
-      <sub><b>系统汉化</b></sub>
+      <a href="assets/screenshots/04-koreader.png"><img src="assets/screenshots/04-koreader.png" alt="rmtool KOReader 书库管理" width="100%"></a><br>
+      <sub><b>KOReader 书库</b></sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/05-fonts.png"><img src="assets/screenshots/05-fonts.png" alt="rmtool 字体管理" width="100%"></a><br>
+      <sub><b>字体管理</b></sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/06-toolbox.png"><img src="assets/screenshots/06-toolbox.png" alt="rmtool 设备工具箱" width="100%"></a><br>
+      <sub><b>设备工具箱</b></sub>
     </td>
   </tr>
 </table>
