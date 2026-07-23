@@ -31,6 +31,7 @@ class KOReaderTab(QtWidgets.QWidget):
         self.entries: List[_koreader.KOReaderEntry] = []
         self._entries_by_path = {}
         self._install_dir: Optional[str] = None
+        self._library_root = ""
         self._current_dir = ""
         self._active_progress: Optional[QtWidgets.QProgressDialog] = None
         self._progress_label_base = ""
@@ -170,6 +171,7 @@ class KOReaderTab(QtWidgets.QWidget):
         self.refresh_button.setEnabled(connected)
         if not connected:
             self._install_dir = None
+            self._library_root = ""
             self._current_dir = ""
             self._loaded_once = False
             self.entries = []
@@ -187,7 +189,11 @@ class KOReaderTab(QtWidgets.QWidget):
         has_file = any(not entry.is_dir for entry in selected)
         self.upload_button.setEnabled(ready)
         self.new_folder_button.setEnabled(ready)
-        self.up_button.setEnabled(ready and self._current_dir not in ("", "/"))
+        self.up_button.setEnabled(
+            ready
+            and bool(self._library_root)
+            and self._current_dir != self._library_root
+        )
         self.path_edit.setEnabled(ready)
         self.delete_button.setEnabled(ready and has_selection)
         self.download_button.setEnabled(ready and has_file)
@@ -320,21 +326,26 @@ class KOReaderTab(QtWidgets.QWidget):
     def _detect_and_load(self, current_dir: str):
         install_dir = _koreader.detect_installation(self.ssh_client)
         if install_dir is None:
-            return None, "", []
-        directory = current_dir or _koreader.resolve_start_directory(
+            return None, "", "", []
+        library_root = self._library_root or _koreader.resolve_start_directory(
             self.ssh_client, install_dir
         )
-        entries = _koreader.list_directory(self.ssh_client, directory)
-        return install_dir, directory, entries
+        directory = current_dir or library_root
+        entries = _koreader.list_directory(
+            self.ssh_client, directory, library_root
+        )
+        return install_dir, library_root, directory, entries
 
     def _load_dir(self, directory: str):
-        return self._install_dir, directory, _koreader.list_directory(
-            self.ssh_client, directory
+        entries = _koreader.list_directory(
+            self.ssh_client, directory, self._library_root
         )
+        return self._install_dir, self._library_root, directory, entries
 
     def _on_listing_loaded(self, result):
-        install_dir, directory, entries = result
+        install_dir, library_root, directory, entries = result
         self._install_dir = install_dir
+        self._library_root = library_root
         self._current_dir = directory
         self._loaded_once = True
         self.entries = entries
@@ -402,7 +413,7 @@ class KOReaderTab(QtWidgets.QWidget):
             self._navigate_to(self._current_dir)
 
     def _go_up(self) -> None:
-        if not self._current_dir or self._current_dir == "/":
+        if not self._current_dir or self._current_dir == self._library_root:
             return
         self._navigate_to(posixpath.dirname(self._current_dir))
 
@@ -457,7 +468,14 @@ class KOReaderTab(QtWidgets.QWidget):
 
         count = len(file_paths)
         current_dir = self._current_dir
-        worker = _rmtool.Worker(self._perform_upload, file_paths, current_dir, overwrite)
+        library_root = self._library_root
+        worker = _rmtool.Worker(
+            self._perform_upload,
+            file_paths,
+            current_dir,
+            library_root,
+            overwrite,
+        )
         worker.kwargs["progress_callback"] = worker.signals.progress.emit
 
         def on_finished(_result):
@@ -490,6 +508,7 @@ class KOReaderTab(QtWidgets.QWidget):
         self,
         file_paths: List[str],
         remote_dir: str,
+        library_root: str,
         overwrite: bool,
         progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> None:
@@ -507,6 +526,7 @@ class KOReaderTab(QtWidgets.QWidget):
                 self.ssh_client,
                 path,
                 remote_dir,
+                library_root,
                 overwrite=overwrite,
                 progress_callback=on_file_progress if progress_callback else None,
             )
@@ -547,7 +567,10 @@ class KOReaderTab(QtWidgets.QWidget):
                 return
 
         count = len(files)
-        worker = _rmtool.Worker(self._perform_download, files, target_dir)
+        library_root = self._library_root
+        worker = _rmtool.Worker(
+            self._perform_download, files, target_dir, library_root
+        )
         worker.kwargs["progress_callback"] = worker.signals.progress.emit
 
         def on_finished(_result):
@@ -580,6 +603,7 @@ class KOReaderTab(QtWidgets.QWidget):
         self,
         files: List[_koreader.KOReaderEntry],
         target_dir: str,
+        library_root: str,
         progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> None:
         total = sum(entry.size for entry in files)
@@ -595,6 +619,7 @@ class KOReaderTab(QtWidgets.QWidget):
                 self.ssh_client,
                 entry.path,
                 os.path.join(target_dir, entry.name),
+                library_root,
                 progress_callback=on_file_progress if progress_callback else None,
             )
             completed += entry.size
@@ -637,7 +662,8 @@ class KOReaderTab(QtWidgets.QWidget):
             danger=True,
         ):
             return
-        worker = _rmtool.Worker(self._perform_delete, entries)
+        library_root = self._library_root
+        worker = _rmtool.Worker(self._perform_delete, entries, library_root)
 
         def on_finished(_result):
             if sip.isdeleted(self):
@@ -661,9 +687,13 @@ class KOReaderTab(QtWidgets.QWidget):
         self._show_progress_dialog("删除", progress_text)
         self.thread_pool.start(worker)
 
-    def _perform_delete(self, entries: List[_koreader.KOReaderEntry]) -> None:
+    def _perform_delete(
+        self, entries: List[_koreader.KOReaderEntry], library_root: str
+    ) -> None:
         for entry in entries:
-            _koreader.delete_entry(self.ssh_client, entry.path, entry.is_dir)
+            _koreader.delete_entry(
+                self.ssh_client, entry.path, entry.is_dir, library_root
+            )
 
     # -- New folder ------------------------------------------------------------------
     @require_connection
@@ -682,7 +712,10 @@ class KOReaderTab(QtWidgets.QWidget):
         if not ok or not name:
             return
         current_dir = self._current_dir
-        worker = _rmtool.Worker(self._perform_create_folder, current_dir, name)
+        library_root = self._library_root
+        worker = _rmtool.Worker(
+            self._perform_create_folder, current_dir, library_root, name
+        )
 
         def on_finished(_result):
             if sip.isdeleted(self):
@@ -706,8 +739,10 @@ class KOReaderTab(QtWidgets.QWidget):
         self._show_progress_dialog("新建文件夹", f"正在创建「{name}」…")
         self.thread_pool.start(worker)
 
-    def _perform_create_folder(self, remote_dir: str, name: str) -> None:
-        _koreader.create_folder(self.ssh_client, remote_dir, name)
+    def _perform_create_folder(
+        self, remote_dir: str, library_root: str, name: str
+    ) -> None:
+        _koreader.create_folder(self.ssh_client, remote_dir, name, library_root)
 
     # -- Misc -------------------------------------------------------------------------
     @staticmethod

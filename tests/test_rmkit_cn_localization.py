@@ -1463,14 +1463,112 @@ class RmkitCnLocalizationTests(unittest.TestCase):
     def test_stock_carrier_discards_malformed_font_marker(self):
         # The carrier is verified stock, so a malformed marker (e.g. a
         # zero-byte file left by an old version) is discarded instead of
-        # blocking localization forever.
+        # blocking localization forever. Its ownership claims cannot be
+        # trusted, so font and Fontconfig data must remain untouched.
         ssh = self.make_ssh()
+        target = _rmkit_cn.CUSTOM_FONT_PATHS[".ttf"]
+        current_config = b"<fontconfig>current managed bytes</fontconfig>\n"
+        original_config = b"\x00<fontconfig>exact original</fontconfig>\r\n"
+        font_data = b"possibly user-owned font"
         ssh.files[_rmkit_cn.FONT_MARKER_PATH] = b"{"
+        ssh.files[_rmkit_cn.FONTCONFIG_FILE] = current_config
+        ssh.files[_rmkit_cn.FONTCONFIG_BACKUP_PATH] = original_config
+        ssh.files[target] = font_data
 
         status = _rmkit_cn.get_localization_status(ssh)
 
         self.assertEqual(status.state, _rmkit_cn.LocalizationState.NOT_INSTALLED)
         self.assertNotIn(_rmkit_cn.FONT_MARKER_PATH, ssh.files)
+        self.assertEqual(ssh.files[_rmkit_cn.FONTCONFIG_FILE], current_config)
+        self.assertEqual(
+            ssh.files[_rmkit_cn.FONTCONFIG_BACKUP_PATH], original_config
+        )
+        self.assertEqual(ssh.files[target], font_data)
+
+    def test_stale_backup_restores_valid_managed_font_state_first(self):
+        target = _rmkit_cn.CUSTOM_FONT_PATHS[".ttf"]
+        font_data = b"managed font from stale localization"
+        original_config = b"\x00<fontconfig>pre-localization bytes</fontconfig>\r\n"
+        ssh = self.make_ssh()
+        ssh.files.update(
+            {
+                _rmkit_cn.BACKUP_READY_PATH: b"",
+                _rmkit_cn.BACKUP_CONFIG_PATH: b"[General]\n",
+                _rmkit_cn.BACKUP_QM_PATH: b"old-firmware-stock-qm",
+                _rmkit_cn.FONTCONFIG_FILE: b"managed override",
+                _rmkit_cn.FONTCONFIG_BACKUP_PATH: original_config,
+                _rmkit_cn.FONT_MARKER_PATH: json.dumps(
+                    {
+                        "path": target,
+                        "sha256": hashlib.sha256(font_data).hexdigest(),
+                        "had_fontconfig": True,
+                    },
+                    separators=(",", ":"),
+                ).encode("ascii"),
+                target: font_data,
+            }
+        )
+
+        status = _rmkit_cn.get_localization_status(ssh)
+
+        self.assertEqual(status.state, _rmkit_cn.LocalizationState.NOT_INSTALLED)
+        self.assertEqual(ssh.files[_rmkit_cn.FONTCONFIG_FILE], original_config)
+        self.assertNotIn(target, ssh.files)
+        self.assertNotIn(_rmkit_cn.FONT_MARKER_PATH, ssh.files)
+        self.assertNotIn(_rmkit_cn.FONTCONFIG_BACKUP_PATH, ssh.files)
+        self.assertNotIn(_rmkit_cn.BACKUP_READY_PATH, ssh.files)
+        self.assertNotIn(_rmkit_cn.BACKUP_QM_PATH, ssh.files)
+        commands = [value for kind, value in ssh.events if kind == "exec"]
+        restore_index = commands.index(
+            f"mv -f {_rmkit_cn.FONTCONFIG_FILE}.tmp {_rmkit_cn.FONTCONFIG_FILE}"
+        )
+        translation_cleanup_index = next(
+            index
+            for index, command in enumerate(commands)
+            if command.startswith("rm -f ")
+            and _rmkit_cn.BACKUP_READY_PATH in command
+        )
+        self.assertLess(restore_index, translation_cleanup_index)
+
+    def test_stale_backup_cleanup_failure_preserves_retry_metadata(self):
+        target = _rmkit_cn.CUSTOM_FONT_PATHS[".ttf"]
+        font_data = b"managed font from stale localization"
+        original_config = b"exact original fontconfig\r\n"
+        marker = json.dumps(
+            {
+                "path": target,
+                "sha256": hashlib.sha256(font_data).hexdigest(),
+                "had_fontconfig": True,
+            },
+            separators=(",", ":"),
+        ).encode("ascii")
+        ssh = self.make_ssh()
+        ssh.files.update(
+            {
+                _rmkit_cn.BACKUP_READY_PATH: b"",
+                _rmkit_cn.BACKUP_CONFIG_PATH: b"[General]\n",
+                _rmkit_cn.BACKUP_QM_PATH: b"old-firmware-stock-qm",
+                _rmkit_cn.FONTCONFIG_FILE: b"managed override",
+                _rmkit_cn.FONTCONFIG_BACKUP_PATH: original_config,
+                _rmkit_cn.FONT_MARKER_PATH: marker,
+                target: font_data,
+            }
+        )
+        ssh.fail_exec_commands.add(f"rm -f {target}")
+
+        with self.assertRaisesRegex(IOError, "simulated command failure"):
+            _rmkit_cn.get_localization_status(ssh)
+
+        self.assertEqual(ssh.files[_rmkit_cn.FONTCONFIG_FILE], original_config)
+        for path in (
+            _rmkit_cn.BACKUP_READY_PATH,
+            _rmkit_cn.BACKUP_CONFIG_PATH,
+            _rmkit_cn.BACKUP_QM_PATH,
+            _rmkit_cn.FONT_MARKER_PATH,
+            _rmkit_cn.FONTCONFIG_BACKUP_PATH,
+            target,
+        ):
+            self.assertIn(path, ssh.files)
 
     def test_stock_carrier_discards_stale_backup_from_other_firmware(self):
         # Backup from a different firmware (hash matches neither the

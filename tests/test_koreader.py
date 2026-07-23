@@ -42,6 +42,7 @@ class FakeSSH:
         self._connected = connected
         self.files = {}
         self.dirs = {"/", "/home", "/home/root"}
+        self.symlinks = {}
         self.commands = []
 
     # -- helpers -------------------------------------------------------------
@@ -58,6 +59,26 @@ class FakeSSH:
         while path and path not in self.dirs:
             self.dirs.add(path)
             path = posixpath.dirname(path)
+
+    def add_symlink(self, path, target):
+        path = posixpath.normpath(path)
+        self.symlinks[path] = posixpath.normpath(target)
+        self.add_dir(posixpath.dirname(path))
+
+    def realpath(self, path):
+        resolved = posixpath.normpath(path)
+        for _ in range(8):
+            replacement = None
+            for link, target in sorted(
+                self.symlinks.items(), key=lambda item: len(item[0]), reverse=True
+            ):
+                if resolved == link or resolved.startswith(link + "/"):
+                    replacement = posixpath.normpath(target + resolved[len(link):])
+                    break
+            if replacement is None or replacement == resolved:
+                return resolved
+            resolved = replacement
+        raise RuntimeError("symlink loop")
 
     def install_official(self):
         self.add_file(posixpath.join(_koreader.OFFICIAL_INSTALL_DIR, "koreader.sh"))
@@ -76,9 +97,9 @@ class FakeSSH:
         self.commands.append(command)
         parts = shlex.split(command)
         if parts[:2] == ["test", "-f"]:
-            return "", "", 0 if posixpath.normpath(parts[2]) in self.files else 1
+            return "", "", 0 if self.realpath(parts[2]) in self.files else 1
         if parts[:2] == ["test", "-d"]:
-            return "", "", 0 if posixpath.normpath(parts[2]) in self.dirs else 1
+            return "", "", 0 if self.realpath(parts[2]) in self.dirs else 1
         if parts[:3] == ["rm", "-f", "--"]:
             path = posixpath.normpath(parts[3])
             if path not in self.files:
@@ -116,7 +137,7 @@ class FakeSSH:
 
     def file_exists(self, path):
         path = posixpath.normpath(path)
-        return path in self.files or path in self.dirs
+        return path in self.files or path in self.dirs or path in self.symlinks
 
     def listdir_attr(self, path):
         path = posixpath.normpath(path)
@@ -130,13 +151,20 @@ class FakeSSH:
         for file_path in self.files:
             if posixpath.dirname(file_path) == path:
                 children[posixpath.basename(file_path)] = False
+        for link_path in self.symlinks:
+            if posixpath.dirname(link_path) == path:
+                children[posixpath.basename(link_path)] = None
         for name, is_dir in children.items():
             full = posixpath.join(path, name)
             entries.append(
                 SimpleNamespace(
                     filename=name,
-                    st_mode=(stat.S_IFDIR if is_dir else stat.S_IFREG) | 0o755,
-                    st_size=0 if is_dir else len(self.files[full]),
+                    st_mode=(
+                        stat.S_IFLNK
+                        if is_dir is None
+                        else stat.S_IFDIR if is_dir else stat.S_IFREG
+                    ) | 0o755,
+                    st_size=0 if is_dir is not False else len(self.files[full]),
                     st_mtime=MTIME,
                 )
             )
@@ -295,7 +323,7 @@ class ListDirectoryTests(unittest.TestCase):
         ssh.add_file("/books/Beta.pdf", b"bb")
         ssh.add_dir("/books/alpha.epub.sdr")
         ssh.add_file("/books/.hidden", b"h")
-        entries = _koreader.list_directory(ssh, "/books")
+        entries = _koreader.list_directory(ssh, "/books", "/books")
         self.assertEqual(
             [entry.name for entry in entries], ["novels", "alpha.epub", "Beta.pdf"]
         )
@@ -308,7 +336,41 @@ class ListDirectoryTests(unittest.TestCase):
     def test_listing_xochitl_is_rejected(self):
         ssh = FakeSSH()
         with self.assertRaises(RuntimeError):
-            _koreader.list_directory(ssh, _koreader.XOCHITL_ROOT)
+            _koreader.list_directory(
+                ssh, _koreader.XOCHITL_ROOT, "/books"
+            )
+
+    def test_listing_lexical_escape_is_rejected(self):
+        ssh = FakeSSH()
+        ssh.add_dir("/etc")
+        with self.assertRaisesRegex(RuntimeError, "KOReader"):
+            _koreader.list_directory(ssh, "/books/../etc", "/books")
+
+    def test_listing_symlink_escape_is_rejected(self):
+        ssh = FakeSSH()
+        ssh.add_dir("/etc")
+        ssh.add_symlink("/books/outside", "/etc")
+        with self.assertRaisesRegex(RuntimeError, "KOReader"):
+            _koreader.list_directory(ssh, "/books/outside", "/books")
+
+
+class LibraryRootTests(unittest.TestCase):
+    def test_start_directory_is_canonicalized_once(self):
+        ssh = FakeSSH()
+        ssh.install_official()
+        ssh.add_dir("/mnt/books")
+        ssh.add_symlink("/home/root/library", "/mnt/books")
+        ssh.add_file(
+            posixpath.join(_koreader.OFFICIAL_INSTALL_DIR, "settings.reader.lua"),
+            b'["home_dir"] = "/home/root/library",\n',
+        )
+
+        self.assertEqual(
+            _koreader.resolve_start_directory(
+                ssh, _koreader.OFFICIAL_INSTALL_DIR
+            ),
+            "/mnt/books",
+        )
 
 
 class UploadTests(unittest.TestCase):
@@ -323,7 +385,11 @@ class UploadTests(unittest.TestCase):
         ssh.install_official()
         progress = []
         remote = _koreader.upload_file(
-            ssh, self.local, "/books", progress_callback=lambda a, b: progress.append((a, b))
+            ssh,
+            self.local,
+            "/books",
+            "/books",
+            progress_callback=lambda a, b: progress.append((a, b)),
         )
         self.assertEqual(remote, "/books/book.epub")
         self.assertEqual(ssh.files["/books/book.epub"], b"epub-bytes")
@@ -334,7 +400,7 @@ class UploadTests(unittest.TestCase):
         ssh.install_official()
         ssh.add_file("/books/book.epub", b"old")
         with self.assertRaises(RuntimeError) as ctx:
-            _koreader.upload_file(ssh, self.local, "/books")
+            _koreader.upload_file(ssh, self.local, "/books", "/books")
         self.assertIn("同名文件", str(ctx.exception))
         self.assertEqual(ssh.files["/books/book.epub"], b"old")
 
@@ -342,14 +408,18 @@ class UploadTests(unittest.TestCase):
         ssh = FakeSSH()
         ssh.install_official()
         ssh.add_file("/books/book.epub", b"old")
-        _koreader.upload_file(ssh, self.local, "/books", overwrite=True)
+        _koreader.upload_file(
+            ssh, self.local, "/books", "/books", overwrite=True
+        )
         self.assertEqual(ssh.files["/books/book.epub"], b"epub-bytes")
 
     def test_upload_into_xochitl_rejected(self):
         ssh = FakeSSH()
         ssh.install_official()
         with self.assertRaises(RuntimeError) as ctx:
-            _koreader.upload_file(ssh, self.local, _koreader.XOCHITL_ROOT)
+            _koreader.upload_file(
+                ssh, self.local, _koreader.XOCHITL_ROOT, "/books"
+            )
         self.assertIn("xochitl", str(ctx.exception))
         self.assertNotIn(
             posixpath.join(_koreader.XOCHITL_ROOT, "book.epub"), ssh.files
@@ -358,9 +428,20 @@ class UploadTests(unittest.TestCase):
     def test_upload_without_installation_rejected(self):
         ssh = FakeSSH()
         with self.assertRaises(RuntimeError) as ctx:
-            _koreader.upload_file(ssh, self.local, "/books")
+            _koreader.upload_file(ssh, self.local, "/books", "/books")
         self.assertIn("未检测到 KOReader", str(ctx.exception))
         self.assertNotIn("/books/book.epub", ssh.files)
+
+    def test_upload_through_symlink_escape_is_rejected(self):
+        ssh = FakeSSH()
+        ssh.install_official()
+        ssh.add_dir("/etc")
+        ssh.add_symlink("/books/outside", "/etc")
+        with self.assertRaisesRegex(RuntimeError, "KOReader"):
+            _koreader.upload_file(
+                ssh, self.local, "/books/outside", "/books"
+            )
+        self.assertNotIn("/etc/book.epub", ssh.files)
 
 
 class DownloadTests(unittest.TestCase):
@@ -371,11 +452,23 @@ class DownloadTests(unittest.TestCase):
             local = os.path.join(tmpdir, "out", "book.epub")
             progress = []
             _koreader.download_file(
-                ssh, "/books/book.epub", local,
+                ssh, "/books/book.epub", local, "/books",
                 progress_callback=lambda a, b: progress.append((a, b)),
             )
             self.assertEqual(Path(local).read_bytes(), b"payload")
             self.assertEqual(progress, [(7, 7)])
+
+    def test_download_symlink_escape_is_rejected(self):
+        ssh = FakeSSH()
+        ssh.add_file("/etc/secret", b"secret")
+        ssh.add_symlink("/books/secret", "/etc/secret")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local = os.path.join(tmpdir, "secret")
+            with self.assertRaisesRegex(RuntimeError, "KOReader"):
+                _koreader.download_file(
+                    ssh, "/books/secret", local, "/books"
+                )
+            self.assertFalse(Path(local).exists())
 
 
 class DeleteTests(unittest.TestCase):
@@ -385,7 +478,9 @@ class DeleteTests(unittest.TestCase):
         ssh.add_file("/books/book.epub")
         ssh.add_dir("/books/book.epub.sdr")
         ssh.add_file("/books/book.epub.sdr/metadata.lua")
-        _koreader.delete_entry(ssh, "/books/book.epub", is_dir=False)
+        _koreader.delete_entry(
+            ssh, "/books/book.epub", is_dir=False, library_root="/books"
+        )
         self.assertNotIn("/books/book.epub", ssh.files)
         self.assertNotIn("/books/book.epub.sdr", ssh.dirs)
         self.assertIn("rm -f -- /books/book.epub", ssh.commands)
@@ -395,7 +490,9 @@ class DeleteTests(unittest.TestCase):
         ssh = FakeSSH()
         ssh.install_official()
         ssh.add_file("/books/book.epub")
-        _koreader.delete_entry(ssh, "/books/book.epub", is_dir=False)
+        _koreader.delete_entry(
+            ssh, "/books/book.epub", is_dir=False, library_root="/books"
+        )
         self.assertNotIn("/books/book.epub", ssh.files)
         self.assertFalse(any("rm -rf" in cmd for cmd in ssh.commands))
 
@@ -404,7 +501,9 @@ class DeleteTests(unittest.TestCase):
         ssh.install_official()
         ssh.add_dir("/books/novels")
         ssh.add_file("/books/novels/a.epub")
-        _koreader.delete_entry(ssh, "/books/novels", is_dir=True)
+        _koreader.delete_entry(
+            ssh, "/books/novels", is_dir=True, library_root="/books"
+        )
         self.assertNotIn("/books/novels", ssh.dirs)
         self.assertNotIn("/books/novels/a.epub", ssh.files)
 
@@ -413,7 +512,9 @@ class DeleteTests(unittest.TestCase):
         ssh.install_official()
         path = "/books/my book's \"best\".epub"
         ssh.add_file(path)
-        _koreader.delete_entry(ssh, path, is_dir=False)
+        _koreader.delete_entry(
+            ssh, path, is_dir=False, library_root="/books"
+        )
         self.assertIn(f"rm -f -- {shlex.quote(path)}", ssh.commands)
         self.assertNotIn(posixpath.normpath(path), ssh.files)
 
@@ -423,15 +524,43 @@ class DeleteTests(unittest.TestCase):
         target = posixpath.join(_koreader.XOCHITL_ROOT, "abc.epub")
         ssh.add_file(target)
         with self.assertRaises(RuntimeError):
-            _koreader.delete_entry(ssh, target, is_dir=False)
+            _koreader.delete_entry(
+                ssh, target, is_dir=False, library_root="/books"
+            )
         self.assertIn(posixpath.normpath(target), ssh.files)
 
     def test_delete_without_installation_rejected(self):
         ssh = FakeSSH()
         ssh.add_file("/books/book.epub")
         with self.assertRaises(RuntimeError) as ctx:
-            _koreader.delete_entry(ssh, "/books/book.epub", is_dir=False)
+            _koreader.delete_entry(
+                ssh, "/books/book.epub", is_dir=False, library_root="/books"
+            )
         self.assertIn("未检测到 KOReader", str(ctx.exception))
+        self.assertIn("/books/book.epub", ssh.files)
+
+    def test_delete_symlink_escape_is_rejected_before_mutation(self):
+        ssh = FakeSSH()
+        ssh.install_official()
+        ssh.add_file("/etc/secret")
+        ssh.add_symlink("/books/secret", "/etc/secret")
+        with self.assertRaisesRegex(RuntimeError, "KOReader"):
+            _koreader.delete_entry(
+                ssh, "/books/secret", is_dir=False, library_root="/books"
+            )
+        self.assertIn("/etc/secret", ssh.files)
+        self.assertIn("/books/secret", ssh.symlinks)
+
+    def test_sidecar_symlink_escape_blocks_primary_delete(self):
+        ssh = FakeSSH()
+        ssh.install_official()
+        ssh.add_file("/books/book.epub")
+        ssh.add_dir("/etc/sidecar")
+        ssh.add_symlink("/books/book.epub.sdr", "/etc/sidecar")
+        with self.assertRaisesRegex(RuntimeError, "KOReader"):
+            _koreader.delete_entry(
+                ssh, "/books/book.epub", is_dir=False, library_root="/books"
+            )
         self.assertIn("/books/book.epub", ssh.files)
 
 
@@ -439,7 +568,7 @@ class CreateFolderTests(unittest.TestCase):
     def test_create_folder_success(self):
         ssh = FakeSSH()
         ssh.install_official()
-        path = _koreader.create_folder(ssh, "/books", "新 书")
+        path = _koreader.create_folder(ssh, "/books", "新 书", "/books")
         self.assertEqual(path, "/books/新 书")
         self.assertIn("/books/新 书", ssh.dirs)
         self.assertIn(f"mkdir -- {shlex.quote('/books/新 书')}", ssh.commands)
@@ -449,7 +578,7 @@ class CreateFolderTests(unittest.TestCase):
         ssh.install_official()
         ssh.add_file("/books/novels")
         with self.assertRaises(RuntimeError) as ctx:
-            _koreader.create_folder(ssh, "/books", "novels")
+            _koreader.create_folder(ssh, "/books", "novels", "/books")
         self.assertIn("已存在", str(ctx.exception))
 
     def test_create_folder_invalid_names(self):
@@ -457,14 +586,27 @@ class CreateFolderTests(unittest.TestCase):
         ssh.install_official()
         for bad in ("", "  ", ".", "..", "a/b", "a\\b"):
             with self.assertRaises(RuntimeError, msg=bad):
-                _koreader.create_folder(ssh, "/books", bad)
+                _koreader.create_folder(ssh, "/books", bad, "/books")
 
     def test_create_folder_inside_xochitl_rejected(self):
         ssh = FakeSSH()
         ssh.install_official()
         with self.assertRaises(RuntimeError):
-            _koreader.create_folder(ssh, _koreader.XOCHITL_ROOT, "books")
+            _koreader.create_folder(
+                ssh, _koreader.XOCHITL_ROOT, "books", "/books"
+            )
         self.assertNotIn(posixpath.join(_koreader.XOCHITL_ROOT, "books"), ssh.dirs)
+
+    def test_create_folder_through_symlink_escape_is_rejected(self):
+        ssh = FakeSSH()
+        ssh.install_official()
+        ssh.add_dir("/etc")
+        ssh.add_symlink("/books/outside", "/etc")
+        with self.assertRaisesRegex(RuntimeError, "KOReader"):
+            _koreader.create_folder(
+                ssh, "/books/outside", "new", "/books"
+            )
+        self.assertNotIn("/etc/new", ssh.dirs)
 
 
 class NoRestartTests(unittest.TestCase):
@@ -477,9 +619,11 @@ class NoRestartTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             local = os.path.join(tmpdir, "new.epub")
             Path(local).write_bytes(b"data")
-            _koreader.upload_file(ssh, local, "/books")
-            _koreader.delete_entry(ssh, "/books/book.epub", is_dir=False)
-            _koreader.create_folder(ssh, "/books", "folder")
+            _koreader.upload_file(ssh, local, "/books", "/books")
+            _koreader.delete_entry(
+                ssh, "/books/book.epub", is_dir=False, library_root="/books"
+            )
+            _koreader.create_folder(ssh, "/books", "folder", "/books")
         joined = "\n".join(ssh.commands)
         self.assertNotIn("systemctl", joined)
         self.assertNotIn("reboot", joined)
@@ -503,7 +647,10 @@ class TabTestBase(unittest.TestCase):
     def load(self, install_dir=_koreader.OFFICIAL_INSTALL_DIR, directory="/books",
              entries=()):
         self.tab.set_connection_state(True)
-        self.tab._on_listing_loaded((install_dir, directory, list(entries)))
+        library_root = directory if install_dir is not None else ""
+        self.tab._on_listing_loaded(
+            (install_dir, library_root, directory, list(entries))
+        )
 
 
 class TabStateTests(TabTestBase):
@@ -638,7 +785,7 @@ class TabDeleteTests(TabTestBase):
         self.ssh.install_official()
         self.ssh.add_file("/books/a.epub")
         self.ssh.add_dir("/books/a.epub.sdr")
-        self.tab._perform_delete([self.entry("a.epub")])
+        self.tab._perform_delete([self.entry("a.epub")], "/books")
         self.assertNotIn("/books/a.epub", self.ssh.files)
         self.assertNotIn("/books/a.epub.sdr", self.ssh.dirs)
 
@@ -700,7 +847,7 @@ class TabUploadTests(TabTestBase):
             local = os.path.join(tmpdir, "book.epub")
             Path(local).write_bytes(b"data")
             with self.assertRaises(RuntimeError):
-                self.tab._perform_upload([local], "/books", False)
+                self.tab._perform_upload([local], "/books", "/books", False)
 
 
 class TabDownloadTests(TabTestBase):

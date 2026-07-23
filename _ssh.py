@@ -9,6 +9,7 @@ import logging
 import os
 import socket
 import stat
+import threading
 from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
@@ -101,6 +102,8 @@ class SSHClientWrapper(QtCore.QObject):
 
     def __init__(self, parent: Optional[QtCore.QObject] = None):
         super().__init__(parent)
+        self._transport_lock = threading.RLock()
+        self._state_lock = threading.RLock()
         self._client: Optional[paramiko.SSHClient] = None
         self.connection_info: Dict[str, str] = {}
 
@@ -193,88 +196,106 @@ class SSHClientWrapper(QtCore.QObject):
         device_id: str = "",
         device_name: str = "",
     ) -> None:
-        logging.info("Connecting to %s", host)
-        self.close()
-        self.connection_info = {}
-        trust_identity = self._trust_identity(host, device_id)
-        trusted_key = self._lookup_trusted_host_key(trust_identity)
-        client = self._build_client()
-        if trusted_key:
-            self._apply_trusted_host_key(client, host, trusted_key)
-        try:
-            self._connect_client(client, host, password, timeout)
-        except paramiko.SSHException as exc:
+        with self._transport_lock:
+            logging.info("Connecting to %s", host)
+            self.close()
+            self.connection_info = {}
+            trust_identity = self._trust_identity(host, device_id)
+            trusted_key = self._lookup_trusted_host_key(trust_identity)
+            client = self._build_client()
+            if trusted_key:
+                self._apply_trusted_host_key(client, host, trusted_key)
+            try:
+                self._connect_client(client, host, password, timeout)
+            except paramiko.SSHException as exc:
+                try:
+                    client.close()
+                except Exception:
+                    logging.exception("Failed to close SSH client after connect error")
+                key_changed = isinstance(exc, paramiko.BadHostKeyException)
+                if not key_changed and not self._is_unknown_host_error(exc):
+                    raise
+                host_key = self._fetch_remote_host_key(host, timeout)
+                if not trust_unknown_host:
+                    raise UnknownHostKeyError(
+                        host, host_key, key_changed=key_changed
+                    ) from exc
+                self._trust_host_key(trust_identity, host_key)
+                client = self._build_client()
+                self._apply_trusted_host_key(client, host, host_key)
+                self._connect_client(client, host, password, timeout)
+
+            # Enable TCP keepalive so the connection survives idle periods
+            transport = client.get_transport()
+            if transport:
+                transport.set_keepalive(30)
+            with self._state_lock:
+                self._client = client
+                self.connection_info = {
+                    "host": host,
+                    "device_id": device_id,
+                    "device_name": device_name,
+                }
+                self.connection_changed.emit(True)
+
+    def close(self) -> None:
+        # Do not wait for a long-running command or transfer here.  Closing the
+        # underlying client is the cancellation path used by the UI; the
+        # in-flight operation will fail in its worker while new operations see
+        # the cleared client after they acquire the transport lock.
+        with self._state_lock:
+            client, self._client = self._client, None
+            self.connection_info = {}
+            self.connection_changed.emit(False)
+        if client:
             try:
                 client.close()
             except Exception:
-                logging.exception("Failed to close SSH client after connect error")
-            key_changed = isinstance(exc, paramiko.BadHostKeyException)
-            if not key_changed and not self._is_unknown_host_error(exc):
-                raise
-            host_key = self._fetch_remote_host_key(host, timeout)
-            if not trust_unknown_host:
-                raise UnknownHostKeyError(
-                    host, host_key, key_changed=key_changed
-                ) from exc
-            self._trust_host_key(trust_identity, host_key)
-            client = self._build_client()
-            self._apply_trusted_host_key(client, host, host_key)
-            self._connect_client(client, host, password, timeout)
-
-        # Enable TCP keepalive so the connection survives idle periods
-        transport = client.get_transport()
-        if transport:
-            transport.set_keepalive(30)
-        self._client = client
-        self.connection_info = {
-            "host": host,
-            "device_id": device_id,
-            "device_name": device_name,
-        }
-        self.connection_changed.emit(True)
-
-    def close(self) -> None:
-        if self._client:
-            try:
-                self._client.close()
-            except Exception:
                 pass
-            self._client = None
-        self.connection_info = {}
-        self.connection_changed.emit(False)
 
     def ensure_client(self) -> paramiko.SSHClient:
-        if not self._client:
-            raise RuntimeError("未连接到设备")
-        # Heartbeat: verify the underlying transport is still alive
-        try:
-            transport = self._client.get_transport()
-            if transport is None or not transport.is_active():
-                raise RuntimeError("transport dead")
-            transport.send_ignore()
-        except Exception:
-            self._client = None
-            self.connection_changed.emit(False)
-            raise RuntimeError("连接已断开，请重新连接")
-        return self._client
+        with self._transport_lock:
+            with self._state_lock:
+                client = self._client
+            if not client:
+                raise RuntimeError("未连接到设备")
+            # Heartbeat: verify the underlying transport is still alive
+            try:
+                transport = client.get_transport()
+                if transport is None or not transport.is_active():
+                    raise RuntimeError("transport dead")
+                transport.send_ignore()
+            except Exception:
+                with self._state_lock:
+                    if self._client is client:
+                        self._client = None
+                        self.connection_info = {}
+                        self.connection_changed.emit(False)
+                raise RuntimeError("连接已断开，请重新连接")
+            return client
 
     @contextmanager
     def sftp_session(self) -> Iterator[paramiko.SFTPClient]:
-        client = self.ensure_client()
-        sftp = client.open_sftp()
-        try:
-            yield sftp
-        finally:
+        with self._transport_lock:
+            client = self.ensure_client()
+            sftp = client.open_sftp()
             try:
-                sftp.close()
-            except Exception:
-                logging.exception("Failed to close SFTP session")
+                yield sftp
+            finally:
+                try:
+                    sftp.close()
+                except Exception:
+                    logging.exception("Failed to close SFTP session")
 
     def is_connected(self) -> bool:
-        if not self._client:
+        # This method is called by UI-thread guards.  It must remain a quick
+        # snapshot instead of queueing behind a background SFTP transfer.
+        with self._state_lock:
+            client = self._client
+        if not client:
             return False
         try:
-            transport = self._client.get_transport()
+            transport = client.get_transport()
             return transport is not None and transport.is_active()
         except Exception:
             return False
@@ -282,15 +303,16 @@ class SSHClientWrapper(QtCore.QObject):
     # -- Command execution ---------------------------------------------------
     def exec_command(self, command: str) -> Tuple[str, str, int]:
         """Execute *command* and return ``(stdout, stderr, exit_code)``."""
-        client = self.ensure_client()
-        logging.info("Executing command: %s", command)
-        _stdin, stdout, stderr = client.exec_command(command)
-        exit_code = stdout.channel.recv_exit_status()
-        return (
-            stdout.read().decode("utf-8"),
-            stderr.read().decode("utf-8"),
-            exit_code,
-        )
+        with self._transport_lock:
+            client = self.ensure_client()
+            logging.info("Executing command: %s", command)
+            _stdin, stdout, stderr = client.exec_command(command)
+            exit_code = stdout.channel.recv_exit_status()
+            return (
+                stdout.read().decode("utf-8"),
+                stderr.read().decode("utf-8"),
+                exit_code,
+            )
 
     def exec_checked(self, command: str) -> str:
         """Execute *command* and raise on non-zero exit code.  Returns stdout."""
@@ -317,6 +339,11 @@ class SSHClientWrapper(QtCore.QObject):
     def listdir_attr(self, remote_path: str):
         with self.sftp_session() as sftp:
             return sftp.listdir_attr(remote_path)
+
+    def realpath(self, remote_path: str) -> str:
+        """Return the server-canonical absolute path for *remote_path*."""
+        with self.sftp_session() as sftp:
+            return sftp.normalize(remote_path)
 
     def open_remote(self, remote_path: str, mode: str = "r"):
         @contextmanager
