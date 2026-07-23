@@ -10,7 +10,7 @@ A desktop GUI management tool for reMarkable devices
 
 </div>
 
-rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, and reMarkable 2 devices over local root SSH. It provides multi-device connections, a dashboard, wallpaper and document management, font upload, time management, device controls, native Chinese UI localization, and firmware-gated tap-to-turn support. Device operations do not depend on reMarkable cloud services. The computer needs internet access the first time it retrieves a localization manifest or firmware package; a previously validated cache can be reused offline.
+rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, and reMarkable 2 devices over local root SSH. It provides multi-device connections, a dashboard, wallpaper and document management, KOReader library management, font upload, time management, device controls, native Chinese UI localization, and firmware-gated tap-to-turn support. Device operations do not depend on reMarkable cloud services. The computer needs internet access the first time it retrieves a localization manifest or firmware package; a previously validated cache can be reused offline.
 
 > [!WARNING]
 > rmtool directly modifies files on the device. Sync or back up important content first, and make sure you accept the data and warranty risks associated with Developer Mode, root SSH, and third-party modifications. This project is not official reMarkable software.
@@ -52,7 +52,7 @@ Most users should download the [latest release](https://github.com/pretenderlu/r
 
 The release packages are currently neither Windows code-signed nor Apple-notarized. If SmartScreen or Gatekeeper blocks the app, first verify that the file came from this repository's release page, then use the operating system's one-time approval option. Do not disable system security globally.
 
-The macOS build creates `.rmtool/` next to the `.app`. Place the app in a directory writable by the current user, such as `~/Applications/rmtool/`, instead of running it from a read-only location.
+The macOS build stores its runtime state in `~/Library/Application Support/rmtool/`, so the app can run normally even when its bundle is in a read-only or translocated location.
 
 ## Connecting a device
 
@@ -68,18 +68,18 @@ The macOS build creates `.rmtool/` next to the `.app`. Place the app in a direct
 
 1. Start rmtool, click "Add" in the sidebar, and enter the device name, connection method, address, model, and root password.
 2. Click "Connect". The first connection displays the SSH host fingerprint; trust it only after confirming that it belongs to your device.
-3. After a successful connection, the wallpaper, document, and toolbox pages are enabled automatically.
+3. After a successful connection, the wallpaper, document, KOReader, and toolbox pages are enabled automatically.
 4. Multiple devices can have separate saved profiles. Switching to another device or address automatically closes the existing SSH connection.
 
 ## Local data and security
 
-rmtool stores runtime state in `.rmtool/` next to the application:
+rmtool stores runtime state in the following platform-specific directory:
 
-| Run mode | `.rmtool/` location |
+| Run mode | State directory |
 | --- | --- |
-| From source | Repository root |
-| Windows release | Directory containing `rmtool.exe` or the single-file EXE |
-| macOS release | Directory containing `rmtool.app` |
+| From source | `.rmtool/` in the repository root |
+| Windows release | `.rmtool/` beside `rmtool.exe` or the single-file EXE |
+| macOS release | `~/Library/Application Support/rmtool/` |
 
 The main files are:
 
@@ -90,13 +90,14 @@ The main files are:
 - `cache/tap-page-turn/`: validated tap-to-turn manifests and package cache.
 
 > [!CAUTION]
-> When "Remember password" is selected, the root password is stored in **plain text** in `.rmtool/devices.json`; it is not stored in the operating system credential manager. Do not share, upload, or sync the entire `.rmtool/` directory to an untrusted location, and do not attach it to an issue. Use "Forget password" in the sidebar to remove a saved password.
+> When "Remember password" is selected, the root password is stored in **plain text** in `devices.json` under the state directory above; it is not stored in the operating system credential manager. Do not share, upload, or sync the entire state directory to an untrusted location, and do not attach it to an issue. Use "Forget password" in the sidebar to remove a saved password.
 
 ## Features
 
-- **Connections and dashboard**: Manage multiple USB/Wi-Fi device profiles and verify SSH host fingerprints. The local HTML dashboard shows connection status, device details, PDF/EPUB/notebook counts, and suggested next steps.
-- **Wallpaper management**: Read and preview the device's current startup, suspend, carousel, and shutdown wallpapers. Output is sized for the device and orientation, with fit, crop, and stretch modes plus horizontal and vertical crop offsets. The cover-wall generator combines up to 12 document thumbnails with an optional title and subtitle into a local poster wallpaper; no document data is sent to a cloud service.
+- **Connections and dashboard**: Manage multiple USB/Wi-Fi device profiles and verify SSH host fingerprints. The native Qt dashboard shows connection status, device details, PDF/EPUB/notebook counts, and suggested next steps.
+- **Wallpaper management**: Read and preview the device's current startup, suspend, carousel, and shutdown wallpapers. The current UI produces portrait wallpapers at the selected device's native resolution, with fit, crop, and stretch modes plus horizontal and vertical crop offsets. The cover-wall generator arranges selected document thumbnails with optional text into a local poster wallpaper; no document data is sent to a cloud service.
 - **Document center**: Search and inspect document metadata and thumbnails; batch-upload PDF/EPUB files, check free space, and batch-delete documents. Export parseable handwriting from `.rm` or `.note` data in one document to a white-background PDF without merging the original PDF/EPUB pages.
+- **KOReader file manager**: Detect an existing KOReader installation and browse its book library. Search folders, upload or download book files, create folders, and delete entries without leaving the detected library root. rmtool does not install KOReader itself.
 - **Font manager**: Preview and upload multiple TTF/OTF fonts, optionally rename an upload to `zwzt.ttf`, inspect the device's top-level user fonts, switch the exact font file used by the system UI, and delete inactive fonts. Uploading does not change the active font or reboot the device; restart is a separate confirmed action.
 - **Time management**: Sync the computer's time, inspect system time, hardware clock, and timezone, or set the timezone to `Asia/Shanghai`.
 - **Device control**: Restart the device, enable Wi-Fi SSH, and increase frontlight brightness on devices with the `rm_frontlight` interface while installing a persistence service.
@@ -106,7 +107,7 @@ The main files are:
 
 ### Wallpaper notes
 
-Before each upload, the target file is copied to `.backup` in the same directory; another upload overwrites that backup. When uploading the suspend wallpaper `suspended.png`, rmtool also replaces existing `carousel/*.png` files with transparent images so firmware 3.27 carousel artwork does not cover the custom wallpaper. Those carousel images are not backed up separately. If you need to preserve them, back them up over SSH first.
+Before each upload, the target file is copied to `.backup` in the same directory; another upload overwrites that backup. When uploading the suspend wallpaper `suspended.png`, rmtool can replace existing `carousel/*.png` files with transparent images so firmware 3.27 carousel artwork does not cover the custom wallpaper. The original carousel images are preserved once in `carousel/.backup/`, a subdirectory ignored by the firmware, and disabling the option restores them. Legacy adjacent backups are migrated into that subdirectory.
 
 ### Native Chinese UI localization
 
@@ -121,15 +122,15 @@ Release packages do not embed firmware-specific `.qm` files. After you choose "D
 
 The platform code is the hardware identifier used inside official firmware packages. It is separate from the 14-digit internal firmware version shown in each column.
 
-| Device model | Platform code | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) |
-| --- | --- | --- | --- | --- |
-| reMarkable Paper Pro | `ferrari` | Supported | Supported | Supported |
-| reMarkable Paper Pro Move | `chiappa` | Supported | Supported | Supported |
-| reMarkable Paper Pure | `tatsu` | Not available | Supported | Not available |
-| reMarkable 1 | `rm1` | Not available | Supported | Not available |
-| reMarkable 2 | `rm2` | Not available | Supported | Not available |
+| Device model | Platform code | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) |
+| --- | --- | --- | --- | --- | --- |
+| reMarkable Paper Pro | `ferrari` | Supported | Supported | Supported | Supported |
+| reMarkable Paper Pro Move | `chiappa` | Supported | Supported | Supported | Supported |
+| reMarkable Paper Pure | `tatsu` | Not available | Supported | Not available | Not available |
+| reMarkable 1 | `rm1` | Not available | Supported | Not available | Not available |
+| reMarkable 2 | `rm2` | Not available | Supported | Not available | Not available |
 
-On the beta firmware, enable and restore have been verified on a real Paper Pro (`ferrari`). Paper Pro Move (`chiappa`), Paper Pure (`tatsu`), reMarkable 1 (`rm1`), and reMarkable 2 (`rm2`) have only been validated offline against official `3.27.3.0` firmware and have not yet been deployed to real devices. The cloud manifest remains the source of truth for actual availability. See the [localization documentation](translations/README.md) and [manifest format](translations/manifest.json).
+Enable and restore have been verified on a real Paper Pro (`ferrari`) for both listed 3.28 beta builds. Paper Pro Move (`chiappa`) beta support and the listed `3.27.3.0` packages for Paper Pro Move, Paper Pure (`tatsu`), reMarkable 1 (`rm1`), and reMarkable 2 (`rm2`) have been validated offline against official firmware but not yet deployed to those devices. The cloud manifest remains the source of truth for actual availability. See the [localization documentation](translations/README.md) and [manifest format](translations/manifest.json).
 
 Localization reuses xochitl's built-in French language slot, so French is unavailable while Chinese is enabled. rmtool first backs up the original configuration and `reMarkable_fr.qm`, then checks whether the current primary font supports Simplified Chinese. The official reMarkable 1 and reMarkable 2 firmware images contain no CJK fonts, so this fallback is required. If the current primary font does not support Chinese, you can install the bundled Noto Sans CJK SC or select a local TTF/OTF file. After enabling localization, repairing fonts, or restoring the original UI, rmtool closes SSH and **does not restart the device automatically**. Restart the device manually to apply the change.
 
@@ -137,13 +138,13 @@ Localization reuses xochitl's built-in French language slot, so French is unavai
 
 Tap-to-turn is available for the exact builds below. rmtool requires a match for the hardware platform, CPU architecture, internal firmware version, and `/usr/bin/xochitl` SHA-256. Other devices and firmware versions are rejected rather than guessed.
 
-| Device model | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) |
-| --- | --- | --- | --- | --- |
-| reMarkable Paper Pro | `ferrari` | Offline verified | Offline verified | **Device verified** |
-| reMarkable Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified |
-| reMarkable Paper Pure | `tatsu` | Not available | Offline verified | Not available |
-| reMarkable 1 | `rm1` | Not available | Offline verified | Not available |
-| reMarkable 2 | `rm2` | Not available | Offline verified | Not available |
+| Device model | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) |
+| --- | --- | --- | --- | --- | --- |
+| reMarkable Paper Pro | `ferrari` | Offline verified | Offline verified | **Device verified** | **Device verified** |
+| reMarkable Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified | Offline verified |
+| reMarkable Paper Pure | `tatsu` | Not available | Offline verified | Not available | Not available |
+| reMarkable 1 | `rm1` | Not available | Offline verified | Not available | Not available |
+| reMarkable 2 | `rm2` | Not available | Offline verified | Not available | Not available |
 
 "Offline verified" means the package passed extraction, QMLDiff compatibility, patch replay, architecture, archive, and hash checks against the corresponding official firmware. Only Paper Pro 3.28 has completed enable, disable, rollback, and cold-boot testing on a physical device so far.
 
@@ -172,7 +173,7 @@ When Vellum owns the standard AppLoader/Xovi runtime, rmtool verifies the instal
 - **Localization buttons are disabled**: Click "Check Status" first. The computer needs internet access or a valid cache, and the internal firmware version plus the SHA-256 of the original `reMarkable_fr.qm` must match the same manifest entry.
 - **Tap-to-turn cannot be enabled**: Click "Check Status" first. The model, firmware, architecture, and stock xochitl hash must match one exact row above. A modified xochitl or payload also blocks deployment. Vellum mode additionally requires package ownership and runtime hashes to match, and refuses conflicting tap-to-page packages; custom or modified Xovi installations are not treated as clean standalone devices.
 - **Tap-to-turn still works immediately after disabling**: This is expected because rmtool does not kill the running xochitl process. Restart the tablet from its device menu to return to the stock interface.
-- **macOS cannot create its configuration**: Move `rmtool.app` to a directory writable by the current user and make sure `.rmtool/` can be created beside it.
+- **macOS cannot create its configuration**: Make sure the current user can create and write `~/Library/Application Support/rmtool/`.
 - **Diagnostic information is needed**: Click the log button in the lower-left corner, filter by level, or choose "Open Log File". Before sharing a log, check it for private information such as the device address.
 
 ## Running from source
