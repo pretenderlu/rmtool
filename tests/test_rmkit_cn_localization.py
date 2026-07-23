@@ -1419,6 +1419,8 @@ class RmkitCnLocalizationTests(unittest.TestCase):
                     _rmkit_cn.delete_user_font(ssh, directory, filename)
 
     def test_malformed_font_markers_are_rejected_without_writes(self):
+        # A localized carrier makes the font state safety-relevant, so a
+        # malformed marker must still abort without touching anything.
         target = _rmkit_cn.CUSTOM_FONT_PATHS[".ttf"]
         malformed_markers = (
             b"{",
@@ -1436,6 +1438,10 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         for marker in malformed_markers:
             with self.subTest(marker=marker):
                 ssh = self.make_ssh()
+                ssh.files[_rmkit_cn.QM_PATH] = self.LOCALIZED_QM
+                ssh.files[_rmkit_cn.BACKUP_READY_PATH] = b""
+                ssh.files[_rmkit_cn.BACKUP_CONFIG_PATH] = b"[General]\n"
+                ssh.files[_rmkit_cn.BACKUP_QM_PATH] = self.STOCK_QM
                 ssh.files[_rmkit_cn.FONT_MARKER_PATH] = marker
                 before = dict(ssh.files)
 
@@ -1453,6 +1459,64 @@ class RmkitCnLocalizationTests(unittest.TestCase):
                         for kind, value in ssh.events
                     )
                 )
+
+    def test_stock_carrier_discards_malformed_font_marker(self):
+        # The carrier is verified stock, so a malformed marker (e.g. a
+        # zero-byte file left by an old version) is discarded instead of
+        # blocking localization forever.
+        ssh = self.make_ssh()
+        ssh.files[_rmkit_cn.FONT_MARKER_PATH] = b"{"
+
+        status = _rmkit_cn.get_localization_status(ssh)
+
+        self.assertEqual(status.state, _rmkit_cn.LocalizationState.NOT_INSTALLED)
+        self.assertNotIn(_rmkit_cn.FONT_MARKER_PATH, ssh.files)
+
+    def test_stock_carrier_discards_stale_backup_from_other_firmware(self):
+        # Backup from a different firmware (hash matches neither the
+        # current stock nor the localized catalog) is unusable; the
+        # verified-stock carrier makes it safe to drop and re-enable.
+        ssh = self.make_ssh()
+        ssh.files[_rmkit_cn.BACKUP_READY_PATH] = b""
+        ssh.files[_rmkit_cn.BACKUP_CONFIG_PATH] = b"[General]\n"
+        ssh.files[_rmkit_cn.BACKUP_QM_PATH] = b"old-firmware-stock-qm"
+
+        status = _rmkit_cn.get_localization_status(ssh)
+
+        self.assertEqual(status.state, _rmkit_cn.LocalizationState.NOT_INSTALLED)
+        self.assertNotIn(_rmkit_cn.BACKUP_READY_PATH, ssh.files)
+        self.assertNotIn(_rmkit_cn.BACKUP_QM_PATH, ssh.files)
+
+        result = _rmkit_cn.enable_localization(ssh, self.make_qm())
+        self.assertEqual(result.state, _rmkit_cn.LocalizationState.ENABLED)
+        self.assertEqual(ssh.files[_rmkit_cn.BACKUP_QM_PATH], self.STOCK_QM)
+
+    def test_stock_carrier_discards_zeroed_backup(self):
+        # Regression for the real-device incident: unsynced writes left
+        # zero-byte backup files after a hard power-off.
+        ssh = self.make_ssh()
+        ssh.files[_rmkit_cn.BACKUP_READY_PATH] = b""
+        ssh.files[_rmkit_cn.BACKUP_CONFIG_PATH] = b""
+        ssh.files[_rmkit_cn.BACKUP_QM_PATH] = b""
+
+        status = _rmkit_cn.get_localization_status(ssh)
+
+        self.assertEqual(status.state, _rmkit_cn.LocalizationState.NOT_INSTALLED)
+        self.assertNotIn(_rmkit_cn.BACKUP_READY_PATH, ssh.files)
+
+    def test_restore_with_stale_backup_and_stock_carrier_is_a_noop(self):
+        ssh = self.make_ssh()
+        ssh.files[_rmkit_cn.BACKUP_READY_PATH] = b""
+        ssh.files[_rmkit_cn.BACKUP_CONFIG_PATH] = b""
+        ssh.files[_rmkit_cn.BACKUP_QM_PATH] = b""
+
+        status = _rmkit_cn.restore_localization(ssh)
+
+        self.assertEqual(status.state, _rmkit_cn.LocalizationState.NOT_INSTALLED)
+        self.assertEqual(ssh.files[_rmkit_cn.QM_PATH], self.STOCK_QM)
+        self.assertNotIn(_rmkit_cn.BACKUP_READY_PATH, ssh.files)
+        exec_commands = [value for kind, value in ssh.events if kind == "exec"]
+        self.assertNotIn("systemctl stop xochitl", exec_commands)
 
     def test_restore_keeps_all_retry_metadata_when_font_removal_fails(self):
         font_data = b"managed-font"

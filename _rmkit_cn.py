@@ -1096,6 +1096,27 @@ def _flush_remote_writes(ssh_client) -> None:
     ssh_client.exec_checked("sync")
 
 
+def _discard_stale_localization_state(ssh_client) -> None:
+    """Drop backup and marker files that can never be restored from.
+
+    Only called when the on-device carrier is verified stock, so these
+    files (stale backups from an older firmware, or zero-byte files left
+    by a hard power-off before rmtool synced writes) hold nothing of
+    value. Removing them lets the next enable rebuild a fresh backup
+    instead of failing validation forever.
+    """
+    paths = [
+        BACKUP_READY_PATH,
+        BACKUP_CONFIG_PATH,
+        BACKUP_QM_PATH,
+        FONT_MARKER_PATH,
+        FONTCONFIG_BACKUP_PATH,
+        *sorted(MANAGED_FONT_PATHS),
+    ]
+    targets = paths + [f"{path}.tmp" for path in paths]
+    ssh_client.exec_checked("rm -f " + " ".join(targets))
+
+
 def _remove_managed_font(ssh_client) -> bool:
     if not _file_exists(ssh_client, FONT_MARKER_PATH):
         return False
@@ -1384,10 +1405,32 @@ def get_localization_status(
     carrier = _qm_kind(ssh_client, package=package)
     managed = _file_exists(ssh_client, BACKUP_READY_PATH)
     if managed:
-        _validate_backup(ssh_client, package)
+        try:
+            _validate_backup(ssh_client, package)
+        except RuntimeError:
+            if carrier != "stock":
+                raise
+            # The carrier is verified stock, so a backup that fails
+            # validation is stale (left by an older firmware) or was
+            # zeroed by a hard power-off. It can never be restored
+            # from; drop it so the next enable rebuilds a fresh one.
+            logging.warning(
+                "Discarding unusable localization backup; carrier is verified stock"
+            )
+            _discard_stale_localization_state(ssh_client)
+            managed = False
     elif carrier == "localized":
         raise RuntimeError("检测到中文载体，但缺少可还原的备份，已停止操作。")
-    _validate_font_rollback(ssh_client)
+    try:
+        _validate_font_rollback(ssh_client)
+    except RuntimeError:
+        if carrier != "stock":
+            raise
+        logging.warning(
+            "Discarding unusable localization font state; carrier is verified stock"
+        )
+        _discard_stale_localization_state(ssh_client)
+        managed = False
     config = _read_bytes(ssh_client, CONFIG_PATH).decode("utf-8", "surrogateescape")
     if carrier == "localized" and _general_language(config) == CARRIER_LANGUAGE:
         state = LocalizationState.ENABLED
@@ -1589,7 +1632,11 @@ def restore_localization(
         firmware = _require_supported(ssh_client, package)
         if not _file_exists(ssh_client, BACKUP_READY_PATH):
             return get_localization_status(ssh_client, package)
-        get_localization_status(ssh_client, package)
+        status = get_localization_status(ssh_client, package)
+        if not _file_exists(ssh_client, BACKUP_READY_PATH):
+            # Status detection discarded a stale backup; the carrier is
+            # already stock, so there is nothing left to restore.
+            return status
 
         _stop_xochitl(ssh_client)
         backup_config = _read_bytes(ssh_client, BACKUP_CONFIG_PATH).decode(
