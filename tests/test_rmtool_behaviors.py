@@ -7,6 +7,8 @@ import shlex
 import stat
 import struct
 import tempfile
+import threading
+import time
 import unittest
 import zipfile
 from contextlib import contextmanager
@@ -3331,6 +3333,149 @@ class ExecCheckedContractTests(unittest.TestCase):
         with self.assertRaises(RuntimeError) as ctx:
             wrapper.exec_checked("mount -o remount,rw /")
         self.assertIn("mount failed", str(ctx.exception))
+
+
+class SSHTransportSerializationTests(unittest.TestCase):
+    class Tracker:
+        def __init__(self):
+            self.lock = threading.Lock()
+            self.active = 0
+            self.maximum = 0
+
+        def enter(self):
+            with self.lock:
+                self.active += 1
+                self.maximum = max(self.maximum, self.active)
+
+        def leave(self):
+            with self.lock:
+                self.active -= 1
+
+    class CommandOutput:
+        def __init__(self, tracker, *, is_stderr=False):
+            self.tracker = tracker
+            self.is_stderr = is_stderr
+            self.channel = self
+
+        def recv_exit_status(self):
+            time.sleep(0.02)
+            return 0
+
+        def read(self):
+            if self.is_stderr:
+                self.tracker.leave()
+                return b""
+            return b"ok"
+
+    class SFTP:
+        def __init__(self, tracker):
+            self.tracker = tracker
+
+        def normalize(self, path):
+            time.sleep(0.02)
+            return f"/canonical{path}"
+
+        def close(self):
+            self.tracker.leave()
+
+    class BlockingSFTP(SFTP):
+        def __init__(self, tracker, entered, released):
+            super().__init__(tracker)
+            self.entered = entered
+            self.released = released
+
+        def normalize(self, path):
+            self.entered.set()
+            self.released.wait(timeout=2)
+            return f"/canonical{path}"
+
+    class Client:
+        def __init__(self, tracker):
+            self.tracker = tracker
+            self.transport = FakeTransport()
+
+        def get_transport(self):
+            return self.transport
+
+        def exec_command(self, _command):
+            self.tracker.enter()
+            return (
+                None,
+                SSHTransportSerializationTests.CommandOutput(self.tracker),
+                SSHTransportSerializationTests.CommandOutput(
+                    self.tracker, is_stderr=True
+                ),
+            )
+
+        def open_sftp(self):
+            self.tracker.enter()
+            return SSHTransportSerializationTests.SFTP(self.tracker)
+
+    def test_command_and_sftp_channels_are_serialized(self):
+        tracker = self.Tracker()
+        wrapper = _ssh.SSHClientWrapper()
+        wrapper._client = self.Client(tracker)
+        start = threading.Barrier(8)
+
+        def run_command(index):
+            start.wait()
+            wrapper.exec_command(f"command-{index}")
+
+        def run_sftp():
+            start.wait()
+            with wrapper.sftp_session():
+                time.sleep(0.02)
+
+        threads = [
+            threading.Thread(target=run_command, args=(index,))
+            if index % 2 == 0
+            else threading.Thread(target=run_sftp)
+            for index in range(8)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=2)
+
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(tracker.maximum, 1)
+        self.assertEqual(tracker.active, 0)
+
+    def test_realpath_uses_serialized_sftp_canonicalization(self):
+        tracker = self.Tracker()
+        wrapper = _ssh.SSHClientWrapper()
+        wrapper._client = self.Client(tracker)
+
+        self.assertEqual(wrapper.realpath("/books"), "/canonical/books")
+        self.assertEqual(tracker.maximum, 1)
+        self.assertEqual(tracker.active, 0)
+
+    def test_status_and_close_do_not_wait_for_active_sftp_channel(self):
+        tracker = self.Tracker()
+        entered = threading.Event()
+        released = threading.Event()
+        client = self.Client(tracker)
+        client.open_sftp = lambda: self.BlockingSFTP(
+            tracker, entered, released
+        )
+        wrapper = _ssh.SSHClientWrapper()
+        wrapper._client = client
+
+        worker = threading.Thread(target=wrapper.realpath, args=("/books",))
+        worker.start()
+        self.assertTrue(entered.wait(timeout=1))
+
+        started = time.monotonic()
+        self.assertTrue(wrapper.is_connected())
+        wrapper.close()
+        elapsed = time.monotonic() - started
+
+        released.set()
+        worker.join(timeout=2)
+        self.assertFalse(worker.is_alive())
+        self.assertLess(elapsed, 0.1)
+        self.assertFalse(wrapper.is_connected())
+        self.assertIsNone(wrapper._client)
 
 
 class ConfigPersistenceTests(unittest.TestCase):

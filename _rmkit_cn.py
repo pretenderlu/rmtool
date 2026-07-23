@@ -1097,24 +1097,30 @@ def _flush_remote_writes(ssh_client) -> None:
 
 
 def _discard_stale_localization_state(ssh_client) -> None:
-    """Drop backup and marker files that can never be restored from.
+    """Drop unusable translation state without guessing font ownership.
 
     Only called when the on-device carrier is verified stock, so these
-    files (stale backups from an older firmware, or zero-byte files left
-    by a hard power-off before rmtool synced writes) hold nothing of
-    value. Removing them lets the next enable rebuild a fresh backup
-    instead of failing validation forever.
+    translation backups hold nothing of value. Managed font state is removed
+    only when its marker is valid enough to restore the exact prior Fontconfig.
+    A malformed marker is removed alone; its font and backup claims cannot be
+    trusted.
     """
-    paths = [
+    if _file_exists(ssh_client, FONT_MARKER_PATH):
+        if _font_marker(ssh_client):
+            _remove_managed_font(ssh_client)
+        else:
+            ssh_client.exec_checked(
+                f"rm -f {FONT_MARKER_PATH} {FONT_MARKER_PATH}.tmp"
+            )
+
+    translation_paths = [
         BACKUP_READY_PATH,
         BACKUP_CONFIG_PATH,
         BACKUP_QM_PATH,
-        FONT_MARKER_PATH,
-        FONTCONFIG_BACKUP_PATH,
-        *sorted(MANAGED_FONT_PATHS),
     ]
-    targets = paths + [f"{path}.tmp" for path in paths]
+    targets = translation_paths + [f"{path}.tmp" for path in translation_paths]
     ssh_client.exec_checked("rm -f " + " ".join(targets))
+    _flush_remote_writes(ssh_client)
 
 
 def _remove_managed_font(ssh_client) -> bool:
