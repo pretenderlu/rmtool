@@ -1407,10 +1407,14 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertTrue(hasattr(section, "detect_button"))
         self.assertTrue(hasattr(section, "enable_button"))
         self.assertTrue(hasattr(section, "restore_button"))
+        self.assertTrue(hasattr(section, "package_button"))
+        self.assertTrue(hasattr(section, "load_package_button"))
         self.assertFalse(section.enable_button.isEnabled())
         self.assertFalse(section.restore_button.isEnabled())
+        self.assertFalse(section.package_button.isEnabled())
+        self.assertFalse(section.load_package_button.isEnabled())
 
-    def test_rmkit_section_lists_cloud_firmware_channels(self):
+    def test_rmkit_section_collapses_other_firmware_versions(self):
         section = _tab_toolbox.RmkitCnSection(
             FakeConnectionClient(connected=True, host="10.11.99.1")
         )
@@ -1439,10 +1443,166 @@ class WallpaperUiTests(unittest.TestCase):
 
         catalog = section.catalog_label.text()
         self.assertIn("3.27.3.0 | 正式版", catalog)
-        self.assertIn("3.28-tentacruel | 测试版", catalog)
-        self.assertIn("硬件 Ferrari", catalog)
+        self.assertNotIn("3.28-tentacruel | 测试版", catalog)
         self.assertIn(stable.firmware, catalog)
-        self.assertIn(beta.firmware, catalog)
+        self.assertNotIn(beta.firmware, catalog)
+        self.assertIn(
+            "其他固件版本（1）",
+            section.other_packages_button.text(),
+        )
+        self.assertFalse(section.other_packages_button.isHidden())
+        self.assertTrue(section.other_packages_label.isHidden())
+
+        section.other_packages_button.click()
+
+        self.assertFalse(section.other_packages_label.isHidden())
+        self.assertIn(
+            "3.28-tentacruel | 测试版",
+            section.other_packages_label.text(),
+        )
+        self.assertIn("硬件 Ferrari", section.other_packages_label.text())
+        self.assertIn(beta.firmware, section.other_packages_label.text())
+        self.assertTrue(section.package_button.isEnabled())
+        self.assertTrue(section.download_package_action.isEnabled())
+        self.assertTrue(section.copy_package_link_action.isEnabled())
+        self.assertTrue(section.load_package_button.isEnabled())
+
+    def test_rmkit_section_hides_other_versions_button_for_single_match(self):
+        section = _tab_toolbox.RmkitCnSection(
+            FakeConnectionClient(connected=True, host="10.11.99.1")
+        )
+        self.addCleanup(section.deleteLater)
+        package = self.translation_package()
+
+        section._apply_status(
+            _rmkit_cn.LocalizationStatus(
+                _rmkit_cn.LocalizationState.NOT_INSTALLED,
+                package.firmware,
+                True,
+                package,
+                (package,),
+            )
+        )
+
+        self.assertIn("当前固件汉化包", section.catalog_label.text())
+        self.assertTrue(section.other_packages_button.isHidden())
+        self.assertTrue(section.other_packages_label.isHidden())
+
+    def test_rmkit_copy_package_link_uses_exact_matched_asset(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.RmkitCnSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.translation_package()
+        section._apply_status(
+            _rmkit_cn.LocalizationStatus(
+                _rmkit_cn.LocalizationState.NOT_INSTALLED,
+                package.firmware,
+                True,
+                package,
+            )
+        )
+        clipboard = mock.Mock()
+
+        with mock.patch.object(
+            QtWidgets.QApplication, "clipboard", return_value=clipboard
+        ), mock.patch.object(_tab_toolbox, "show_info") as show_info:
+            section._copy_package_download_link()
+
+        clipboard.setText.assert_called_once_with(package.download_url)
+        self.assertIn("已复制", show_info.call_args.args[2])
+
+    def test_rmkit_local_package_import_uses_worker_and_existing_cache(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.RmkitCnSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.translation_package()
+        section._apply_status(
+            _rmkit_cn.LocalizationStatus(
+                _rmkit_cn.LocalizationState.NOT_INSTALLED,
+                package.firmware,
+                True,
+                package,
+            )
+        )
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+        state_dir = Path(".rmtool")
+        source_path = "C:/Downloads/localization.qm"
+
+        with mock.patch.object(
+            QtWidgets.QFileDialog,
+            "getOpenFileName",
+            return_value=(source_path, "Qt 翻译文件 (*.qm)"),
+        ), mock.patch.object(
+            rmtool, "app_state_dir", return_value=state_dir
+        ), mock.patch.object(
+            rmtool, "Worker", return_value=worker
+        ) as worker_cls, mock.patch.object(
+            section.thread_pool, "start"
+        ) as start_worker, mock.patch.object(
+            _tab_toolbox, "show_info"
+        ) as show_info:
+            section._load_local_package()
+            worker.signals.finished.connect.call_args.args[0](
+                state_dir / "cache" / "localization" / package.firmware / package.asset
+            )
+
+        worker_cls.assert_called_once_with(
+            _rmkit_cn.import_translation_package,
+            package,
+            str(state_dir),
+            source_path,
+        )
+        start_worker.assert_called_once_with(worker)
+        self.assertIn("已校验并缓存", section.status_label.text())
+        self.assertIn("优先使用", show_info.call_args.args[2])
+
+    def test_rmkit_download_package_uses_verified_export_worker(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.RmkitCnSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.translation_package()
+        section._apply_status(
+            _rmkit_cn.LocalizationStatus(
+                _rmkit_cn.LocalizationState.NOT_INSTALLED,
+                package.firmware,
+                True,
+                package,
+            )
+        )
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+        state_dir = Path(".rmtool")
+        selected_path = "C:/Downloads/localization"
+        expected_path = f"{selected_path}.qm"
+
+        with mock.patch.object(
+            QtWidgets.QFileDialog,
+            "getSaveFileName",
+            return_value=(selected_path, "Qt 翻译文件 (*.qm)"),
+        ), mock.patch.object(
+            rmtool, "app_state_dir", return_value=state_dir
+        ), mock.patch.object(
+            rmtool, "Worker", return_value=worker
+        ) as worker_cls, mock.patch.object(
+            section.thread_pool, "start"
+        ) as start_worker, mock.patch.object(
+            _tab_toolbox, "show_info"
+        ) as show_info:
+            section._download_package_to_computer()
+            worker.signals.finished.connect.call_args.args[0](
+                expected_path
+            )
+
+        worker_cls.assert_called_once_with(
+            _rmkit_cn.export_translation_package,
+            package,
+            str(state_dir),
+            expected_path,
+        )
+        start_worker.assert_called_once_with(worker)
+        self.assertIn("已保存到电脑", section.status_label.text())
+        self.assertIn(expected_path, show_info.call_args.args[2])
 
     def test_rmkit_enable_runs_cloud_translation_without_restart(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")
@@ -1486,6 +1646,7 @@ class WallpaperUiTests(unittest.TestCase):
         )
         start_worker.assert_called_once_with(worker)
         self.assertIn("手动重启", show_info.call_args.args[2])
+        self.assertIn("法语", show_info.call_args.args[2])
 
     def test_rmkit_missing_font_cancel_starts_no_worker(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")

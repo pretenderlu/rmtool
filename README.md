@@ -128,6 +128,8 @@ Release packages do not embed firmware-specific `.qm` files. After you choose "D
 3. Calculates the SHA-256 of the device's original French carrier file, `reMarkable_fr.qm`, and uses it to select the correct hardware payload. Platform names such as `chiappa`, `ferrari`, `tatsu`, `rm1`, and `rm2` are display labels only; they are not used to guess compatibility.
 4. Verifies the download size and SHA-256. Nothing is written to the device if the firmware, original French file, or checksum does not match.
 
+The normal workflow is to click "Enable Chinese" and let rmtool download and install the exact matching package automatically. If the network is unreliable, use "Get Localization Package" to save the matching file or copy its direct URL, then import it with "Load Local Localization Package". Local files must pass the same exact size and SHA-256 checks for the connected device. A verified import only enters the computer-side cache; "Enable Chinese" still performs the existing guarded deployment.
+
 #### Current localization support matrix
 
 The platform code is the hardware identifier used inside official firmware packages. It is separate from the 14-digit internal firmware version shown in each column.
@@ -142,7 +144,7 @@ The platform code is the hardware identifier used inside official firmware packa
 
 Enable and restore have been verified on a real Paper Pro (`ferrari`) for both listed 3.28 beta builds. Paper Pro Move (`chiappa`) beta support and the listed `3.27.3.0` packages for Paper Pro Move, Paper Pure (`tatsu`), reMarkable 1 (`rm1`), and reMarkable 2 (`rm2`) have been validated offline against official firmware but not yet deployed to those devices. The cloud manifest remains the source of truth for actual availability. See the [localization documentation](translations/README.md) and [manifest format](translations/manifest.json).
 
-Localization reuses xochitl's built-in French language slot, so French is unavailable while Chinese is enabled. rmtool first backs up the original configuration and `reMarkable_fr.qm`, then checks whether the current primary font supports Simplified Chinese. The official reMarkable 1 and reMarkable 2 firmware images contain no CJK fonts, so this fallback is required. If the current primary font does not support Chinese, you can install the bundled Noto Sans CJK SC or select a local TTF/OTF file. After enabling localization, repairing fonts, or restoring the original UI, rmtool closes SSH and **does not restart the device automatically**. Restart the device manually to apply the change.
+Localization reuses xochitl's built-in French language slot, so French is unavailable while Chinese is enabled. rmtool first backs up the original configuration and `reMarkable_fr.qm`, then checks whether the current primary font supports Simplified Chinese. The official reMarkable 1 and reMarkable 2 firmware images contain no CJK fonts, so this fallback is required. If the current primary font does not support Chinese, you can install the bundled Noto Sans CJK SC or select a local TTF/OTF file. After enabling localization, repairing fonts, or restoring the original UI, rmtool closes SSH and **does not restart the device automatically**. After enabling Chinese, restart the device manually, then open Settings > Language and select French to activate the Chinese UI. Restoring the original UI only requires the prompted restart.
 
 ### Tap to turn pages
 
