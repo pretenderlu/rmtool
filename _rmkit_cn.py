@@ -30,17 +30,28 @@ STOCK_FRENCH_QM_SHA256 = (
 LOCALIZED_QM_SHA256 = (
     "47ba9d8a6f38b3763d013ecc489d44e8742704404b50a5de102b42e33dfebbfb"
 )
-TRANSLATION_MANIFEST_URL = (
-    "https://github.com/pretenderlu/rmtool/releases/download/"
-    "localization-assets/manifest.json"
+TRANSLATION_COS_URL = (
+    "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com"
 )
 TRANSLATION_RELEASE_URL = (
-    "https://github.com/pretenderlu/rmtool/releases/download/localization-assets"
+    "https://github.com/pretenderlu/rmtool/releases/download/"
+    "localization-assets"
+)
+TRANSLATION_MANIFEST_URL = f"{TRANSLATION_RELEASE_URL}/manifest.json"
+TRANSLATION_REMOTE_BASE_URLS = (
+    TRANSLATION_COS_URL,
+    TRANSLATION_RELEASE_URL,
+)
+TRANSLATION_MANIFEST_URLS = tuple(
+    f"{base_url}/manifest.json" for base_url in TRANSLATION_REMOTE_BASE_URLS
 )
 TRANSLATION_MANIFEST_SCHEMA = 1
 TRANSLATION_DOWNLOAD_TIMEOUT = 10
 MAX_MANIFEST_BYTES = 256 * 1024
 MAX_TRANSLATION_BYTES = 16 * 1024 * 1024
+BUNDLED_TRANSLATION_MANIFEST_PATH = (
+    Path(__file__).resolve().parent / "translations" / "manifest.json"
+)
 CARRIER_LANGUAGE = "fr_FR"
 CONFIG_PATH = "/home/root/.config/remarkable/xochitl.conf"
 QM_PATH = "/usr/share/remarkable/xochitl/translations/reMarkable_fr.qm"
@@ -101,7 +112,14 @@ class TranslationPackage:
 
     @property
     def download_url(self) -> str:
-        return f"{TRANSLATION_RELEASE_URL}/{self.asset}"
+        return self.download_urls[0]
+
+    @property
+    def download_urls(self) -> tuple[str, ...]:
+        return tuple(
+            f"{base_url}/{self.asset}"
+            for base_url in TRANSLATION_REMOTE_BASE_URLS
+        )
 
 
 def _default_translation_package() -> TranslationPackage:
@@ -236,12 +254,27 @@ def _download_limited(url: str, max_bytes: int) -> bytes:
 
 def _write_cache_file(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = path.with_name(f"{path.name}.tmp")
+    fd: Optional[int] = None
+    temporary_path: Optional[Path] = None
     try:
-        temporary_path.write_bytes(data)
+        fd, temporary_name = tempfile.mkstemp(
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=path.parent,
+        )
+        temporary_path = Path(temporary_name)
+        temporary_file = os.fdopen(fd, "wb")
+        fd = None
+        with temporary_file:
+            temporary_file.write(data)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
         os.replace(temporary_path, path)
     finally:
-        temporary_path.unlink(missing_ok=True)
+        if fd is not None:
+            os.close(fd)
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def _translation_cache_dir(state_dir: Union[str, Path]) -> Path:
@@ -267,26 +300,42 @@ def load_translation_catalog(
     state_dir: Union[str, Path], *, refresh: bool = True
 ) -> dict[str, TranslationPackage]:
     manifest_path = _translation_cache_dir(state_dir) / "manifest.json"
-    remote_error: Optional[Exception] = None
+    last_error: Optional[Exception] = None
     if refresh:
-        try:
-            data = _download_limited(TRANSLATION_MANIFEST_URL, MAX_MANIFEST_BYTES)
-            packages = parse_translation_manifest(data)
-            _write_cache_file(manifest_path, data)
-            return packages
-        except Exception as exc:
-            remote_error = exc
-            logging.warning("Could not refresh localization manifest: %s", exc)
+        for manifest_url in TRANSLATION_MANIFEST_URLS:
+            try:
+                data = _download_limited(manifest_url, MAX_MANIFEST_BYTES)
+                packages = parse_translation_manifest(data)
+                _write_cache_file(manifest_path, data)
+                return packages
+            except Exception as exc:
+                last_error = exc
+                logging.warning(
+                    "Could not load localization manifest from %s: %s",
+                    manifest_url,
+                    exc,
+                )
 
     if manifest_path.is_file():
         try:
             return parse_translation_manifest(manifest_path.read_bytes())
         except Exception as exc:
+            last_error = exc
             logging.warning("Cached localization manifest is invalid: %s", exc)
 
-    if remote_error:
-        raise RuntimeError("无法获取云端汉化清单，且本地没有可用缓存。") from remote_error
-    raise RuntimeError("本地没有可用的汉化清单。")
+    try:
+        return parse_translation_manifest(
+            BUNDLED_TRANSLATION_MANIFEST_PATH.read_bytes()
+        )
+    except Exception as exc:
+        last_error = exc
+        logging.warning("Bundled localization manifest is invalid: %s", exc)
+
+    if refresh:
+        raise RuntimeError(
+            "无法获取云端汉化清单，且本地缓存与内置清单均不可用。"
+        ) from last_error
+    raise RuntimeError("本地缓存与内置汉化清单均不可用。") from last_error
 
 
 def download_translation_package(
@@ -297,15 +346,29 @@ def download_translation_package(
         data = destination.read_bytes()
         try:
             _validate_translation_data(data, package, "缓存的中文翻译文件")
-        except RuntimeError:
-            pass
+        except RuntimeError as exc:
+            logging.warning("Cached localization package is invalid: %s", exc)
         else:
             return destination
 
-    data = _download_limited(package.download_url, MAX_TRANSLATION_BYTES)
-    _validate_translation_data(data, package, "下载的中文翻译文件")
-    _write_cache_file(destination, data)
-    return destination
+    last_error: Optional[Exception] = None
+    for download_url in package.download_urls:
+        try:
+            data = _download_limited(download_url, MAX_TRANSLATION_BYTES)
+            _validate_translation_data(data, package, "下载的中文翻译文件")
+            _write_cache_file(destination, data)
+            return destination
+        except Exception as exc:
+            last_error = exc
+            logging.warning(
+                "Could not download localization package from %s: %s",
+                download_url,
+                exc,
+            )
+
+    raise RuntimeError(
+        f"无法从可用镜像下载并校验当前固件的汉化包：{last_error}"
+    ) from last_error
 
 
 def import_translation_package(

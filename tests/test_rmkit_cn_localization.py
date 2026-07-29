@@ -1751,6 +1751,12 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             "translations/reMarkable_zh_CN-20260629074044.qm"
         )
         manifest_path = Path("translations/manifest.json")
+        self.assertEqual(
+            _rmkit_cn.BUNDLED_TRANSLATION_MANIFEST_PATH,
+            Path(_rmkit_cn.__file__).resolve().parent
+            / "translations"
+            / "manifest.json",
+        )
 
         self.assertEqual(font_path.stat().st_size, 16_437_364)
         self.assertEqual(
@@ -1887,17 +1893,49 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             "24393f00d9edb933933b436ffe5020990dd97d31d7788172907d75ff1d42d3a5",
         )
         build_script = Path("build-portable.ps1").read_text(encoding="utf-8-sig")
+        release_workflow = Path(".github/workflows/release.yml").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("assets\\fonts\\NotoSansCJKsc-Regular.otf", build_script)
         self.assertIn("assets\\fonts\\LICENSE", build_script)
         self.assertIn("assets\\fonts');assets\\fonts", build_script)
-        self.assertNotIn("translations\\reMarkable_zh_CN.qm", build_script)
-        self.assertNotIn("translations\\reMarkable_zh_CN_ferrari.qm", build_script)
-        self.assertNotIn(
-            "translations\\reMarkable_zh_CN-20260612085811-legacy.qm",
-            build_script,
+        self.assertIn(
+            "translations\\manifest.json');translations", build_script
         )
+        self.assertIn(
+            "translations/manifest.json:translations", release_workflow
+        )
+        self.assertNotIn("translations:translations", release_workflow)
+        self.assertNotIn(".qm", release_workflow)
+        self.assertNotIn(".qm", build_script)
         self.assertIn('"--onefile"', build_script)
         self.assertIn("rmtool-windows-x64-onefile.exe", build_script)
+
+    def test_cos_sync_workflow_keeps_publication_guardrails(self):
+        workflow = Path(
+            ".github/workflows/sync-localization-assets.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertEqual(workflow.count("client.put_object("), 2)
+        self.assertNotIn("client.delete_", workflow)
+        self.assertNotIn("client.get_", workflow)
+        self.assertNotIn("client.list_", workflow)
+        self.assertNotIn("client.head_", workflow)
+        self.assertIn("document.get(\"schema\") != 1", workflow)
+        self.assertIn("size > max_payload_bytes", workflow)
+        self.assertIn("sha256_re.fullmatch(digest)", workflow)
+        self.assertLess(
+            workflow.index('Key=name,'),
+            workflow.index('Key="manifest.json",'),
+        )
+        self.assertIn(
+            "TENCENT_CLOUD_SECRET_ID: ${{ secrets.TENCENT_CLOUD_SECRET_ID }}",
+            workflow,
+        )
+        self.assertIn(
+            "TENCENT_CLOUD_SECRET_KEY: ${{ secrets.TENCENT_CLOUD_SECRET_KEY }}",
+            workflow,
+        )
 
     def test_cloud_manifest_refresh_is_cached_for_offline_use(self):
         manifest = Path("translations/manifest.json").read_bytes()
@@ -1913,16 +1951,176 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             self.assertEqual(manifest_cache.read_bytes(), manifest)
             self.assertFalse(manifest_cache.with_name("manifest.json.tmp").exists())
             download.assert_called_once_with(
-                _rmkit_cn.TRANSLATION_MANIFEST_URL,
+                _rmkit_cn.TRANSLATION_MANIFEST_URLS[0],
                 _rmkit_cn.MAX_MANIFEST_BYTES,
             )
 
             with patch.object(
                 _rmkit_cn, "_download_limited", side_effect=OSError("offline")
-            ):
+            ) as download:
                 offline = _rmkit_cn.load_translation_catalog(state_dir)
 
             self.assertEqual(online, offline)
+            self.assertEqual(
+                [call.args[0] for call in download.call_args_list],
+                list(_rmkit_cn.TRANSLATION_MANIFEST_URLS),
+            )
+
+    def test_localization_remote_source_order_and_legacy_manifest_url(self):
+        package = self.make_translation_package()
+        self.assertEqual(
+            _rmkit_cn.TRANSLATION_REMOTE_BASE_URLS,
+            (
+                _rmkit_cn.TRANSLATION_COS_URL,
+                _rmkit_cn.TRANSLATION_RELEASE_URL,
+            ),
+        )
+        self.assertEqual(
+            _rmkit_cn.TRANSLATION_MANIFEST_URL,
+            f"{_rmkit_cn.TRANSLATION_RELEASE_URL}/manifest.json",
+        )
+        self.assertEqual(
+            _rmkit_cn.TRANSLATION_MANIFEST_URLS,
+            (
+                f"{_rmkit_cn.TRANSLATION_COS_URL}/manifest.json",
+                _rmkit_cn.TRANSLATION_MANIFEST_URL,
+            ),
+        )
+        self.assertEqual(
+            package.download_urls,
+            tuple(
+                f"{base_url}/{package.asset}"
+                for base_url in _rmkit_cn.TRANSLATION_REMOTE_BASE_URLS
+            ),
+        )
+        self.assertEqual(package.download_url, package.download_urls[0])
+
+    def test_cache_writes_use_unique_temporary_paths(self):
+        with tempfile.TemporaryDirectory() as state_dir:
+            destination = Path(state_dir) / "cache" / "manifest.json"
+            with patch.object(
+                _rmkit_cn.os,
+                "replace",
+                wraps=_rmkit_cn.os.replace,
+            ) as replace_mock:
+                _rmkit_cn._write_cache_file(destination, b"first")
+                _rmkit_cn._write_cache_file(destination, b"second")
+
+            temporary_paths = [
+                Path(call.args[0]) for call in replace_mock.call_args_list
+            ]
+            self.assertEqual(len(temporary_paths), 2)
+            self.assertNotEqual(temporary_paths[0], temporary_paths[1])
+            self.assertEqual(destination.read_bytes(), b"second")
+            self.assertFalse(
+                list(destination.parent.glob(f".{destination.name}.*.tmp"))
+            )
+
+    def test_cache_replace_failure_preserves_existing_file(self):
+        with tempfile.TemporaryDirectory() as state_dir:
+            destination = Path(state_dir) / "cache" / "manifest.json"
+            destination.parent.mkdir(parents=True)
+            destination.write_bytes(b"existing")
+
+            with patch.object(
+                _rmkit_cn.os,
+                "replace",
+                side_effect=OSError("simulated replace failure"),
+            ), self.assertRaisesRegex(OSError, "replace failure"):
+                _rmkit_cn._write_cache_file(destination, b"replacement")
+
+            self.assertEqual(destination.read_bytes(), b"existing")
+            self.assertFalse(
+                list(destination.parent.glob(f".{destination.name}.*.tmp"))
+            )
+
+    def test_invalid_remote_manifests_preserve_valid_cache(self):
+        manifest = Path("translations/manifest.json").read_bytes()
+        with tempfile.TemporaryDirectory() as state_dir:
+            manifest_path = (
+                Path(state_dir) / "cache" / "localization" / "manifest.json"
+            )
+            manifest_path.parent.mkdir(parents=True)
+            manifest_path.write_bytes(manifest)
+
+            with patch.object(
+                _rmkit_cn,
+                "_download_limited",
+                return_value=b'{"schema": 999}',
+            ) as download:
+                packages = _rmkit_cn.load_translation_catalog(state_dir)
+
+            self.assertEqual(
+                packages,
+                _rmkit_cn.parse_translation_manifest(manifest),
+            )
+            self.assertEqual(manifest_path.read_bytes(), manifest)
+            self.assertEqual(
+                [call.args[0] for call in download.call_args_list],
+                list(_rmkit_cn.TRANSLATION_MANIFEST_URLS),
+            )
+
+    def test_invalid_cos_manifest_falls_back_to_github(self):
+        manifest = Path("translations/manifest.json").read_bytes()
+
+        def download(url, _max_bytes):
+            if url == _rmkit_cn.TRANSLATION_MANIFEST_URLS[0]:
+                return b'{"schema": 999}'
+            return manifest
+
+        with tempfile.TemporaryDirectory() as state_dir, patch.object(
+            _rmkit_cn, "_download_limited", side_effect=download
+        ) as download_mock:
+            packages = _rmkit_cn.load_translation_catalog(state_dir)
+
+        self.assertEqual(
+            packages,
+            _rmkit_cn.parse_translation_manifest(manifest),
+        )
+        self.assertEqual(
+            [call.args[0] for call in download_mock.call_args_list],
+            list(_rmkit_cn.TRANSLATION_MANIFEST_URLS),
+        )
+
+    def test_first_run_remote_failure_uses_bundled_manifest(self):
+        manifest = Path("translations/manifest.json").read_bytes()
+        with tempfile.TemporaryDirectory() as state_dir:
+            bundled_path = (
+                Path(state_dir)
+                / "bundle"
+                / "translations"
+                / "manifest.json"
+            )
+            bundled_path.parent.mkdir(parents=True)
+            bundled_path.write_bytes(manifest)
+
+            with patch.object(
+                _rmkit_cn,
+                "BUNDLED_TRANSLATION_MANIFEST_PATH",
+                bundled_path,
+            ), patch.object(
+                _rmkit_cn,
+                "_download_limited",
+                side_effect=OSError("offline"),
+            ) as download:
+                packages = _rmkit_cn.load_translation_catalog(state_dir)
+
+            self.assertEqual(
+                packages,
+                _rmkit_cn.parse_translation_manifest(manifest),
+            )
+            self.assertEqual(
+                [call.args[0] for call in download.call_args_list],
+                list(_rmkit_cn.TRANSLATION_MANIFEST_URLS),
+            )
+            self.assertFalse(
+                (
+                    Path(state_dir)
+                    / "cache"
+                    / "localization"
+                    / "manifest.json"
+                ).exists()
+            )
 
     def test_cloud_manifest_rejects_unsafe_release_metadata(self):
         valid_entry = {
@@ -2061,6 +2259,27 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             self.assertFalse(first.with_name(f"{first.name}.tmp").exists())
             download.assert_called_once_with(
                 package.download_url, _rmkit_cn.MAX_TRANSLATION_BYTES
+            )
+
+    def test_invalid_cos_translation_falls_back_to_github(self):
+        package = self.make_translation_package()
+
+        def download(url, _max_bytes):
+            if url == package.download_urls[0]:
+                return b"truncated"
+            return self.LOCALIZED_QM
+
+        with tempfile.TemporaryDirectory() as state_dir, patch.object(
+            _rmkit_cn, "_download_limited", side_effect=download
+        ) as download_mock:
+            destination = _rmkit_cn.download_translation_package(
+                package, state_dir
+            )
+
+            self.assertEqual(destination.read_bytes(), self.LOCALIZED_QM)
+            self.assertEqual(
+                [call.args[0] for call in download_mock.call_args_list],
+                list(package.download_urls),
             )
 
     def test_invalid_cloud_translation_never_replaces_cache(self):
