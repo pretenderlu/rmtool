@@ -10,7 +10,7 @@ A desktop GUI management tool for reMarkable devices
 
 </div>
 
-rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, and reMarkable 2 devices over local root SSH. It provides multi-device connections, a dashboard, wallpaper and document management, KOReader library management, font upload, time management, device controls, native Chinese UI localization, and firmware-gated tap-to-turn support. Device operations do not depend on reMarkable cloud services. The computer needs internet access the first time it retrieves a localization manifest or firmware package; a previously validated cache can be reused offline.
+rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, and reMarkable 2 devices over local root SSH. It provides multi-device connections, a dashboard, wallpaper and document management, KOReader library management, font upload, time management, device controls, native Chinese UI localization, and firmware-gated tap-to-turn support. Device operations do not depend on reMarkable cloud services. Release builds include a baseline localization catalog for offline discovery and local package import; automatic firmware-package downloads still require network access unless a validated package is already cached.
 
 > [!WARNING]
 > rmtool directly modifies files on the device. Sync or back up important content first, and make sure you accept the data and warranty risks associated with Developer Mode, root SSH, and third-party modifications. This project is not official reMarkable software.
@@ -123,12 +123,12 @@ Before each upload, the target file is copied to `.backup` in the same directory
 
 Release packages do not embed firmware-specific `.qm` files. After you choose "Device Toolbox > System Localization > Check Status", rmtool:
 
-1. Retrieves the manifest from the fixed `localization-assets` release and falls back to a previously validated local cache when the network is unavailable.
+1. Retrieves the manifest from the [Tencent COS mainland mirror](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/manifest.json) first, then the fixed GitHub `localization-assets` release. If both are unavailable or invalid, it uses a previously validated cache and finally the baseline manifest bundled with the application.
 2. Matches the exact 14-digit internal firmware version from `/etc/version`.
 3. Calculates the SHA-256 of the device's original French carrier file, `reMarkable_fr.qm`, and uses it to select the correct hardware payload. Platform names such as `chiappa`, `ferrari`, `tatsu`, `rm1`, and `rm2` are display labels only; they are not used to guess compatibility.
 4. Verifies the download size and SHA-256. Nothing is written to the device if the firmware, original French file, or checksum does not match.
 
-The normal workflow is to click "Enable Chinese" and let rmtool download and install the exact matching package automatically. If the network is unreliable, use "Get Localization Package" to save the matching file or copy its direct URL, then import it with "Load Local Localization Package". Local files must pass the same exact size and SHA-256 checks for the connected device. A verified import only enters the computer-side cache; "Enable Chinese" still performs the existing guarded deployment.
+The normal workflow is to click "Enable Chinese" and let rmtool download and install the exact matching package automatically. Package downloads try the Tencent COS mirror before GitHub, and every response must match the manifest's exact size and SHA-256 before it can replace the cache. If the network is unreliable, use "Get Localization Package" to save the matching file or copy its COS direct URL, then import it with "Load Local Localization Package". Local files must pass the same checks for the connected device. A verified import only enters the computer-side cache; "Enable Chinese" still performs the existing guarded deployment. Firmware-specific `.qm` payloads are never bundled in rmtool releases.
 
 #### Current localization support matrix
 
@@ -182,7 +182,7 @@ When Vellum owns the standard AppLoader/Xovi runtime, rmtool verifies the instal
 - **Wallpaper target unavailable**: Different firmware versions provide different wallpaper files. Click "Rescan" and choose a target that has a preview and is not marked as missing from the current device.
 - **Uploaded document does not appear on the device**: Return to the document center and restart xochitl, or restart the device manually.
 - **"Export to PDF" is unavailable**: Select exactly one document containing `.rm` or `.note` handwriting resources. Export renders only parseable handwriting and does not merge original PDF/EPUB pages, typed text, or other non-handwriting content.
-- **Localization buttons are disabled**: Click "Check Status" first. The computer needs internet access or a valid cache, and the internal firmware version plus the SHA-256 of the original `reMarkable_fr.qm` must match the same manifest entry.
+- **Localization buttons are disabled**: Click "Check Status" first. rmtool can use COS, GitHub, a validated cache, or its bundled baseline catalog, but the internal firmware version plus the SHA-256 of the original `reMarkable_fr.qm` must match the same manifest entry. Installing without network access also requires a validated cached package or a matching package imported from disk.
 - **Tap-to-turn cannot be enabled**: Click "Check Status" first. The model, firmware, architecture, and stock xochitl hash must match one exact row above. A modified xochitl or payload also blocks deployment. Vellum mode additionally requires package ownership and runtime hashes to match, and refuses conflicting tap-to-page packages; custom or modified Xovi installations are not treated as clean standalone devices.
 - **Tap-to-turn still works immediately after disabling**: This is expected because rmtool does not kill the running xochitl process. Restart the tablet from its device menu to return to the stock interface.
 - **macOS cannot create its configuration**: Make sure the current user can create and write `~/Library/Application Support/rmtool/`.

@@ -72,6 +72,7 @@ jobs:
             --icon "$root/build/rmtool.icns" \
             --add-data "$root/assets/fonts:assets/fonts" \
             --add-data "$root/assets/device_frames:assets/device_frames" \
+            --add-data "$root/translations/manifest.json:translations" \
             --distpath dist \
             --workpath build/macos \
             --specpath build \
