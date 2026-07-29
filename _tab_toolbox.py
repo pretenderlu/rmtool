@@ -771,12 +771,14 @@ class RmkitCnSection(QtWidgets.QWidget):
         self.thread_pool = QtCore.QThreadPool.globalInstance()
         self._status: Optional[_rmkit_cn.LocalizationStatus] = None
         self._busy = False
+        self._other_packages_count = 0
 
         title = QtWidgets.QLabel("原生界面中文")
         title.setObjectName("rmkitCnStatus")
 
         detail = QtWidgets.QLabel(
-            "连接设备后会按固件版本精确匹配并下载云端汉化包。"
+            "默认会按固件版本精确匹配、下载并安装云端汉化包；"
+            "网络不畅时也可下载到电脑或加载本地汉化包。"
             "中文翻译借用法语槽位，不安装后台服务。"
         )
         detail.setWordWrap(True)
@@ -786,25 +788,56 @@ class RmkitCnSection(QtWidgets.QWidget):
         self.catalog_label.setWordWrap(True)
         self.catalog_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
 
+        self.other_packages_button = QtWidgets.QPushButton("其他固件版本")
+        self.other_packages_button.setCheckable(True)
+        self.other_packages_button.setSizePolicy(
+            QtWidgets.QSizePolicy.Maximum,
+            QtWidgets.QSizePolicy.Preferred,
+        )
+        self.other_packages_button.hide()
+
+        self.other_packages_label = QtWidgets.QLabel()
+        self.other_packages_label.setObjectName("rmkitCnOtherCatalog")
+        self.other_packages_label.setWordWrap(True)
+        self.other_packages_label.setTextInteractionFlags(
+            QtCore.Qt.TextSelectableByMouse
+        )
+        self.other_packages_label.hide()
+
         self.status_label = QtWidgets.QLabel("设备已连接，尚未检测")
         self.status_label.setObjectName("rmkitCnDeviceStatus")
         self.status_label.setWordWrap(True)
 
         self.detect_button = QtWidgets.QPushButton("检测状态")
         self.enable_button = QtWidgets.QPushButton("启用中文")
+        self.enable_button.setProperty("btnRole", "primary")
         self.restore_button = QtWidgets.QPushButton("还原")
         self.enable_button.setEnabled(False)
         self.restore_button.setEnabled(False)
         self.project_button = QtWidgets.QPushButton("查看源码")
 
-        buttons = QtWidgets.QHBoxLayout()
-        buttons.setContentsMargins(0, 0, 0, 0)
-        buttons.setSpacing(_rmtool.SUBSECTION_GAP)
-        buttons.addWidget(self.detect_button)
-        buttons.addWidget(self.enable_button)
-        buttons.addWidget(self.restore_button)
-        buttons.addWidget(self.project_button)
-        buttons.addStretch()
+        self.package_button = QtWidgets.QPushButton("获取汉化包")
+        self.package_menu = QtWidgets.QMenu(self.package_button)
+        self.download_package_action = self.package_menu.addAction("下载到电脑…")
+        self.copy_package_link_action = self.package_menu.addAction("复制下载链接")
+        self.package_button.setMenu(self.package_menu)
+        self.load_package_button = QtWidgets.QPushButton("加载本地汉化包…")
+
+        primary_buttons = QtWidgets.QHBoxLayout()
+        primary_buttons.setContentsMargins(0, 0, 0, 0)
+        primary_buttons.setSpacing(_rmtool.SUBSECTION_GAP)
+        primary_buttons.addWidget(self.detect_button)
+        primary_buttons.addWidget(self.enable_button)
+        primary_buttons.addWidget(self.restore_button)
+        primary_buttons.addStretch()
+
+        package_buttons = QtWidgets.QHBoxLayout()
+        package_buttons.setContentsMargins(0, 0, 0, 0)
+        package_buttons.setSpacing(_rmtool.SUBSECTION_GAP)
+        package_buttons.addWidget(self.package_button)
+        package_buttons.addWidget(self.load_package_button)
+        package_buttons.addWidget(self.project_button)
+        package_buttons.addStretch()
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -812,12 +845,28 @@ class RmkitCnSection(QtWidgets.QWidget):
         layout.addWidget(title)
         layout.addWidget(detail)
         layout.addWidget(self.catalog_label)
+        layout.addWidget(
+            self.other_packages_button,
+            alignment=QtCore.Qt.AlignLeft,
+        )
+        layout.addWidget(self.other_packages_label)
         layout.addWidget(self.status_label)
-        layout.addLayout(buttons)
+        layout.addLayout(primary_buttons)
+        layout.addLayout(package_buttons)
 
+        self.other_packages_button.toggled.connect(
+            self._toggle_other_packages
+        )
         self.detect_button.clicked.connect(self._detect_status)
         self.enable_button.clicked.connect(self._enable_localization)
         self.restore_button.clicked.connect(self._restore_localization)
+        self.download_package_action.triggered.connect(
+            self._download_package_to_computer
+        )
+        self.copy_package_link_action.triggered.connect(
+            self._copy_package_download_link
+        )
+        self.load_package_button.clicked.connect(self._load_local_package)
         self.project_button.clicked.connect(
             lambda: self._open_external(_rmkit_cn.REPO_URL)
         )
@@ -869,24 +918,68 @@ class RmkitCnSection(QtWidgets.QWidget):
                 _rmkit_cn.LocalizationState.INSTALLED_NOT_ENABLED,
             )
         )
+        package_available = bool(
+            connected and self._status and self._status.package is not None
+        )
+        self.package_button.setEnabled(package_available)
+        self.download_package_action.setEnabled(package_available)
+        self.copy_package_link_action.setEnabled(package_available)
+        self.load_package_button.setEnabled(package_available)
+
+    @staticmethod
+    def _package_display_text(package: _rmkit_cn.TranslationPackage) -> str:
+        channel_names = {"stable": "正式版", "beta": "测试版"}
+        return (
+            f"{package.release_version} | "
+            f"{channel_names[package.channel]} | "
+            + (f"硬件 {package.platform.title()} | " if package.platform else "")
+            + f"内部版本 {package.firmware}"
+        )
+
+    def _toggle_other_packages(self, expanded: bool):
+        self.other_packages_button.setText(
+            f"其他固件版本（{self._other_packages_count}） "
+            + ("⌄" if expanded else "›")
+        )
+        self.other_packages_label.setVisible(
+            expanded and not self.other_packages_button.isHidden()
+        )
 
     def _apply_status(self, status: _rmkit_cn.LocalizationStatus):
         self._status = status
         if status.available_packages is not None:
-            if status.available_packages:
-                channel_names = {"stable": "正式版", "beta": "测试版"}
-                entries = [
-                    f"{package.release_version} | "
-                    f"{channel_names[package.channel]} | "
-                    + (f"硬件 {package.platform.title()} | " if package.platform else "")
-                    + f"内部版本 {package.firmware}"
-                    for package in status.available_packages
-                ]
+            if status.package is not None:
                 self.catalog_label.setText(
-                    "云端汉化包：\n" + "\n".join(entries)
+                    "当前固件汉化包：\n"
+                    + self._package_display_text(status.package)
                 )
             else:
-                self.catalog_label.setText("云端汉化包：当前没有可用版本")
+                self.catalog_label.setText(
+                    "当前固件汉化包：没有精确匹配版本"
+                )
+
+            other_packages = tuple(
+                package
+                for package in status.available_packages
+                if package != status.package
+            )
+            self.other_packages_button.setChecked(False)
+            if other_packages:
+                self._other_packages_count = len(other_packages)
+                self.other_packages_button.setText(
+                    f"其他固件版本（{self._other_packages_count}） ›"
+                )
+                self.other_packages_label.setText(
+                    "\n".join(
+                        self._package_display_text(package)
+                        for package in other_packages
+                    )
+                )
+                self.other_packages_button.show()
+            else:
+                self._other_packages_count = 0
+                self.other_packages_button.hide()
+            self.other_packages_label.hide()
         messages = {
             _rmkit_cn.LocalizationState.INCOMPATIBLE: (
                 f"云端没有与固件 {status.firmware or '未知'} 精确匹配的汉化包，未执行任何修改"
@@ -956,6 +1049,53 @@ class RmkitCnSection(QtWidgets.QWidget):
         worker.signals.error.connect(on_error)
         self.thread_pool.start(worker)
 
+    def _start_package_worker(
+        self,
+        fn,
+        *args,
+        pending: str,
+        success_status: str,
+        success_message,
+    ):
+        self._set_busy(True, pending)
+        worker = _rmtool.Worker(fn, *args)
+
+        def on_finished(path):
+            if sip.isdeleted(self):
+                return
+            self._set_busy(False)
+            if self._status is not None:
+                self._apply_status(self._status)
+                self.status_label.setText(
+                    f"{self.status_label.text()}；{success_status}"
+                )
+            else:
+                self._on_connection_changed(self.ssh_client.is_connected())
+            show_info(
+                self,
+                _rmtool.APP_NAME,
+                success_message(path),
+            )
+
+        def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                logging.error(
+                    "Localization package operation failed after tab close: %s",
+                    exc,
+                )
+                return
+            self._set_busy(False)
+            if self._status is not None:
+                self._apply_status(self._status)
+            else:
+                self._on_connection_changed(self.ssh_client.is_connected())
+            logging.error("Localization package operation failed: %s", exc)
+            show_error(self, _rmtool.APP_NAME, f"汉化包操作失败：{exc}")
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self.thread_pool.start(worker)
+
     @require_connection
     def _detect_status(self):
         self._start_worker(
@@ -964,6 +1104,72 @@ class RmkitCnSection(QtWidgets.QWidget):
             str(_rmtool.app_state_dir()),
             pending="正在获取云端清单并检测固件与汉化状态…",
             error_hint="设备未被修改，请检查电脑网络连接后重试。",
+        )
+
+    @require_connection
+    def _download_package_to_computer(self):
+        if not self._status or not self._status.package:
+            return
+        package = self._status.package
+        download_dir = QtCore.QStandardPaths.writableLocation(
+            QtCore.QStandardPaths.DownloadLocation
+        )
+        suggested_path = os.path.join(download_dir, package.asset)
+        destination, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "下载汉化包",
+            suggested_path,
+            "Qt 翻译文件 (*.qm)",
+        )
+        if not destination:
+            return
+        if not destination.lower().endswith(".qm"):
+            destination += ".qm"
+
+        self._start_package_worker(
+            _rmkit_cn.export_translation_package,
+            package,
+            str(_rmtool.app_state_dir()),
+            destination,
+            pending="正在下载并校验汉化包…",
+            success_status="匹配的汉化包已保存到电脑",
+            success_message=lambda path: f"汉化包已校验并保存到：\n{path}",
+        )
+
+    @require_connection
+    def _copy_package_download_link(self):
+        if not self._status or not self._status.package:
+            return
+        QtWidgets.QApplication.clipboard().setText(
+            self._status.package.download_url
+        )
+        show_info(self, _rmtool.APP_NAME, "汉化包下载链接已复制到剪贴板。")
+
+    @require_connection
+    def _load_local_package(self):
+        if not self._status or not self._status.package:
+            return
+        source_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "加载本地汉化包",
+            "",
+            "Qt 翻译文件 (*.qm)",
+        )
+        if not source_path:
+            return
+
+        self._start_package_worker(
+            _rmkit_cn.import_translation_package,
+            self._status.package,
+            str(_rmtool.app_state_dir()),
+            source_path,
+            pending="正在校验本地汉化包…",
+            success_status="本地汉化包已校验并缓存，可点击“启用中文”安装",
+            success_message=lambda path: (
+                "本地汉化包已通过当前固件对应的大小与 SHA-256 校验，"
+                f"并写入缓存：\n{path}\n\n"
+                "点击“启用中文”时会优先使用这份缓存。"
+            ),
         )
 
     def _choose_missing_font(self) -> Optional[tuple[str, str]]:
@@ -1039,7 +1245,8 @@ class RmkitCnSection(QtWidgets.QWidget):
                 else "汉化文件与语言配置已写入，原生界面已停止，SSH 会话已关闭。\n"
             )
             + (
-                "请手动重启设备使修改生效。"
+                "请手动重启设备，然后在“设置 → 语言”中选择“法语”，"
+                "中文界面才会正式启用。"
             ),
         )
 

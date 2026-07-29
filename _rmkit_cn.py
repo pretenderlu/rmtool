@@ -248,6 +248,21 @@ def _translation_cache_dir(state_dir: Union[str, Path]) -> Path:
     return Path(state_dir) / "cache" / "localization"
 
 
+def _translation_package_cache_path(
+    package: TranslationPackage, state_dir: Union[str, Path]
+) -> Path:
+    return _translation_cache_dir(state_dir) / package.firmware / package.asset
+
+
+def _validate_translation_data(
+    data: bytes, package: TranslationPackage, description: str
+) -> None:
+    if len(data) != package.size:
+        raise RuntimeError(f"{description}大小与云端清单不一致。")
+    if hashlib.sha256(data).hexdigest() != package.localized_qm_sha256:
+        raise RuntimeError(f"{description}校验失败。")
+
+
 def load_translation_catalog(
     state_dir: Union[str, Path], *, refresh: bool = True
 ) -> dict[str, TranslationPackage]:
@@ -277,20 +292,49 @@ def load_translation_catalog(
 def download_translation_package(
     package: TranslationPackage, state_dir: Union[str, Path]
 ) -> Path:
-    destination = _translation_cache_dir(state_dir) / package.firmware / package.asset
+    destination = _translation_package_cache_path(package, state_dir)
     if destination.is_file():
         data = destination.read_bytes()
-        if (
-            len(data) == package.size
-            and hashlib.sha256(data).hexdigest() == package.localized_qm_sha256
-        ):
+        try:
+            _validate_translation_data(data, package, "缓存的中文翻译文件")
+        except RuntimeError:
+            pass
+        else:
             return destination
 
     data = _download_limited(package.download_url, MAX_TRANSLATION_BYTES)
-    if len(data) != package.size:
-        raise RuntimeError("下载的中文翻译文件大小与云端清单不一致。")
-    if hashlib.sha256(data).hexdigest() != package.localized_qm_sha256:
-        raise RuntimeError("下载的中文翻译文件校验失败。")
+    _validate_translation_data(data, package, "下载的中文翻译文件")
+    _write_cache_file(destination, data)
+    return destination
+
+
+def import_translation_package(
+    package: TranslationPackage,
+    state_dir: Union[str, Path],
+    source_path: Union[str, Path],
+) -> Path:
+    source = Path(source_path)
+    if not source.is_file():
+        raise RuntimeError("所选本地汉化包不存在或不是文件。")
+    if source.stat().st_size != package.size:
+        raise RuntimeError("本地汉化包大小与当前设备对应的云端清单不一致。")
+
+    data = source.read_bytes()
+    _validate_translation_data(data, package, "本地汉化包")
+    destination = _translation_package_cache_path(package, state_dir)
+    _write_cache_file(destination, data)
+    return destination
+
+
+def export_translation_package(
+    package: TranslationPackage,
+    state_dir: Union[str, Path],
+    destination_path: Union[str, Path],
+) -> Path:
+    cached_path = download_translation_package(package, state_dir)
+    data = cached_path.read_bytes()
+    _validate_translation_data(data, package, "缓存的中文翻译文件")
+    destination = Path(destination_path)
     _write_cache_file(destination, data)
     return destination
 

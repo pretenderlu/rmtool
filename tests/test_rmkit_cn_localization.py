@@ -219,6 +219,8 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             "upload_font",
             "set_language_config",
             "get_localization_status",
+            "import_translation_package",
+            "export_translation_package",
             "enable_localization",
             "restore_localization",
         )
@@ -2081,6 +2083,74 @@ class RmkitCnLocalizationTests(unittest.TestCase):
 
             self.assertEqual(destination.read_bytes(), b"previous-invalid-cache")
             self.assertFalse(destination.with_name(f"{destination.name}.tmp").exists())
+
+    def test_valid_local_translation_is_imported_into_verified_cache(self):
+        package = self.make_translation_package()
+        with tempfile.TemporaryDirectory() as state_dir:
+            source = Path(state_dir) / "downloaded-package.qm"
+            source.write_bytes(self.LOCALIZED_QM)
+
+            destination = _rmkit_cn.import_translation_package(
+                package, state_dir, source
+            )
+
+            self.assertEqual(destination.read_bytes(), self.LOCALIZED_QM)
+            self.assertEqual(destination.name, package.asset)
+            self.assertFalse(
+                destination.with_name(f"{destination.name}.tmp").exists()
+            )
+
+    def test_invalid_local_translation_never_replaces_existing_cache(self):
+        package = self.make_translation_package()
+        for invalid_data, error in (
+            (b"short", "大小"),
+            (
+                b"x" * len(self.LOCALIZED_QM),
+                "校验失败",
+            ),
+        ):
+            with self.subTest(error=error), tempfile.TemporaryDirectory() as state_dir:
+                destination = (
+                    Path(state_dir)
+                    / "cache"
+                    / "localization"
+                    / package.firmware
+                    / package.asset
+                )
+                destination.parent.mkdir(parents=True)
+                destination.write_bytes(b"existing-cache")
+                source = Path(state_dir) / "user-selected.qm"
+                source.write_bytes(invalid_data)
+
+                with self.assertRaisesRegex(RuntimeError, error):
+                    _rmkit_cn.import_translation_package(
+                        package, state_dir, source
+                    )
+
+                self.assertEqual(destination.read_bytes(), b"existing-cache")
+                self.assertFalse(
+                    destination.with_name(f"{destination.name}.tmp").exists()
+                )
+
+    def test_export_translation_package_reuses_verified_downloader(self):
+        package = self.make_translation_package()
+        with tempfile.TemporaryDirectory() as state_dir:
+            cached = Path(state_dir) / "cached.qm"
+            cached.write_bytes(self.LOCALIZED_QM)
+            destination = Path(state_dir) / "Downloads" / "localization.qm"
+
+            with patch.object(
+                _rmkit_cn,
+                "download_translation_package",
+                return_value=cached,
+            ) as download:
+                result = _rmkit_cn.export_translation_package(
+                    package, state_dir, destination
+                )
+
+            download.assert_called_once_with(package, state_dir)
+            self.assertEqual(result, destination)
+            self.assertEqual(destination.read_bytes(), self.LOCALIZED_QM)
 
     def test_cloud_download_failure_happens_before_device_mutation(self):
         package = self.make_translation_package()
