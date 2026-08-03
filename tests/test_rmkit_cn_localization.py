@@ -67,7 +67,10 @@ class FakeSSH:
         fail_exec_commands=(),
         device_font_family="Device Font Family",
         font_match_paths=None,
+        system_font_match_paths=None,
         fail_cache_count=0,
+        root_free_bytes=1024 * 1024 * 1024,
+        fail_exec_once_contains=(),
     ):
         self.files = dict(files or {})
         self.firmware = firmware
@@ -84,7 +87,10 @@ class FakeSSH:
         self.fail_exec_commands = set(fail_exec_commands)
         self.device_font_family = device_font_family
         self.font_match_paths = dict(font_match_paths or {})
+        self.system_font_match_paths = dict(system_font_match_paths or {})
         self.fail_cache_count = fail_cache_count
+        self.root_free_bytes = root_free_bytes
+        self.fail_exec_once_contains = list(fail_exec_once_contains)
         if cjk_available:
             self.cjk_files.add(self.active_font)
         self.transfer_count = 0
@@ -101,6 +107,10 @@ class FakeSSH:
         self.events.append(("exec", command))
         if command in self.fail_exec_commands:
             raise IOError(f"simulated command failure: {command}")
+        for index, fragment in enumerate(self.fail_exec_once_contains):
+            if fragment in command:
+                self.fail_exec_once_contains.pop(index)
+                raise IOError(f"simulated one-time command failure: {command}")
         if command == "cat /etc/version":
             return f"{self.firmware}\n"
         if command == "systemctl is-active xochitl":
@@ -134,12 +144,22 @@ class FakeSSH:
             if scanned_path not in self.files:
                 raise IOError(scanned_path)
             return f'family: "{self.device_font_family}"(s)\n'
-        if command.startswith("fc-match --format='%{file}\\n' "):
-            pattern = shlex.split(command)[2]
-            matched = self.font_match_paths.get(pattern)
-            if matched is None and _rmkit_cn.FONTCONFIG_FILE in self.files:
+        if "fc-match --format='%{file}\\n' " in command:
+            args = shlex.split(command)
+            pattern = args[args.index("fc-match") + 2]
+            system_only = command.startswith(_rmkit_cn.SYSTEM_FONT_MATCH_ENV)
+            matches = (
+                self.system_font_match_paths if system_only else self.font_match_paths
+            )
+            matched = matches.get(pattern)
+            config_path = (
+                _rmkit_cn.SYSTEM_FONTCONFIG_FILE
+                if system_only
+                else _rmkit_cn.FONTCONFIG_FILE
+            )
+            if matched is None and config_path in self.files:
                 config = ET.fromstring(
-                    self.files[_rmkit_cn.FONTCONFIG_FILE].decode("utf-8")
+                    self.files[config_path].decode("utf-8")
                 )
                 scan_path = config.find(
                     "./match[@target='scan']/test[@name='file']/string"
@@ -152,6 +172,8 @@ class FakeSSH:
                 self.fail_cache_count -= 1
                 raise IOError("simulated cache failure")
             return "cache refreshed\n"
+        if command == _rmkit_cn.SYSTEM_FONT_FREE_COMMAND:
+            return f"{self.root_free_bytes // 1024}\n"
         if command in ("mount -o remount,rw /", "mount -o remount,ro /"):
             return ""
         if command == "sync":
@@ -633,6 +655,8 @@ class RmkitCnLocalizationTests(unittest.TestCase):
 
         self.assertNotIn(_rmkit_cn.FONTCONFIG_FILE, ssh.files)
         self.assertNotIn(_rmkit_cn.FONT_MARKER_PATH, ssh.files)
+        self.assertNotIn(_rmkit_cn.SYSTEM_FONT_PATHS[".ttf"], ssh.files)
+        self.assertNotIn(_rmkit_cn.SYSTEM_FONTCONFIG_FILE, ssh.files)
 
     def test_selected_cjk_font_is_verified_before_translation(self):
         font_data = b"user-selected-cjk-font"
@@ -651,6 +675,13 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(marker["path"], _rmkit_cn.CUSTOM_FONT_PATHS[".ttf"])
         self.assertEqual(marker["sha256"], hashlib.sha256(font_data).hexdigest())
         self.assertFalse(marker["had_fontconfig"])
+        self.assertEqual(
+            ssh.files[_rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]], font_data
+        )
+        self.assertIn(
+            b"owner: localization",
+            ssh.files[_rmkit_cn.SYSTEM_FONTCONFIG_FILE],
+        )
         stop_index = ssh.events.index(("exec", "systemctl stop xochitl"))
         cache_index = next(
             i
@@ -1191,6 +1222,215 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(ssh.files[target], b"link target")
         self.assertFalse(any(".rmtool-" in path for path in ssh.files))
 
+    def test_set_active_user_font_creates_exact_system_mirror(self):
+        font_dir = "/home/root/.local/share/fonts"
+        target = f"{font_dir}/selected.ttf"
+        font_data = b"exact selected font bytes"
+        ssh = FakeSSH({target: font_data}, device_font_family="Selected Family")
+
+        selected = _rmkit_cn.set_active_user_font(
+            ssh, font_dir, "selected.ttf"
+        )
+
+        system_target = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        self.assertTrue(selected.active)
+        self.assertEqual(ssh.files[system_target], font_data)
+        self.assertEqual(
+            hashlib.sha256(ssh.files[system_target]).hexdigest(),
+            hashlib.sha256(font_data).hexdigest(),
+        )
+        system_config = ssh.files[_rmkit_cn.SYSTEM_FONTCONFIG_FILE].decode("utf-8")
+        self.assertIn(f"<string>{system_target}</string>", system_config)
+        self.assertFalse(any(".rmtool-" in path for path in ssh.files))
+
+    def test_system_mirror_is_verified_without_home_fontconfig(self):
+        font_dir = "/home/root/.local/share/fonts"
+        target = f"{font_dir}/selected.otf"
+        ssh = FakeSSH({target: b"otf font"})
+
+        _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.otf")
+
+        commands = [value for kind, value in ssh.events if kind == "exec"]
+        for pattern in _rmkit_cn.FONT_OVERRIDE_MATCH_PATTERNS:
+            command = (
+                f"{_rmkit_cn.SYSTEM_FONT_MATCH_ENV} "
+                "fc-match --format='%{file}\\n' "
+                f"{shlex.quote(pattern)} | head -n 1"
+            )
+            self.assertIn(command, commands)
+
+    def test_set_active_user_font_switches_ttf_to_otf_without_stale_copy(self):
+        font_dir = "/home/root/.local/share/fonts"
+        ttf = f"{font_dir}/first.ttf"
+        otf = f"{font_dir}/second.otf"
+        ssh = FakeSSH({ttf: b"first font", otf: b"second font"})
+
+        _rmkit_cn.set_active_user_font(ssh, font_dir, "first.ttf")
+        _rmkit_cn.set_active_user_font(ssh, font_dir, "second.otf")
+
+        self.assertNotIn(_rmkit_cn.SYSTEM_FONT_PATHS[".ttf"], ssh.files)
+        self.assertEqual(
+            ssh.files[_rmkit_cn.SYSTEM_FONT_PATHS[".otf"]], b"second font"
+        )
+        self.assertFalse(any(".rmtool-" in path for path in ssh.files))
+
+    def test_set_active_user_font_rejects_low_root_space_before_mutation(self):
+        font_dir = "/home/root/.local/share/fonts"
+        target = f"{font_dir}/selected.ttf"
+        previous = b"existing user fontconfig"
+        ssh = FakeSSH(
+            {target: b"font", _rmkit_cn.FONTCONFIG_FILE: previous},
+            root_free_bytes=_rmkit_cn.SYSTEM_FONT_FREE_RESERVE,
+        )
+        before = dict(ssh.files)
+
+        with self.assertRaisesRegex(RuntimeError, "根分区空间不足"):
+            _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
+
+        self.assertEqual(ssh.files, before)
+        self.assertFalse(any(kind == "transfer" for kind, _ in ssh.events))
+
+    def test_system_mirror_space_check_covers_larger_rollback_font(self):
+        font_dir = "/home/root/.local/share/fonts"
+        target = f"{font_dir}/selected.ttf"
+        old_system_font = _rmkit_cn.SYSTEM_FONT_PATHS[".otf"]
+        old_font_data = b"larger previous system font"
+        new_font_data = b"new font"
+        ssh = FakeSSH(
+            {target: new_font_data, old_system_font: old_font_data},
+            root_free_bytes=(
+                _rmkit_cn.SYSTEM_FONT_FREE_RESERVE + len(new_font_data) + 1
+            ),
+        )
+        before = dict(ssh.files)
+
+        with self.assertRaisesRegex(RuntimeError, "根分区空间不足"):
+            _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
+
+        self.assertEqual(ssh.files, before)
+        self.assertFalse(any(kind == "transfer" for kind, _ in ssh.events))
+
+    def test_set_active_user_font_restores_system_mirror_on_match_failure(self):
+        font_dir = "/home/root/.local/share/fonts"
+        target = f"{font_dir}/selected.otf"
+        old_system_font = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        old_system_config = b"<fontconfig>exact old system config</fontconfig>\r\n"
+        previous_user_config = b"<fontconfig>exact old user config</fontconfig>\r\n"
+        mismatch = {
+            pattern: "/usr/share/fonts/stock.ttf"
+            for pattern in _rmkit_cn.FONT_OVERRIDE_MATCH_PATTERNS
+        }
+        ssh = FakeSSH(
+            {
+                target: b"new otf font",
+                old_system_font: b"exact old system font",
+                _rmkit_cn.SYSTEM_FONTCONFIG_FILE: old_system_config,
+                _rmkit_cn.FONTCONFIG_FILE: previous_user_config,
+            },
+            system_font_match_paths=mismatch,
+        )
+        before = dict(ssh.files)
+
+        with self.assertRaisesRegex(RuntimeError, "锁屏字体匹配校验失败"):
+            _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.otf")
+
+        self.assertEqual(ssh.files, before)
+        self.assertFalse(any(".rmtool-" in path for path in ssh.files))
+
+    def test_install_user_font_cleanup_failure_rolls_back_both_levels(self):
+        remote_dir = "/home/root/.local/share/fonts"
+        remote_path = f"{remote_dir}/selected.ttf"
+        old_user_config = b"<fontconfig>exact old user config</fontconfig>\r\n"
+        old_system_font = _rmkit_cn.SYSTEM_FONT_PATHS[".otf"]
+        old_system_config = b"<fontconfig>exact old system config</fontconfig>\r\n"
+        ssh = FakeSSH(
+            {
+                remote_path: b"exact old user font",
+                _rmkit_cn.FONTCONFIG_FILE: old_user_config,
+                old_system_font: b"exact old system font",
+                _rmkit_cn.SYSTEM_FONTCONFIG_FILE: old_system_config,
+            },
+            fail_exec_once_contains=(f"rm -f {remote_path}.rmtool-",),
+        )
+        before = dict(ssh.files)
+
+        with self.assertRaisesRegex(IOError, "one-time command failure"):
+            _rmkit_cn.install_user_font_override(
+                ssh,
+                self.make_font(b"replacement font", "replacement.ttf"),
+                remote_dir,
+                "selected.ttf",
+            )
+
+        self.assertEqual(ssh.files, before)
+        self.assertFalse(any(".rmtool-" in path for path in ssh.files))
+
+    def test_localization_restore_recovers_prior_user_owned_system_mirror(self):
+        prior_system_font = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        prior_system_font_data = b"exact prior lock-screen font"
+        prior_system_config = _rmkit_cn.fontconfig_override(
+            "Prior User Font", prior_system_font
+        ).replace(
+            "<!-- ponytail: user-level UI font override; restore the prior file to undo. -->",
+            "<!-- rmtool system UI font; owner: user -->",
+        ).encode("utf-8")
+        prior_user_config = b"<fontconfig>exact prior user bytes</fontconfig>\r\n"
+        managed_data = b"managed localization font"
+        ssh = FakeSSH(
+            {
+                _rmkit_cn.FONTCONFIG_FILE: prior_user_config,
+                prior_system_font: prior_system_font_data,
+                _rmkit_cn.SYSTEM_FONTCONFIG_FILE: prior_system_config,
+            },
+            cjk_available=False,
+            cjk_font_data=(managed_data,),
+        )
+
+        _rmkit_cn._install_managed_font(
+            ssh,
+            self.make_font(managed_data, "managed.otf"),
+            "Managed Localization Font",
+        )
+        _rmkit_cn._remove_managed_font(ssh)
+
+        self.assertEqual(ssh.files[_rmkit_cn.FONTCONFIG_FILE], prior_user_config)
+        self.assertEqual(ssh.files[prior_system_font], prior_system_font_data)
+        self.assertEqual(
+            ssh.files[_rmkit_cn.SYSTEM_FONTCONFIG_FILE], prior_system_config
+        )
+        for backup_path in _rmkit_cn.SYSTEM_FONT_BACKUP_PATHS.values():
+            self.assertNotIn(backup_path, ssh.files)
+
+    def test_localization_restore_keeps_later_user_owned_system_mirror(self):
+        managed_data = b"managed localization font"
+        ssh = FakeSSH(
+            cjk_available=False,
+            cjk_font_data=(managed_data,),
+        )
+        _rmkit_cn._install_managed_font(
+            ssh,
+            self.make_font(managed_data, "managed.otf"),
+            "Managed Localization Font",
+        )
+        later_target = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        later_data = b"later user-selected system font"
+        later_config = _rmkit_cn.fontconfig_override(
+            "Later User Font", later_target
+        ).replace(
+            "<!-- ponytail: user-level UI font override; restore the prior file to undo. -->",
+            "<!-- rmtool system UI font; owner: user -->",
+        ).encode("utf-8")
+        ssh.files.pop(_rmkit_cn.SYSTEM_FONT_PATHS[".otf"], None)
+        ssh.files[later_target] = later_data
+        ssh.files[_rmkit_cn.SYSTEM_FONTCONFIG_FILE] = later_config
+
+        _rmkit_cn._remove_managed_font(ssh)
+
+        self.assertEqual(ssh.files[later_target], later_data)
+        self.assertEqual(ssh.files[_rmkit_cn.SYSTEM_FONTCONFIG_FILE], later_config)
+        for backup_path in _rmkit_cn.SYSTEM_FONT_BACKUP_PATHS.values():
+            self.assertNotIn(backup_path, ssh.files)
+
     def test_set_active_user_font_uses_exact_path_for_duplicate_family(self):
         font_dir = "/home/root/.local/share/fonts"
         old_path = f"{font_dir}/old-name.ttf"
@@ -1679,7 +1919,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         ssh = self.make_ssh(
             cjk_available=False,
             cjk_font_data=(font_data,),
-            fail_transfer_at=4,
+            fail_transfer_at=6,
             fail_exec_commands=(remove_command,),
         )
 
