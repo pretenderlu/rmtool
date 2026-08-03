@@ -2838,6 +2838,7 @@ class FontUiTests(unittest.TestCase):
         self.assertEqual(widget.font_table.item(0, 2).text(), "当前系统字体")
         self.assertEqual(widget.font_table.currentRow(), 1)
         self.assertTrue(widget.set_active_button.isEnabled())
+        self.assertEqual(widget.set_active_button.text(), "设为系统字体")
         self.assertTrue(widget.delete_button.isEnabled())
 
     def test_font_inventory_shows_and_protects_all_legacy_active_matches(self):
@@ -2860,7 +2861,8 @@ class FontUiTests(unittest.TestCase):
         self.assertEqual(widget.font_table.item(1, 2).text(), "当前系统字体")
         self.assertIn("alpha.ttf、beta.ttf", widget.manager_status_label.text())
         self.assertIn("切换前均按当前系统字体保护", widget.manager_status_label.text())
-        self.assertFalse(widget.set_active_button.isEnabled())
+        self.assertTrue(widget.set_active_button.isEnabled())
+        self.assertEqual(widget.set_active_button.text(), "重新应用系统字体")
         self.assertFalse(widget.delete_button.isEnabled())
 
     def test_disconnect_invalidates_in_flight_inventory_result(self):
@@ -2986,7 +2988,7 @@ class FontUiTests(unittest.TestCase):
         )
         confirm.assert_not_called()
 
-    def test_active_font_cannot_be_deleted_from_ui(self):
+    def test_active_font_can_be_reapplied_but_not_deleted_from_ui(self):
         widget = rmtool.FontTab(FakeConnectionClient(connected=True), rmtool._default_config())
         self.addCleanup(widget.deleteLater)
         active = _rmkit_cn.UserFont(
@@ -2995,7 +2997,78 @@ class FontUiTests(unittest.TestCase):
         widget._apply_font_inventory((active,), select_filename="active.ttf")
 
         self.assertFalse(widget.delete_button.isEnabled())
+        self.assertTrue(widget.set_active_button.isEnabled())
+        self.assertEqual(widget.set_active_button.text(), "重新应用系统字体")
+
+    def test_active_font_reapply_stays_disabled_without_ready_selection(self):
+        client = FakeConnectionClient(connected=True)
+        widget = rmtool.FontTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        active = _rmkit_cn.UserFont(
+            "active.ttf", "Active Family", f"{rmtool.DEFAULT_FONT_DIR}active.ttf", True
+        )
+        widget._apply_font_inventory((active,), select_filename="active.ttf")
+
+        widget.font_table.clearSelection()
         self.assertFalse(widget.set_active_button.isEnabled())
+        self.assertEqual(widget.set_active_button.text(), "设为系统字体")
+
+        widget.font_table.selectRow(0)
+        widget._set_busy(True)
+        self.assertFalse(widget.set_active_button.isEnabled())
+        self.assertEqual(widget.set_active_button.text(), "重新应用系统字体")
+
+        widget._set_busy(False)
+        client._connected = False
+        widget._on_connection_changed(False)
+        self.assertFalse(widget.set_active_button.isEnabled())
+        self.assertFalse(widget.delete_button.isEnabled())
+
+    def test_active_font_reapply_uses_dynamic_confirmation_and_activation_path(self):
+        client = FakeConnectionClient(connected=True)
+        widget = rmtool.FontTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        active = _rmkit_cn.UserFont(
+            "active.ttf", "Active Family", f"{rmtool.DEFAULT_FONT_DIR}active.ttf", True
+        )
+        widget._apply_font_inventory((active,), select_filename="active.ttf")
+
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=True
+        ) as confirm, mock.patch.object(widget, "_start_font_worker") as start_worker:
+            widget._set_selected_active()
+
+        self.assertIn("重新应用 active.ttf", confirm.call_args.args[2])
+        self.assertIn("修复锁屏阶段使用的字体镜像", confirm.call_args.args[2])
+        self.assertEqual(confirm.call_args.kwargs["confirm_text"], "重新应用系统字体")
+        start_worker.assert_called_once()
+        self.assertIs(start_worker.call_args.args[0], _rmkit_cn.set_active_user_font)
+        self.assertEqual(
+            start_worker.call_args.args[1:4],
+            (client, rmtool.DEFAULT_FONT_DIR, "active.ttf"),
+        )
+
+    def test_inactive_font_keeps_set_active_confirmation_wording(self):
+        widget = rmtool.FontTab(
+            FakeConnectionClient(connected=True), rmtool._default_config()
+        )
+        self.addCleanup(widget.deleteLater)
+        inactive = _rmkit_cn.UserFont(
+            "inactive.ttf",
+            "Inactive Family",
+            f"{rmtool.DEFAULT_FONT_DIR}inactive.ttf",
+            False,
+        )
+        widget._apply_font_inventory((inactive,), select_filename="inactive.ttf")
+
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=False
+        ) as confirm, mock.patch.object(widget, "_start_font_worker") as start_worker:
+            widget._set_selected_active()
+
+        self.assertIn("将 inactive.ttf 设为系统界面字体", confirm.call_args.args[2])
+        self.assertEqual(confirm.call_args.kwargs["confirm_text"], "设为系统字体")
+        start_worker.assert_not_called()
 
     def test_restart_is_only_sent_by_dedicated_confirmed_action(self):
         client = FakeConnectionClient(connected=True)

@@ -291,13 +291,16 @@ class FontTab(QtWidgets.QWidget):
     def _update_action_buttons(self):
         connected = self.ssh_client.is_connected() and not self._busy
         selected = self._selected_device_font()
+        self.set_active_button.setText(
+            "重新应用系统字体" if selected and selected.active else "设为系统字体"
+        )
         self.refresh_button.setEnabled(connected)
         self.select_button.setEnabled(not self._busy)
         self.upload_button.setEnabled(
             connected and bool(self._selected_font_path)
         )
         self.set_active_button.setEnabled(
-            connected and selected is not None and not selected.active
+            connected and selected is not None
         )
         self.delete_button.setEnabled(
             connected and selected is not None and not selected.active
@@ -534,13 +537,20 @@ class FontTab(QtWidgets.QWidget):
     @require_connection
     def _set_selected_active(self):
         selected = self._selected_device_font()
-        if not selected or selected.active:
+        if not selected:
             return
+        reapply = selected.active
+        action = "重新应用系统字体" if reapply else "设为系统字体"
+        message = (
+            f"重新应用 {selected.filename} 作为系统界面字体，并修复锁屏阶段使用的字体镜像。"
+            if reapply
+            else f"将 {selected.filename} 设为系统界面字体。"
+        )
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
-            f"将 {selected.filename} 设为系统界面字体。操作完成后需手动重启设备才会完整生效，是否继续？",
-            confirm_text="设为系统字体",
+            f"{message}操作完成后需手动重启设备才会完整生效，是否继续？",
+            confirm_text=action,
             cancel_text="取消",
         ):
             return
