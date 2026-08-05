@@ -185,9 +185,22 @@ jobs:
               "rmtool-windows-x64-onefile.exe",
               "rmtool-macos-arm64.app.zip",
           )
-          artifacts = {name: (Path("dist") / name).read_bytes() for name in names}
-          if any(not payload for payload in artifacts.values()):
+          artifacts = {name: Path("dist") / name for name in names}
+          if any(path.stat().st_size <= 0 for path in artifacts.values()):
               raise SystemExit("A release artifact is empty.")
+
+          def file_sha256(path):
+              digest = hashlib.sha256()
+              size = 0
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      size += len(chunk)
+                      digest.update(chunk)
+              return size, digest.hexdigest()
+
+          expected_artifacts = {
+              name: file_sha256(path) for name, path in artifacts.items()
+          }
 
           client = CosS3Client(
               CosConfig(
@@ -200,23 +213,26 @@ jobs:
           cache_buster = (
               f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
           )
+          part_size_mb = 2
+          max_threads = 3
 
           def upload_prefix(prefix):
-              for name, payload in artifacts.items():
+              for name, path in artifacts.items():
                   key = f"{prefix}/{name}"
-                  client.put_object(
+                  client.upload_file(
                       Bucket=os.environ["COS_BUCKET"],
                       Key=key,
-                      Body=payload,
+                      LocalFilePath=str(path),
+                      PartSize=part_size_mb,
+                      MAXThread=max_threads,
                       ContentType=mimetypes.guess_type(name)[0]
                       or "application/octet-stream",
                   )
                   print(f"Uploaded application artifact: {key}")
 
           def verify_prefix(prefix):
-              for name, expected in artifacts.items():
+              for name, (expected_size, expected_digest) in expected_artifacts.items():
                   key = f"{prefix}/{name}"
-                  expected_digest = hashlib.sha256(expected).hexdigest()
                   url = (
                       f"{os.environ['COS_PUBLIC_BASE_URL']}/"
                       f"{urllib.parse.quote(key, safe='/')}?verify={cache_buster}"
@@ -224,12 +240,15 @@ jobs:
                   last_error = None
                   for attempt in range(5):
                       try:
+                          actual_digest = hashlib.sha256()
+                          actual_size = 0
                           with urllib.request.urlopen(url, timeout=60) as response:
-                              actual = response.read()
+                              while chunk := response.read(1024 * 1024):
+                                  actual_size += len(chunk)
+                                  actual_digest.update(chunk)
                           if (
-                              len(actual) == len(expected)
-                              and hashlib.sha256(actual).hexdigest()
-                              == expected_digest
+                              actual_size == expected_size
+                              and actual_digest.hexdigest() == expected_digest
                           ):
                               print(f"Verified public application artifact: {key}")
                               break

@@ -273,14 +273,18 @@ jobs:
                   Scheme="https",
               )
           )
+          part_size_mb = 2
+          max_threads = 3
 
           for feature, names in publication.items():
               for name in names:
                   key = f"{feature}/{name}"
-                  client.put_object(
+                  client.upload_file(
                       Bucket=os.environ["COS_BUCKET"],
                       Key=key,
-                      Body=(release_dirs[feature] / name).read_bytes(),
+                      LocalFilePath=str(release_dirs[feature] / name),
+                      PartSize=part_size_mb,
+                      MAXThread=max_threads,
                       ContentType="application/gzip",
                   )
                   print(f"Uploaded feature payload: {key}")
