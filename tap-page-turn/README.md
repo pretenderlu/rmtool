@@ -1,12 +1,28 @@
 # Persistent tap-to-turn assets
 
-rmtool downloads firmware-specific tap-to-turn packages from the fixed
-`tap-page-turn-assets` GitHub release. Packages are selected by all of:
+rmtool downloads firmware-specific tap-to-turn packages from Tencent COS or
+the fixed `tap-page-turn-assets` GitHub release. Packages are selected by all
+of:
 
 - hardware platform;
 - CPU architecture;
 - the 14-digit internal firmware version; and
 - the SHA-256 of `/usr/bin/xochitl`.
+
+## Download and offline behavior
+
+- Tencent COS manifest (preferred in mainland China):
+  <https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/tap-page-turn/manifest.json>
+- GitHub manifest fallback:
+  <https://github.com/pretenderlu/rmtool/releases/download/tap-page-turn-assets/manifest.json>
+
+The client tries the COS manifest and payload first, then GitHub. Every
+response must match the expected size and SHA-256 before it can replace the
+cache or be deployed. If both sources fail, rmtool uses a previously validated
+cached manifest and then its bundled baseline trusted manifest. The bundled
+manifest contains metadata only: an offline installation still requires the
+exact package to be present in the validated local cache. Payload names from
+the manifest are resolved below the same COS prefix or fixed GitHub release.
 
 ## Support matrix
 
