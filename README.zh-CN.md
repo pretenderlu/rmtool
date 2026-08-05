@@ -52,13 +52,13 @@ rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Pape
 
 ## 下载与安装
 
-普通用户建议直接下载下表中的最新版本，无需安装 Python。中国大陆用户优先使用腾讯云 COS，GitHub 提供相同安装包作为备用源。
+普通用户建议直接从 GitHub Releases 下载下表中的最新版本，无需安装 Python。
 
 | 平台 | 下载 | 说明 |
 | --- | --- | --- |
-| Windows x64 | 便携版 ZIP：[腾讯云 COS](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/releases/latest/rmtool-windows-x64.zip) · [GitHub](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64.zip) | 解压后运行 `rmtool/rmtool.exe`，适合长期使用 |
-| Windows x64 | 单文件 EXE：[腾讯云 COS](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/releases/latest/rmtool-windows-x64-onefile.exe) · [GitHub](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64-onefile.exe) | 直接运行；首次和每次冷启动会稍慢 |
-| macOS ARM64 | Apple Silicon 应用：[腾讯云 COS](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/releases/latest/rmtool-macos-arm64.app.zip) · [GitHub](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-macos-arm64.app.zip) | 仅支持 M 系列 Mac；解压后运行 `rmtool.app` |
+| Windows x64 | [便携版 ZIP](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64.zip) | 解压后运行 `rmtool/rmtool.exe`，适合长期使用 |
+| Windows x64 | [单文件 EXE](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64-onefile.exe) | 直接运行；首次和每次冷启动会稍慢 |
+| macOS ARM64 | [Apple Silicon 应用](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-macos-arm64.app.zip) | 仅支持 M 系列 Mac；解压后运行 `rmtool.app` |
 
 发布包目前没有 Windows 代码签名或 Apple 公证。若 SmartScreen 或 Gatekeeper 阻止启动，请先核对文件确实来自本仓库 Release，再使用系统提供的单次放行方式；不要全局关闭系统安全保护。
 

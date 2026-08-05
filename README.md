@@ -52,13 +52,13 @@ rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, a
 
 ## Download and installation
 
-Most users should download the latest build below. Python is not required. Users in mainland China should prefer Tencent COS; GitHub provides the same release artifacts as the fallback source.
+Most users should download the latest build below from GitHub Releases. Python is not required.
 
 | Platform | Download | Notes |
 | --- | --- | --- |
-| Windows x64 | Portable ZIP: [Tencent COS](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/releases/latest/rmtool-windows-x64.zip) · [GitHub](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64.zip) | Extract it and run `rmtool/rmtool.exe`; recommended for regular use |
-| Windows x64 | Single-file EXE: [Tencent COS](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/releases/latest/rmtool-windows-x64-onefile.exe) · [GitHub](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64-onefile.exe) | Run it directly; first launch and each cold start are slower |
-| macOS ARM64 | Apple Silicon app: [Tencent COS](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/releases/latest/rmtool-macos-arm64.app.zip) · [GitHub](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-macos-arm64.app.zip) | M-series Macs only; extract it and run `rmtool.app` |
+| Windows x64 | [Portable ZIP](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64.zip) | Extract it and run `rmtool/rmtool.exe`; recommended for regular use |
+| Windows x64 | [Single-file EXE](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64-onefile.exe) | Run it directly; first launch and each cold start are slower |
+| macOS ARM64 | [Apple Silicon app](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-macos-arm64.app.zip) | M-series Macs only; extract it and run `rmtool.app` |
 
 The release packages are currently neither Windows code-signed nor Apple-notarized. If SmartScreen or Gatekeeper blocks the app, first verify that the file came from this repository's release page, then use the operating system's one-time approval option. Do not disable system security globally.
 
