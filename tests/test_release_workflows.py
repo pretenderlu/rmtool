@@ -24,10 +24,20 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('"name": "tap-page-turn"', workflow)
         self.assertIn('"name": "fast-mono-reading"', workflow)
         self.assertIn('key = f"{feature}/{name}"', workflow)
+        self.assertIn("client.upload_file(", workflow)
+        self.assertIn(
+            "LocalFilePath=str(release_dirs[feature] / name)", workflow
+        )
+        self.assertIn("PartSize=part_size_mb", workflow)
+        self.assertIn("MAXThread=max_threads", workflow)
+        self.assertIn("part_size_mb = 2", workflow)
+        self.assertIn("max_threads = 3", workflow)
         self.assertLess(
             workflow.index("Uploaded feature payload:"),
             workflow.index("Uploaded feature manifest last:"),
         )
+        manifest_upload = workflow.index("Uploaded feature manifest last:")
+        self.assertIn("client.put_object(", workflow[:manifest_upload])
         self.assertIn("Verified public feature object:", workflow)
         self.assertIn("cos-python-sdk-v5==1.9.44", workflow)
         self.assertIn(
@@ -55,6 +65,17 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("is already public; refusing to replace it", workflow)
         self.assertIn('gh release download "$GITHUB_REF_NAME"', workflow)
         self.assertIn("Verified GitHub release artifact:", workflow)
+        self.assertIn("client.upload_file(", workflow)
+        self.assertIn("LocalFilePath=str(path)", workflow)
+        self.assertIn("PartSize=part_size_mb", workflow)
+        self.assertIn("MAXThread=max_threads", workflow)
+        self.assertIn("part_size_mb = 2", workflow)
+        self.assertIn("max_threads = 3", workflow)
+        self.assertIn("def file_sha256(path):", workflow)
+        self.assertIn("actual_digest.update(chunk)", workflow)
+        self.assertNotIn(
+            'artifacts = {name: (Path("dist") / name).read_bytes()', workflow
+        )
         self.assertLess(
             workflow.index('gh release create "$GITHUB_REF_NAME"'),
             workflow.index("Publish application artifacts to Tencent COS"),
