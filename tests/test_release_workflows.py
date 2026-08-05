@@ -25,13 +25,19 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('"name": "fast-mono-reading"', workflow)
         self.assertIn('key = f"{feature}/{name}"', workflow)
         self.assertIn("client.upload_file(", workflow)
-        self.assertIn(
-            "LocalFilePath=str(release_dirs[feature] / name)", workflow
-        )
+        self.assertIn("LocalFilePath=str(path)", workflow)
         self.assertIn("PartSize=part_size_mb", workflow)
         self.assertIn("MAXThread=max_threads", workflow)
         self.assertIn("part_size_mb = 2", workflow)
         self.assertIn("max_threads = 3", workflow)
+        self.assertIn("Timeout=300", workflow)
+        self.assertIn('exc.get_error_code() != "AccessDenied"', workflow)
+        self.assertIn('upload_state["multipart_available"] = False', workflow)
+        self.assertIn('with path.open("rb") as body:', workflow)
+        self.assertIn("Body=body", workflow)
+        self.assertIn("for attempt in range(3):", workflow)
+        self.assertIn("time.sleep(2 ** attempt)", workflow)
+        self.assertIn("if not is_retryable_put_error(exc) or attempt == 2:", workflow)
         self.assertLess(
             workflow.index("Uploaded feature payload:"),
             workflow.index("Uploaded feature manifest last:"),
@@ -71,6 +77,14 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("MAXThread=max_threads", workflow)
         self.assertIn("part_size_mb = 2", workflow)
         self.assertIn("max_threads = 3", workflow)
+        self.assertIn("Timeout=300", workflow)
+        self.assertIn('exc.get_error_code() != "AccessDenied"', workflow)
+        self.assertIn('upload_state["multipart_available"] = False', workflow)
+        self.assertIn('with path.open("rb") as body:', workflow)
+        self.assertIn("Body=body", workflow)
+        self.assertIn("for attempt in range(3):", workflow)
+        self.assertIn("time.sleep(2 ** attempt)", workflow)
+        self.assertIn("if not is_retryable_put_error(exc) or attempt == 2:", workflow)
         self.assertIn("def file_sha256(path):", workflow)
         self.assertIn("actual_digest.update(chunk)", workflow)
         self.assertNotIn(
@@ -98,6 +112,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
             "TENCENT_CLOUD_SECRET_KEY: ${{ secrets.TENCENT_CLOUD_SECRET_KEY }}",
             workflow,
         )
+        self.assertNotIn("client.delete_", workflow)
 
 
 if __name__ == "__main__":
