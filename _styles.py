@@ -37,16 +37,19 @@ QGroupBox {
     border-radius: {radius_panel};
     margin-top: 0px;
     padding: 36px {panel_padding} {panel_padding} {panel_padding};
+    font-size: {font_lg};
+    font-weight: 700;
 }
 QGroupBox::title {
     subcontrol-origin: padding;
     subcontrol-position: top left;
     left: 16px;
     top: 10px;
-    color: {text_muted};
-    font-size: {font_md};
-    font-weight: 600;
-    letter-spacing: 0.5px;
+    color: {text_primary};
+}
+QGroupBox QLabel {
+    font-size: {font_base};
+    font-weight: normal;
 }
 
 /* ===== Buttons: default is secondary ===== */
@@ -663,11 +666,10 @@ QStatusBar#appStatusBar[level="error"] {
 }
 
 /* ===== Toolbox section titles ===== */
-#rmkitCnStatus,
-#tapPageTurnStatus {
+#toolboxFeatureTitle {
     color: {text_primary};
     font-size: {font_md};
-    font-weight: 700;
+    font-weight: 600;
 }
 
 /* ===== Log viewer panel ===== */

@@ -73,6 +73,8 @@ jobs:
             --add-data "$root/assets/fonts:assets/fonts" \
             --add-data "$root/assets/device_frames:assets/device_frames" \
             --add-data "$root/translations/manifest.json:translations" \
+            --add-data "$root/tap-page-turn/manifest.json:tap-page-turn" \
+            --add-data "$root/fast-mono-reading/manifest.json:fast-mono-reading" \
             --distpath dist \
             --workpath build/macos \
             --specpath build \
@@ -102,7 +104,7 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - name: Publish release
+      - name: Create draft GitHub release and verify assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -113,9 +115,143 @@ jobs:
           else
             notes_args=(--generate-notes)
           fi
-          gh release create "$GITHUB_REF_NAME" \
-            dist/rmtool-windows-x64.zip \
-            dist/rmtool-windows-x64-onefile.exe \
-            dist/rmtool-macos-arm64.app.zip \
-            --verify-tag \
-            "${notes_args[@]}"
+          assets=(
+            dist/rmtool-windows-x64.zip
+            dist/rmtool-windows-x64-onefile.exe
+            dist/rmtool-macos-arm64.app.zip
+          )
+          if existing_draft=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [[ "$existing_draft" != "true" ]]; then
+              echo "Release $GITHUB_REF_NAME is already public; refusing to replace it." >&2
+              exit 1
+            fi
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              "${assets[@]}" \
+              --draft \
+              --verify-tag \
+              "${notes_args[@]}"
+          fi
+
+          verify_dir="$RUNNER_TEMP/github-release"
+          mkdir -p "$verify_dir"
+          gh release download "$GITHUB_REF_NAME" \
+            --dir "$verify_dir" \
+            --pattern "rmtool-windows-x64.zip" \
+            --pattern "rmtool-windows-x64-onefile.exe" \
+            --pattern "rmtool-macos-arm64.app.zip"
+          for name in \
+            rmtool-windows-x64.zip \
+            rmtool-windows-x64-onefile.exe \
+            rmtool-macos-arm64.app.zip; do
+            cmp --silent "dist/$name" "$verify_dir/$name"
+            echo "Verified GitHub release artifact: $name"
+          done
+
+      - name: Install Tencent COS SDK
+        run: |
+          python -m pip --isolated install \
+            --disable-pip-version-check \
+            --no-input \
+            "cos-python-sdk-v5==1.9.44"
+
+      - name: Publish application artifacts to Tencent COS
+        env:
+          COS_BUCKET: rmtool-localization-1254761827
+          COS_REGION: ap-shanghai
+          COS_PUBLIC_BASE_URL: https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com
+          TENCENT_CLOUD_SECRET_ID: ${{ secrets.TENCENT_CLOUD_SECRET_ID }}
+          TENCENT_CLOUD_SECRET_KEY: ${{ secrets.TENCENT_CLOUD_SECRET_KEY }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import mimetypes
+          import os
+          import time
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          from qcloud_cos import CosConfig, CosS3Client
+
+          secret_id = os.environ.get("TENCENT_CLOUD_SECRET_ID")
+          secret_key = os.environ.get("TENCENT_CLOUD_SECRET_KEY")
+          if not secret_id or not secret_key:
+              raise SystemExit("Tencent Cloud GitHub Secrets are not configured.")
+
+          names = (
+              "rmtool-windows-x64.zip",
+              "rmtool-windows-x64-onefile.exe",
+              "rmtool-macos-arm64.app.zip",
+          )
+          artifacts = {name: (Path("dist") / name).read_bytes() for name in names}
+          if any(not payload for payload in artifacts.values()):
+              raise SystemExit("A release artifact is empty.")
+
+          client = CosS3Client(
+              CosConfig(
+                  Region=os.environ["COS_REGION"],
+                  SecretId=secret_id,
+                  SecretKey=secret_key,
+                  Scheme="https",
+              )
+          )
+          cache_buster = (
+              f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+          )
+
+          def upload_prefix(prefix):
+              for name, payload in artifacts.items():
+                  key = f"{prefix}/{name}"
+                  client.put_object(
+                      Bucket=os.environ["COS_BUCKET"],
+                      Key=key,
+                      Body=payload,
+                      ContentType=mimetypes.guess_type(name)[0]
+                      or "application/octet-stream",
+                  )
+                  print(f"Uploaded application artifact: {key}")
+
+          def verify_prefix(prefix):
+              for name, expected in artifacts.items():
+                  key = f"{prefix}/{name}"
+                  expected_digest = hashlib.sha256(expected).hexdigest()
+                  url = (
+                      f"{os.environ['COS_PUBLIC_BASE_URL']}/"
+                      f"{urllib.parse.quote(key, safe='/')}?verify={cache_buster}"
+                  )
+                  last_error = None
+                  for attempt in range(5):
+                      try:
+                          with urllib.request.urlopen(url, timeout=60) as response:
+                              actual = response.read()
+                          if (
+                              len(actual) == len(expected)
+                              and hashlib.sha256(actual).hexdigest()
+                              == expected_digest
+                          ):
+                              print(f"Verified public application artifact: {key}")
+                              break
+                          last_error = RuntimeError("size or SHA-256 mismatch")
+                      except Exception as exc:
+                          last_error = exc
+                      if attempt < 4:
+                          time.sleep(2)
+                  else:
+                      raise SystemExit(
+                          f"Public COS verification failed for {key}: {last_error}"
+                      )
+
+          versioned_prefix = f"releases/{os.environ['GITHUB_REF_NAME']}"
+          upload_prefix(versioned_prefix)
+          verify_prefix(versioned_prefix)
+          upload_prefix("releases/latest")
+          verify_prefix("releases/latest")
+          PY
+
+      - name: Publish verified GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false

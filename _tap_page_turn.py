@@ -17,13 +17,23 @@ import urllib.request
 import uuid
 from dataclasses import dataclass
 from enum import Enum
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Optional
+
+import _xovi_standalone
 
 
 REPO_URL = "https://github.com/pretenderlu/rmtool"
 ASSET_RELEASE_URL = f"{REPO_URL}/releases/download/tap-page-turn-assets"
-MANIFEST_URL = f"{ASSET_RELEASE_URL}/manifest.json"
+COS_URL = (
+    "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/"
+    "tap-page-turn"
+)
+REMOTE_BASE_URLS = (COS_URL, ASSET_RELEASE_URL)
+MANIFEST_URLS = tuple(f"{base_url}/manifest.json" for base_url in REMOTE_BASE_URLS)
+MANIFEST_URL = MANIFEST_URLS[0]
+BUNDLED_MANIFEST = Path(__file__).resolve().parent / "tap-page-turn" / "manifest.json"
 
 REMOTE_BASE = "/home/root/.local/share/rmtool/tap-page-turn"
 DROPIN_NAME = "90-rmtool-tap-page-turn.conf"
@@ -80,6 +90,13 @@ _RUNTIME_PATHS = {
 }
 _REQUIRED_PATHS = _RUNTIME_PATHS | {"qmd-tool"}
 
+_STANDALONE_LAYOUT = _xovi_standalone.StandaloneLayout(
+    remote_base=REMOTE_BASE,
+    dropin_name=DROPIN_NAME,
+    log_tag="rmtool-tap-page-turn",
+    mount_tag="rmtool-tap",
+)
+
 
 class TapPageTurnState(Enum):
     INCOMPATIBLE = "incompatible"
@@ -119,7 +136,11 @@ class TapPageTurnPackage:
 
     @property
     def download_url(self) -> str:
-        return f"{ASSET_RELEASE_URL}/{self.asset}"
+        return self.download_urls[0]
+
+    @property
+    def download_urls(self) -> tuple[str, ...]:
+        return tuple(f"{base_url}/{self.asset}" for base_url in REMOTE_BASE_URLS)
 
     def file(self, path: str) -> PayloadFile:
         for item in self.files:
@@ -245,6 +266,13 @@ def parse_manifest(data: bytes) -> tuple[TapPageTurnPackage, ...]:
     return tuple(packages)
 
 
+@lru_cache(maxsize=1)
+def _trusted_catalog() -> tuple[TapPageTurnPackage, ...]:
+    if not BUNDLED_MANIFEST.is_file():
+        raise RuntimeError("缺少内置点击翻页信任清单。")
+    return parse_manifest(BUNDLED_MANIFEST.read_bytes())
+
+
 def _download_limited(url: str, maximum: int) -> bytes:
     request = urllib.request.Request(
         url, headers={"User-Agent": "rmtool-tap-page-turn/1"}
@@ -261,9 +289,27 @@ def _download_limited(url: str, maximum: int) -> bytes:
 
 def _write_atomic(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_bytes(data)
-    os.replace(temporary, path)
+    fd: Optional[int] = None
+    temporary: Optional[Path] = None
+    try:
+        fd, temporary_name = tempfile.mkstemp(
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=path.parent,
+        )
+        temporary = Path(temporary_name)
+        output = os.fdopen(fd, "wb")
+        fd = None
+        with output:
+            output.write(data)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _cache_dir(state_dir: str) -> Path:
@@ -275,19 +321,27 @@ def load_catalog(
 ) -> tuple[TapPageTurnPackage, ...]:
     manifest_path = _cache_dir(state_dir) / "manifest.json"
     if refresh:
-        try:
-            data = _download_limited(MANIFEST_URL, MAX_MANIFEST_BYTES)
-            catalog = parse_manifest(data)
-            _write_atomic(manifest_path, data)
-            return catalog
-        except Exception as exc:
-            logging.warning("Could not refresh tap-to-turn manifest: %s", exc)
-    if manifest_path.is_file():
-        try:
-            return parse_manifest(manifest_path.read_bytes())
-        except Exception as exc:
-            logging.warning("Cached tap-to-turn manifest is invalid: %s", exc)
-    raise RuntimeError("无法获取点击翻页云端清单，且没有可用缓存。")
+        for manifest_url in MANIFEST_URLS:
+            try:
+                data = _download_limited(manifest_url, MAX_MANIFEST_BYTES)
+                catalog = parse_manifest(data)
+                _write_atomic(manifest_path, data)
+                return catalog
+            except Exception as exc:
+                logging.warning(
+                    "Could not load tap-to-turn manifest from %s: %s",
+                    manifest_url,
+                    exc,
+                )
+    for candidate in (manifest_path, BUNDLED_MANIFEST):
+        if candidate.is_file():
+            try:
+                return parse_manifest(candidate.read_bytes())
+            except Exception as exc:
+                logging.warning(
+                    "Tap-to-turn manifest is invalid (%s): %s", candidate, exc
+                )
+    raise RuntimeError("无法获取点击翻页云端清单，且没有可用缓存或内置清单。")
 
 
 def download_package(
@@ -301,13 +355,24 @@ def download_package(
             and hashlib.sha256(data).hexdigest() == package.sha256
         ):
             return destination
-    data = _download_limited(package.download_url, MAX_PACKAGE_BYTES)
-    if len(data) != package.size:
-        raise RuntimeError("点击翻页资源包大小与云端清单不匹配。")
-    if hashlib.sha256(data).hexdigest() != package.sha256:
-        raise RuntimeError("点击翻页资源包 SHA-256 校验失败。")
-    _write_atomic(destination, data)
-    return destination
+    last_error: Optional[Exception] = None
+    for download_url in package.download_urls:
+        try:
+            data = _download_limited(download_url, MAX_PACKAGE_BYTES)
+            if len(data) != package.size:
+                raise RuntimeError("点击翻页资源包大小与云端清单不匹配。")
+            if hashlib.sha256(data).hexdigest() != package.sha256:
+                raise RuntimeError("点击翻页资源包 SHA-256 校验失败。")
+            _write_atomic(destination, data)
+            return destination
+        except Exception as exc:
+            last_error = exc
+            logging.warning(
+                "Could not download tap-to-turn package from %s: %s",
+                download_url,
+                exc,
+            )
+    raise RuntimeError("无法从可用镜像下载并校验点击翻页资源包。") from last_error
 
 
 def extract_verified_package(
@@ -411,14 +476,16 @@ def _tar_member(
     *,
     apk_checksums: bool = True,
     end_archive: bool = True,
+    include_directories: bool = True,
 ) -> bytes:
     output = io.BytesIO()
     directories: set[str] = set()
-    for path in files:
-        parent = PurePosixPath(path).parent
-        while str(parent) not in ("", "."):
-            directories.add(str(parent))
-            parent = parent.parent
+    if include_directories:
+        for path in files:
+            parent = PurePosixPath(path).parent
+            while str(parent) not in ("", "."):
+                directories.add(str(parent))
+                parent = parent.parent
     entries = [
         (path, b"", 0o755, b"5")
         for path in sorted(directories, key=lambda item: (item.count("/"), item))
@@ -583,71 +650,14 @@ def _remote_sha256(ssh_client, path: str) -> str:
 
 
 def _launcher(package: TapPageTurnPackage) -> str:
-    checks = []
-    for item in package.files:
-        if item.path in _RUNTIME_PATHS:
-            remote = posixpath.join(REMOTE_BASE, item.path)
-            checks.append(
-                f'[ "$(file_sha {shlex.quote(remote)})" = "{item.sha256}" ] || stock'
-            )
-    checks_text = "\n".join(checks)
-    return f"""#!/bin/sh
-BASE={shlex.quote(REMOTE_BASE)}
-
-stock() {{
-    logger -t rmtool-tap-page-turn "preflight failed; starting stock xochitl" 2>/dev/null || true
-    unset LD_PRELOAD XOVI_ROOT QML_DISABLE_DISK_CACHE QML_XHR_ALLOW_FILE_WRITE QML_XHR_ALLOW_FILE_READ
-    exec /usr/bin/xochitl --system
-}}
-
-file_sha() {{
-    [ -f "$1" ] || return 1
-    sha256sum "$1" | awk '{{print $1}}'
-}}
-
-[ "$(uname -m)" = "{package.architecture}" ] || stock
-machine=$(cat /sys/devices/soc0/machine 2>/dev/null || true)
-case "$machine" in
-    *Ferrari*) platform=ferrari ;;
-    *Chiappa*) platform=chiappa ;;
-    *Tatsu*) platform=tatsu ;;
-    *"reMarkable 1"*) platform=rm1 ;;
-    *"reMarkable 2"*) platform=rm2 ;;
-    *) platform=unknown ;;
-esac
-[ "$platform" = "{package.platform}" ] || stock
-version=$(tr -cd '0-9' < /etc/version)
-[ "$version" = "{package.firmware}" ] || stock
-[ "$(file_sha /usr/bin/xochitl)" = "{package.xochitl_sha256}" ] || stock
-{checks_text}
-
-export XOVI_ROOT="$BASE"
-export QML_DISABLE_DISK_CACHE=1
-export QML_XHR_ALLOW_FILE_WRITE=1
-export QML_XHR_ALLOW_FILE_READ=1
-export LD_PRELOAD="$BASE/xovi.so"
-exec /usr/bin/xochitl --system
-"""
+    return _xovi_standalone.launcher(
+        package, package.files, _RUNTIME_PATHS, _STANDALONE_LAYOUT
+    )
 
 
 def _dropin(package: TapPageTurnPackage) -> str:
     del package
-    conditions = [LAUNCHER_PATH]
-    conditions.extend(
-        posixpath.join(REMOTE_BASE, path) for path in sorted(_RUNTIME_PATHS)
-    )
-    condition_lines = "\n".join(
-        f"ConditionPathExists={path}" for path in conditions
-    )
-    return f"""[Unit]
-After=home.mount
-{condition_lines}
-
-[Service]
-ExecStart=
-ExecStart={LAUNCHER_PATH}
-WatchdogSec=0
-"""
+    return _xovi_standalone.dropin(_RUNTIME_PATHS, _STANDALONE_LAYOUT)
 
 
 def _marker(package: TapPageTurnPackage, launcher_sha: str, dropin_sha: str) -> bytes:
@@ -661,6 +671,69 @@ def _marker(package: TapPageTurnPackage, launcher_sha: str, dropin_sha: str) -> 
         "dropin_sha256": dropin_sha,
     }
     return (json.dumps(document, ensure_ascii=True, sort_keys=True) + "\n").encode("ascii")
+
+
+def _shared_specs(package: TapPageTurnPackage):
+    return _xovi_standalone.specs_from_package(
+        package,
+        "tap-page-turn",
+        "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
+    )
+
+
+def _legacy_spec(package: TapPageTurnPackage):
+    runtime, feature = _shared_specs(package)
+    launcher_sha = hashlib.sha256(_launcher(package).encode()).hexdigest()
+    dropin_sha = hashlib.sha256(_dropin(package).encode()).hexdigest()
+    return _xovi_standalone.LegacyStandaloneSpec(
+        feature,
+        runtime,
+        _STANDALONE_LAYOUT,
+        json.loads(_marker(package, launcher_sha, dropin_sha)),
+        tuple(
+            _xovi_standalone.SharedFileSpec(
+                item.path, item.sha256, item.size, item.mode
+            )
+            for item in package.files
+        ),
+    )
+
+
+def _trusted_shared_context(identity: DeviceIdentity):
+    package = select_package(_trusted_catalog(), identity)
+    if package is None:
+        raise RuntimeError("内置点击翻页清单没有当前设备的精确包。")
+    runtime, feature = _shared_specs(package)
+    trusted = {feature.feature_id: feature}
+    legacies = [_legacy_spec(package)]
+    try:
+        import _fast_mono_reading as fast
+
+        peer = next(
+            (
+                item
+                for item in fast._trusted_catalog()
+                if item.firmware == identity.firmware
+                and item.platform == identity.platform
+                and item.architecture == identity.architecture
+                and item.xochitl_sha256 == identity.xochitl_sha256
+            ),
+            None,
+        )
+        if peer is not None:
+            peer_runtime, peer_feature = fast._shared_specs(peer)
+            if peer_runtime != runtime:
+                raise RuntimeError("点击翻页与快速黑白的内置运行资源不一致。")
+            trusted[peer_feature.feature_id] = peer_feature
+            legacies.append(fast._legacy_spec(peer))
+    except ImportError:
+        pass
+    return runtime, trusted, tuple(legacies)
+
+
+def _trusted_shared_context_from_marker(ssh_client):
+    identity = DeviceIdentity(*_xovi_standalone.read_shared_identity(ssh_client))
+    return _trusted_shared_context(identity)
 
 
 def _vellum_marker(
@@ -935,6 +1008,7 @@ def get_status(
     available = tuple(item for item in packages if item.platform == identity.platform)
     dropin_exists = ssh_client.file_exists(DROPIN_PATH)
     marker_exists = ssh_client.file_exists(MARKER_PATH)
+    shared_exists = _xovi_standalone.has_shared_artifacts(ssh_client)
     vellum_version = None
     vellum_error = ""
     if ssh_client.file_exists(VELLUM_BIN):
@@ -944,8 +1018,39 @@ def get_status(
             )
         except Exception as exc:
             vellum_error = str(exc)
-    recovery_available = dropin_exists or marker_exists or vellum_version is not None
+    recovery_available = (
+        dropin_exists or marker_exists or vellum_version is not None or shared_exists
+    )
     package = select_package(packages, identity)
+    if package is None and shared_exists:
+        try:
+            runtime, trusted, legacies = _trusted_shared_context_from_marker(ssh_client)
+            if any(
+                ssh_client.file_exists(path)
+                for legacy in legacies
+                for path in (
+                    legacy.layout.remote_base,
+                    legacy.marker_path,
+                    legacy.layout.dropin_path,
+                )
+            ):
+                raise RuntimeError("检测到共享与旧版/Vellum Xovi 混合布局。")
+            _xovi_standalone.inspect_shared(ssh_client, runtime, trusted)
+        except Exception as exc:
+            return TapPageTurnStatus(
+                TapPageTurnState.BROKEN,
+                identity,
+                available_packages=available,
+                detail=str(exc),
+                dropin_present=True,
+            )
+        return TapPageTurnStatus(
+            TapPageTurnState.INCOMPATIBLE,
+            identity,
+            available_packages=available,
+            detail="检测到属于其他固件的有效共享安装；可安全停用，不能在当前固件载入",
+            dropin_present=True,
+        )
     if package is None:
         return TapPageTurnStatus(
             TapPageTurnState.INCOMPATIBLE,
@@ -954,6 +1059,57 @@ def get_status(
             detail="没有与设备身份和 xochitl 哈希精确匹配的包",
             dropin_present=recovery_available,
         )
+
+    if shared_exists:
+        try:
+            runtime, trusted, legacies = _trusted_shared_context(identity)
+            if any(
+                ssh_client.file_exists(path)
+                for legacy in legacies
+                for path in (
+                    legacy.layout.remote_base,
+                    legacy.marker_path,
+                    legacy.layout.dropin_path,
+                )
+            ):
+                raise RuntimeError("检测到共享与旧版/Vellum Xovi 混合布局。")
+            inspection = _xovi_standalone.inspect_shared(
+                ssh_client, runtime, trusted
+            )
+            state_record = inspection.states.get("tap-page-turn")
+            if state_record is None:
+                state = TapPageTurnState.NOT_INSTALLED
+                detail = "共享 Xovi 正由另一项 rmtool 功能使用"
+            else:
+                current = _xochitl_process_token(ssh_client)
+                process_changed = current != state_record.process_token
+                if state_record.enabled:
+                    if process_changed and inspection.active:
+                        state = TapPageTurnState.ENABLED
+                        detail = ""
+                    elif not process_changed:
+                        state = TapPageTurnState.ENABLE_PENDING_REBOOT
+                        detail = "等待手动重启后载入共享 Xovi"
+                    else:
+                        raise RuntimeError("共享 Xovi 未在当前 xochitl 进程中载入。")
+                elif process_changed:
+                    state = TapPageTurnState.INSTALLED_DISABLED
+                    detail = ""
+                else:
+                    state = TapPageTurnState.DISABLE_PENDING_REBOOT
+                    detail = "等待手动重启后停用点击翻页"
+            return TapPageTurnStatus(
+                state, identity, package, available, detail, True
+            )
+        except Exception as exc:
+            return TapPageTurnStatus(
+                TapPageTurnState.BROKEN,
+                identity,
+                package,
+                available,
+                str(exc),
+                True,
+            )
 
     marker = None
     if marker_exists:
@@ -1076,10 +1232,83 @@ def get_cloud_status(ssh_client, state_dir: str) -> TapPageTurnStatus:
     return get_status(ssh_client, load_catalog(state_dir))
 
 
+def _own_state_is_vellum(
+    ssh_client, package: TapPageTurnPackage
+) -> bool:
+    if not ssh_client.file_exists(REMOTE_BASE):
+        return False
+    if not ssh_client.file_exists(MARKER_PATH):
+        raise RuntimeError("rmtool 点击翻页目录缺少所有权标记，拒绝覆盖。")
+    marker = _read_marker(ssh_client)
+    mode = marker.get("deployment_mode")
+    if mode in (None, "shared_xovi"):
+        return False
+    if mode != "vellum":
+        raise RuntimeError("点击翻页所有权标记的部署模式无效，拒绝覆盖。")
+    valid, detail = _vellum_payload_valid(ssh_client, package, marker)
+    if not valid:
+        raise RuntimeError(detail or "Vellum 点击翻页载荷无法精确验证。")
+    if not ssh_client.file_exists(VELLUM_BIN):
+        raise RuntimeError("Vellum 不可用，无法重新启用现有点击翻页安装。")
+    return True
+
+
 def _deployment_mode(
     ssh_client,
     package: TapPageTurnPackage,
 ) -> str:
+    import _fast_mono_reading as fast
+
+    own_vellum = _own_state_is_vellum(ssh_client, package)
+    fast_vellum = False
+    if ssh_client.file_exists(fast.REMOTE_BASE):
+        if not ssh_client.file_exists(fast.MARKER_PATH):
+            raise RuntimeError("快速黑白目录缺少所有权标记，拒绝部署点击翻页。")
+        fast_marker = fast._read_marker(ssh_client)
+        mode = fast_marker.get("deployment_mode")
+        if mode == "vellum":
+            identity = fast.DeviceIdentity(
+                package.firmware,
+                package.platform,
+                package.architecture,
+                package.xochitl_sha256,
+            )
+            trusted = fast.select_package(fast._trusted_catalog(), identity)
+            if trusted is None:
+                raise RuntimeError("内置快速黑白清单没有当前设备的精确包。")
+            revision, detail = fast._vellum_payload_revision(
+                ssh_client, trusted, fast_marker
+            )
+            if revision is None:
+                raise RuntimeError(detail or "Vellum 快速黑白载荷无法精确验证。")
+            if not ssh_client.file_exists(VELLUM_BIN):
+                raise RuntimeError("Vellum 不可用，无法与现有快速黑白安装共存。")
+            fast_vellum = True
+        elif mode != "standalone":
+            raise RuntimeError("快速黑白所有权标记的部署模式无效，拒绝部署点击翻页。")
+
+    rmtool_standalone = _xovi_standalone.has_shared_artifacts(ssh_client) or any(
+        ssh_client.file_exists(path)
+        for path in (
+            DROPIN_PATH,
+            fast.DROPIN_PATH,
+        )
+    ) or (
+        ssh_client.file_exists(REMOTE_BASE) and not own_vellum
+    ) or (ssh_client.file_exists(fast.REMOTE_BASE) and not fast_vellum)
+    vellum_feature = None
+    if ssh_client.file_exists(VELLUM_BIN):
+        vellum_feature = _vellum_installed_version(
+            ssh_client, VELLUM_PACKAGE_NAME
+        )
+    if rmtool_standalone and vellum_feature is None:
+        if any(
+            ssh_client.file_exists(path)
+            for path in (SHARED_XOVI_LIBRARY, SHARED_QRR_LIBRARY, SHARED_APPLOAD_LIBRARY)
+        ):
+            raise RuntimeError("检测到 Vellum 与 rmtool 独立 Xovi 混合布局，拒绝修改。")
+        return "standalone"
+
     command = f"""
 for file in /etc/systemd/system/xochitl.service.d/*.conf; do
     [ -f "$file" ] || continue
@@ -1105,6 +1334,11 @@ done
         for path in (SHARED_XOVI_LIBRARY, SHARED_QRR_LIBRARY, SHARED_APPLOAD_LIBRARY)
     )
     if not conflicts and not xovi_installed and not shared_files_present:
+        if own_vellum or fast_vellum:
+            raise RuntimeError(
+                "检测到由 Vellum 管理的 rmtool 功能状态，但标准 Vellum/Xovi "
+                "运行环境不完整，拒绝降级为独立部署。"
+            )
         return "standalone"
     if not xovi_installed:
         raise RuntimeError("检测到非 Vellum 管理的 Xovi 文件或启动配置，拒绝自动合并。")
@@ -1172,10 +1406,12 @@ def _preflight_device(ssh_client) -> None:
         "cmp",
         "cp",
         "dirname",
+        "find",
         "grep",
         "mount",
         "mv",
         "sha256sum",
+        "stat",
         "systemctl",
         "umount",
     )
@@ -1218,111 +1454,13 @@ def _preflight_device(ssh_client) -> None:
 
 
 def _activation_script(stage: str, backup: str, token: str) -> str:
-    mount_dir = f"/tmp/rmtool-tap-rootfs-{token}"
-    source_dropin = f"{REMOTE_BASE}/systemd/{DROPIN_NAME}"
-    return f"""#!/bin/sh
-set -eu
-BASE={shlex.quote(REMOTE_BASE)}
-STAGE={shlex.quote(stage)}
-BACKUP={shlex.quote(backup)}
-DROPIN={shlex.quote(DROPIN_PATH)}
-MOUNT_DIR={shlex.quote(mount_dir)}
-MOVED=0
-HAD_BASE=0
-MOUNTED=0
-
-unmount_root() {{
-    if [ "$MOUNTED" -eq 1 ]; then
-        sync
-        mount -o remount,ro "$MOUNT_DIR" 2>/dev/null || true
-        umount "$MOUNT_DIR" 2>/dev/null || umount -l "$MOUNT_DIR" 2>/dev/null || true
-        MOUNTED=0
-    fi
-    rmdir "$MOUNT_DIR" 2>/dev/null || true
-}}
-
-remove_lower_dropin() {{
-    mkdir -p "$MOUNT_DIR"
-    mount --bind / "$MOUNT_DIR"
-    MOUNTED=1
-    mount -o remount,rw "$MOUNT_DIR"
-    rm -f "$MOUNT_DIR$DROPIN"
-    unmount_root
-}}
-
-rollback() {{
-    rc=$?
-    trap - EXIT INT TERM
-    unmount_root
-    if [ "$rc" -ne 0 ]; then
-        rm -f "$DROPIN"
-        remove_lower_dropin 2>/dev/null || true
-        if [ "$MOVED" -eq 1 ]; then
-            rm -rf "$BASE"
-            if [ "$HAD_BASE" -eq 1 ] && [ -d "$BACKUP" ]; then
-                mv "$BACKUP" "$BASE"
-            fi
-        fi
-        systemctl daemon-reload 2>/dev/null || true
-    fi
-    exit "$rc"
-}}
-trap rollback EXIT INT TERM
-
-if [ -e "$BASE" ]; then
-    HAD_BASE=1
-    mv "$BASE" "$BACKUP"
-fi
-mv "$STAGE" "$BASE"
-MOVED=1
-
-mkdir -p "$(dirname "$DROPIN")" "$MOUNT_DIR"
-mount --bind / "$MOUNT_DIR"
-MOUNTED=1
-mount -o remount,rw "$MOUNT_DIR"
-mkdir -p "$MOUNT_DIR$(dirname "$DROPIN")"
-cp {shlex.quote(source_dropin)} "$DROPIN.tmp"
-chmod 0644 "$DROPIN.tmp"
-mv -f "$DROPIN.tmp" "$DROPIN"
-cp {shlex.quote(source_dropin)} "$MOUNT_DIR$DROPIN.tmp"
-chmod 0644 "$MOUNT_DIR$DROPIN.tmp"
-mv -f "$MOUNT_DIR$DROPIN.tmp" "$MOUNT_DIR$DROPIN"
-cmp -s {shlex.quote(source_dropin)} "$DROPIN"
-cmp -s {shlex.quote(source_dropin)} "$MOUNT_DIR$DROPIN"
-unmount_root
-systemctl daemon-reload
-rm -rf "$BACKUP"
-trap - EXIT INT TERM
-"""
+    return _xovi_standalone.activation_script(
+        stage, backup, token, _STANDALONE_LAYOUT
+    )
 
 
 def _disable_script(token: str) -> str:
-    mount_dir = f"/tmp/rmtool-tap-rootfs-{token}"
-    return f"""#!/bin/sh
-set -eu
-DROPIN={shlex.quote(DROPIN_PATH)}
-MOUNT_DIR={shlex.quote(mount_dir)}
-MOUNTED=0
-cleanup() {{
-    if [ "$MOUNTED" -eq 1 ]; then
-        sync
-        mount -o remount,ro "$MOUNT_DIR" 2>/dev/null || true
-        umount "$MOUNT_DIR" 2>/dev/null || umount -l "$MOUNT_DIR" 2>/dev/null || true
-    fi
-    rmdir "$MOUNT_DIR" 2>/dev/null || true
-}}
-trap cleanup EXIT INT TERM
-rm -f "$DROPIN"
-mkdir -p "$MOUNT_DIR"
-mount --bind / "$MOUNT_DIR"
-MOUNTED=1
-mount -o remount,rw "$MOUNT_DIR"
-rm -f "$MOUNT_DIR$DROPIN"
-cleanup
-MOUNTED=0
-trap - EXIT INT TERM
-systemctl daemon-reload
-"""
+    return _xovi_standalone.disable_script(token, _STANDALONE_LAYOUT)
 
 
 def _qmd_check_command(stage: str) -> str:
@@ -1569,94 +1707,21 @@ def enable(
     identity = get_device_identity(ssh_client)
     if select_package((package,), identity) is None:
         raise RuntimeError("当前设备与点击翻页包不精确匹配，未执行修改。")
+    trusted_package = select_package(_trusted_catalog(), identity)
+    if trusted_package is None or trusted_package != package:
+        raise RuntimeError("点击翻页包与内置信任清单不一致，拒绝部署。")
     _preflight_device(ssh_client)
     deployment_mode = _deployment_mode(ssh_client, package)
     if deployment_mode == "vellum":
         return _enable_vellum(ssh_client, package, archive_path)
 
-    token = uuid.uuid4().hex
-    stage = f"{REMOTE_BASE}.staging-{token}"
-    backup = f"{REMOTE_BASE}.backup-{token}"
-    remote_script = f"/tmp/rmtool-tap-activate-{token}.sh"
+    runtime, trusted, legacies = _trusted_shared_context(identity)
+    _runtime, feature = _shared_specs(trusted_package)
     with tempfile.TemporaryDirectory() as temporary_dir:
         extracted = extract_verified_package(archive_path, package, temporary_dir)
-        launcher = _launcher(package)
-        dropin = _dropin(package)
-        launcher_sha = hashlib.sha256(launcher.encode("utf-8")).hexdigest()
-        dropin_sha = hashlib.sha256(dropin.encode("utf-8")).hexdigest()
-        (extracted / "launcher.sh").write_text(launcher, encoding="utf-8", newline="\n")
-        systemd_dir = extracted / "systemd"
-        systemd_dir.mkdir()
-        (systemd_dir / DROPIN_NAME).write_text(dropin, encoding="utf-8", newline="\n")
-        (extracted / "package.json").write_bytes(_marker(package, launcher_sha, dropin_sha))
-
-        ssh_client.exec_checked(f"rm -rf {shlex.quote(stage)} {shlex.quote(backup)}")
-        try:
-            directories = {stage}
-            files: list[tuple[Path, str, int]] = []
-            for spec in package.files:
-                remote = posixpath.join(stage, spec.path)
-                directories.add(posixpath.dirname(remote))
-                files.append(
-                    (
-                        extracted.joinpath(*PurePosixPath(spec.path).parts),
-                        remote,
-                        spec.mode,
-                    )
-                )
-            extra_files = (
-                (extracted / "launcher.sh", f"{stage}/launcher.sh", 0o755),
-                (systemd_dir / DROPIN_NAME, f"{stage}/systemd/{DROPIN_NAME}", 0o644),
-                (extracted / "package.json", f"{stage}/package.json", 0o644),
-            )
-            directories.update(
-                posixpath.dirname(remote) for _local, remote, _mode in extra_files
-            )
-            ssh_client.exec_checked(
-                "mkdir -p " + " ".join(shlex.quote(item) for item in sorted(directories))
-            )
-            for local, remote, mode in (*files, *extra_files):
-                ssh_client.transfer_file(str(local), remote)
-                ssh_client.exec_checked(f"chmod {mode:o} {shlex.quote(remote)}")
-            ssh_client.exec_checked(f"chown -R root:root {shlex.quote(stage)}")
-
-            for spec in package.files:
-                remote = posixpath.join(stage, spec.path)
-                if _remote_sha256(ssh_client, remote) != spec.sha256:
-                    raise RuntimeError(f"设备端资源 {spec.path} 上传校验失败。")
-            if _remote_sha256(ssh_client, f"{stage}/launcher.sh") != launcher_sha:
-                raise RuntimeError("设备端启动包装器上传校验失败。")
-            if (
-                _remote_sha256(ssh_client, f"{stage}/systemd/{DROPIN_NAME}")
-                != dropin_sha
-            ):
-                raise RuntimeError("设备端 systemd 配置上传校验失败。")
-
-            check_root = f"{stage}/check"
-            ssh_client.exec_checked(_qmd_check_command(stage))
-            ssh_client.exec_checked(f"rm -rf {shlex.quote(check_root)}")
-
-            _upload_text(
-                ssh_client,
-                _activation_script(stage, backup, token),
-                remote_script,
-                0o755,
-            )
-            ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
-        except Exception:
-            try:
-                ssh_client.exec_checked(
-                    f"rm -rf {shlex.quote(stage)}; "
-                    f"rm -f {shlex.quote(remote_script)}"
-                )
-            except Exception:
-                logging.exception("Could not clean tap-to-turn staging files")
-            raise
-        finally:
-            try:
-                ssh_client.exec_checked(f"rm -f {shlex.quote(remote_script)}")
-            except Exception:
-                logging.exception("Could not remove tap-to-turn activation script")
+        _xovi_standalone.enable_shared(
+            ssh_client, runtime, feature, extracted, trusted, legacies
+        )
     return get_status(ssh_client, (package,))
 
 
@@ -1716,6 +1781,12 @@ def disable(
         )
         if installed_version is not None:
             return _disable_vellum(ssh_client, catalog)
+    if _xovi_standalone.has_shared_artifacts(ssh_client):
+        runtime, trusted, _legacies = _trusted_shared_context_from_marker(ssh_client)
+        _xovi_standalone.disable_shared(
+            ssh_client, runtime, "tap-page-turn", trusted
+        )
+        return get_status(ssh_client, catalog)
     if ssh_client.file_exists(MARKER_PATH):
         marker = _read_marker(ssh_client)
         if marker.get("deployment_mode") in ("shared_xovi", "vellum"):

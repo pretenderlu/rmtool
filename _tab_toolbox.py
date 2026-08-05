@@ -10,6 +10,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
 import _rmkit_cn
+import _fast_mono_reading
 import _tap_page_turn
 from _ssh import SSHClientWrapper, remount_rw, require_connection
 import rmtool as _rmtool  # late-bound access to avoid circular import
@@ -784,7 +785,7 @@ class RmkitCnSection(QtWidgets.QWidget):
         self._other_packages_count = 0
 
         title = QtWidgets.QLabel("原生界面中文")
-        title.setObjectName("rmkitCnStatus")
+        title.setObjectName("toolboxFeatureTitle")
 
         detail = QtWidgets.QLabel(
             "默认会按固件版本精确匹配、下载并安装云端汉化包；"
@@ -1291,9 +1292,10 @@ class TapPageTurnSection(QtWidgets.QWidget):
         self.thread_pool = QtCore.QThreadPool.globalInstance()
         self._status: Optional[_tap_page_turn.TapPageTurnStatus] = None
         self._busy = False
+        self._other_packages_count = 0
 
         title = QtWidgets.QLabel("点击翻页")
-        title.setObjectName("tapPageTurnStatus")
+        title.setObjectName("toolboxFeatureTitle")
 
         detail = QtWidgets.QLabel(
             "在 PDF 和 EPUB 阅读页使用屏幕分区点击上一页或下一页，滑动翻页保持可用。"
@@ -1305,6 +1307,22 @@ class TapPageTurnSection(QtWidgets.QWidget):
         self.catalog_label.setObjectName("tapPageTurnCatalog")
         self.catalog_label.setWordWrap(True)
         self.catalog_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+
+        self.other_packages_button = QtWidgets.QPushButton("其他固件版本")
+        self.other_packages_button.setCheckable(True)
+        self.other_packages_button.setSizePolicy(
+            QtWidgets.QSizePolicy.Maximum,
+            QtWidgets.QSizePolicy.Preferred,
+        )
+        self.other_packages_button.hide()
+
+        self.other_packages_label = QtWidgets.QLabel()
+        self.other_packages_label.setObjectName("tapPageTurnOtherCatalog")
+        self.other_packages_label.setWordWrap(True)
+        self.other_packages_label.setTextInteractionFlags(
+            QtCore.Qt.TextSelectableByMouse
+        )
+        self.other_packages_label.hide()
 
         self.status_label = QtWidgets.QLabel("设备已连接，尚未检测")
         self.status_label.setObjectName("tapPageTurnDeviceStatus")
@@ -1330,9 +1348,17 @@ class TapPageTurnSection(QtWidgets.QWidget):
         layout.addWidget(title)
         layout.addWidget(detail)
         layout.addWidget(self.catalog_label)
+        layout.addWidget(
+            self.other_packages_button,
+            alignment=QtCore.Qt.AlignLeft,
+        )
+        layout.addWidget(self.other_packages_label)
         layout.addWidget(self.status_label)
         layout.addLayout(buttons)
 
+        self.other_packages_button.toggled.connect(
+            self._toggle_other_packages
+        )
         self.detect_button.clicked.connect(self._detect_status)
         self.enable_button.clicked.connect(self._enable)
         self.disable_button.clicked.connect(self._disable)
@@ -1347,11 +1373,35 @@ class TapPageTurnSection(QtWidgets.QWidget):
     def _on_connection_changed(self, connected: bool):
         if not connected:
             self._status = None
+            self.catalog_label.setText("云端点击翻页包：检测后显示")
+            self.other_packages_button.setChecked(False)
+            self._other_packages_count = 0
+            self.other_packages_button.setText("其他固件版本")
+            self.other_packages_label.clear()
+            self.other_packages_button.hide()
+            self.other_packages_label.hide()
             self.status_label.setText("设备未连接")
         elif self._status is None:
             self.status_label.setText("设备已连接，尚未检测")
         self.detect_button.setEnabled(connected and not self._busy)
         self._update_buttons()
+
+    @staticmethod
+    def _package_display_text(package: _tap_page_turn.TapPageTurnPackage) -> str:
+        channel_names = {"stable": "正式版", "beta": "测试版"}
+        return (
+            f"{package.release_version} | {channel_names[package.channel]} | "
+            f"硬件 {package.platform.title()} | 内部版本 {package.firmware}"
+        )
+
+    def _toggle_other_packages(self, expanded: bool):
+        self.other_packages_button.setText(
+            f"其他固件版本（{self._other_packages_count}） "
+            + ("⌄" if expanded else "›")
+        )
+        self.other_packages_label.setVisible(
+            expanded and not self.other_packages_button.isHidden()
+        )
 
     def _update_buttons(self):
         connected = self.ssh_client.is_connected() and not self._busy
@@ -1388,18 +1438,41 @@ class TapPageTurnSection(QtWidgets.QWidget):
 
     def _apply_status(self, status: _tap_page_turn.TapPageTurnStatus):
         self._status = status
-        if status.available_packages:
-            channel_names = {"stable": "正式版", "beta": "测试版"}
-            entries = [
-                f"{item.release_version} | {channel_names[item.channel]} | "
-                f"硬件 {item.platform.title()} | 内部版本 {item.firmware}"
-                for item in status.available_packages
-            ]
+        if status.package is not None:
             self.catalog_label.setText(
-                "云端点击翻页包：\n" + "\n".join(entries)
+                "当前固件点击翻页包：\n"
+                + self._package_display_text(status.package)
             )
         else:
-            self.catalog_label.setText("云端点击翻页包：当前硬件没有可用版本")
+            self.catalog_label.setText(
+                "当前固件点击翻页包：没有精确匹配版本"
+            )
+
+        other_packages = tuple(
+            package
+            for package in status.available_packages
+            if package != status.package
+            and package.platform == status.identity.platform
+        )
+        self.other_packages_button.setChecked(False)
+        if other_packages:
+            self._other_packages_count = len(other_packages)
+            self.other_packages_button.setText(
+                f"其他固件版本（{self._other_packages_count}） ›"
+            )
+            self.other_packages_label.setText(
+                "\n".join(
+                    self._package_display_text(package)
+                    for package in other_packages
+                )
+            )
+            self.other_packages_button.show()
+        else:
+            self._other_packages_count = 0
+            self.other_packages_button.setText("其他固件版本")
+            self.other_packages_label.clear()
+            self.other_packages_button.hide()
+        self.other_packages_label.hide()
 
         messages = {
             _tap_page_turn.TapPageTurnState.INCOMPATIBLE: (
@@ -1493,7 +1566,7 @@ class TapPageTurnSection(QtWidgets.QWidget):
             _rmtool.APP_NAME,
             "将下载并校验固件专用资源。若设备已有兼容的 AppLoader/Xovi，"
             "rmtool 会生成固件专用 Vellum APK，并通过 Vellum 安装；"
-            "否则部署 rmtool 自有持久化配置。Vellum 模式不增加设备端开关，"
+            "否则使用 rmtool 管理的共享 Xovi 组件，并与快速黑白共用。Vellum 模式不增加设备端开关，"
             "安装期间 QMD 始终随 Xovi 加载。"
             "本次操作不会重启界面或设备；完成后 SSH 会话会关闭，请从设备菜单手动冷启动。"
             "是否继续？",
@@ -1536,8 +1609,417 @@ class TapPageTurnSection(QtWidgets.QWidget):
             pending="正在移除点击翻页持久化配置…",
             success=(
                 "点击翻页持久化已移除，SSH 会话已关闭。\n"
-                "请从设备菜单手动重新启动以恢复原生界面。"
+                "请从设备菜单手动重新启动；若快速黑白仍启用，相关共享 Xovi 组件会继续保留。"
             ),
+            close_connection=True,
+        )
+
+
+class FastMonoReadingSection(QtWidgets.QWidget):
+    def __init__(self, ssh_client: SSHClientWrapper, parent=None):
+        super().__init__(parent)
+        self.ssh_client = ssh_client
+        self.thread_pool = QtCore.QThreadPool.globalInstance()
+        self._status: Optional[_fast_mono_reading.FastMonoReadingStatus] = None
+        self._busy = False
+        self._other_packages_count = 0
+
+        title = QtWidgets.QLabel("快速黑白阅读")
+        title.setObjectName("toolboxFeatureTitle")
+        detail = QtWidgets.QLabel(
+            "为精确支持的彩色 reMarkable 固件安装 PDF/EPUB 阅读菜单中的“快速黑白”开关。"
+            "开启后黑白文字翻页更利落，但暂时不显示彩色并可能增加残影；关闭即恢复原生刷新模式。"
+            "可选择每 5、10、20、30 次真实翻页调用系统清屏，或从不；默认每 10 次。"
+            "包会标明实机或离线验证级别；开关仅在当前 xochitl 会话有效，每次重启后默认关闭。"
+        )
+        detail.setWordWrap(True)
+
+        self.catalog_label = QtWidgets.QLabel("快速黑白包：检测后显示")
+        self.catalog_label.setObjectName("fastMonoReadingCatalog")
+        self.catalog_label.setWordWrap(True)
+        self.catalog_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+
+        self.other_packages_button = QtWidgets.QPushButton("其他固件版本")
+        self.other_packages_button.setCheckable(True)
+        self.other_packages_button.setSizePolicy(
+            QtWidgets.QSizePolicy.Maximum,
+            QtWidgets.QSizePolicy.Preferred,
+        )
+        self.other_packages_button.hide()
+
+        self.other_packages_label = QtWidgets.QLabel()
+        self.other_packages_label.setObjectName("fastMonoReadingOtherCatalog")
+        self.other_packages_label.setWordWrap(True)
+        self.other_packages_label.setTextInteractionFlags(
+            QtCore.Qt.TextSelectableByMouse
+        )
+        self.other_packages_label.hide()
+        self.status_label = QtWidgets.QLabel("设备已连接，尚未检测")
+        self.status_label.setObjectName("fastMonoReadingDeviceStatus")
+        self.status_label.setWordWrap(True)
+
+        self.detect_button = QtWidgets.QPushButton("检测状态")
+        self.enable_button = QtWidgets.QPushButton("安装并启用")
+        self.disable_button = QtWidgets.QPushButton("停用")
+        self.clear_button = QtWidgets.QPushButton("清除状态")
+        self.project_button = QtWidgets.QPushButton("查看说明")
+
+        buttons = QtWidgets.QHBoxLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.setSpacing(_rmtool.SUBSECTION_GAP)
+        for button in (
+            self.detect_button,
+            self.enable_button,
+            self.disable_button,
+            self.clear_button,
+            self.project_button,
+        ):
+            buttons.addWidget(button)
+        buttons.addStretch()
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(_rmtool.SUBSECTION_GAP)
+        layout.addWidget(title)
+        layout.addWidget(detail)
+        layout.addWidget(self.catalog_label)
+        layout.addWidget(
+            self.other_packages_button,
+            alignment=QtCore.Qt.AlignLeft,
+        )
+        layout.addWidget(self.other_packages_label)
+        layout.addWidget(self.status_label)
+        layout.addLayout(buttons)
+
+        self.other_packages_button.toggled.connect(
+            self._toggle_other_packages
+        )
+        self.detect_button.clicked.connect(self._detect_status)
+        self.enable_button.clicked.connect(self._enable)
+        self.disable_button.clicked.connect(self._disable)
+        self.clear_button.clicked.connect(self._clear_status)
+        self.project_button.clicked.connect(
+            lambda: QtGui.QDesktopServices.openUrl(
+                QtCore.QUrl(
+                    f"{_fast_mono_reading.REPO_URL}/tree/main/fast-mono-reading"
+                )
+            )
+        )
+        self.ssh_client.connection_changed.connect(self._on_connection_changed)
+        self._on_connection_changed(self.ssh_client.is_connected())
+
+    def _on_connection_changed(self, connected: bool):
+        if not connected:
+            self._status = None
+            self.catalog_label.setText("快速黑白包：检测后显示")
+            self.other_packages_button.setChecked(False)
+            self._other_packages_count = 0
+            self.other_packages_button.setText("其他固件版本")
+            self.other_packages_label.clear()
+            self.other_packages_button.hide()
+            self.other_packages_label.hide()
+            self.status_label.setText("设备未连接")
+        elif self._status is None:
+            self.status_label.setText("设备已连接，尚未检测")
+        self.detect_button.setEnabled(connected and not self._busy)
+        self._update_buttons()
+
+    @staticmethod
+    def _package_display_text(
+        package: _fast_mono_reading.FastMonoReadingPackage,
+    ) -> str:
+        channel_names = {"stable": "正式版", "beta": "测试版"}
+        verification = (
+            "实机验证" if package.device_verified else "离线验证，尚待实机"
+        )
+        return (
+            f"{package.release_version} | {channel_names[package.channel]} | "
+            f"硬件 {package.platform.title()} | 内部版本 {package.firmware} | {verification}"
+        )
+
+    def _toggle_other_packages(self, expanded: bool):
+        self.other_packages_button.setText(
+            f"其他固件版本（{self._other_packages_count}） "
+            + ("⌄" if expanded else "›")
+        )
+        self.other_packages_label.setVisible(
+            expanded and not self.other_packages_button.isHidden()
+        )
+
+    def _update_buttons(self):
+        connected = self.ssh_client.is_connected() and not self._busy
+        state = self._status.state if self._status else None
+        self.disable_button.setText(
+            "卸载旧版"
+            if state == _fast_mono_reading.FastMonoReadingState.OUTDATED
+            else "停用"
+        )
+        self.enable_button.setEnabled(
+            connected
+            and self._status is not None
+            and self._status.package is not None
+            and state
+            in (
+                _fast_mono_reading.FastMonoReadingState.NOT_INSTALLED,
+                _fast_mono_reading.FastMonoReadingState.INSTALLED_DISABLED,
+            )
+        )
+        self.disable_button.setEnabled(
+            connected
+            and self._status is not None
+            and self._status.recovery_available
+            and state
+            not in (
+                _fast_mono_reading.FastMonoReadingState.NOT_INSTALLED,
+                _fast_mono_reading.FastMonoReadingState.INSTALLED_DISABLED,
+            )
+        )
+        self.clear_button.setEnabled(connected and self._status is not None)
+
+    def _set_busy(self, busy: bool, message: str = ""):
+        self._busy = busy
+        self.detect_button.setEnabled(self.ssh_client.is_connected() and not busy)
+        if message:
+            self.status_label.setText(message)
+        self._update_buttons()
+
+    def _apply_status(self, status: _fast_mono_reading.FastMonoReadingStatus):
+        self._status = status
+        if status.package is not None:
+            self.catalog_label.setText(
+                "当前固件快速黑白包：\n"
+                + self._package_display_text(status.package)
+            )
+        else:
+            self.catalog_label.setText(
+                "当前固件快速黑白包：没有精确匹配版本"
+            )
+
+        other_packages = tuple(
+            package
+            for package in status.available_packages
+            if package != status.package
+            and package.platform == status.identity.platform
+        )
+        self.other_packages_button.setChecked(False)
+        if other_packages:
+            self._other_packages_count = len(other_packages)
+            self.other_packages_button.setText(
+                f"其他固件版本（{self._other_packages_count}） ›"
+            )
+            self.other_packages_label.setText(
+                "\n".join(
+                    self._package_display_text(package)
+                    for package in other_packages
+                )
+            )
+            self.other_packages_button.show()
+        else:
+            self._other_packages_count = 0
+            self.other_packages_button.setText("其他固件版本")
+            self.other_packages_label.clear()
+            self.other_packages_button.hide()
+        self.other_packages_label.hide()
+        messages = {
+            _fast_mono_reading.FastMonoReadingState.INCOMPATIBLE: (
+                "当前设备的硬件、固件、架构或 xochitl 哈希没有精确匹配包"
+            ),
+            _fast_mono_reading.FastMonoReadingState.NOT_INSTALLED: "尚未安装快速黑白阅读",
+            _fast_mono_reading.FastMonoReadingState.INSTALLED_DISABLED: (
+                "快速黑白资源已保留，持久化当前未启用"
+            ),
+            _fast_mono_reading.FastMonoReadingState.ENABLE_PENDING_REBOOT: (
+                "持久化已部署，等待手动重启设备生效"
+            ),
+            _fast_mono_reading.FastMonoReadingState.WAITING_FOR_XOVI: (
+                "快速黑白已部署，等待 AppLoader/Xovi 激活"
+            ),
+            _fast_mono_reading.FastMonoReadingState.ENABLED: (
+                "快速黑白阅读扩展已加载；PDF/EPUB 菜单开关默认关闭"
+            ),
+            _fast_mono_reading.FastMonoReadingState.DISABLE_PENDING_REBOOT: (
+                "持久化已停用，当前进程将在手动重启后恢复原生"
+            ),
+            _fast_mono_reading.FastMonoReadingState.OUTDATED: (
+                "检测到 rmtool 安装的旧版快速黑白，请先卸载旧版"
+            ),
+            _fast_mono_reading.FastMonoReadingState.BROKEN: (
+                "检测到不完整或被修改的快速黑白安装，请先停用"
+            ),
+        }
+        message = messages[status.state]
+        if status.detail:
+            message = f"{message}：{status.detail}"
+        identity = status.identity
+        message += (
+            f"\n设备：{identity.platform or '未知'} | "
+            f"内部版本 {identity.firmware or '未知'}"
+        )
+        self.status_label.setText(message)
+        self._update_buttons()
+
+    def _clear_status(self):
+        if self._busy:
+            return
+        self._status = None
+        self.catalog_label.setText("快速黑白包：检测后显示")
+        self.other_packages_button.setChecked(False)
+        self._other_packages_count = 0
+        self.other_packages_button.setText("其他固件版本")
+        self.other_packages_label.clear()
+        self.other_packages_button.hide()
+        self.other_packages_label.hide()
+        self.status_label.setText(
+            "设备已连接，尚未检测"
+            if self.ssh_client.is_connected()
+            else "设备未连接"
+        )
+        self._update_buttons()
+
+    def _start_worker(
+        self,
+        fn,
+        *args,
+        pending: str,
+        success: str = "",
+        close_connection: bool = False,
+    ):
+        self._set_busy(True, pending)
+        worker = _rmtool.Worker(fn, *args)
+
+        def on_finished(status: _fast_mono_reading.FastMonoReadingStatus):
+            if sip.isdeleted(self):
+                if close_connection:
+                    self.ssh_client.close()
+                return
+            self._set_busy(False)
+            self._apply_status(status)
+            if close_connection:
+                self.ssh_client.close()
+            if success:
+                show_info(self, _rmtool.APP_NAME, success)
+
+        def on_error(exc: Exception):
+            if close_connection:
+                self.ssh_client.close()
+            if sip.isdeleted(self):
+                logging.error("Fast-mono operation failed after tab close: %s", exc)
+                return
+            self._set_busy(False)
+            self._status = None
+            self._update_buttons()
+            self.status_label.setText("操作失败，未自动重启设备；请重新连接并检测状态")
+            logging.error("Fast-mono operation failed: %s", exc)
+            show_error(
+                self,
+                _rmtool.APP_NAME,
+                f"操作失败：{exc}\n设备不会被自动重启，请检查日志后重试。",
+            )
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self.thread_pool.start(worker)
+
+    @require_connection
+    def _detect_status(self):
+        self._start_worker(
+            _fast_mono_reading.get_cloud_status,
+            self.ssh_client,
+            str(_rmtool.app_state_dir()),
+            pending="正在核对彩色设备、固件、架构与 xochitl 哈希…",
+        )
+
+    @require_connection
+    def _enable(self):
+        if not self._status or not self._status.package:
+            return
+        package = self._status.package
+        if package.device_verified:
+            verification_notice = "该精确包已完成对应真机验证。"
+        else:
+            verification_notice = (
+                "该包仅完成官方固件离线兼容性与回放验证，尚未在对应真机验证。"
+                "安装仍有界面无法启动或需要恢复的风险；确认承担风险后再继续。"
+            )
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            f"将安装 {package.platform.title()} {package.release_version} "
+            f"（内部版本 {package.firmware}）快速黑白阅读扩展。"
+            f"{verification_notice}"
+            "标准 Vellum/Xovi 设备会安装独立最小 APK；其他设备会使用 rmtool 管理的共享 Xovi 组件，并与点击翻页共用。"
+            "若检测到非托管 Xovi，将在上传前拒绝操作。"
+            "本次不会重启 xochitl 或设备；完成后 SSH 会话会关闭，请手动重启设备。"
+            "重启后请在 PDF/EPUB 阅读页的更多菜单中按需开启“快速黑白”，每次重启默认关闭。"
+            "是否继续？",
+            confirm_text="安装并启用",
+            cancel_text="取消",
+        ):
+            return
+        self._start_worker(
+            _fast_mono_reading.enable_cloud,
+            self.ssh_client,
+            self._status.package,
+            str(_rmtool.app_state_dir()),
+            pending="正在下载、逐文件校验并部署快速黑白阅读资源…",
+            success=(
+                "快速黑白阅读扩展已部署并通过校验，SSH 会话已关闭。\n"
+                "请手动重启设备；随后在 PDF/EPUB 阅读页的更多菜单中开启“快速黑白”。\n"
+                "该阅读开关每次 xochitl 启动后默认关闭。"
+            ),
+            close_connection=True,
+        )
+
+    @require_connection
+    def _disable(self):
+        if not self._status or not self._status.recovery_available:
+            return
+        outdated = (
+            self._status.state
+            == _fast_mono_reading.FastMonoReadingState.OUTDATED
+        )
+        if outdated:
+            dialog_title = "卸载旧版快速黑白"
+            confirmation = (
+                "将卸载 rmtool 安装的旧版快速黑白阅读。"
+                "只移除旧版快速黑白；点击翻页及其所需的共享 Xovi 组件会完整保留。"
+                "操作不会重启设备；完成后请手动重启，再重新检测并安装新版。"
+                "是否卸载旧版？"
+            )
+            confirm_text = "卸载旧版"
+            pending = "正在卸载旧版快速黑白并保留点击翻页所需的共享 Xovi 组件…"
+            success = (
+                "旧版快速黑白已卸载，点击翻页所需的共享 Xovi 组件已保留，"
+                "SSH 会话已关闭。\n"
+                "请手动重启设备，然后重新检测并安装新版快速黑白。"
+            )
+        else:
+            dialog_title = _rmtool.APP_NAME
+            confirmation = (
+                "将停用 rmtool 的快速黑白阅读配置。Vellum 模式只卸载独立的快速黑白 APK，"
+                "不会修改 AppLoader、点击翻页或其他扩展。操作不会重启设备；完成后请手动重启。"
+                "是否继续？"
+            )
+            confirm_text = "停用快速黑白"
+            pending = "正在移除快速黑白阅读持久化配置…"
+            success = (
+                "快速黑白阅读持久化已移除，SSH 会话已关闭。\n"
+                "请手动重启设备；若点击翻页仍启用，相关共享 Xovi 组件会继续保留。"
+            )
+        if not ask_confirmation(
+            self,
+            dialog_title,
+            confirmation,
+            confirm_text=confirm_text,
+            cancel_text="取消",
+        ):
+            return
+        self._start_worker(
+            _fast_mono_reading.disable,
+            self.ssh_client,
+            self._status.available_packages,
+            pending=pending,
+            success=success,
             close_connection=True,
         )
 
@@ -1554,6 +2036,7 @@ class ToolboxTab(QtWidgets.QWidget):
         self.control_section = ControlTab(ssh_client)
         self.rmkit_cn_section = RmkitCnSection(ssh_client)
         self.tap_page_turn_section = TapPageTurnSection(ssh_client)
+        self.fast_mono_reading_section = FastMonoReadingSection(ssh_client)
 
         time_group = QtWidgets.QGroupBox("时间管理")
         time_layout = QtWidgets.QVBoxLayout()
@@ -1573,12 +2056,17 @@ class ToolboxTab(QtWidgets.QWidget):
         rmkit_cn_layout.addWidget(self.rmkit_cn_section)
         rmkit_cn_group.setLayout(rmkit_cn_layout)
 
-        tap_page_turn_group = QtWidgets.QGroupBox("阅读手势")
+        tap_page_turn_group = QtWidgets.QGroupBox("阅读优化与手势")
         tap_page_turn_layout = QtWidgets.QVBoxLayout()
         tap_page_turn_layout.setContentsMargins(
             0, _rmtool.SUBSECTION_GAP, 0, 0
         )
         tap_page_turn_layout.addWidget(self.tap_page_turn_section)
+        divider = QtWidgets.QFrame()
+        divider.setFrameShape(QtWidgets.QFrame.HLine)
+        divider.setFrameShadow(QtWidgets.QFrame.Sunken)
+        tap_page_turn_layout.addWidget(divider)
+        tap_page_turn_layout.addWidget(self.fast_mono_reading_section)
         tap_page_turn_group.setLayout(tap_page_turn_layout)
 
         koreader_group = QtWidgets.QGroupBox("KOReader / 第三方应用")
