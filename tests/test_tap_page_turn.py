@@ -248,6 +248,94 @@ class TapPageTurnTests(unittest.TestCase):
             with patch.object(tap, "_download_limited", side_effect=OSError("offline")):
                 self.assertEqual(tap.load_catalog(state_dir), (package,))
 
+    def test_download_sources_are_cos_first_and_github_second(self):
+        package = self.package()
+        self.assertEqual(
+            tap.MANIFEST_URLS,
+            tuple(f"{base}/manifest.json" for base in tap.REMOTE_BASE_URLS),
+        )
+        self.assertEqual(package.download_urls[0], f"{tap.COS_URL}/{package.asset}")
+        self.assertEqual(
+            package.download_urls[1], f"{tap.ASSET_RELEASE_URL}/{package.asset}"
+        )
+        self.assertEqual(package.download_url, package.download_urls[0])
+
+    def test_manifest_falls_back_from_invalid_cos_to_github(self):
+        package = self.package()
+        manifest = self.manifest(package)
+        with tempfile.TemporaryDirectory() as state_dir, patch.object(
+            tap,
+            "_download_limited",
+            side_effect=(b"not-json", manifest),
+        ) as download:
+            self.assertEqual(tap.load_catalog(state_dir), (package,))
+        self.assertEqual(
+            [call.args[0] for call in download.call_args_list],
+            list(tap.MANIFEST_URLS),
+        )
+
+    def test_package_falls_back_from_invalid_cos_to_github(self):
+        archive = b"archive"
+        package = self.package(archive)
+        with tempfile.TemporaryDirectory() as state_dir, patch.object(
+            tap,
+            "_download_limited",
+            side_effect=(b"invalid", archive),
+        ) as download:
+            destination = tap.download_package(package, state_dir)
+            self.assertEqual(destination.read_bytes(), archive)
+        self.assertEqual(
+            [call.args[0] for call in download.call_args_list],
+            list(package.download_urls),
+        )
+
+    def test_catalog_uses_bundled_manifest_when_both_sources_fail(self):
+        with tempfile.TemporaryDirectory() as state_dir, patch.object(
+            tap, "_download_limited", side_effect=OSError("offline")
+        ):
+            self.assertEqual(tap.load_catalog(state_dir), tap._trusted_catalog())
+
+    def test_invalid_remote_data_does_not_replace_valid_manifest_cache(self):
+        package = self.package()
+        manifest = self.manifest(package)
+        with tempfile.TemporaryDirectory() as state_dir:
+            cache = tap._cache_dir(state_dir) / "manifest.json"
+            tap._write_atomic(cache, manifest)
+            with patch.object(tap, "_download_limited", return_value=b"not-json"):
+                self.assertEqual(tap.load_catalog(state_dir), (package,))
+            self.assertEqual(cache.read_bytes(), manifest)
+
+    def test_atomic_cache_write_flushes_to_disk_and_leaves_no_temporary_file(self):
+        with tempfile.TemporaryDirectory() as state_dir, patch.object(
+            tap.os, "fsync", wraps=tap.os.fsync
+        ) as fsync:
+            destination = Path(state_dir) / "cache" / "manifest.json"
+            tap._write_atomic(destination, b"validated")
+
+            self.assertEqual(destination.read_bytes(), b"validated")
+            self.assertEqual(fsync.call_count, 1)
+            self.assertEqual(list(destination.parent.glob(".manifest.json.*.tmp")), [])
+
+    def test_invalid_remote_package_does_not_replace_existing_cache(self):
+        package = self.package()
+        with tempfile.TemporaryDirectory() as state_dir:
+            cache = tap._cache_dir(state_dir) / package.firmware / package.asset
+            tap._write_atomic(cache, b"existing-invalid-cache")
+            with patch.object(tap, "_download_limited", return_value=b"invalid"):
+                with self.assertRaisesRegex(RuntimeError, "可用镜像"):
+                    tap.download_package(package, state_dir)
+            self.assertEqual(cache.read_bytes(), b"existing-invalid-cache")
+
+    def test_valid_package_cache_needs_no_remote_source(self):
+        archive = b"archive"
+        package = self.package(archive)
+        with tempfile.TemporaryDirectory() as state_dir:
+            cache = tap._cache_dir(state_dir) / package.firmware / package.asset
+            tap._write_atomic(cache, archive)
+            with patch.object(tap, "_download_limited") as download:
+                self.assertEqual(tap.download_package(package, state_dir), cache)
+            download.assert_not_called()
+
     def test_launcher_fails_open_and_gates_every_runtime_file(self):
         package = self.package()
         launcher = tap._launcher(package)
@@ -293,6 +381,7 @@ class TapPageTurnTests(unittest.TestCase):
 
     def test_unknown_xovi_dropin_is_still_rejected(self):
         ssh = Mock()
+        ssh.file_exists.return_value = False
         ssh.exec_checked.return_value = (
             "/etc/systemd/system/xochitl.service.d/custom-xovi.conf"
         )
@@ -534,6 +623,25 @@ class TapPageTurnTests(unittest.TestCase):
         status = tap.get_status(FakeSSH(), (self.package(),))
         self.assertEqual(status.state, tap.TapPageTurnState.NOT_INSTALLED)
         self.assertEqual(status.package, self.package())
+
+    def test_enable_rejects_untrusted_package_before_preflight_in_all_modes(self):
+        package = self.package()
+        identity = tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        with patch.object(
+            tap, "get_device_identity", return_value=identity
+        ), patch.object(tap, "_preflight_device") as preflight, patch.object(
+            tap, "_deployment_mode"
+        ) as deployment_mode:
+            with self.assertRaisesRegex(RuntimeError, "内置信任清单"):
+                tap.enable(Mock(), package, "unused.tar.gz")
+
+        preflight.assert_not_called()
+        deployment_mode.assert_not_called()
 
     def test_vellum_status_waits_for_new_xochitl_process(self):
         package = self.package()

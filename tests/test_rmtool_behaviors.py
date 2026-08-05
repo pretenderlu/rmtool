@@ -12,6 +12,7 @@ import time
 import unittest
 import zipfile
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -26,6 +27,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 import rmrl
 import rmtool
+import _fast_mono_reading
 import _rmkit_cn
 import _ssh
 import _tap_page_turn
@@ -1273,7 +1275,11 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertIsInstance(rmkit_group, QtWidgets.QGroupBox)
         self.assertIsInstance(tap_page_turn_group, QtWidgets.QGroupBox)
         self.assertEqual(rmkit_group.title(), "系统汉化")
-        self.assertEqual(tap_page_turn_group.title(), "阅读手势")
+        self.assertEqual(tap_page_turn_group.title(), "阅读优化与手势")
+        self.assertIs(
+            toolbox.fast_mono_reading_section.parentWidget(),
+            tap_page_turn_group,
+        )
 
         for group in (time_group, control_group, rmkit_group, tap_page_turn_group):
             margins = group.layout().contentsMargins()
@@ -1286,6 +1292,48 @@ class WallpaperUiTests(unittest.TestCase):
                 ),
                 (0, rmtool.SUBSECTION_GAP, 0, 0),
             )
+
+    def test_all_group_boxes_use_named_parent_titles(self):
+        dashboard = rmtool.DashboardTab()
+        toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
+        font_page = rmtool.FontPage(FakeConnectionClient(), rmtool._default_config())
+        self.addCleanup(dashboard.deleteLater)
+        self.addCleanup(toolbox.deleteLater)
+        self.addCleanup(font_page.deleteLater)
+
+        titles = {
+            group.title()
+            for page in (dashboard, toolbox, font_page)
+            for group in page.findChildren(QtWidgets.QGroupBox)
+        }
+        self.assertEqual(
+            titles,
+            {
+                "当前设备",
+                "文档概览",
+                "时间管理",
+                "设备控制",
+                "系统汉化",
+                "阅读优化与手势",
+                "KOReader / 第三方应用",
+                "字体管理",
+            },
+        )
+
+    def test_toolbox_feature_titles_share_one_semantic_selector(self):
+        sections = (
+            (_tab_toolbox.RmkitCnSection, "原生界面中文"),
+            (_tab_toolbox.TapPageTurnSection, "点击翻页"),
+            (_tab_toolbox.FastMonoReadingSection, "快速黑白阅读"),
+        )
+
+        for section_type, expected_text in sections:
+            with self.subTest(section=section_type.__name__):
+                section = section_type(FakeConnectionClient())
+                self.addCleanup(section.deleteLater)
+                title = section.findChild(QtWidgets.QLabel, "toolboxFeatureTitle")
+                self.assertIsNotNone(title)
+                self.assertEqual(title.text(), expected_text)
 
     @staticmethod
     def tap_page_turn_package():
@@ -1321,6 +1369,94 @@ class WallpaperUiTests(unittest.TestCase):
             {"stable": "正式版", "beta": "测试版"}[package.channel],
             section.catalog_label.text(),
         )
+        self.assertTrue(section.other_packages_button.isHidden())
+        self.assertTrue(section.other_packages_label.isHidden())
+
+    def test_tap_page_turn_section_collapses_other_same_hardware_versions(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.TapPageTurnSection(client)
+        self.addCleanup(section.deleteLater)
+        catalog = _tap_page_turn.parse_manifest(
+            Path("tap-page-turn/manifest.json").read_bytes()
+        )
+        package = catalog[0]
+        other = next(
+            item
+            for item in catalog
+            if item.platform == package.platform and item != package
+        )
+        other_hardware = next(
+            item for item in catalog if item.platform != package.platform
+        )
+        identity = _tap_page_turn.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+
+        section._apply_status(
+            _tap_page_turn.TapPageTurnStatus(
+                _tap_page_turn.TapPageTurnState.NOT_INSTALLED,
+                identity,
+                package,
+                (other, package, other_hardware),
+            )
+        )
+
+        self.assertIn("当前固件点击翻页包", section.catalog_label.text())
+        self.assertIn(package.firmware, section.catalog_label.text())
+        self.assertNotIn(other.firmware, section.catalog_label.text())
+        self.assertEqual(
+            section.other_packages_button.text(),
+            "其他固件版本（1） ›",
+        )
+        self.assertFalse(section.other_packages_button.isHidden())
+        self.assertTrue(section.other_packages_label.isHidden())
+        section.other_packages_button.click()
+        self.assertEqual(
+            section.other_packages_button.text(),
+            "其他固件版本（1） ⌄",
+        )
+        self.assertIn(other.firmware, section.other_packages_label.text())
+        self.assertNotIn(
+            f"硬件 {other_hardware.platform.title()}",
+            section.other_packages_label.text(),
+        )
+
+        section._on_connection_changed(False)
+        self.assertTrue(section.other_packages_button.isHidden())
+        self.assertTrue(section.other_packages_label.isHidden())
+        self.assertFalse(section.other_packages_button.isChecked())
+        self.assertEqual(section._other_packages_count, 0)
+        self.assertEqual(section.other_packages_button.text(), "其他固件版本")
+        self.assertEqual(section.other_packages_label.text(), "")
+
+    def test_tap_page_turn_incompatible_still_lists_other_firmware_versions(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.TapPageTurnSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.tap_page_turn_package()
+        identity = _tap_page_turn.DeviceIdentity(
+            "20990101000000",
+            package.platform,
+            package.architecture,
+            "f" * 64,
+        )
+
+        section._apply_status(
+            _tap_page_turn.TapPageTurnStatus(
+                _tap_page_turn.TapPageTurnState.INCOMPATIBLE,
+                identity,
+                available_packages=(package,),
+            )
+        )
+
+        self.assertIn("没有精确匹配", section.catalog_label.text())
+        self.assertFalse(section.enable_button.isEnabled())
+        self.assertFalse(section.other_packages_button.isHidden())
+        section.other_packages_button.click()
+        self.assertIn(package.firmware, section.other_packages_label.text())
 
     def test_tap_page_turn_incompatible_install_keeps_recovery_enabled(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")
@@ -1394,6 +1530,361 @@ class WallpaperUiTests(unittest.TestCase):
         start_worker.assert_called_once_with(worker)
         self.assertEqual(client.close_calls, 1)
         self.assertIn("手动重新启动", show_info.call_args.args[2])
+
+    @staticmethod
+    def fast_mono_packages():
+        return _fast_mono_reading.parse_manifest(
+            Path("fast-mono-reading/manifest.json").read_bytes()
+        )
+
+    @classmethod
+    def fast_mono_package(cls):
+        return next(
+            package
+            for package in cls.fast_mono_packages()
+            if package.platform == "chiappa"
+            and package.firmware == "20260612085811"
+        )
+
+    def test_fast_mono_section_exposes_exact_package_and_clear_status(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.FastMonoReadingSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.fast_mono_package()
+        self.assertIsInstance(section, _tab_toolbox.FastMonoReadingSection)
+        self.assertIsInstance(package, _fast_mono_reading.FastMonoReadingPackage)
+        self.assertEqual(
+            section.findChild(QtWidgets.QLabel, "toolboxFeatureTitle").text(),
+            "快速黑白阅读",
+        )
+        self.assertEqual(section.catalog_label.objectName(), "fastMonoReadingCatalog")
+        self.assertEqual(
+            section.other_packages_label.objectName(),
+            "fastMonoReadingOtherCatalog",
+        )
+        self.assertEqual(
+            section.status_label.objectName(),
+            "fastMonoReadingDeviceStatus",
+        )
+        identity = _fast_mono_reading.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        section._apply_status(
+            _fast_mono_reading.FastMonoReadingStatus(
+                _fast_mono_reading.FastMonoReadingState.NOT_INSTALLED,
+                identity,
+                package,
+                (package,),
+            )
+        )
+
+        self.assertTrue(section.enable_button.isEnabled())
+        self.assertFalse(section.disable_button.isEnabled())
+        self.assertTrue(section.clear_button.isEnabled())
+        self.assertIn("离线验证，尚待实机", section.catalog_label.text())
+        self.assertTrue(section.other_packages_button.isHidden())
+        self.assertTrue(section.other_packages_label.isHidden())
+        section._clear_status()
+        self.assertIsNone(section._status)
+        self.assertFalse(section.enable_button.isEnabled())
+        self.assertFalse(section.clear_button.isEnabled())
+        self.assertIn("尚未检测", section.status_label.text())
+        self.assertEqual(section._other_packages_count, 0)
+        self.assertEqual(section.other_packages_button.text(), "其他固件版本")
+        self.assertEqual(section.other_packages_label.text(), "")
+
+    def test_fast_mono_section_collapses_other_same_hardware_versions(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.FastMonoReadingSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.fast_mono_package()
+        other = next(
+            candidate
+            for candidate in self.fast_mono_packages()
+            if candidate.platform == package.platform and candidate != package
+        )
+        other_hardware = next(
+            candidate
+            for candidate in self.fast_mono_packages()
+            if candidate.platform != package.platform
+        )
+        identity = _fast_mono_reading.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+
+        section._apply_status(
+            _fast_mono_reading.FastMonoReadingStatus(
+                _fast_mono_reading.FastMonoReadingState.NOT_INSTALLED,
+                identity,
+                package,
+                (other, package, other_hardware),
+            )
+        )
+
+        self.assertIn("当前固件快速黑白包", section.catalog_label.text())
+        self.assertIn(package.firmware, section.catalog_label.text())
+        self.assertNotIn(other.firmware, section.catalog_label.text())
+        self.assertEqual(
+            section.other_packages_button.text(),
+            "其他固件版本（1） ›",
+        )
+        section.other_packages_button.click()
+        self.assertIn(other.firmware, section.other_packages_label.text())
+        self.assertIn("离线验证，尚待实机", section.other_packages_label.text())
+        self.assertNotIn(
+            f"硬件 {other_hardware.platform.title()}",
+            section.other_packages_label.text(),
+        )
+
+        section._clear_status()
+        self.assertTrue(section.other_packages_button.isHidden())
+        self.assertTrue(section.other_packages_label.isHidden())
+        self.assertFalse(section.other_packages_button.isChecked())
+        self.assertEqual(section._other_packages_count, 0)
+        self.assertEqual(section.other_packages_button.text(), "其他固件版本")
+        self.assertEqual(section.other_packages_label.text(), "")
+
+    def test_fast_mono_incompatible_still_lists_other_firmware_versions(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.FastMonoReadingSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.fast_mono_package()
+        identity = _fast_mono_reading.DeviceIdentity(
+            "20990101000000",
+            package.platform,
+            package.architecture,
+            "f" * 64,
+        )
+
+        section._apply_status(
+            _fast_mono_reading.FastMonoReadingStatus(
+                _fast_mono_reading.FastMonoReadingState.INCOMPATIBLE,
+                identity,
+                available_packages=(package,),
+            )
+        )
+
+        self.assertIn("没有精确匹配", section.catalog_label.text())
+        self.assertFalse(section.enable_button.isEnabled())
+        self.assertFalse(section.other_packages_button.isHidden())
+        section.other_packages_button.click()
+        self.assertIn(package.firmware, section.other_packages_label.text())
+
+    def test_fast_mono_enable_uses_worker_then_closes_ssh(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.FastMonoReadingSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.fast_mono_package()
+        identity = _fast_mono_reading.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        section._apply_status(
+            _fast_mono_reading.FastMonoReadingStatus(
+                _fast_mono_reading.FastMonoReadingState.NOT_INSTALLED,
+                identity,
+                package,
+                (package,),
+            )
+        )
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+        result = _fast_mono_reading.FastMonoReadingStatus(
+            _fast_mono_reading.FastMonoReadingState.ENABLE_PENDING_REBOOT,
+            identity,
+            package,
+            (package,),
+            recovery_available=True,
+        )
+
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=True
+        ) as ask, mock.patch.object(
+            rmtool, "app_state_dir", return_value=Path(".rmtool")
+        ), mock.patch.object(
+            rmtool, "Worker", return_value=worker
+        ) as worker_cls, mock.patch.object(
+            section.thread_pool, "start"
+        ) as start_worker, mock.patch.object(
+            _tab_toolbox, "show_info"
+        ) as show_info:
+            section._enable()
+            worker.signals.finished.connect.call_args.args[0](result)
+
+        worker_cls.assert_called_once_with(
+            _fast_mono_reading.enable_cloud,
+            client,
+            package,
+            str(Path(".rmtool")),
+        )
+        start_worker.assert_called_once_with(worker)
+        self.assertEqual(client.close_calls, 1)
+        self.assertIn("尚未在对应真机验证", ask.call_args.args[2])
+        self.assertIn("每次 xochitl", show_info.call_args.args[2])
+
+    def test_fast_mono_offline_package_warns_but_can_be_confirmed(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.FastMonoReadingSection(client)
+        self.addCleanup(section.deleteLater)
+        package = next(
+            package
+            for package in self.fast_mono_packages()
+            if not package.device_verified
+        )
+        identity = _fast_mono_reading.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        section._apply_status(
+            _fast_mono_reading.FastMonoReadingStatus(
+                _fast_mono_reading.FastMonoReadingState.NOT_INSTALLED,
+                identity,
+                package,
+                (package,),
+            )
+        )
+
+        self.assertTrue(section.enable_button.isEnabled())
+        self.assertIn("离线验证，尚待实机", section.catalog_label.text())
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=False
+        ) as ask:
+            section._enable()
+        confirmation = ask.call_args.args[2]
+        self.assertIn("仅完成官方固件离线兼容性与回放验证", confirmation)
+        self.assertIn("界面无法启动或需要恢复", confirmation)
+
+    def test_fast_mono_enable_error_closes_ssh_and_requires_redetection(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.FastMonoReadingSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.fast_mono_package()
+        identity = _fast_mono_reading.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        section._apply_status(
+            _fast_mono_reading.FastMonoReadingStatus(
+                _fast_mono_reading.FastMonoReadingState.NOT_INSTALLED,
+                identity,
+                package,
+                (package,),
+            )
+        )
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=True
+        ), mock.patch.object(
+            rmtool, "app_state_dir", return_value=Path(".rmtool")
+        ), mock.patch.object(
+            rmtool, "Worker", return_value=worker
+        ), mock.patch.object(
+            section.thread_pool, "start"
+        ), mock.patch.object(
+            _tab_toolbox, "show_error"
+        ):
+            section._enable()
+            worker.signals.error.connect.call_args.args[0](RuntimeError("failed"))
+
+        self.assertEqual(client.close_calls, 1)
+        self.assertIsNone(section._status)
+        self.assertFalse(section.enable_button.isEnabled())
+        self.assertFalse(section.disable_button.isEnabled())
+        self.assertIn("重新连接并检测", section.status_label.text())
+
+    def test_fast_mono_outdated_disable_copy_preserves_normal_wording(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.FastMonoReadingSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.fast_mono_package()
+        identity = _fast_mono_reading.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+
+        section._apply_status(
+            _fast_mono_reading.FastMonoReadingStatus(
+                _fast_mono_reading.FastMonoReadingState.ENABLED,
+                identity,
+                package,
+                (package,),
+                recovery_available=True,
+            )
+        )
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=False
+        ) as normal_ask:
+            section._disable()
+        self.assertEqual(normal_ask.call_args.args[1], rmtool.APP_NAME)
+        self.assertIn("将停用", normal_ask.call_args.args[2])
+        self.assertEqual(
+            normal_ask.call_args.kwargs["confirm_text"], "停用快速黑白"
+        )
+
+        section._apply_status(
+            _fast_mono_reading.FastMonoReadingStatus(
+                _fast_mono_reading.FastMonoReadingState.OUTDATED,
+                identity,
+                package,
+                (package,),
+                recovery_available=True,
+            )
+        )
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+        result = _fast_mono_reading.FastMonoReadingStatus(
+            _fast_mono_reading.FastMonoReadingState.INSTALLED_DISABLED,
+            identity,
+            package,
+            (package,),
+            recovery_available=True,
+        )
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=True
+        ) as outdated_ask, mock.patch.object(
+            rmtool, "Worker", return_value=worker
+        ), mock.patch.object(
+            section.thread_pool, "start"
+        ), mock.patch.object(
+            _tab_toolbox, "show_info"
+        ) as show_info:
+            section._disable()
+            self.assertIn("正在卸载旧版", section.status_label.text())
+            self.assertIn(
+                "点击翻页所需的共享 Xovi 组件",
+                section.status_label.text(),
+            )
+            self.assertNotIn("共享 Xovi 运行时", section.status_label.text())
+            worker.signals.finished.connect.call_args.args[0](result)
+
+        self.assertIn("卸载旧版", outdated_ask.call_args.args[1])
+        self.assertIn("卸载旧版", outdated_ask.call_args.args[2])
+        self.assertIn("点击翻页", outdated_ask.call_args.args[2])
+        self.assertIn("点击翻页及其所需的共享 Xovi 组件", outdated_ask.call_args.args[2])
+        self.assertNotIn("共享 Xovi 运行时", outdated_ask.call_args.args[2])
+        self.assertEqual(
+            outdated_ask.call_args.kwargs["confirm_text"], "卸载旧版"
+        )
+        success = show_info.call_args.args[2]
+        self.assertIn("旧版快速黑白已卸载", success)
+        self.assertIn("点击翻页所需的共享 Xovi 组件已保留", success)
+        self.assertNotIn("共享 Xovi 运行时", success)
 
     def test_rmkit_section_exposes_localization_actions_and_source_link(self):
         section = _tab_toolbox.RmkitCnSection(FakeConnectionClient(connected=True, host="10.11.99.1"))
@@ -3234,6 +3725,82 @@ class TypeScaleTests(unittest.TestCase):
     def test_qss_font_weights_are_limited_to_regular_semibold_bold(self):
         for value in self._declarations("font-weight"):
             self.assertIn(value, {"normal", "400", "600", "700"})
+
+    def test_group_titles_use_fusion_compatible_page_title_semantics(self):
+        for stylesheet, tokens in (
+            (rmtool._DARK_STYLESHEET, _tokens.DARK_TOKENS),
+            (rmtool._LIGHT_STYLESHEET, _tokens.LIGHT_TOKENS),
+        ):
+            resolved = rmtool._resolve_stylesheet(stylesheet)
+            group_rule = resolved.split("QGroupBox {", 1)[1].split("}", 1)[0]
+            title_rule = resolved.split("QGroupBox::title {", 1)[1].split("}", 1)[0]
+            label_rule = resolved.split("QGroupBox QLabel {", 1)[1].split("}", 1)[0]
+
+            self.assertIn(f"font-size: {_tokens.FONT_LG}px;", group_rule)
+            self.assertIn("font-weight: 700;", group_rule)
+            self.assertIn(f"color: {tokens['text_primary']};", title_rule)
+            self.assertNotIn("font-size:", title_rule)
+            self.assertNotIn("font-weight:", title_rule)
+            self.assertIn(f"font-size: {_tokens.FONT_BASE}px;", label_rule)
+            self.assertIn("font-weight: normal;", label_rule)
+            self.assertLess(
+                resolved.index("QGroupBox QLabel {"),
+                resolved.index("#dashboardTitle {"),
+            )
+            self.assertLess(
+                resolved.index("QGroupBox QLabel {"),
+                resolved.index("#toolboxFeatureTitle {"),
+            )
+
+    def test_toolbox_feature_titles_use_card_title_semantics(self):
+        for stylesheet, tokens in (
+            (rmtool._DARK_STYLESHEET, _tokens.DARK_TOKENS),
+            (rmtool._LIGHT_STYLESHEET, _tokens.LIGHT_TOKENS),
+        ):
+            resolved = rmtool._resolve_stylesheet(stylesheet)
+            rule = resolved.split("#toolboxFeatureTitle {", 1)[1].split("}", 1)[0]
+            self.assertIn(f"color: {tokens['text_primary']};", rule)
+            self.assertIn(f"font-size: {_tokens.FONT_MD}px;", rule)
+            self.assertIn("font-weight: 600;", rule)
+
+    def test_fusion_resolves_group_body_and_feature_title_hierarchy(self):
+        app = QtWidgets.QApplication.instance()
+        previous_style = app.style().objectName()
+        previous_stylesheet = app.styleSheet()
+        try:
+            app.setStyle("Fusion")
+            for stylesheet in (rmtool._DARK_STYLESHEET, rmtool._LIGHT_STYLESHEET):
+                with self.subTest(stylesheet=stylesheet):
+                    app.setStyleSheet(rmtool._resolve_stylesheet(stylesheet))
+                    group = QtWidgets.QGroupBox("父分组")
+                    body = QtWidgets.QLabel("正文", group)
+                    feature = QtWidgets.QLabel("子功能", group)
+                    feature.setObjectName("toolboxFeatureTitle")
+                    metric = QtWidgets.QLabel("42", group)
+                    metric.setObjectName("dashboardMetric")
+                    controls = (
+                        QtWidgets.QPushButton("操作", group),
+                        QtWidgets.QLineEdit(group),
+                        QtWidgets.QPlainTextEdit(group),
+                        QtWidgets.QCheckBox("选项", group),
+                        QtWidgets.QTableWidget(group),
+                    )
+                    for widget in (group, body, feature, metric, *controls):
+                        widget.ensurePolished()
+
+                    self.assertEqual(group.font().pixelSize(), _tokens.FONT_LG)
+                    self.assertEqual(body.font().pixelSize(), _tokens.FONT_BASE)
+                    self.assertEqual(feature.font().pixelSize(), _tokens.FONT_MD)
+                    self.assertEqual(metric.font().pixelSize(), _tokens.FONT_METRIC)
+                    self.assertGreater(group.font().weight(), feature.font().weight())
+                    self.assertGreater(feature.font().weight(), body.font().weight())
+                    for control in controls:
+                        self.assertEqual(control.font().pixelSize(), _tokens.FONT_BASE)
+                        self.assertLess(control.font().weight(), group.font().weight())
+                    group.deleteLater()
+        finally:
+            app.setStyle(previous_style)
+            app.setStyleSheet(previous_stylesheet)
 
 
 class DashboardDesignTokenTests(unittest.TestCase):

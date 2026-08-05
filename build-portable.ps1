@@ -16,6 +16,8 @@ $required = @(
     "assets\device_frames\remarkable-1.png",
     "assets\device_frames\remarkable-2.png",
     "translations\manifest.json",
+    "tap-page-turn\manifest.json",
+    "fast-mono-reading\manifest.json",
     "rmrl\__init__.py"
 )
 foreach ($path in $required) {
@@ -73,6 +75,8 @@ $commonArguments = @(
     "--add-data", "$(Join-Path $root 'assets\device_frames');assets\device_frames",
     "--add-data", "$(Join-Path $root 'assets\rmtool-icon.ico');assets",
     "--add-data", "$(Join-Path $root 'translations\manifest.json');translations",
+    "--add-data", "$(Join-Path $root 'tap-page-turn\manifest.json');tap-page-turn",
+    "--add-data", "$(Join-Path $root 'fast-mono-reading\manifest.json');fast-mono-reading",
     "--distpath", (Join-Path $root "dist"),
     "--specpath", (Join-Path $root "build")
 )

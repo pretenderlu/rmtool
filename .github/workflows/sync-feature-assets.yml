@@ -1,0 +1,353 @@
+name: Sync Feature Assets
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - tap-page-turn/manifest.json
+      - fast-mono-reading/manifest.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: feature-assets-cos
+  cancel-in-progress: true
+
+env:
+  COS_BUCKET: rmtool-localization-1254761827
+  COS_REGION: ap-shanghai
+  COS_PUBLIC_BASE_URL: https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com
+
+jobs:
+  sync:
+    name: Verify and sync feature assets to Tencent COS
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Download fixed feature releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p \
+            "$RUNNER_TEMP/tap-page-turn-release" \
+            "$RUNNER_TEMP/fast-mono-reading-release"
+          gh release download tap-page-turn-assets \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$RUNNER_TEMP/tap-page-turn-release" \
+            --pattern manifest.json \
+            --pattern "*.tar.gz"
+          gh release download fast-mono-reading-assets \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$RUNNER_TEMP/fast-mono-reading-release" \
+            --pattern manifest.json \
+            --pattern "*.tar.gz"
+
+      - name: Verify manifests and release payloads
+        env:
+          ASSET_LIST_PATH: ${{ runner.temp }}/feature-assets.json
+          TAP_RELEASE_DIR: ${{ runner.temp }}/tap-page-turn-release
+          FAST_MONO_RELEASE_DIR: ${{ runner.temp }}/fast-mono-reading-release
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          from pathlib import Path, PurePosixPath
+
+          SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+          TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+          VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){2,3}$")
+          ASSET_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.tar\.gz$")
+          MAX_PAYLOAD_BYTES = 64 * 1024 * 1024
+          ROOT_KEYS = {"schema_version", "packages"}
+          BASE_PACKAGE_KEYS = {
+              "firmware",
+              "release_version",
+              "channel",
+              "platform",
+              "architecture",
+              "xochitl_sha256",
+              "asset",
+              "sha256",
+              "size",
+              "files",
+          }
+          FILE_KEYS = {"path", "sha256", "size", "mode"}
+          features = (
+              {
+                  "name": "tap-page-turn",
+                  "repo_manifest": Path("tap-page-turn/manifest.json"),
+                  "release_dir": Path(os.environ["TAP_RELEASE_DIR"]),
+                  "asset_prefix": "rmtool-tap-page-turn-",
+                  "extra_keys": set(),
+              },
+              {
+                  "name": "fast-mono-reading",
+                  "repo_manifest": Path("fast-mono-reading/manifest.json"),
+                  "release_dir": Path(os.environ["FAST_MONO_RELEASE_DIR"]),
+                  "asset_prefix": "rmtool-fast-mono-reading-",
+                  "extra_keys": {
+                      "offline_verified",
+                      "device_verified",
+                      "package_revision",
+                  },
+              },
+          )
+
+          def is_safe_relative_path(value):
+              if not isinstance(value, str) or not value:
+                  return False
+              path = PurePosixPath(value)
+              return (
+                  not path.is_absolute()
+                  and value == path.as_posix()
+                  and all(part not in ("", ".", "..") for part in path.parts)
+              )
+
+          publication = {}
+          for feature in features:
+              repository_manifest = feature["repo_manifest"].read_bytes()
+              release_manifest_path = feature["release_dir"] / "manifest.json"
+              release_manifest = release_manifest_path.read_bytes()
+              if release_manifest != repository_manifest:
+                  raise SystemExit(
+                      f"The {feature['name']} release manifest does not match "
+                      f"{feature['repo_manifest']} byte-for-byte."
+                  )
+
+              document = json.loads(repository_manifest.decode("utf-8"))
+              if (
+                  not isinstance(document, dict)
+                  or set(document) != ROOT_KEYS
+                  or document.get("schema_version") != 1
+                  or not isinstance(document.get("packages"), list)
+                  or not document["packages"]
+              ):
+                  raise SystemExit(f"Invalid {feature['name']} manifest schema.")
+
+              expected_package_keys = BASE_PACKAGE_KEYS | feature["extra_keys"]
+              assets = {}
+              identities = set()
+              for package in document["packages"]:
+                  if not isinstance(package, dict) or set(package) != expected_package_keys:
+                      raise SystemExit(f"Invalid {feature['name']} package fields.")
+                  identity = (
+                      package.get("firmware"),
+                      package.get("platform"),
+                      package.get("xochitl_sha256"),
+                  )
+                  name = package.get("asset")
+                  size = package.get("size")
+                  digest = package.get("sha256")
+                  if (
+                      not isinstance(identity[0], str)
+                      or not re.fullmatch(r"[0-9]{14}", identity[0])
+                      or not isinstance(package.get("release_version"), str)
+                      or not VERSION_RE.fullmatch(package["release_version"])
+                      or package.get("channel") not in ("stable", "beta")
+                      or not isinstance(identity[1], str)
+                      or not TOKEN_RE.fullmatch(identity[1])
+                      or package.get("architecture") not in ("aarch64", "armv7l")
+                      or not isinstance(identity[2], str)
+                      or not SHA_RE.fullmatch(identity[2])
+                      or not isinstance(name, str)
+                      or not ASSET_RE.fullmatch(name)
+                      or not name.startswith(feature["asset_prefix"])
+                      or type(size) is not int
+                      or size <= 0
+                      or size > MAX_PAYLOAD_BYTES
+                      or not isinstance(digest, str)
+                      or not SHA_RE.fullmatch(digest)
+                      or identity in identities
+                      or name in assets
+                  ):
+                      raise SystemExit(
+                          f"Invalid or duplicate {feature['name']} package: {name!r}"
+                      )
+                  identities.add(identity)
+
+                  if feature["extra_keys"] and (
+                      type(package.get("offline_verified")) is not bool
+                      or type(package.get("device_verified")) is not bool
+                      or type(package.get("package_revision")) is not int
+                      or package["package_revision"] <= 0
+                  ):
+                      raise SystemExit("Invalid fast monochrome verification metadata.")
+
+                  files = package.get("files")
+                  if not isinstance(files, list) or not files:
+                      raise SystemExit(f"Invalid file list for {name}.")
+                  file_paths = set()
+                  for item in files:
+                      if not isinstance(item, dict) or set(item) != FILE_KEYS:
+                          raise SystemExit(f"Invalid file metadata for {name}.")
+                      path = item.get("path")
+                      if (
+                          not is_safe_relative_path(path)
+                          or path in file_paths
+                          or not isinstance(item.get("sha256"), str)
+                          or not SHA_RE.fullmatch(item["sha256"])
+                          or type(item.get("size")) is not int
+                          or item["size"] <= 0
+                          or type(item.get("mode")) is not int
+                          or item["mode"] < 0
+                          or item["mode"] > 0o7777
+                      ):
+                          raise SystemExit(f"Invalid nested file metadata for {name}.")
+                      file_paths.add(path)
+                  assets[name] = (size, digest)
+
+              downloaded = {
+                  path.name
+                  for path in feature["release_dir"].iterdir()
+                  if path.is_file() and path.name != "manifest.json"
+              }
+              if downloaded != set(assets):
+                  raise SystemExit(
+                      f"The {feature['name']} release payload set does not match its manifest."
+                  )
+              for name, (expected_size, expected_digest) in sorted(assets.items()):
+                  payload = (feature["release_dir"] / name).read_bytes()
+                  if (
+                      len(payload) != expected_size
+                      or hashlib.sha256(payload).hexdigest() != expected_digest
+                  ):
+                      raise SystemExit(f"Release asset validation failed for {name}.")
+
+              publication[feature["name"]] = sorted(assets)
+              print(f"Validated {len(assets)} {feature['name']} payloads.")
+
+          Path(os.environ["ASSET_LIST_PATH"]).write_text(
+              json.dumps(publication, sort_keys=True),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Install Tencent COS SDK
+        run: |
+          python -m pip --isolated install \
+            --disable-pip-version-check \
+            --no-input \
+            "cos-python-sdk-v5==1.9.44"
+
+      - name: Upload payloads, then manifests
+        env:
+          ASSET_LIST_PATH: ${{ runner.temp }}/feature-assets.json
+          TAP_RELEASE_DIR: ${{ runner.temp }}/tap-page-turn-release
+          FAST_MONO_RELEASE_DIR: ${{ runner.temp }}/fast-mono-reading-release
+          TENCENT_CLOUD_SECRET_ID: ${{ secrets.TENCENT_CLOUD_SECRET_ID }}
+          TENCENT_CLOUD_SECRET_KEY: ${{ secrets.TENCENT_CLOUD_SECRET_KEY }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from qcloud_cos import CosConfig, CosS3Client
+
+          secret_id = os.environ.get("TENCENT_CLOUD_SECRET_ID")
+          secret_key = os.environ.get("TENCENT_CLOUD_SECRET_KEY")
+          if not secret_id or not secret_key:
+              raise SystemExit("Tencent Cloud GitHub Secrets are not configured.")
+
+          publication = json.loads(Path(os.environ["ASSET_LIST_PATH"]).read_text())
+          release_dirs = {
+              "tap-page-turn": Path(os.environ["TAP_RELEASE_DIR"]),
+              "fast-mono-reading": Path(os.environ["FAST_MONO_RELEASE_DIR"]),
+          }
+          client = CosS3Client(
+              CosConfig(
+                  Region=os.environ["COS_REGION"],
+                  SecretId=secret_id,
+                  SecretKey=secret_key,
+                  Scheme="https",
+              )
+          )
+
+          for feature, names in publication.items():
+              for name in names:
+                  key = f"{feature}/{name}"
+                  client.put_object(
+                      Bucket=os.environ["COS_BUCKET"],
+                      Key=key,
+                      Body=(release_dirs[feature] / name).read_bytes(),
+                      ContentType="application/gzip",
+                  )
+                  print(f"Uploaded feature payload: {key}")
+
+          for feature in publication:
+              key = f"{feature}/manifest.json"
+              client.put_object(
+                  Bucket=os.environ["COS_BUCKET"],
+                  Key=key,
+                  Body=(release_dirs[feature] / "manifest.json").read_bytes(),
+                  ContentType="application/json",
+              )
+              print(f"Uploaded feature manifest last: {key}")
+          PY
+
+      - name: Verify public COS objects
+        env:
+          ASSET_LIST_PATH: ${{ runner.temp }}/feature-assets.json
+          TAP_RELEASE_DIR: ${{ runner.temp }}/tap-page-turn-release
+          FAST_MONO_RELEASE_DIR: ${{ runner.temp }}/fast-mono-reading-release
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import time
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          publication = json.loads(Path(os.environ["ASSET_LIST_PATH"]).read_text())
+          release_dirs = {
+              "tap-page-turn": Path(os.environ["TAP_RELEASE_DIR"]),
+              "fast-mono-reading": Path(os.environ["FAST_MONO_RELEASE_DIR"]),
+          }
+          cache_buster = (
+              f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+          )
+
+          for feature, payload_names in publication.items():
+              for name in [*payload_names, "manifest.json"]:
+                  expected = (release_dirs[feature] / name).read_bytes()
+                  expected_digest = hashlib.sha256(expected).hexdigest()
+                  key = f"{feature}/{name}"
+                  url = (
+                      f"{os.environ['COS_PUBLIC_BASE_URL']}/"
+                      f"{urllib.parse.quote(key, safe='/')}?verify={cache_buster}"
+                  )
+                  last_error = None
+                  for attempt in range(5):
+                      try:
+                          with urllib.request.urlopen(url, timeout=60) as response:
+                              actual = response.read()
+                          if (
+                              len(actual) == len(expected)
+                              and hashlib.sha256(actual).hexdigest()
+                              == expected_digest
+                          ):
+                              print(f"Verified public feature object: {key}")
+                              break
+                          last_error = RuntimeError("size or SHA-256 mismatch")
+                      except Exception as exc:
+                          last_error = exc
+                      if attempt < 4:
+                          time.sleep(2)
+                  else:
+                      raise SystemExit(
+                          f"Public COS verification failed for {key}: {last_error}"
+                      )
+          PY

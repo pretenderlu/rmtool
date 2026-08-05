@@ -1,0 +1,201 @@
+; Session-scoped fast-monochrome reading toggle for color OS 3.28.
+
+AFFECT /qml/device/view/documentview/DocumentView.qml
+    TRAVERSE FocusScope#root
+        LOCATE BEFORE ALL
+        INSERT {
+            property bool rmtoolFastMonoReadingEnabled: false
+            property int rmtoolFastMonoCleanupInterval: 10
+            property int rmtoolFastMonoCleanupCount: 0
+            property int rmtoolFastMonoLastPage: -1
+            property string rmtoolFastMonoLastDocumentId: ""
+            readonly property bool rmtoolFastMonoReadingAvailable: !!document
+                && (document.fileType === Document.Pdf
+                    || document.fileType === Document.Ebook)
+                && EPFramebuffer.hasCapability(EPFramebuffer.Capability.Color)
+
+            function rmtoolResetFastMonoCleanup() {
+                rmtoolFastMonoCleanupCount = 0
+                rmtoolFastMonoCleanupTimer.stop()
+            }
+
+            Timer {
+                id: rmtoolFastMonoCleanupTimer
+                interval: 500
+                repeat: false
+                onTriggered: {
+                    if (root.rmtoolFastMonoReadingEnabled
+                        && root.rmtoolFastMonoCleanupInterval > 0) {
+                        root.ghostBuster.forceClearNow("rmtool fast mono periodic cleanup")
+                    }
+                }
+            }
+
+            Connections {
+                target: root
+
+                function onCurrentPageChanged() {
+                    const page = root.currentPage
+                    const documentId = root.document ? root.document.id.toString() : ""
+                    if (documentId !== root.rmtoolFastMonoLastDocumentId) {
+                        root.rmtoolFastMonoLastDocumentId = documentId
+                        root.rmtoolResetFastMonoCleanup()
+                        root.rmtoolFastMonoLastPage = page
+                        return
+                    }
+                    if (page < 0 || root.rmtoolFastMonoLastPage < 0) {
+                        root.rmtoolFastMonoLastPage = page
+                        return
+                    }
+                    if (page === root.rmtoolFastMonoLastPage) {
+                        return
+                    }
+                    root.rmtoolFastMonoLastPage = page
+                    if (!root.rmtoolFastMonoReadingEnabled
+                        || root.rmtoolFastMonoCleanupInterval <= 0) {
+                        return
+                    }
+                    root.rmtoolFastMonoCleanupCount += 1
+                    if (root.rmtoolFastMonoCleanupCount
+                        >= root.rmtoolFastMonoCleanupInterval) {
+                        root.rmtoolFastMonoCleanupCount = 0
+                        rmtoolFastMonoCleanupTimer.restart()
+                    }
+                }
+
+                function onDocumentChanged() {
+                    root.rmtoolFastMonoLastDocumentId = ""
+                    root.rmtoolResetFastMonoCleanup()
+                    root.rmtoolFastMonoLastPage = -1
+                }
+
+                function onRmtoolFastMonoReadingEnabledChanged() {
+                    root.rmtoolFastMonoLastDocumentId = root.document
+                        ? root.document.id.toString() : ""
+                    root.rmtoolResetFastMonoCleanup()
+                    root.rmtoolFastMonoLastPage = root.currentPage
+                }
+
+                function onRmtoolFastMonoCleanupIntervalChanged() {
+                    root.rmtoolResetFastMonoCleanup()
+                    root.rmtoolFastMonoLastPage = root.currentPage
+                }
+            }
+        }
+    END TRAVERSE
+
+    TRAVERSE FocusScope#root > Item#_uiContainer > Toolbar#toolbar
+        LOCATE BEFORE ALL
+        INSERT {
+            property var rmtoolDocumentView: root
+        }
+    END TRAVERSE
+
+    TRAVERSE ?[!mode][!visible]
+        REPLACE visible WITH {
+            visible: (rmtoolFastMonoReadingAvailable && rmtoolFastMonoReadingEnabled)
+                || sceneView.globalScreenMode != undefined
+        }
+        REPLACE mode WITH {
+            mode: rmtoolFastMonoReadingAvailable && rmtoolFastMonoReadingEnabled
+                ? Epaper.ScreenModeItem.Mono
+                : (visible ? sceneView.globalScreenMode : Epaper.ScreenModeItem.UI)
+        }
+    END TRAVERSE
+END AFFECT
+
+AFFECT /qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml
+    TRAVERSE ToolbarTool#root > Component#settingsComponent > ColumnLayout#content
+        LOCATE BEFORE ALL
+        INSERT {
+            ArkControls.FoldoutToggle {
+                id: rmtoolFastMonoReadingToggle
+                objectName: "rmtoolFastMonoReadingToggle"
+                label: "\u5feb\u901f\u9ed1\u767d"
+                visible: root.toolbar.rmtoolDocumentView?.rmtoolFastMonoReadingAvailable ?? false
+                checked: root.toolbar.rmtoolDocumentView?.rmtoolFastMonoReadingEnabled ?? false
+                Layout.fillWidth: true
+                onClicked: {
+                    const view = root.toolbar.rmtoolDocumentView
+                    view.rmtoolFastMonoReadingEnabled = !view.rmtoolFastMonoReadingEnabled
+                    view.showNotification({
+                        message: view.rmtoolFastMonoReadingEnabled
+                            ? "\u5feb\u901f\u9ed1\u767d\u5df2\u5f00\u542f"
+                            : "\u5feb\u901f\u9ed1\u767d\u5df2\u5173\u95ed"
+                    })
+                }
+            }
+
+            Component {
+                id: rmtoolFastMonoCleanupOptions
+
+                ColumnLayout {
+                    spacing: 0
+
+                    ArkControls.FoldoutItem {
+                        label: "\u6bcf 5 \u6b21\u7ffb\u9875"
+                        selected: root.toolbar.rmtoolDocumentView?.rmtoolFastMonoCleanupInterval === 5
+                        Layout.fillWidth: true
+                        onClicked: {
+                            root.toolbar.rmtoolDocumentView.rmtoolFastMonoCleanupInterval = 5
+                            stackView.popCurrentItem()
+                        }
+                    }
+
+                    ArkControls.FoldoutItem {
+                        label: "\u6bcf 10 \u6b21\u7ffb\u9875"
+                        selected: root.toolbar.rmtoolDocumentView?.rmtoolFastMonoCleanupInterval === 10
+                        Layout.fillWidth: true
+                        onClicked: {
+                            root.toolbar.rmtoolDocumentView.rmtoolFastMonoCleanupInterval = 10
+                            stackView.popCurrentItem()
+                        }
+                    }
+
+                    ArkControls.FoldoutItem {
+                        label: "\u6bcf 20 \u6b21\u7ffb\u9875"
+                        selected: root.toolbar.rmtoolDocumentView?.rmtoolFastMonoCleanupInterval === 20
+                        Layout.fillWidth: true
+                        onClicked: {
+                            root.toolbar.rmtoolDocumentView.rmtoolFastMonoCleanupInterval = 20
+                            stackView.popCurrentItem()
+                        }
+                    }
+
+                    ArkControls.FoldoutItem {
+                        label: "\u6bcf 30 \u6b21\u7ffb\u9875"
+                        selected: root.toolbar.rmtoolDocumentView?.rmtoolFastMonoCleanupInterval === 30
+                        Layout.fillWidth: true
+                        onClicked: {
+                            root.toolbar.rmtoolDocumentView.rmtoolFastMonoCleanupInterval = 30
+                            stackView.popCurrentItem()
+                        }
+                    }
+
+                    ArkControls.FoldoutItem {
+                        label: "\u4ece\u4e0d"
+                        selected: root.toolbar.rmtoolDocumentView?.rmtoolFastMonoCleanupInterval === 0
+                        Layout.fillWidth: true
+                        onClicked: {
+                            root.toolbar.rmtoolDocumentView.rmtoolFastMonoCleanupInterval = 0
+                            stackView.popCurrentItem()
+                        }
+                    }
+                }
+            }
+
+            ArkControls.FoldoutItem {
+                id: rmtoolFastMonoCleanupSelector
+                objectName: "rmtoolFastMonoCleanupSelector"
+                visible: root.toolbar.rmtoolDocumentView?.rmtoolFastMonoReadingEnabled ?? false
+                Layout.fillWidth: true
+                label: "\u5f3a\u5236\u5237\u65b0"
+                description: {
+                    const interval = root.toolbar.rmtoolDocumentView?.rmtoolFastMonoCleanupInterval ?? 10
+                    return interval > 0 ? "\u6bcf " + interval + " \u6b21\u7ffb\u9875" : "\u4ece\u4e0d"
+                }
+                onClicked: stackView.push(rmtoolFastMonoCleanupOptions)
+            }
+        }
+    END TRAVERSE
+END AFFECT
