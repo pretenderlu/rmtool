@@ -253,7 +253,13 @@ jobs:
                   and (
                       exc.get_status_code() >= 500
                       or exc.get_error_code()
-                      in {"InternalError", "RequestTimeout", "ServiceUnavailable", "SlowDown"}
+                      in {
+                          "InternalError",
+                          "RequestTimeout",
+                          "ServiceUnavailable",
+                          "SlowDown",
+                          "UserNetworkTooSlow",
+                      }
                   )
               )
 
