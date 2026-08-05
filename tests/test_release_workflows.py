@@ -38,6 +38,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("for attempt in range(3):", workflow)
         self.assertIn("time.sleep(2 ** attempt)", workflow)
         self.assertIn("if not is_retryable_put_error(exc) or attempt == 2:", workflow)
+        self.assertIn('"UserNetworkTooSlow"', workflow)
         self.assertIn("def public_object_matches(path, key):", workflow)
         self.assertIn("?precheck={precheck_token}", workflow)
         self.assertIn("while chunk := response.read(1024 * 1024):", workflow)
@@ -98,6 +99,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("for attempt in range(3):", workflow)
         self.assertIn("time.sleep(2 ** attempt)", workflow)
         self.assertIn("if not is_retryable_put_error(exc) or attempt == 2:", workflow)
+        self.assertIn('"UserNetworkTooSlow"', workflow)
         self.assertIn(
             "def public_object_matches(key, expected_size, expected_digest):", workflow
         )
