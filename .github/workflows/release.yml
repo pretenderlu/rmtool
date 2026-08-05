@@ -219,6 +219,32 @@ jobs:
           max_threads = 3
           upload_state = {"multipart_available": True}
 
+          def public_object_matches(key, expected_size, expected_digest):
+              url = (
+                  f"{os.environ['COS_PUBLIC_BASE_URL']}/"
+                  f"{urllib.parse.quote(key, safe='/')}?precheck={cache_buster}"
+              )
+              try:
+                  actual_digest = hashlib.sha256()
+                  actual_size = 0
+                  with urllib.request.urlopen(url, timeout=60) as response:
+                      while chunk := response.read(1024 * 1024):
+                          actual_size += len(chunk)
+                          actual_digest.update(chunk)
+                          if actual_size > expected_size:
+                              break
+              except Exception as exc:
+                  print(f"COS precheck failed for {key}; uploading: {exc}")
+                  return False
+              if (
+                  actual_size == expected_size
+                  and actual_digest.hexdigest() == expected_digest
+              ):
+                  print(f"Skipped exact existing application artifact: {key}")
+                  return True
+              print(f"COS precheck mismatch for {key}; uploading.")
+              return False
+
           def is_retryable_put_error(exc):
               if isinstance(exc, CosClientError):
                   return True
@@ -269,6 +295,9 @@ jobs:
           def upload_prefix(prefix):
               for name, path in artifacts.items():
                   key = f"{prefix}/{name}"
+                  expected_size, expected_digest = expected_artifacts[name]
+                  if public_object_matches(key, expected_size, expected_digest):
+                      continue
                   upload_file_compatible(
                       path,
                       key,

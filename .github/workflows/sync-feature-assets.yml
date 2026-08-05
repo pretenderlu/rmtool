@@ -249,9 +249,12 @@ jobs:
           TENCENT_CLOUD_SECRET_KEY: ${{ secrets.TENCENT_CLOUD_SECRET_KEY }}
         run: |
           python - <<'PY'
+          import hashlib
           import json
           import os
           import time
+          import urllib.parse
+          import urllib.request
           from pathlib import Path
 
           from qcloud_cos import CosConfig, CosS3Client
@@ -279,6 +282,45 @@ jobs:
           part_size_mb = 2
           max_threads = 3
           upload_state = {"multipart_available": True}
+          precheck_token = (
+              f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+          )
+
+          def file_sha256(path):
+              digest = hashlib.sha256()
+              size = 0
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      size += len(chunk)
+                      digest.update(chunk)
+              return size, digest.hexdigest()
+
+          def public_object_matches(path, key):
+              expected_size, expected_digest = file_sha256(path)
+              url = (
+                  f"{os.environ['COS_PUBLIC_BASE_URL']}/"
+                  f"{urllib.parse.quote(key, safe='/')}?precheck={precheck_token}"
+              )
+              try:
+                  actual_digest = hashlib.sha256()
+                  actual_size = 0
+                  with urllib.request.urlopen(url, timeout=60) as response:
+                      while chunk := response.read(1024 * 1024):
+                          actual_size += len(chunk)
+                          actual_digest.update(chunk)
+                          if actual_size > expected_size:
+                              break
+              except Exception as exc:
+                  print(f"COS precheck failed for {key}; uploading: {exc}")
+                  return False
+              if (
+                  actual_size == expected_size
+                  and actual_digest.hexdigest() == expected_digest
+              ):
+                  print(f"Skipped exact existing feature payload: {key}")
+                  return True
+              print(f"COS precheck mismatch for {key}; uploading.")
+              return False
 
           def is_retryable_put_error(exc):
               if isinstance(exc, CosClientError):
@@ -330,8 +372,11 @@ jobs:
           for feature, names in publication.items():
               for name in names:
                   key = f"{feature}/{name}"
+                  path = release_dirs[feature] / name
+                  if public_object_matches(path, key):
+                      continue
                   upload_file_compatible(
-                      release_dirs[feature] / name,
+                      path,
                       key,
                       "application/gzip",
                   )
