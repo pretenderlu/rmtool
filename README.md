@@ -10,7 +10,7 @@ A desktop GUI management tool for reMarkable devices
 
 </div>
 
-rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, and reMarkable 2 devices over local root SSH. It provides multi-device connections, a dashboard, wallpaper and document management, KOReader library management, font upload, time management, device controls, native Chinese UI localization, and firmware-gated tap-to-turn support. Device operations do not depend on reMarkable cloud services. Release builds include a baseline localization catalog for offline discovery and local package import; automatic firmware-package downloads still require network access unless a validated package is already cached.
+rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, and reMarkable 2 devices over local root SSH. It provides multi-device connections, a dashboard, wallpaper and document management, KOReader library management, font upload, time management, device controls, native Chinese UI localization, firmware-gated tap-to-turn support, and exact-build fast monochrome reading for color devices. Device operations do not depend on reMarkable cloud services. Release builds include baseline trusted manifests for localization, tap-to-turn, and fast monochrome reading, enabling offline support discovery and verified cache reuse. Firmware-specific payloads are not bundled and still require a network download or an existing validated cache.
 
 > [!WARNING]
 > rmtool directly modifies files on the device. Sync or back up important content first, and make sure you accept the data and warranty risks associated with Developer Mode, root SSH, and third-party modifications. This project is not official reMarkable software.
@@ -52,17 +52,27 @@ rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, a
 
 ## Download and installation
 
-Most users should download the [latest release](https://github.com/pretenderlu/rmtool/releases/latest). Python is not required.
+Most users should download the latest build below. Python is not required. Users in mainland China should prefer Tencent COS; GitHub provides the same release artifacts as the fallback source.
 
 | Platform | Download | Notes |
 | --- | --- | --- |
-| Windows x64 | [Portable ZIP](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64.zip) | Extract it and run `rmtool/rmtool.exe`; recommended for regular use |
-| Windows x64 | [Single-file EXE](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64-onefile.exe) | Run it directly; first launch and each cold start are slower |
-| macOS ARM64 | [Apple Silicon app](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-macos-arm64.app.zip) | M-series Macs only; extract it and run `rmtool.app` |
+| Windows x64 | Portable ZIP: [Tencent COS](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/releases/latest/rmtool-windows-x64.zip) · [GitHub](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64.zip) | Extract it and run `rmtool/rmtool.exe`; recommended for regular use |
+| Windows x64 | Single-file EXE: [Tencent COS](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/releases/latest/rmtool-windows-x64-onefile.exe) · [GitHub](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64-onefile.exe) | Run it directly; first launch and each cold start are slower |
+| macOS ARM64 | Apple Silicon app: [Tencent COS](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/releases/latest/rmtool-macos-arm64.app.zip) · [GitHub](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-macos-arm64.app.zip) | M-series Macs only; extract it and run `rmtool.app` |
 
 The release packages are currently neither Windows code-signed nor Apple-notarized. If SmartScreen or Gatekeeper blocks the app, first verify that the file came from this repository's release page, then use the operating system's one-time approval option. Do not disable system security globally.
 
 The macOS build stores its runtime state in `~/Library/Application Support/rmtool/`, so the app can run normally even when its bundle is in a read-only or translocated location.
+
+### Hosted resource sources
+
+All firmware-specific resources managed by rmtool use two fixed sources. The client tries Tencent COS first, falls back to GitHub, and accepts a manifest or payload only after its expected size and SHA-256 match. An invalid response never replaces a validated cache. If both sources fail, rmtool uses a previously validated cached manifest and then the baseline trusted manifest bundled with the application; installation still requires the matching payload to exist in the validated cache.
+
+| Resource | Tencent COS (mainland China preferred) | GitHub fallback |
+| --- | --- | --- |
+| Chinese localization | [COS root](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/) | [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/tag/localization-assets) |
+| Tap to turn pages | [`tap-page-turn/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/tap-page-turn/) | [`tap-page-turn-assets`](https://github.com/pretenderlu/rmtool/releases/tag/tap-page-turn-assets) |
+| Fast monochrome reading | [`fast-mono-reading/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/fast-mono-reading/) | [`fast-mono-reading-assets`](https://github.com/pretenderlu/rmtool/releases/tag/fast-mono-reading-assets) |
 
 ## Connecting a device
 
@@ -98,6 +108,7 @@ The main files are:
 - `remarkable_tool.log`: rotating runtime log.
 - `cache/localization/`: validated localization manifests and firmware-package cache.
 - `cache/tap-page-turn/`: validated tap-to-turn manifests and package cache.
+- `cache/fast-mono-reading/`: validated fast-monochrome manifest and package cache.
 
 > [!CAUTION]
 > When "Remember password" is selected, the root password is stored in **plain text** in `devices.json` under the state directory above; it is not stored in the operating system credential manager. Do not share, upload, or sync the entire state directory to an untrusted location, and do not attach it to an issue. Use "Forget password" in the sidebar to remove a saved password.
@@ -112,6 +123,7 @@ The main files are:
 - **Time management**: Sync the computer's time, inspect system time, hardware clock, and timezone, or set the timezone to `Asia/Shanghai`.
 - **Device control**: Restart the device, enable Wi-Fi SSH, and increase frontlight brightness on devices with the `rm_frontlight` interface while installing a persistence service.
 - **Tap to turn pages**: On exactly supported firmware, enable persistent left/right tap regions in PDF and EPUB reading views while retaining native swipe navigation and document links.
+- **Fast monochrome reading**: On exact supported Paper Pro and Paper Pro Move 3.27/3.28 builds, add a session-scoped `快速黑白` switch and stock cleanup-refresh selector to the PDF/EPUB More menu. Cleanup defaults to every 10 real page turns, with 5/20/30/never choices. Packages are labelled separately as device verified or offline verified.
 - **Theme and logs**: Light and dark themes are persisted. The bottom log panel supports level filtering, pause, automatic scrolling, clearing, and opening the log file.
 - **Third-party application links**: The toolbox links to documentation for vellum, xovi, rm-appload, and KOReader. It does not include one-click installers.
 
@@ -160,11 +172,26 @@ Tap-to-turn is available for the exact builds below. rmtool requires a match for
 
 "Offline verified" means the package passed extraction, QMLDiff compatibility, patch replay, architecture, archive, and hash checks against the corresponding official firmware. Only Paper Pro 3.28 has completed enable, disable, rollback, and cold-boot testing on a physical device so far.
 
-In a PDF or EPUB reading view, a short one-finger tap in the left-middle region goes to the previous page. The right edge and lower region go to the next page. Native swipes, stylus input, menus, zooming, selections, and document links remain available. The implementation uses firmware-specific Xovi/QMLDiff assets downloaded from the fixed `tap-page-turn-assets` release; archive, file, and QML hashes are validated before deployment.
+In a PDF or EPUB reading view, a short one-finger tap in the left-middle region goes to the previous page. The right edge and lower region go to the next page. Native swipes, stylus input, menus, zooming, selections, and document links remain available. The implementation downloads firmware-specific Xovi/QMLDiff assets from Tencent COS first and the fixed `tap-page-turn-assets` release second; archive, file, and QML hashes are validated before deployment.
 
 Enabling and disabling are intentionally separated from activation. rmtool writes and validates the persistent configuration, closes SSH, and never restarts xochitl or reboots the device automatically. Use the device menu to perform a full restart after either operation. The launcher checks the device and every runtime file on each boot and falls back to stock xochitl if any check fails. See [tap-page-turn](tap-page-turn/README.md) for the package and license details.
 
 When Vellum owns the standard AppLoader/Xovi runtime, rmtool verifies the installed `xovi`, `qt-resource-rebuilder`, and `appload` packages, their file ownership, and the firmware-specific runtime hashes. It checks the QMD against the existing hashtab, builds a deterministic unsigned APK locally from the authenticated asset, and uses `vellum add` or `vellum del` to manage it. The APK has exact OS and hardware dependencies and conflicts with other tap-to-page packages. It does not add an AppLoader icon or an on-device toggle: while installed, its QMD is always loaded whenever Xovi and qt-resource-rebuilder are active. AppLoader, its systemd drop-in, hashtab, applications, and other extensions are left unchanged. Unknown layouts or modified runtimes are rejected instead of falling back to standalone deployment.
+
+### Fast monochrome reading
+
+Fast monochrome reading is available for the exact color-device builds below. rmtool requires the platform, architecture, internal firmware version, and stock `/usr/bin/xochitl` SHA-256 to match its local allowlist; a same-version but modified xochitl is rejected.
+
+| Device model | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) |
+| --- | --- | --- | --- | --- | --- |
+| reMarkable Paper Pro | `ferrari` | Offline verified | Offline verified | Offline verified | Offline verified |
+| reMarkable Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified | Offline verified |
+
+"Offline verified" means the package passed qmd-tool hash checks, QMLDiff compatibility, patch replay, patched-QML assertions, archive validation, and deterministic rebuild against recovered official firmware. The earlier Move 3.27.3 fast-mono behavior passed real-device tests, but the new r3 package with periodic cleanup and a native foldout selector remains offline verified until the complete package is tested again.
+
+After installation and a manual device restart, open a PDF or EPUB and use `More > 快速黑白`. While enabled, `强制刷新` can run the stock cleanup after every 5, 10, 20, or 30 actual page changes, or never; the session default is 10. Both taps and swipes count, and cleanup waits 500 ms for the page to render. Turning fast monochrome off immediately restores stock screen-mode selection and resets the counter.
+
+A standard Vellum-managed Xovi installation receives an independent minimal `rmtool-fast-mono-reading` APK. Without Vellum, tap-to-turn and fast monochrome share one rmtool-owned Xovi/QRR runtime while retaining separate QMD state. Unmanaged Xovi/drop-ins are rejected before upload. Feature manifests and payloads are fetched from Tencent COS first and the fixed GitHub release second, with exact size and SHA-256 verification and validated-cache fallback. Installation and removal never restart xochitl; wait for rmtool to close SSH, then restart from the device menu. See [fast-mono-reading](fast-mono-reading/README.md) for exact package and build details.
 
 ## Usage recommendations
 
@@ -173,7 +200,7 @@ When Vellum owns the standard AppLoader/Xovi runtime, rmtool verifies the instal
 3. After uploading documents, you can restart xochitl immediately when prompted. If you skip it, new documents may not appear yet.
 4. Document deletion cannot be undone. PDF export only works for one document containing `.rm` or `.note` handwriting data, and the result excludes the original PDF/EPUB background and non-handwriting content.
 5. Font and localization changes are device-level modifications. Restart the device when prompted after they finish.
-6. After enabling or disabling tap-to-turn, wait for rmtool to close SSH, then restart from the device menu. Do not combine deployment with an immediate remote xochitl restart.
+6. After enabling or disabling tap-to-turn or fast monochrome reading, wait for rmtool to close SSH, then restart from the device menu. Do not combine deployment with an immediate remote xochitl restart.
 
 ## Troubleshooting
 
@@ -215,10 +242,10 @@ On Windows, after installing dependencies, you can also double-click `rmtool.bat
 ## Development and release checks
 
 ```bash
-python -m compileall -q rmtool.py _dialogs.py _log_viewer.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py rmrl tests
+python -m compileall -q rmtool.py _dialogs.py _fast_mono_reading.py _log_viewer.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tests
 python -m unittest discover -s tests -v
 git diff --check
-actionlint .github/workflows/release.yml
+actionlint .github/workflows/release.yml .github/workflows/sync-localization-assets.yml .github/workflows/sync-feature-assets.yml
 ```
 
 To build Windows x64 packages locally:

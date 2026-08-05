@@ -10,7 +10,7 @@
 
 </div>
 
-rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Paper Pure、reMarkable 1 和 reMarkable 2，提供多设备连接、仪表盘、壁纸、文档、KOReader 书库管理、字体、时间、设备控制、原生界面中文和按固件精确匹配的点击翻页等功能。设备操作不依赖 reMarkable 云服务；发布包内置基础汉化清单，可离线识别支持情况并导入本地汉化包。自动下载固件专用汉化包仍需联网，已有有效缓存时可离线复用。
+rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Paper Pure、reMarkable 1 和 reMarkable 2，提供多设备连接、仪表盘、壁纸、文档、KOReader 书库管理、字体、时间、设备控制、原生界面中文、按固件精确匹配的点击翻页，以及彩色设备快速黑白阅读等功能。设备操作不依赖 reMarkable 云服务；发布包内置汉化、点击翻页和快速黑白的基础可信清单，可离线识别支持情况并复用已验证缓存。固件专用载荷不会打包进应用，仍需联网下载或使用已有的有效缓存。
 
 > [!WARNING]
 > rmtool 会直接修改设备文件。请先同步或备份重要内容，并确认自己能够承担开发者模式、root SSH 和第三方修改带来的数据与保修风险。本项目不是 reMarkable 官方软件。
@@ -52,17 +52,27 @@ rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Pape
 
 ## 下载与安装
 
-普通用户建议直接使用 [最新 Release](https://github.com/pretenderlu/rmtool/releases/latest)，无需安装 Python。
+普通用户建议直接下载下表中的最新版本，无需安装 Python。中国大陆用户优先使用腾讯云 COS，GitHub 提供相同安装包作为备用源。
 
 | 平台 | 下载 | 说明 |
 | --- | --- | --- |
-| Windows x64 | [便携版 ZIP](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64.zip) | 解压后运行 `rmtool/rmtool.exe`，适合长期使用 |
-| Windows x64 | [单文件 EXE](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64-onefile.exe) | 直接运行；首次和每次冷启动会稍慢 |
-| macOS ARM64 | [Apple Silicon 应用](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-macos-arm64.app.zip) | 仅支持 M 系列 Mac；解压后运行 `rmtool.app` |
+| Windows x64 | 便携版 ZIP：[腾讯云 COS](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/releases/latest/rmtool-windows-x64.zip) · [GitHub](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64.zip) | 解压后运行 `rmtool/rmtool.exe`，适合长期使用 |
+| Windows x64 | 单文件 EXE：[腾讯云 COS](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/releases/latest/rmtool-windows-x64-onefile.exe) · [GitHub](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64-onefile.exe) | 直接运行；首次和每次冷启动会稍慢 |
+| macOS ARM64 | Apple Silicon 应用：[腾讯云 COS](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/releases/latest/rmtool-macos-arm64.app.zip) · [GitHub](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-macos-arm64.app.zip) | 仅支持 M 系列 Mac；解压后运行 `rmtool.app` |
 
 发布包目前没有 Windows 代码签名或 Apple 公证。若 SmartScreen 或 Gatekeeper 阻止启动，请先核对文件确实来自本仓库 Release，再使用系统提供的单次放行方式；不要全局关闭系统安全保护。
 
 macOS 版会把运行状态保存在 `~/Library/Application Support/rmtool/`，因此即使应用包位于只读或系统转移的位置，也能正常保存配置。
+
+### 托管资源下载源
+
+rmtool 管理的固件专用资源均使用两个固定来源。客户端优先访问腾讯云 COS，失败后自动回退 GitHub；清单和载荷每次都必须通过预期大小与 SHA-256 校验，无效响应不会覆盖已验证缓存。两个远端均失败时，程序依次使用此前验证过的缓存清单和应用内置基础可信清单；真正安装时仍必须在缓存中已有精确匹配且通过验证的载荷。
+
+| 资源 | 腾讯云 COS（中国大陆优先） | GitHub 备用源 |
+| --- | --- | --- |
+| 原生界面汉化 | [COS 根目录](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/) | [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/tag/localization-assets) |
+| 点击翻页 | [`tap-page-turn/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/tap-page-turn/) | [`tap-page-turn-assets`](https://github.com/pretenderlu/rmtool/releases/tag/tap-page-turn-assets) |
+| 快速黑白阅读 | [`fast-mono-reading/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/fast-mono-reading/) | [`fast-mono-reading-assets`](https://github.com/pretenderlu/rmtool/releases/tag/fast-mono-reading-assets) |
 
 ## 连接设备
 
@@ -98,6 +108,7 @@ rmtool 按运行平台将状态保存在以下目录：
 - `remarkable_tool.log`：滚动运行日志。
 - `cache/localization/`：已校验的汉化清单和固件包缓存。
 - `cache/tap-page-turn/`：已校验的点击翻页清单和固件包缓存。
+- `cache/fast-mono-reading/`：已校验的快速黑白清单和固件包缓存。
 
 > [!CAUTION]
 > 勾选“记住密码”后，root 密码会以**明文**写入上述状态目录中的 `devices.json`，不会进入系统凭据库。请勿分享、上传或把整个状态目录同步到不受信任的位置；提交 Issue 时也不要附带该目录。可在左侧点击“忘记密码”删除已保存密码。
@@ -112,6 +123,7 @@ rmtool 按运行平台将状态保存在以下目录：
 - **时间管理**：同步电脑时间、查看系统时间/硬件时钟/时区，或设置为 `Asia/Shanghai`。
 - **设备控制**：重启设备、开启 Wi-Fi SSH，以及为具有 `rm_frontlight` 前光接口的设备提升亮度并安装持久化服务。
 - **点击翻页**：在精确支持的固件上，为 PDF/EPUB 阅读页启用持久化的左右点击区域，同时保留原生滑动翻页和文档链接。
+- **快速黑白阅读**：在精确支持的 Paper Pro 与 Paper Pro Move 3.27/3.28 固件上，为 PDF/EPUB 的更多菜单增加会话级“快速黑白”开关和原生清屏频率选项；默认每 10 次真实翻页清屏，也可选择 5/20/30 次或从不。包会分别标注真机验证或离线验证。
 - **主题与日志**：亮色/暗色主题会持久化；底部日志面板支持级别过滤、暂停、自动滚动、清屏和打开日志文件。
 - **第三方应用入口**：工具箱提供 vellum、xovi、rm-appload 和 KOReader 的文档链接，不包含一键安装器。
 
@@ -160,11 +172,26 @@ Paper Pro（`ferrari`）已在上表两个 3.28 测试版完成真机启用与�
 
 “官方固件离线验证”表示该包已经针对对应官方固件完成资源提取、QMLDiff 兼容性与补丁回放、架构、压缩包和哈希检查。目前只有 Paper Pro 3.28 完成了真机启用、停用、回滚和冷启动验证。
 
-在 PDF 或 EPUB 阅读页，单指短按左侧中部区域进入上一页，右侧边缘和下方区域进入下一页。原生滑动、手写笔、菜单、缩放、选区和文档链接仍然可用。实现所需的固件专用 Xovi/QMLDiff 资源从固定的 `tap-page-turn-assets` Release 按需下载，部署前会校验压缩包、每个文件和 QML 哈希。
+在 PDF 或 EPUB 阅读页，单指短按左侧中部区域进入上一页，右侧边缘和下方区域进入下一页。原生滑动、手写笔、菜单、缩放、选区和文档链接仍然可用。实现所需的固件专用 Xovi/QMLDiff 资源优先从腾讯云 COS 下载，失败后回退固定的 `tap-page-turn-assets` Release；部署前会校验压缩包、每个文件和 QML 哈希。
 
 启用或停用与重启严格分离。rmtool 只写入并校验持久化配置，随后关闭 SSH，不会自动重启 xochitl 或设备。每次启用或停用后，都应从设备菜单执行完整重启。启动器会在每次开机时校验设备身份和全部运行文件；任一项不匹配时会直接启动原生 xochitl。资源包和许可证细节见 [点击翻页说明](tap-page-turn/README.md)。
 
 设备上的标准 AppLoader/Xovi 由 Vellum 管理时，rmtool 会核对已安装的 `xovi`、`qt-resource-rebuilder` 和 `appload` 包、文件所有权及固件专用运行库哈希，并使用现有 hashtab 检查 QMD。通过后，rmtool 从已认证资源在电脑本地生成确定性的 unsigned APK，通过 `vellum add` 和 `vellum del` 管理；APK 会精确约束系统版本和硬件，并与其他点击翻页包冲突。该包不增加 AppLoader 图标或设备端开关：只要包仍安装，QMD 就会在 Xovi 与 qt-resource-rebuilder 激活时始终加载。AppLoader、systemd drop-in、hashtab、应用和其他扩展均不会被修改。非标准或被修改的 Xovi 会被拒绝，不会回退到独立部署。
+
+### 快速黑白阅读
+
+快速黑白阅读支持下表中的彩色设备精确构建。rmtool 会同时匹配平台、架构、内部固件版本及原始 `/usr/bin/xochitl` SHA-256；即使版本号相同，只要 xochitl 被修改也会拒绝安装。
+
+| 设备型号 | 平台代号 | 3.27.1.0 正式版（`20260506100933`） | 3.27.3.0 正式版（`20260612085811`） | 3.28.0.162 测试版（`20260629074044`） | 3.28.0.163 测试版（`20260702125656`） |
+| --- | --- | --- | --- | --- | --- |
+| reMarkable Paper Pro | `ferrari` | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 |
+| reMarkable Paper Pro Move | `chiappa` | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 |
+
+“官方固件离线验证”表示该包已针对恢复出的官方固件通过 qmd-tool 哈希检查、QMLDiff 兼容性、补丁回放、修改后 QML 断言、压缩包校验和确定性重建。旧版 Move 3.27.3 快速黑白行为曾完成真机测试，但加入周期清屏和原生折叠选择器后的 r3 完整包仍保持离线验证，等待重新实机确认。
+
+安装并手动重启设备后，打开 PDF 或 EPUB，在“更多 > 快速黑白”中按需开启。开启后可在“强制刷新”中选择每 5、10、20、30 次真实翻页调用一次系统清屏，或选择“从不”；会话默认每 10 次，点击和滑动翻页都会计数，达到阈值后等待 500 ms 再刷新。关闭快速黑白会立即恢复原生刷新模式并重置计数。
+
+标准 Vellum 管理的 Xovi 会安装独立最小 `rmtool-fast-mono-reading` APK；没有 Vellum 时，点击翻页与快速黑白会共享一套 rmtool 自有 Xovi/QRR 运行时，同时各自保留 QMD 状态。非托管 Xovi/drop-in 会在上传前被拒绝。功能清单和载荷优先从腾讯云 COS 获取，失败后回退固定 GitHub Release，并执行精确大小、SHA-256 校验及已验证缓存回退。安装和停用均不会重启 xochitl；请等待 rmtool 关闭 SSH 后，从设备菜单手动重启。包与构建细节见[快速黑白阅读说明](fast-mono-reading/README.md)。
 
 ## 使用建议
 
@@ -173,7 +200,7 @@ Paper Pro（`ferrari`）已在上表两个 3.28 测试版完成真机启用与�
 3. 文档上传完成后，可按提示立即重启 xochitl；跳过时，新文档可能暂时不显示。
 4. 删除文档不可撤销；导出 PDF 只对包含 `.rm` 或 `.note` 笔迹数据的单个文档可用，结果不包含原 PDF/EPUB 底图或非笔迹内容。
 5. 字体和汉化属于设备级修改，完成后按提示重启设备。
-6. 启用或停用点击翻页后，等待 rmtool 关闭 SSH，再从设备菜单重启；不要把部署和远程立即重启 xochitl 放在同一个操作中。
+6. 启用或停用点击翻页、快速黑白阅读后，等待 rmtool 关闭 SSH，再从设备菜单重启；不要把部署和远程立即重启 xochitl 放在同一个操作中。
 
 ## 常见问题
 
@@ -215,10 +242,10 @@ Windows 也可在依赖安装完成后双击 `rmtool.bat`，通过 `pythonw.exe`
 ## 开发与发布检查
 
 ```bash
-python -m compileall -q rmtool.py _dialogs.py _log_viewer.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py rmrl tests
+python -m compileall -q rmtool.py _dialogs.py _fast_mono_reading.py _log_viewer.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tests
 python -m unittest discover -s tests -v
 git diff --check
-actionlint .github/workflows/release.yml
+actionlint .github/workflows/release.yml .github/workflows/sync-localization-assets.yml .github/workflows/sync-feature-assets.yml
 ```
 
 Windows x64 本地构建运行：
