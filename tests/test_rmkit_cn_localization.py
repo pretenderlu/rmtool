@@ -1990,6 +1990,12 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         beta_qm_path = Path(
             "translations/reMarkable_zh_CN-20260629074044.qm"
         )
+        beta_164_paths = {
+            platform: Path(
+                f"translations/reMarkable_zh_CN-3.28.0.164-{platform}.qm"
+            )
+            for platform in ("chiappa", "ferrari")
+        }
         manifest_path = Path("translations/manifest.json")
         self.assertEqual(
             _rmkit_cn.BUNDLED_TRANSLATION_MANIFEST_PATH,
@@ -2132,6 +2138,38 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             beta_ferrari.stock_french_sha256,
             "24393f00d9edb933933b436ffe5020990dd97d31d7788172907d75ff1d42d3a5",
         )
+        latest = packages["20260702125656"]
+        latest_candidates = (latest, *latest.variants)
+        self.assertEqual(
+            [(item.platform, item.release_version) for item in latest_candidates],
+            [
+                ("chiappa", "3.28.0.163"),
+                ("ferrari", "3.28.0.163"),
+                ("chiappa", "3.28.0.164"),
+                ("ferrari", "3.28.0.164"),
+            ],
+        )
+        latest_164 = {
+            item.platform: item
+            for item in latest_candidates
+            if item.release_version == "3.28.0.164"
+        }
+        self.assertEqual(
+            latest_164["chiappa"].stock_french_sha256,
+            "53728fd166e2658363c38c3951c135f59ca1502f2d2e9c43ee6c4cff1ae9871a",
+        )
+        self.assertEqual(
+            latest_164["ferrari"].stock_french_sha256,
+            "ef07588e04ade2f19ce2e4545fc9d5e63f7a541b3410803b4727cf82f1b5f946",
+        )
+        for platform, item in latest_164.items():
+            data = beta_164_paths[platform].read_bytes()
+            self.assertEqual(item.asset, beta_164_paths[platform].name)
+            self.assertEqual(item.size, len(data))
+            self.assertEqual(
+                item.localized_qm_sha256,
+                hashlib.sha256(data).hexdigest(),
+            )
         build_script = Path("build-portable.ps1").read_text(encoding="utf-8-sig")
         release_workflow = Path(".github/workflows/release.yml").read_text(
             encoding="utf-8"
@@ -2590,6 +2628,43 @@ class RmkitCnLocalizationTests(unittest.TestCase):
                 self.assertFalse(
                     destination.with_name(f"{destination.name}.tmp").exists()
                 )
+
+    def test_cloud_manifest_allows_same_platform_for_distinct_public_releases(self):
+        common = {
+            "channel": "beta",
+            "platform": "chiappa",
+        }
+        entry = {
+            **common,
+            "asset": "old.qm",
+            "release_version": "3.28.0.163",
+            "size": 1,
+            "sha256": "1" * 64,
+            "stock_french_sha256": "2" * 64,
+            "variants": [
+                {
+                    **common,
+                    "asset": "new.qm",
+                    "release_version": "3.28.0.164",
+                    "size": 1,
+                    "sha256": "3" * 64,
+                    "stock_french_sha256": "4" * 64,
+                }
+            ],
+        }
+        packages = _rmkit_cn.parse_translation_manifest(
+            json.dumps(
+                {
+                    "schema": _rmkit_cn.TRANSLATION_MANIFEST_SCHEMA,
+                    "firmwares": {"20260702125656": entry},
+                }
+            ).encode()
+        )
+        package = packages["20260702125656"]
+        self.assertEqual(package.platform, package.variants[0].platform)
+        self.assertNotEqual(
+            package.release_version, package.variants[0].release_version
+        )
 
     def test_export_translation_package_reuses_verified_downloader(self):
         package = self.make_translation_package()

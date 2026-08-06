@@ -106,6 +106,8 @@ class TapPageTurnState(Enum):
     WAITING_FOR_XOVI = "waiting_for_xovi"
     ENABLED = "enabled"
     DISABLE_PENDING_REBOOT = "disable_pending_reboot"
+    OUTDATED = "outdated"
+    FIRMWARE_RESIDUE = "firmware_residue"
     BROKEN = "broken"
 
 
@@ -736,6 +738,41 @@ def _trusted_shared_context_from_marker(ssh_client):
     return _trusted_shared_context(identity)
 
 
+def _inspect_shared_firmware_residue(
+    ssh_client,
+    runtime: _xovi_standalone.SharedRuntimeSpec,
+    trusted: dict[str, _xovi_standalone.SharedFeatureSpec],
+    current_identity: tuple[str, str, str, str],
+):
+    import _fast_mono_reading as fast
+
+    installed_identity = DeviceIdentity(
+        runtime.firmware,
+        runtime.platform,
+        runtime.architecture,
+        runtime.xochitl_sha256,
+    )
+    fast_package = fast.select_package(fast._trusted_catalog(), installed_identity)
+    if fast_package is not None:
+        inspection, installed_trusted, _outdated = fast._inspect_shared_revision(
+            ssh_client,
+            runtime,
+            trusted,
+            fast_package,
+            firmware_residue_identity=current_identity,
+        )
+        return inspection, installed_trusted
+    return (
+        _xovi_standalone.inspect_shared_firmware_residue(
+            ssh_client,
+            runtime,
+            trusted,
+            current_identity,
+        ),
+        trusted,
+    )
+
+
 def _vellum_marker(
     package: TapPageTurnPackage,
     *,
@@ -766,6 +803,18 @@ def _read_marker(ssh_client) -> dict:
     if not isinstance(marker, dict):
         raise RuntimeError("设备点击翻页安装标记格式无效。")
     return marker
+
+
+def _package_from_marker(catalog, marker: dict):
+    matches = {
+        package
+        for package in catalog
+        if marker.get("package_id") == package.package_id
+        and marker.get("firmware") == package.firmware
+        and marker.get("platform") == package.platform
+        and marker.get("xochitl_sha256") == package.xochitl_sha256
+    }
+    return next(iter(matches)) if len(matches) == 1 else None
 
 
 def _xochitl_process_token(ssh_client) -> str:
@@ -1022,6 +1071,56 @@ def get_status(
         dropin_exists or marker_exists or vellum_version is not None or shared_exists
     )
     package = select_package(packages, identity)
+    if shared_exists and package is not None:
+        try:
+            shared_identity = DeviceIdentity(
+                *_xovi_standalone.read_shared_identity(ssh_client)
+            )
+        except Exception:
+            shared_identity = identity
+        if shared_identity != identity:
+            try:
+                runtime, trusted, legacies = _trusted_shared_context(shared_identity)
+                if any(
+                    ssh_client.file_exists(path)
+                    for legacy in legacies
+                    for path in (
+                        legacy.layout.remote_base,
+                        legacy.marker_path,
+                        legacy.layout.dropin_path,
+                    )
+                ):
+                    raise RuntimeError("检测到共享与旧版/Vellum Xovi 混合布局。")
+                inspection, _installed_trusted = _inspect_shared_firmware_residue(
+                    ssh_client,
+                    runtime,
+                    trusted,
+                    (
+                        identity.firmware,
+                        identity.platform,
+                        identity.architecture,
+                        identity.xochitl_sha256,
+                    ),
+                )
+                return TapPageTurnStatus(
+                    TapPageTurnState.FIRMWARE_RESIDUE,
+                    identity,
+                    package,
+                    available,
+                    "旧共享目录与内置旧包完全一致，且上下层 drop-in 均已由固件升级移除；"
+                    "旧功能当前未载入。清理会一并移除点击翻页和快速黑白的旧共享状态，"
+                    "随后两项功能均可安装当前固件版本。",
+                    True,
+                )
+            except Exception as exc:
+                return TapPageTurnStatus(
+                    TapPageTurnState.BROKEN,
+                    identity,
+                    package,
+                    available,
+                    str(exc),
+                    True,
+                )
     if package is None and shared_exists:
         try:
             runtime, trusted, legacies = _trusted_shared_context_from_marker(ssh_client)
@@ -1125,29 +1224,44 @@ def get_status(
                 recovery_available,
             )
     if marker and marker.get("deployment_mode") == "vellum":
-        valid, detail = _vellum_payload_valid(ssh_client, package, marker)
-        if not valid:
+        marker_package = _package_from_marker(
+            (package, *_trusted_catalog()), marker
+        )
+        if marker_package is None:
             state = TapPageTurnState.BROKEN
+            detail = "Vellum 点击翻页标记不属于任何内置信任包"
         else:
-            try:
-                current_process = _xochitl_process_token(ssh_client)
-            except Exception as exc:
+            valid, detail = _vellum_payload_valid(
+                ssh_client, marker_package, marker
+            )
+            if not valid:
                 state = TapPageTurnState.BROKEN
-                detail = str(exc)
+            elif marker_package != package:
+                state = TapPageTurnState.OUTDATED
+                detail = (
+                    "已精确验证为旧固件的 Vellum 点击翻页；"
+                    "请先卸载旧版，再安装当前固件版本。"
+                )
             else:
-                process_changed = current_process != marker["process_token"]
-                if marker["enabled"]:
-                    if not _active_with_shared_xovi(ssh_client):
-                        state = TapPageTurnState.WAITING_FOR_XOVI
-                        detail = "请按 AppLoader 的正常流程手动激活 Xovi"
-                    elif process_changed:
-                        state = TapPageTurnState.ENABLED
-                    else:
-                        state = TapPageTurnState.ENABLE_PENDING_REBOOT
-                elif process_changed:
-                    state = TapPageTurnState.INSTALLED_DISABLED
+                try:
+                    current_process = _xochitl_process_token(ssh_client)
+                except Exception as exc:
+                    state = TapPageTurnState.BROKEN
+                    detail = str(exc)
                 else:
-                    state = TapPageTurnState.DISABLE_PENDING_REBOOT
+                    process_changed = current_process != marker["process_token"]
+                    if marker["enabled"]:
+                        if not _active_with_shared_xovi(ssh_client):
+                            state = TapPageTurnState.WAITING_FOR_XOVI
+                            detail = "请按 AppLoader 的正常流程手动激活 Xovi"
+                        elif process_changed:
+                            state = TapPageTurnState.ENABLED
+                        else:
+                            state = TapPageTurnState.ENABLE_PENDING_REBOOT
+                    elif process_changed:
+                        state = TapPageTurnState.INSTALLED_DISABLED
+                    else:
+                        state = TapPageTurnState.DISABLE_PENDING_REBOOT
         return TapPageTurnStatus(
             state,
             identity,
@@ -1203,6 +1317,45 @@ def get_status(
             "Vellum 点击翻页包存在，但 rmtool 状态标记缺失或无效",
             True,
         )
+
+    if marker and marker.get("deployment_mode") is None:
+        marker_package = _package_from_marker(
+            (package, *_trusted_catalog()), marker
+        )
+        if marker_package is None:
+            return TapPageTurnStatus(
+                TapPageTurnState.BROKEN,
+                identity,
+                package,
+                available,
+                "旧版点击翻页标记不属于任何内置信任包",
+                True,
+            )
+        if marker_package != package:
+            try:
+                _xovi_standalone.validate_legacy(
+                    ssh_client,
+                    _legacy_spec(marker_package),
+                    check_lower=True,
+                )
+            except Exception as exc:
+                return TapPageTurnStatus(
+                    TapPageTurnState.BROKEN,
+                    identity,
+                    package,
+                    available,
+                    str(exc),
+                    True,
+                )
+            return TapPageTurnStatus(
+                TapPageTurnState.OUTDATED,
+                identity,
+                package,
+                available,
+                "已精确验证为旧固件的独立点击翻页；"
+                "请先卸载旧版，再安装当前固件版本。",
+                True,
+            )
 
     base_exists = ssh_client.file_exists(REMOTE_BASE)
     active = _active_with_rmtool_payload(ssh_client)
@@ -1738,6 +1891,17 @@ def _disable_vellum(
     ssh_client,
     catalog: Iterable[TapPageTurnPackage],
 ) -> TapPageTurnStatus:
+    marker = _read_marker(ssh_client)
+    installed_package = _package_from_marker(_trusted_catalog(), marker)
+    if installed_package is None:
+        raise RuntimeError("内置点击翻页清单无法验证该 Vellum 安装。")
+    valid, detail = _vellum_payload_valid(
+        ssh_client, installed_package, marker
+    )
+    if not valid or marker.get("enabled") is not True:
+        raise RuntimeError(
+            detail or "Vellum 点击翻页安装无法精确验证，拒绝自动卸载。"
+        )
     installed_version = _vellum_installed_version(
         ssh_client, VELLUM_PACKAGE_NAME
     )
@@ -1782,10 +1946,41 @@ def disable(
         if installed_version is not None:
             return _disable_vellum(ssh_client, catalog)
     if _xovi_standalone.has_shared_artifacts(ssh_client):
-        runtime, trusted, _legacies = _trusted_shared_context_from_marker(ssh_client)
-        _xovi_standalone.disable_shared(
-            ssh_client, runtime, "tap-page-turn", trusted
+        current_identity = get_device_identity(ssh_client)
+        marker_identity = DeviceIdentity(
+            *_xovi_standalone.read_shared_identity(ssh_client)
         )
+        runtime, trusted, _legacies = _trusted_shared_context(marker_identity)
+        if marker_identity != current_identity:
+            _inspection, installed_trusted = _inspect_shared_firmware_residue(
+                ssh_client,
+                runtime,
+                trusted,
+                (
+                    current_identity.firmware,
+                    current_identity.platform,
+                    current_identity.architecture,
+                    current_identity.xochitl_sha256,
+                ),
+            )
+            _xovi_standalone.remove_shared_firmware_residue(
+                ssh_client,
+                runtime,
+                installed_trusted,
+                (
+                    current_identity.firmware,
+                    current_identity.platform,
+                    current_identity.architecture,
+                    current_identity.xochitl_sha256,
+                ),
+            )
+        else:
+            _xovi_standalone.disable_shared(
+                ssh_client,
+                runtime,
+                "tap-page-turn",
+                trusted,
+            )
         return get_status(ssh_client, catalog)
     if ssh_client.file_exists(MARKER_PATH):
         marker = _read_marker(ssh_client)
@@ -1795,6 +1990,17 @@ def disable(
             )
         if marker.get("schema_version") in (2, 3):
             raise RuntimeError("点击翻页安装标记的部署模式无效，拒绝自动停用。")
+        marker_package = _package_from_marker(_trusted_catalog(), marker)
+        if marker_package is None:
+            raise RuntimeError("点击翻页安装标记不属于任何内置信任包。")
+        current_package = select_package(
+            _trusted_catalog(), get_device_identity(ssh_client)
+        )
+        if current_package != marker_package:
+            _xovi_standalone.remove_verified_legacy(
+                ssh_client, _legacy_spec(marker_package)
+            )
+            return get_status(ssh_client, catalog)
     token = uuid.uuid4().hex
     remote_script = f"/tmp/rmtool-tap-disable-{token}.sh"
     try:

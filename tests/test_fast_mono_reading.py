@@ -172,7 +172,7 @@ class FastMonoReadingTests(unittest.TestCase):
             for package in packages
         }
         self.assertEqual(identities, fast.ALLOWED_TARGETS)
-        self.assertEqual(len(packages), 8)
+        self.assertEqual(len(packages), 10)
         self.assertTrue(all(package.offline_verified for package in packages))
         self.assertFalse(any(package.device_verified for package in packages))
         self.assertEqual({package.channel for package in packages}, {"stable", "beta"})
@@ -182,6 +182,18 @@ class FastMonoReadingTests(unittest.TestCase):
             verified.file(fast.QMD_PAYLOAD_PATH).sha256,
             "643f5569e65149798888d267f616b77034b3abb9f1b695806d12f6c22a378cea",
         )
+        for platform in ("chiappa", "ferrari"):
+            package = next(
+                item
+                for item in packages
+                if item.platform == platform
+                and item.release_version == "3.28.0.164"
+            )
+            self.assertEqual(
+                package.file(fast.QMD_PAYLOAD_PATH).sha256,
+                "9eb1e98a731458f1b46b170e11bfd29d11edbec04caf8befedc859fefd9acf5d",
+            )
+            self.assertTrue(package.asset.endswith("-3.28.0.164.tar.gz"))
 
     def test_known_shared_predecessors_are_exact_and_revision_bounded(self):
         predecessors = {

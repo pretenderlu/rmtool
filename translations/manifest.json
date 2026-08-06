@@ -105,6 +105,24 @@
           "size": 178170,
           "sha256": "4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e",
           "stock_french_sha256": "24393f00d9edb933933b436ffe5020990dd97d31d7788172907d75ff1d42d3a5"
+        },
+        {
+          "asset": "reMarkable_zh_CN-3.28.0.164-chiappa.qm",
+          "release_version": "3.28.0.164",
+          "channel": "beta",
+          "platform": "chiappa",
+          "size": 192220,
+          "sha256": "50dc76f758b51fa10bf026269e1788904fe564d00ed6e37b97fed7dc02399348",
+          "stock_french_sha256": "53728fd166e2658363c38c3951c135f59ca1502f2d2e9c43ee6c4cff1ae9871a"
+        },
+        {
+          "asset": "reMarkable_zh_CN-3.28.0.164-ferrari.qm",
+          "release_version": "3.28.0.164",
+          "channel": "beta",
+          "platform": "ferrari",
+          "size": 196446,
+          "sha256": "18c564eea746a1508343b85197d958b003729b3274f5a6a880285c552dc7348a",
+          "stock_french_sha256": "ef07588e04ade2f19ce2e4545fc9d5e63f7a541b3410803b4727cf82f1b5f946"
         }
       ]
     }

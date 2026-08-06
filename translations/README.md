@@ -16,6 +16,12 @@ and the cloud release manifest:
   catalog built from the base, Ferrari supplement, and legacy supplement.
 - `reMarkable_zh_CN-20260629074044.qm`: shared compiled beta catalog for the
   Chiappa and Ferrari `3.28.0.162` firmware payloads.
+- `reMarkable_zh_CN_3_28_0_164_supplement.ts`: 132 exact UTF-8 catalog keys
+  newly active in both Chiappa and Ferrari `3.28.0.164`.
+- `reMarkable_zh_CN_3_28_0_164_ferrari_supplement.ts`: the two additional
+  Ferrari-only `3.28.0.164` keys.
+- `reMarkable_zh_CN-3.28.0.164-{chiappa,ferrari}.qm`: separate compiled
+  catalogs for the two exact `3.28.0.164` stock inventories.
 - `manifest.json`: release metadata mapping each exact firmware version to its
   user-facing version, stable/beta channel, asset name, byte size, localized
   SHA-256, stock French SHA-256, and optional hardware variants.
@@ -68,6 +74,19 @@ Beta `3.28.0.163`, internal version `20260702125656`, ships byte-identical
 stock English, French, German, and Spanish catalogs on both Chiappa and
 Ferrari, so it reuses the same 178170-byte Chinese asset and the same stock
 French SHA-256 values as `3.28.0.162`.
+
+Beta `3.28.0.164` retains internal version `20260702125656` but changes both
+the stock catalogs and xochitl. It therefore has release-qualified asset names
+and exact carrier hashes instead of overwriting or reusing the `.163` entries:
+
+| Platform | Chinese asset | Size | Chinese SHA-256 | Stock French SHA-256 |
+| --- | --- | ---: | --- | --- |
+| Chiappa | `reMarkable_zh_CN-3.28.0.164-chiappa.qm` | 192220 | `50dc76f758b51fa10bf026269e1788904fe564d00ed6e37b97fed7dc02399348` | `53728fd166e2658363c38c3951c135f59ca1502f2d2e9c43ee6c4cff1ae9871a` |
+| Ferrari | `reMarkable_zh_CN-3.28.0.164-ferrari.qm` | 196446 | `18c564eea746a1508343b85197d958b003729b3274f5a6a880285c552dc7348a` | `ef07588e04ade2f19ce2e4545fc9d5e63f7a541b3410803b4727cf82f1b5f946` |
+
+The `.164` supplements were merged from the corrected Qt 6 UTF-8 stock
+inventories. The resulting Chiappa and Ferrari catalogs compile with 1979 and
+2012 finished messages respectively, with no unfinished or empty entries.
 
 Paper Pro (Ferrari) enable and restore were validated on a real device.
 Paper Pro Move (Chiappa), Paper Pure (Tatsu), RM1, and RM2 `3.27.3.0` were
@@ -123,6 +142,22 @@ lconvert -sort-contexts -locations none `
   -o "$env:TEMP/reMarkable_zh_CN_legacy.ts"
 lrelease -nounfinished "$env:TEMP/reMarkable_zh_CN_legacy.ts" `
   -qm translations/reMarkable_zh_CN-20260612085811-legacy.qm
+
+lconvert -sort-contexts -locations none `
+  translations/reMarkable_zh_CN.ts `
+  translations/reMarkable_zh_CN_3_28_0_164_supplement.ts `
+  -o "$env:TEMP/reMarkable_zh_CN-3.28.0.164-chiappa.ts"
+lrelease -nounfinished "$env:TEMP/reMarkable_zh_CN-3.28.0.164-chiappa.ts" `
+  -qm translations/reMarkable_zh_CN-3.28.0.164-chiappa.qm
+
+lconvert -sort-contexts -locations none `
+  translations/reMarkable_zh_CN.ts `
+  translations/reMarkable_zh_CN_ferrari_supplement.ts `
+  translations/reMarkable_zh_CN_3_28_0_164_supplement.ts `
+  translations/reMarkable_zh_CN_3_28_0_164_ferrari_supplement.ts `
+  -o "$env:TEMP/reMarkable_zh_CN-3.28.0.164-ferrari.ts"
+lrelease -nounfinished "$env:TEMP/reMarkable_zh_CN-3.28.0.164-ferrari.ts" `
+  -qm translations/reMarkable_zh_CN-3.28.0.164-ferrari.qm
 ```
 
 The TS file must contain no empty or `unfinished` translations before release.

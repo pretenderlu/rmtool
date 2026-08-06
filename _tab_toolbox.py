@@ -1406,6 +1406,12 @@ class TapPageTurnSection(QtWidgets.QWidget):
     def _update_buttons(self):
         connected = self.ssh_client.is_connected() and not self._busy
         state = self._status.state if self._status else None
+        if state == _tap_page_turn.TapPageTurnState.FIRMWARE_RESIDUE:
+            self.disable_button.setText("清理残留")
+        elif state == _tap_page_turn.TapPageTurnState.OUTDATED:
+            self.disable_button.setText("卸载旧版")
+        else:
+            self.disable_button.setText("停用")
         self.enable_button.setEnabled(
             connected
             and self._status is not None
@@ -1491,6 +1497,12 @@ class TapPageTurnSection(QtWidgets.QWidget):
             _tap_page_turn.TapPageTurnState.ENABLED: "点击翻页已启用并正在运行",
             _tap_page_turn.TapPageTurnState.DISABLE_PENDING_REBOOT: (
                 "持久化已停用，当前进程将在冷启动后恢复原生"
+            ),
+            _tap_page_turn.TapPageTurnState.OUTDATED: (
+                "检测到旧固件的 rmtool 点击翻页，请先卸载旧版"
+            ),
+            _tap_page_turn.TapPageTurnState.FIRMWARE_RESIDUE: (
+                "检测到固件升级后遗留的旧共享 Xovi 状态，可安全清理"
             ),
             _tap_page_turn.TapPageTurnState.BROKEN: (
                 "检测到不完整或被修改的点击翻页安装，请先停用"
@@ -1591,14 +1603,56 @@ class TapPageTurnSection(QtWidgets.QWidget):
     def _disable(self):
         if not self._status or not self._status.dropin_present:
             return
+        outdated = self._status.state == _tap_page_turn.TapPageTurnState.OUTDATED
+        residue = (
+            self._status.state
+            == _tap_page_turn.TapPageTurnState.FIRMWARE_RESIDUE
+        )
+        if residue:
+            title = "清理旧固件共享残留"
+            confirmation = (
+                "固件升级已移除上下层启动配置，旧点击翻页和旧快速黑白均未载入。"
+                "将删除经内置清单逐文件验证的整套旧共享状态；不会在当前固件重建旧组件，"
+                "也不会重启设备。清理后可分别安装两项功能的当前版本。是否继续？"
+            )
+            confirm_text = "清理残留"
+            pending = "正在验证并清理旧固件共享 Xovi 残留…"
+            success = (
+                "旧固件共享 Xovi 残留已完整清理，SSH 会话已关闭。\n"
+                "重新连接并检测后，可安装当前固件的点击翻页和快速黑白。"
+            )
+        elif outdated:
+            title = "卸载旧版点击翻页"
+            confirmation = (
+                "将卸载经精确验证的旧固件点击翻页。若快速黑白仍存在，"
+                "其 QMD 和所需共享 Xovi 组件会保留。操作不会重启设备；"
+                "完成后请手动重启，再重新检测并安装当前版本。是否继续？"
+            )
+            confirm_text = "卸载旧版"
+            pending = "正在卸载旧固件点击翻页并保留可验证的同伴功能…"
+            success = (
+                "点击翻页持久化已移除，SSH 会话已关闭。\n"
+                "请从设备菜单手动重新启动；若快速黑白仍启用，相关共享 Xovi 组件会继续保留。"
+            )
+        else:
+            title = _rmtool.APP_NAME
+            confirmation = (
+                "将停用 rmtool 的点击翻页配置；Vellum 模式只卸载 rmtool 的独立 APK，"
+                "不会删除或修改 AppLoader 及其他 Xovi 扩展。"
+                "资源缓存会保留，本次操作不会重启界面或设备；完成后请手动冷启动。"
+                "是否继续？"
+            )
+            confirm_text = "停用点击翻页"
+            pending = "正在移除点击翻页持久化配置…"
+            success = (
+                "点击翻页持久化已移除，SSH 会话已关闭。\n"
+                "请从设备菜单手动重新启动；若快速黑白仍启用，相关共享 Xovi 组件会继续保留。"
+            )
         if not ask_confirmation(
             self,
-            _rmtool.APP_NAME,
-            "将停用 rmtool 的点击翻页配置；Vellum 模式只卸载 rmtool 的独立 APK，"
-            "不会删除或修改 AppLoader 及其他 Xovi 扩展。"
-            "资源缓存会保留，本次操作不会重启界面或设备；完成后请手动冷启动。"
-            "是否继续？",
-            confirm_text="停用点击翻页",
+            title,
+            confirmation,
+            confirm_text=confirm_text,
             cancel_text="取消",
         ):
             return
@@ -1606,11 +1660,8 @@ class TapPageTurnSection(QtWidgets.QWidget):
             _tap_page_turn.disable,
             self.ssh_client,
             self._status.available_packages,
-            pending="正在移除点击翻页持久化配置…",
-            success=(
-                "点击翻页持久化已移除，SSH 会话已关闭。\n"
-                "请从设备菜单手动重新启动；若快速黑白仍启用，相关共享 Xovi 组件会继续保留。"
-            ),
+            pending=pending,
+            success=success,
             close_connection=True,
         )
 
@@ -1749,11 +1800,12 @@ class FastMonoReadingSection(QtWidgets.QWidget):
     def _update_buttons(self):
         connected = self.ssh_client.is_connected() and not self._busy
         state = self._status.state if self._status else None
-        self.disable_button.setText(
-            "卸载旧版"
-            if state == _fast_mono_reading.FastMonoReadingState.OUTDATED
-            else "停用"
-        )
+        if state == _fast_mono_reading.FastMonoReadingState.FIRMWARE_RESIDUE:
+            self.disable_button.setText("清理残留")
+        elif state == _fast_mono_reading.FastMonoReadingState.OUTDATED:
+            self.disable_button.setText("卸载旧版")
+        else:
+            self.disable_button.setText("停用")
         self.enable_button.setEnabled(
             connected
             and self._status is not None
@@ -1842,6 +1894,9 @@ class FastMonoReadingSection(QtWidgets.QWidget):
             ),
             _fast_mono_reading.FastMonoReadingState.OUTDATED: (
                 "检测到 rmtool 安装的旧版快速黑白，请先卸载旧版"
+            ),
+            _fast_mono_reading.FastMonoReadingState.FIRMWARE_RESIDUE: (
+                "检测到固件升级后遗留的旧共享 Xovi 状态，可安全清理"
             ),
             _fast_mono_reading.FastMonoReadingState.BROKEN: (
                 "检测到不完整或被修改的快速黑白安装，请先停用"
@@ -1978,7 +2033,24 @@ class FastMonoReadingSection(QtWidgets.QWidget):
             self._status.state
             == _fast_mono_reading.FastMonoReadingState.OUTDATED
         )
-        if outdated:
+        residue = (
+            self._status.state
+            == _fast_mono_reading.FastMonoReadingState.FIRMWARE_RESIDUE
+        )
+        if residue:
+            dialog_title = "清理旧固件共享残留"
+            confirmation = (
+                "固件升级已移除上下层启动配置，旧点击翻页和旧快速黑白均未载入。"
+                "将删除经内置清单逐文件验证的整套旧共享状态；不会在当前固件重建旧组件，"
+                "也不会重启设备。清理后可分别安装两项功能的当前版本。是否继续？"
+            )
+            confirm_text = "清理残留"
+            pending = "正在验证并清理旧固件共享 Xovi 残留…"
+            success = (
+                "旧固件共享 Xovi 残留已完整清理，SSH 会话已关闭。\n"
+                "重新连接并检测后，可安装当前固件的点击翻页和快速黑白。"
+            )
+        elif outdated:
             dialog_title = "卸载旧版快速黑白"
             confirmation = (
                 "将卸载 rmtool 安装的旧版快速黑白阅读。"
