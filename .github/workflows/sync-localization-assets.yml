@@ -93,7 +93,7 @@ jobs:
               if not isinstance(variants, list):
                   raise SystemExit("Invalid hardware variants in localization manifest.")
               packages = [(firmware, False), *((item, True) for item in variants)]
-              platforms = []
+              platform_releases = []
               stock_digests = []
               localized_digests = set()
               for package, require_platform in packages:
@@ -130,13 +130,15 @@ jobs:
                           f"Conflicting size or SHA-256 metadata for {name}."
                       )
                   assets[name] = metadata
-                  platforms.append(platform.casefold())
+                  platform_releases.append((platform.casefold(), release_version))
                   stock_digests.append(stock_digest)
                   localized_digests.add(digest)
               if variants and not firmware.get("platform"):
                   raise SystemExit("A variant manifest requires a base platform.")
-              if len(platforms) != len(set(platforms)):
-                  raise SystemExit("Duplicate hardware platform in firmware entry.")
+              if len(platform_releases) != len(set(platform_releases)):
+                  raise SystemExit(
+                      "Duplicate hardware platform and release in firmware entry."
+                  )
               if len(stock_digests) != len(set(stock_digests)):
                   raise SystemExit("Duplicate stock carrier digest in firmware entry.")
               if any(item in localized_digests for item in stock_digests):
