@@ -137,21 +137,26 @@ class TapPageTurnTests(unittest.TestCase):
 
     def test_repository_manifest_is_valid(self):
         parsed = tap.parse_manifest(Path("tap-page-turn/manifest.json").read_bytes())
-        self.assertEqual(len(parsed), 11)
+        self.assertEqual(len(parsed), 13)
         self.assertEqual(
-            {(item.platform, item.firmware) for item in parsed},
             {
-                ("ferrari", "20260506100933"),
-                ("chiappa", "20260506100933"),
-                ("ferrari", "20260612085811"),
-                ("chiappa", "20260612085811"),
-                ("tatsu", "20260612085811"),
-                ("rm1", "20260612085811"),
-                ("rm2", "20260612085811"),
-                ("ferrari", "20260629074044"),
-                ("chiappa", "20260629074044"),
-                ("ferrari", "20260702125656"),
-                ("chiappa", "20260702125656"),
+                (item.platform, item.firmware, item.release_version)
+                for item in parsed
+            },
+            {
+                ("ferrari", "20260506100933", "3.27.1.0"),
+                ("chiappa", "20260506100933", "3.27.1.0"),
+                ("ferrari", "20260612085811", "3.27.3.0"),
+                ("chiappa", "20260612085811", "3.27.3.0"),
+                ("tatsu", "20260612085811", "3.27.3.0"),
+                ("rm1", "20260612085811", "3.27.3.0"),
+                ("rm2", "20260612085811", "3.27.3.0"),
+                ("ferrari", "20260629074044", "3.28.0.162"),
+                ("chiappa", "20260629074044", "3.28.0.162"),
+                ("ferrari", "20260702125656", "3.28.0.163"),
+                ("chiappa", "20260702125656", "3.28.0.163"),
+                ("ferrari", "20260702125656", "3.28.0.164"),
+                ("chiappa", "20260702125656", "3.28.0.164"),
             },
         )
         architecture_by_platform = {
@@ -541,12 +546,28 @@ class TapPageTurnTests(unittest.TestCase):
         ssh.exec_checked.side_effect = lambda command: commands.append(command) or ""
         ssh.file_exists.return_value = False
         result = object()
+        marker = json.loads(
+            tap._vellum_marker(
+                package,
+                enabled=True,
+                process_token=self.PROCESS_TOKEN,
+            )
+        )
         with (
+            patch.object(tap, "_read_marker", return_value=marker),
+            patch.object(tap, "_trusted_catalog", return_value=(package,)),
             patch.object(
                 tap,
                 "_vellum_installed_version",
-                side_effect=(tap._vellum_package_version(package), None),
+                side_effect=(
+                    tap._vellum_package_version(package),
+                    tap._vellum_package_version(package),
+                    None,
+                ),
             ),
+            patch.object(tap, "_assert_vellum_runtime"),
+            patch.object(tap, "_vellum_package_owns_path", return_value=True),
+            patch.object(tap, "_remote_sha256", return_value=marker["qmd_sha256"]),
             patch.object(tap, "_xochitl_process_token", return_value=self.PROCESS_TOKEN),
             patch.object(tap, "_vellum_payload_paths_valid", return_value=True),
             patch.object(tap, "get_device_identity", return_value=identity),

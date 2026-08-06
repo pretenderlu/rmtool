@@ -500,10 +500,59 @@ def inspect_shared(
     *,
     check_lower: bool = False,
 ) -> SharedInspection:
+    return _inspect_shared(
+        ssh_client,
+        runtime,
+        trusted,
+        check_lower=check_lower,
+        expected_dropin=None,
+    )
+
+
+def inspect_shared_firmware_residue(
+    ssh_client,
+    runtime: SharedRuntimeSpec,
+    trusted: Mapping[str, SharedFeatureSpec],
+    current_identity: tuple[str, str, str, str],
+) -> SharedInspection:
+    installed_identity = (
+        runtime.firmware,
+        runtime.platform,
+        runtime.architecture,
+        runtime.xochitl_sha256,
+    )
+    if installed_identity == current_identity:
+        raise RuntimeError("共享 Xovi 与当前固件身份相同，不属于固件升级残留。")
+    inspection = _inspect_shared(
+        ssh_client,
+        runtime,
+        trusted,
+        check_lower=True,
+        expected_dropin=False,
+    )
+    if not inspection.states:
+        raise RuntimeError("未检测到可验证的共享 Xovi 固件升级残留。")
+    if inspection.active:
+        raise RuntimeError("旧共享 Xovi 仍在当前 xochitl 进程中载入，拒绝自动清理。")
+    _assert_no_lower_xovi_dropins(ssh_client)
+    return inspection
+
+
+def _inspect_shared(
+    ssh_client,
+    runtime: SharedRuntimeSpec,
+    trusted: Mapping[str, SharedFeatureSpec],
+    *,
+    check_lower: bool,
+    expected_dropin: Optional[bool],
+) -> SharedInspection:
     artifacts = has_shared_artifacts(ssh_client)
     if not artifacts:
         return SharedInspection({}, False, False)
-    _assert_managed_dropins(ssh_client, (SHARED_LAYOUT.dropin_path,))
+    _assert_managed_dropins(
+        ssh_client,
+        (SHARED_LAYOUT.dropin_path,) if expected_dropin is None else (),
+    )
     if not (
         ssh_client.file_exists(SHARED_LAYOUT.remote_base)
         and ssh_client.file_exists(SHARED_MARKER_PATH)
@@ -557,14 +606,18 @@ def inspect_shared(
         ssh_client, SHARED_LAYOUT.remote_base, expected_files, "共享 Xovi"
     )
     dropin_present = ssh_client.file_exists(SHARED_LAYOUT.dropin_path)
-    if dropin_present != bool(enabled):
+    dropin_required = bool(enabled) if expected_dropin is None else expected_dropin
+    if dropin_present != dropin_required:
         raise RuntimeError("共享 Xovi drop-in 状态与功能状态不一致。")
     if dropin_present:
         _assert_owned_dropin(
             ssh_client, SHARED_LAYOUT.dropin_path, dropin_sha, "共享 Xovi 可见"
         )
     if check_lower:
-        _check_lower_dropins(ssh_client, {SHARED_LAYOUT.dropin_path: dropin_sha if enabled else None})
+        _check_lower_dropins(
+            ssh_client,
+            {SHARED_LAYOUT.dropin_path: dropin_sha if dropin_required else None},
+        )
     return SharedInspection(states, _active(ssh_client), dropin_present)
 
 
@@ -593,6 +646,31 @@ mount --bind / "$MOUNT_DIR"
 cleanup
 trap - EXIT INT TERM
 """)
+
+
+def _assert_no_lower_xovi_dropins(ssh_client) -> None:
+    token = uuid.uuid4().hex
+    mount_dir = f"/tmp/rmtool-xovi-residue-check-{token}"
+    found = ssh_client.exec_checked(f"""set -eu
+MOUNT_DIR={shlex.quote(mount_dir)}
+cleanup() {{ umount "$MOUNT_DIR" 2>/dev/null || true; rmdir "$MOUNT_DIR" 2>/dev/null || true; }}
+trap cleanup EXIT INT TERM
+mkdir -p "$MOUNT_DIR"
+mount --bind / "$MOUNT_DIR"
+for file in "$MOUNT_DIR"/etc/systemd/system/xochitl.service.d/*.conf; do
+    [ -f "$file" ] || continue
+    if grep -Eq 'LD_PRELOAD|XOVI_ROOT|^ExecStart=' "$file"; then
+        printf '%s\n' "${{file#"$MOUNT_DIR"}}"
+    fi
+done
+cleanup
+trap - EXIT INT TERM
+""").splitlines()
+    if found:
+        raise RuntimeError(
+            "底层 root 中仍存在 xochitl/Xovi drop-in，拒绝把共享状态认定为固件升级残留："
+            + ", ".join(sorted(found))
+        )
 
 
 def validate_legacy(
@@ -833,6 +911,7 @@ def shared_transaction_script(
     legacy_layouts: Iterable[StandaloneLayout],
     *,
     enable_dropin: bool,
+    remove_base: bool = False,
 ) -> str:
     layouts = tuple(legacy_layouts)
     bases = (SHARED_LAYOUT.remote_base, *(layout.remote_base for layout in layouts))
@@ -890,6 +969,7 @@ cmp -s {shlex.quote(source_dropin)} "$MOUNT_DIR{SHARED_LAYOUT.dropin_path}"
     else:
         write_upper = ":"
         write_lower = ":"
+    remove_shared_base = 'rmdir "$BASE"' if remove_base else ":"
 
     return f"""#!/bin/sh
 set -eu
@@ -984,6 +1064,7 @@ mount_root_rw
 {remove_lower}
 {write_lower}
 unmount_root
+{remove_shared_base}
 systemctl daemon-reload
 
 COMMITTED=1
@@ -1304,3 +1385,78 @@ def _disable_shared_locked(
         except Exception:
             logging.exception("Could not remove shared Xovi disable script")
     return inspect_shared(ssh_client, runtime, target_trusted)
+
+
+def remove_shared_firmware_residue(
+    ssh_client,
+    runtime: SharedRuntimeSpec,
+    trusted: Mapping[str, SharedFeatureSpec],
+    current_identity: tuple[str, str, str, str],
+) -> SharedInspection:
+    with _operation_lock(ssh_client):
+        inspect_shared_firmware_residue(
+            ssh_client,
+            runtime,
+            trusted,
+            current_identity,
+        )
+        token = uuid.uuid4().hex
+        stage = f"{SHARED_LAYOUT.remote_base}.staging-{token}"
+        remote_script = f"/tmp/rmtool-xovi-remove-residue-{token}.sh"
+        ssh_client.exec_checked(
+            f"rm -rf {shlex.quote(stage)}; mkdir -m 0755 {shlex.quote(stage)}; "
+            f"chown root:root {shlex.quote(stage)}"
+        )
+        try:
+            script = shared_transaction_script(
+                stage,
+                token,
+                (),
+                enable_dropin=False,
+                remove_base=True,
+            )
+            _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
+            ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
+        except Exception:
+            try:
+                ssh_client.exec_checked(f"rm -rf {shlex.quote(stage)}")
+            except Exception:
+                logging.exception("Could not clean shared Xovi residue staging directory")
+            raise
+        finally:
+            try:
+                ssh_client.exec_checked(f"rm -f {shlex.quote(remote_script)}")
+            except Exception:
+                logging.exception("Could not remove shared Xovi residue cleanup script")
+    return SharedInspection({}, False, False)
+
+
+def remove_verified_legacy(
+    ssh_client,
+    legacy: LegacyStandaloneSpec,
+) -> None:
+    with _operation_lock(ssh_client):
+        if not validate_legacy(ssh_client, legacy, check_lower=True):
+            raise RuntimeError(f"{legacy.feature.feature_id} 旧版安装不存在。")
+        token = uuid.uuid4().hex
+        remote_script = f"/tmp/rmtool-xovi-remove-legacy-{token}.sh"
+        try:
+            _upload_bytes(
+                ssh_client,
+                disable_script(token, legacy.layout).encode(),
+                remote_script,
+                0o755,
+            )
+            ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
+            _check_lower_dropins(
+                ssh_client, {legacy.layout.dropin_path: None}
+            )
+            ssh_client.exec_checked(
+                f"rm -rf {shlex.quote(legacy.layout.remote_base)}; "
+                f"test ! -e {shlex.quote(legacy.layout.remote_base)}"
+            )
+        finally:
+            try:
+                ssh_client.exec_checked(f"rm -f {shlex.quote(remote_script)}")
+            except Exception:
+                logging.exception("Could not remove legacy Xovi cleanup script")

@@ -26,18 +26,25 @@ the manifest are resolved below the same COS prefix or fixed GitHub release.
 
 ## Support matrix
 
-| Device | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) |
-| --- | --- | --- | --- | --- | --- |
-| Paper Pro | `ferrari` | Offline verified | Offline verified | **Device verified** | Offline verified |
-| Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified | Offline verified |
-| Paper Pure | `tatsu` | - | Offline verified | - | - |
-| reMarkable 1 | `rm1` | - | Offline verified | - | - |
-| reMarkable 2 | `rm2` | - | Offline verified | - | - |
+| Device | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Paper Pro | `ferrari` | Offline verified | Offline verified | **Device verified** | Offline verified | Offline verified |
+| Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
+| Paper Pure | `tatsu` | - | Offline verified | - | - | - |
+| reMarkable 1 | `rm1` | - | Offline verified | - | - | - |
+| reMarkable 2 | `rm2` | - | Offline verified | - | - | - |
 
 Offline validation uses the official firmware image and includes QML resource
 recovery, QMLDiff compatibility and replay, binary architecture, archive, and
 hash checks. Only the Paper Pro 3.28 package has completed enable, disable,
 rollback, and cold-boot validation on physical hardware so far.
+
+The .163 and .164 beta releases share internal version `20260702125656`.
+Their package names remain unique, and selection additionally requires the
+exact stock xochitl SHA-256, so an old package cannot match the new firmware.
+An exact rmtool or Vellum `.163` installation retained across the upgrade is
+offered a verified cleanup path before `.164` can be installed; modified or
+unknown state remains blocked.
 
 In PDF and EPUB reading views, a short one-finger tap in the left-middle
 region opens the previous page. The right edge and lower region open the next

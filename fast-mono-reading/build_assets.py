@@ -1,4 +1,4 @@
-"""Build and self-verify the exact eight-target fast-mono asset matrix."""
+"""Build and self-verify the exact fast-mono asset matrix."""
 
 from __future__ import annotations
 
@@ -29,12 +29,18 @@ QMD_VARIANTS = {
         "6949f58896651a3254c9e143461b384892f4d779e8f2553f9adf11ff8fe5707d",
         11138,
     ),
+    "3.28.0.164": (
+        "9eb1e98a731458f1b46b170e11bfd29d11edbec04caf8befedc859fefd9acf5d",
+        11339,
+    ),
 }
 DEFAULT_QMD_PATHS = {
     "3.27": REPO_ROOT
     / "build/fast-mono-matrix/results/chiappa-20260612085811/qmd/fast-mono-reading.qmd",
     "3.28": REPO_ROOT
     / "build/fast-mono-matrix/results/chiappa-20260629074044/qmd/fast-mono-reading.qmd",
+    "3.28.0.164": REPO_ROOT
+    / "build/fast-mono-matrix/results-164/chiappa-20260702125656/qmd/fast-mono-reading.qmd",
 }
 DEFAULT_CACHE_ROOTS = (
     Path(r"E:\remarkable\firmware-cache\work\tap-matrix\cloud-verify-20260721"),
@@ -49,7 +55,15 @@ def sha256(data: bytes) -> str:
 
 
 def _variant(release_version: str) -> str:
+    if release_version == "3.28.0.164":
+        return release_version
     return "3.28" if release_version.startswith("3.28.") else "3.27"
+
+
+def _asset_name(base: tap.TapPageTurnPackage) -> str:
+    return fast._expected_asset_name(
+        base.platform, base.firmware, base.release_version
+    )
 
 
 def _verified_file(path: Path, *, size: int, digest: str) -> bool:
@@ -149,7 +163,7 @@ def build_archive(
         (base.platform, base.firmware, base.architecture, base.xochitl_sha256)
     ]
     release_version, channel, offline_verified, device_verified = policy
-    asset = f"rmtool-fast-mono-reading-{base.platform}-{base.firmware}.tar.gz"
+    asset = _asset_name(base)
     entry = {
         "firmware": base.firmware,
         "release_version": release_version,
@@ -258,6 +272,11 @@ def main() -> int:
     parser.add_argument("--cache-root", action="append", type=Path, default=[])
     parser.add_argument("--qmd-3-27", type=Path, default=DEFAULT_QMD_PATHS["3.27"])
     parser.add_argument("--qmd-3-28", type=Path, default=DEFAULT_QMD_PATHS["3.28"])
+    parser.add_argument(
+        "--qmd-3-28-164",
+        type=Path,
+        default=DEFAULT_QMD_PATHS["3.28.0.164"],
+    )
     parser.add_argument("--qmd-tool", type=Path, required=True)
     parser.add_argument("--no-download", action="store_true")
     parser.add_argument(
@@ -269,7 +288,13 @@ def main() -> int:
     if not args.qmd_tool.is_file():
         raise FileNotFoundError(args.qmd_tool)
     cache_roots = tuple(args.cache_root) or DEFAULT_CACHE_ROOTS
-    qmds = _qmd_bytes({"3.27": args.qmd_3_27, "3.28": args.qmd_3_28})
+    qmds = _qmd_bytes(
+        {
+            "3.27": args.qmd_3_27,
+            "3.28": args.qmd_3_28,
+            "3.28.0.164": args.qmd_3_28_164,
+        }
+    )
     bases = _target_base_packages()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     download_root = args.output_dir / "tap-base-cache"
@@ -315,7 +340,7 @@ def main() -> int:
     if args.local_cache is not None:
         _write_atomic(args.local_cache / "manifest.json", manifest_data)
     print(f"manifest={manifest_output}")
-    print("targets=8")
+    print(f"targets={len(built)}")
     print("verification=PASS")
     return 0
 

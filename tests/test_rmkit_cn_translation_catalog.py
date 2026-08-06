@@ -17,6 +17,12 @@ FERRARI_SUPPLEMENT_MESSAGES = 31
 FERRARI_MESSAGES = EXPECTED_MESSAGES + FERRARI_SUPPLEMENT_MESSAGES
 FERRARI_SUPPLEMENT_KEY_SHA256 = "9aabccaf96280039ef28f75e4147fc09a843f3095f8c2097dedc6386273db0be"
 FERRARI_QM_SHA256 = "28b82b8a0ca32aa83fe49ef4c5db792bd1a5908ae8135c2fa9eefe8cf0a98fd9"
+BETA_164_SHARED_MESSAGES = 132
+BETA_164_FERRARI_MESSAGES = 2
+BETA_164_CHIAPPA_QM_SIZE = 192220
+BETA_164_CHIAPPA_QM_SHA256 = "50dc76f758b51fa10bf026269e1788904fe564d00ed6e37b97fed7dc02399348"
+BETA_164_FERRARI_QM_SIZE = 196446
+BETA_164_FERRARI_QM_SHA256 = "18c564eea746a1508343b85197d958b003729b3274f5a6a880285c552dc7348a"
 LEGACY_SUPPLEMENT_MESSAGES = 84
 LEGACY_MESSAGES = FERRARI_MESSAGES + LEGACY_SUPPLEMENT_MESSAGES
 LEGACY_SUPPLEMENT_KEY_SHA256 = "52d97ca57b9fc74f74ae99af843eeaa9813e5530818adbe4be426d60c6f492fa"
@@ -405,6 +411,102 @@ class RmkitCnTranslationCatalogTests(unittest.TestCase):
             entries[("SettingsWindow", "Firmware", "", False)],
             "固件",
         )
+
+    def test_beta_164_supplements_and_qm_assets_are_complete(self):
+        translations = Path(__file__).resolve().parents[1] / "translations"
+
+        def read_entries(path):
+            entries = {}
+            invalid = []
+            for context in ET.parse(path).getroot().findall("context"):
+                context_name = element_text(context.find("name"))
+                for message in context.findall("message"):
+                    source = element_text(message.find("source"))
+                    key = (
+                        context_name,
+                        source,
+                        element_text(message.find("comment")),
+                        message.get("numerus") == "yes",
+                    )
+                    self.assertNotIn(key, entries)
+                    translation = message.find("translation")
+                    forms = (
+                        translation.findall("numerusform")
+                        if key[3] and translation is not None
+                        else [translation]
+                    )
+                    values = tuple(element_text(form) for form in forms if form is not None)
+                    entries[key] = values
+                    if (
+                        translation is None
+                        or translation.get("type") in FORBIDDEN_TYPES
+                        or not values
+                        or any(not value.strip() for value in values)
+                        or any(
+                            edge_whitespace(value) != edge_whitespace(source)
+                            or value.count("\n") != source.count("\n")
+                            or Counter(PLACEHOLDER_RE.findall(value))
+                            != Counter(PLACEHOLDER_RE.findall(source))
+                            or Counter(TAG_RE.findall(value))
+                            != Counter(TAG_RE.findall(source))
+                            for value in values
+                        )
+                    ):
+                        invalid.append(key)
+            self.assertFalse(invalid)
+            return entries
+
+        base = read_entries(translations / "reMarkable_zh_CN.ts")
+        ferrari_base = read_entries(
+            translations / "reMarkable_zh_CN_ferrari_supplement.ts"
+        )
+        shared_164 = read_entries(
+            translations / "reMarkable_zh_CN_3_28_0_164_supplement.ts"
+        )
+        ferrari_164 = read_entries(
+            translations
+            / "reMarkable_zh_CN_3_28_0_164_ferrari_supplement.ts"
+        )
+        self.assertEqual(len(shared_164), BETA_164_SHARED_MESSAGES)
+        self.assertEqual(len(ferrari_164), BETA_164_FERRARI_MESSAGES)
+        self.assertFalse(set(base) & set(shared_164))
+        self.assertFalse((set(base) | set(ferrari_base) | set(shared_164)) & set(ferrari_164))
+
+        for platform, sources, size, digest in (
+            (
+                "chiappa",
+                (base, shared_164),
+                BETA_164_CHIAPPA_QM_SIZE,
+                BETA_164_CHIAPPA_QM_SHA256,
+            ),
+            (
+                "ferrari",
+                (base, ferrari_base, shared_164, ferrari_164),
+                BETA_164_FERRARI_QM_SIZE,
+                BETA_164_FERRARI_QM_SHA256,
+            ),
+        ):
+            qm_path = translations / f"reMarkable_zh_CN-3.28.0.164-{platform}.qm"
+            data = qm_path.read_bytes()
+            self.assertEqual(len(data), size)
+            self.assertEqual(hashlib.sha256(data).hexdigest(), digest)
+            translator = QtCore.QTranslator()
+            self.assertTrue(translator.load(str(qm_path)))
+            app = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
+            self.assertTrue(app.installTranslator(translator))
+            merged = {}
+            for source_entries in sources:
+                self.assertFalse(set(merged) & set(source_entries))
+                merged.update(source_entries)
+            for (context, source, comment, numerus), expected in merged.items():
+                self.assertEqual(len(expected), 1)
+                self.assertEqual(
+                    QtCore.QCoreApplication.translate(
+                        context, source, comment or None, 1 if numerus else -1
+                    ),
+                    expected[0].replace("%n", "1") if numerus else expected[0],
+                )
+            app.removeTranslator(translator)
 
     def test_legacy_supplement_is_the_exact_rm2_catalog_gap(self):
         translations = Path(__file__).resolve().parents[1] / "translations"

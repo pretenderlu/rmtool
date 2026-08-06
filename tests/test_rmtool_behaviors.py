@@ -1806,6 +1806,82 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertFalse(section.disable_button.isEnabled())
         self.assertIn("重新连接并检测", section.status_label.text())
 
+    def test_shared_firmware_residue_uses_cleanup_action_in_both_sections(self):
+        cases = (
+            (
+                _tab_toolbox.TapPageTurnSection,
+                _tap_page_turn,
+                self.tap_page_turn_package(),
+                _tap_page_turn.TapPageTurnState.FIRMWARE_RESIDUE,
+                _tap_page_turn.TapPageTurnState.NOT_INSTALLED,
+                _tap_page_turn.TapPageTurnStatus,
+                {"dropin_present": True},
+            ),
+            (
+                _tab_toolbox.FastMonoReadingSection,
+                _fast_mono_reading,
+                self.fast_mono_package(),
+                _fast_mono_reading.FastMonoReadingState.FIRMWARE_RESIDUE,
+                _fast_mono_reading.FastMonoReadingState.NOT_INSTALLED,
+                _fast_mono_reading.FastMonoReadingStatus,
+                {"recovery_available": True},
+            ),
+        )
+        for section_type, module, package, state, result_state, status_type, recovery in cases:
+            with self.subTest(section=section_type.__name__):
+                client = FakeConnectionClient(connected=True, host="10.11.99.1")
+                section = section_type(client)
+                self.addCleanup(section.deleteLater)
+                identity = _tap_page_turn.DeviceIdentity(
+                    package.firmware,
+                    package.platform,
+                    package.architecture,
+                    package.xochitl_sha256,
+                )
+                section._apply_status(
+                    status_type(
+                        state,
+                        identity,
+                        package,
+                        (package,),
+                        detail="旧共享目录已完整验证",
+                        **recovery,
+                    )
+                )
+                self.assertEqual(section.disable_button.text(), "清理残留")
+                self.assertTrue(section.disable_button.isEnabled())
+                self.assertIn("可安全清理", section.status_label.text())
+
+                worker = mock.Mock()
+                worker.signals = mock.Mock()
+                result = status_type(
+                    result_state,
+                    identity,
+                    package,
+                    (package,),
+                    **recovery,
+                )
+                with mock.patch.object(
+                    _tab_toolbox, "ask_confirmation", return_value=True
+                ) as ask, mock.patch.object(
+                    rmtool, "Worker", return_value=worker
+                ) as worker_cls, mock.patch.object(
+                    section.thread_pool, "start"
+                ), mock.patch.object(
+                    _tab_toolbox, "show_info"
+                ) as show_info:
+                    section._disable()
+                    self.assertIn("正在验证并清理", section.status_label.text())
+                    worker.signals.finished.connect.call_args.args[0](result)
+
+                self.assertIn("清理旧固件共享残留", ask.call_args.args[1])
+                self.assertIn("整套旧共享状态", ask.call_args.args[2])
+                self.assertIn("不会在当前固件重建旧组件", ask.call_args.args[2])
+                self.assertEqual(ask.call_args.kwargs["confirm_text"], "清理残留")
+                worker_cls.assert_called_once_with(module.disable, client, (package,))
+                self.assertIn("残留已完整清理", show_info.call_args.args[2])
+                self.assertEqual(client.close_calls, 1)
+
     def test_fast_mono_outdated_disable_copy_preserves_normal_wording(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")
         section = _tab_toolbox.FastMonoReadingSection(client)

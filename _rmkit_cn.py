@@ -240,13 +240,18 @@ def parse_translation_manifest(data: bytes) -> dict[str, TranslationPackage]:
                 )
             )
         candidates = (package, *variants)
-        platforms = [candidate.platform.casefold() for candidate in candidates]
+        platform_releases = [
+            (candidate.platform.casefold(), candidate.release_version)
+            for candidate in candidates
+        ]
         stock_hashes = [candidate.stock_french_sha256 for candidate in candidates]
         localized_hashes = {
             candidate.localized_qm_sha256 for candidate in candidates
         }
-        if len(platforms) != len(set(platforms)):
-            raise RuntimeError(f"固件 {firmware} 包含重复的硬件平台标识。")
+        if len(platform_releases) != len(set(platform_releases)):
+            raise RuntimeError(
+                f"固件 {firmware} 包含重复的硬件平台与公开版本。"
+            )
         if len(stock_hashes) != len(set(stock_hashes)):
             raise RuntimeError(f"固件 {firmware} 包含重复的原始法语文件哈希。")
         if any(stock_hash in localized_hashes for stock_hash in stock_hashes):

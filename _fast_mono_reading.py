@@ -82,6 +82,18 @@ ALLOWED_TARGETS = {
         "aarch64",
         "08171df6296b99d04b3694b337bd0ce911e6a93356955961a37de9dd93a0394d",
     ): ("3.28.0.163", "beta", True, False),
+    (
+        "ferrari",
+        "20260702125656",
+        "aarch64",
+        "113bf7ea62ad171ea03c77c1f90e0666bcff163242a22ebca84372533b270c1c",
+    ): ("3.28.0.164", "beta", True, False),
+    (
+        "chiappa",
+        "20260702125656",
+        "aarch64",
+        "3a9e18483b73f43016fb25b451e3ece0efba7aa1cc92e080771e138ce6bbca98",
+    ): ("3.28.0.164", "beta", True, False),
 }
 
 REMOTE_BASE = "/home/root/.local/share/rmtool/fast-mono-reading"
@@ -184,6 +196,7 @@ class FastMonoReadingState(Enum):
     ENABLED = "enabled"
     DISABLE_PENDING_REBOOT = "disable_pending_reboot"
     OUTDATED = "outdated"
+    FIRMWARE_RESIDUE = "firmware_residue"
     BROKEN = "broken"
 
 
@@ -230,6 +243,22 @@ class FastMonoReadingStatus:
     available_packages: tuple[FastMonoReadingPackage, ...] = ()
     detail: str = ""
     recovery_available: bool = False
+
+
+def _expected_asset_name(
+    platform: str,
+    firmware: str,
+    release_version: str,
+) -> str:
+    default = f"rmtool-fast-mono-reading-{platform}-{firmware}.tar.gz"
+    releases = sorted(
+        policy[0]
+        for identity, policy in ALLOWED_TARGETS.items()
+        if identity[0] == platform and identity[1] == firmware
+    )
+    if len(releases) > 1 and release_version != releases[0]:
+        return default.removesuffix(".tar.gz") + f"-{release_version}.tar.gz"
+    return default
 
 
 def parse_manifest(
@@ -301,7 +330,9 @@ def parse_manifest(
             device_verified,
         ):
             raise RuntimeError("快速黑白清单的版本、渠道或验证级别与本地白名单不一致。")
-        expected_asset = f"rmtool-fast-mono-reading-{platform}-{firmware}.tar.gz"
+        expected_asset = _expected_asset_name(
+            platform, firmware, release_version
+        )
         if asset != expected_asset:
             raise RuntimeError("快速黑白资源包文件名与本地白名单不一致。")
         identities.add(identity)
@@ -325,7 +356,7 @@ def parse_manifest(
         )
     result = tuple(packages)
     if require_local_match and result != _trusted_catalog():
-        raise RuntimeError("快速黑白清单与本地完整八目标信任清单不一致。")
+        raise RuntimeError("快速黑白清单与本地完整目标信任清单不一致。")
     return result
 
 
@@ -564,14 +595,25 @@ def _inspect_shared_revision(
     package: FastMonoReadingPackage,
     *,
     check_lower: bool = False,
+    firmware_residue_identity: Optional[tuple[str, str, str, str]] = None,
 ):
-    try:
-        inspection = _xovi_standalone.inspect_shared(
+    def inspect(candidate):
+        if firmware_residue_identity is not None:
+            return _xovi_standalone.inspect_shared_firmware_residue(
+                ssh_client,
+                runtime,
+                candidate,
+                firmware_residue_identity,
+            )
+        return _xovi_standalone.inspect_shared(
             ssh_client,
             runtime,
-            trusted,
+            candidate,
             check_lower=check_lower,
         )
+
+    try:
+        inspection = inspect(trusted)
         return inspection, trusted, False
     except RuntimeError as current_error:
         predecessors = _known_shared_predecessor_specs(package)
@@ -581,12 +623,7 @@ def _inspect_shared_revision(
             predecessor_trusted = dict(trusted)
             predecessor_trusted[predecessor.feature_id] = predecessor
             try:
-                inspection = _xovi_standalone.inspect_shared(
-                    ssh_client,
-                    runtime,
-                    predecessor_trusted,
-                    check_lower=check_lower,
-                )
+                inspection = inspect(predecessor_trusted)
             except RuntimeError:
                 continue
             return inspection, predecessor_trusted, True
@@ -820,6 +857,68 @@ def get_status(
         except Exception as exc:
             vellum_error = str(exc)
     recovery = marker_exists or dropin_exists or vellum_version is not None or shared_exists
+    if shared_exists and package is not None:
+        try:
+            shared_identity = tap.DeviceIdentity(
+                *_xovi_standalone.read_shared_identity(ssh_client)
+            )
+        except Exception:
+            shared_identity = identity
+        if shared_identity != identity:
+            try:
+                runtime, trusted, legacies = _trusted_shared_context(
+                    shared_identity
+                )
+                marker_package = select_package(
+                    _trusted_catalog(), shared_identity
+                )
+                if marker_package is None:
+                    raise RuntimeError(
+                        "内置快速黑白清单无法验证该共享安装。"
+                    )
+                if any(
+                    ssh_client.file_exists(path)
+                    for legacy in legacies
+                    for path in (
+                        legacy.layout.remote_base,
+                        legacy.marker_path,
+                        legacy.layout.dropin_path,
+                    )
+                ):
+                    raise RuntimeError("检测到共享与旧版/Vellum Xovi 混合布局。")
+                inspection, _installed_trusted, _outdated = (
+                    _inspect_shared_revision(
+                        ssh_client,
+                        runtime,
+                        trusted,
+                        marker_package,
+                        firmware_residue_identity=(
+                            identity.firmware,
+                            identity.platform,
+                            identity.architecture,
+                            identity.xochitl_sha256,
+                        ),
+                    )
+                )
+                return FastMonoReadingStatus(
+                    FastMonoReadingState.FIRMWARE_RESIDUE,
+                    identity,
+                    package,
+                    available,
+                    "旧共享目录与内置旧包完全一致，且上下层 drop-in 均已由固件升级移除；"
+                    "旧功能当前未载入。清理会一并移除点击翻页和快速黑白的旧共享状态，"
+                    "随后两项功能均可安装当前固件版本。",
+                    True,
+                )
+            except Exception as exc:
+                return FastMonoReadingStatus(
+                    FastMonoReadingState.BROKEN,
+                    identity,
+                    package,
+                    available,
+                    str(exc),
+                    True,
+                )
     if package is None and shared_exists:
         try:
             runtime, trusted, legacies = _trusted_shared_context_from_marker(
@@ -953,17 +1052,29 @@ def get_status(
                 recovery,
             )
     if marker and marker.get("deployment_mode") == "vellum":
-        revision, detail = _vellum_payload_revision(ssh_client, package, marker)
-        if revision is None:
+        marker_package = tap._package_from_marker(
+            (package, *_trusted_catalog()), marker
+        )
+        if marker_package is None:
             state = FastMonoReadingState.BROKEN
-        elif revision != package.package_revision:
+            detail = "Vellum 快速黑白标记不属于任何内置信任包"
+        else:
+            revision, detail = _vellum_payload_revision(
+                ssh_client, marker_package, marker
+            )
+        if marker_package is not None and revision is None:
+            state = FastMonoReadingState.BROKEN
+        elif marker_package is not None and (
+            marker_package != package
+            or revision != package.package_revision
+        ):
             state = FastMonoReadingState.OUTDATED
             detail = (
                 "已精确验证为 rmtool 安装的旧版快速黑白。"
                 "请先卸载旧版并手动重启，再重新检测并安装新版；"
                 "点击翻页不会被卸载。"
             )
-        else:
+        elif marker_package is not None:
             try:
                 current = tap._xochitl_process_token(ssh_client)
             except Exception as exc:
@@ -1003,6 +1114,45 @@ def get_status(
             "Vellum 快速黑白包存在，但 rmtool 状态标记缺失或无效",
             True,
         )
+
+    if marker and marker.get("deployment_mode") == "standalone":
+        marker_package = tap._package_from_marker(
+            (package, *_trusted_catalog()), marker
+        )
+        if marker_package is None:
+            return FastMonoReadingStatus(
+                FastMonoReadingState.BROKEN,
+                identity,
+                package,
+                available,
+                "旧版快速黑白标记不属于任何内置信任包",
+                True,
+            )
+        if marker_package != package:
+            try:
+                _xovi_standalone.validate_legacy(
+                    ssh_client,
+                    _legacy_spec(marker_package),
+                    check_lower=True,
+                )
+            except Exception as exc:
+                return FastMonoReadingStatus(
+                    FastMonoReadingState.BROKEN,
+                    identity,
+                    package,
+                    available,
+                    str(exc),
+                    True,
+                )
+            return FastMonoReadingStatus(
+                FastMonoReadingState.OUTDATED,
+                identity,
+                package,
+                available,
+                "已精确验证为旧固件的独立快速黑白；"
+                "请先卸载旧版，再安装当前固件版本。",
+                True,
+            )
 
     active = _active_with_standalone(ssh_client)
     if dropin_exists:
@@ -1400,10 +1550,10 @@ def _disable_vellum(
 ) -> FastMonoReadingStatus:
     packages = tuple(catalog)
     identity = tap.get_device_identity(ssh_client)
-    trusted_package = select_package(_trusted_catalog(), identity)
+    marker = _read_marker(ssh_client)
+    trusted_package = tap._package_from_marker(_trusted_catalog(), marker)
     if trusted_package is None:
         raise RuntimeError("内置快速黑白清单无法验证该 Vellum 安装。")
-    marker = _read_marker(ssh_client)
     revision, detail = _vellum_payload_revision(
         ssh_client, trusted_package, marker
     )
@@ -1436,10 +1586,10 @@ def _clear_disabled_vellum_marker(
 ) -> FastMonoReadingStatus:
     packages = tuple(catalog)
     identity = tap.get_device_identity(ssh_client)
-    package = select_package(_trusted_catalog(), identity)
+    marker = _read_marker(ssh_client)
+    package = tap._package_from_marker(_trusted_catalog(), marker)
     if package is None:
         raise RuntimeError("内置快速黑白清单无法验证该 Vellum 安装标记。")
-    marker = _read_marker(ssh_client)
     revision, detail = _vellum_payload_revision(ssh_client, package, marker)
     if revision is None or marker.get("enabled") is not False:
         raise RuntimeError(detail or "Vellum 快速黑白停用标记无法精确验证。")
@@ -1465,6 +1615,7 @@ def disable(
             if marker.get("deployment_mode") == "vellum":
                 return _clear_disabled_vellum_marker(ssh_client, catalog)
     if _xovi_standalone.has_shared_artifacts(ssh_client):
+        current_identity = tap.get_device_identity(ssh_client)
         identity = tap.DeviceIdentity(
             *_xovi_standalone.read_shared_identity(ssh_client)
         )
@@ -1478,14 +1629,33 @@ def disable(
             trusted,
             package,
             check_lower=True,
+            firmware_residue_identity=(
+                current_identity.firmware,
+                current_identity.platform,
+                current_identity.architecture,
+                current_identity.xochitl_sha256,
+            ) if identity != current_identity else None,
         )
-        _xovi_standalone.disable_shared(
-            ssh_client,
-            runtime,
-            "fast-mono-reading",
-            installed_trusted,
-            trusted["fast-mono-reading"] if outdated else None,
-        )
+        if identity != current_identity:
+            _xovi_standalone.remove_shared_firmware_residue(
+                ssh_client,
+                runtime,
+                installed_trusted,
+                (
+                    current_identity.firmware,
+                    current_identity.platform,
+                    current_identity.architecture,
+                    current_identity.xochitl_sha256,
+                ),
+            )
+        else:
+            _xovi_standalone.disable_shared(
+                ssh_client,
+                runtime,
+                "fast-mono-reading",
+                installed_trusted,
+                trusted["fast-mono-reading"] if outdated else None,
+            )
         return get_status(ssh_client, catalog)
     marker_exists = ssh_client.file_exists(MARKER_PATH)
     if not marker_exists and (
@@ -1501,6 +1671,17 @@ def disable(
             or marker.get("deployment_mode") != "standalone"
         ):
             raise RuntimeError("快速黑白安装标记的部署模式无效，拒绝自动停用。")
+        marker_package = tap._package_from_marker(_trusted_catalog(), marker)
+        if marker_package is None:
+            raise RuntimeError("快速黑白安装标记不属于任何内置信任包。")
+        current_package = select_package(
+            _trusted_catalog(), tap.get_device_identity(ssh_client)
+        )
+        if current_package != marker_package:
+            _xovi_standalone.remove_verified_legacy(
+                ssh_client, _legacy_spec(marker_package)
+            )
+            return get_status(ssh_client, catalog)
     token = uuid.uuid4().hex
     remote_script = f"/tmp/rmtool-fast-mono-disable-{token}.sh"
     try:
