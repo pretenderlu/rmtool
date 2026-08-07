@@ -24,7 +24,8 @@ AFFECT /qml/device/view/documentview/DocumentView.qml
                 interval: 500
                 repeat: false
                 onTriggered: {
-                    if (root.rmtoolFastMonoReadingEnabled
+                    if (root.rmtoolFastMonoReadingAvailable
+                        && root.rmtoolFastMonoReadingEnabled
                         && root.rmtoolFastMonoCleanupInterval > 0) {
                         root.ghostBuster.forceClearNow("rmtool fast mono periodic cleanup")
                     }
@@ -51,7 +52,8 @@ AFFECT /qml/device/view/documentview/DocumentView.qml
                         return
                     }
                     root.rmtoolFastMonoLastPage = page
-                    if (!root.rmtoolFastMonoReadingEnabled
+                    if (!root.rmtoolFastMonoReadingAvailable
+                        || !root.rmtoolFastMonoReadingEnabled
                         || root.rmtoolFastMonoCleanupInterval <= 0) {
                         return
                     }
@@ -187,7 +189,8 @@ AFFECT /qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml
             ArkControls.FoldoutItem {
                 id: rmtoolFastMonoCleanupSelector
                 objectName: "rmtoolFastMonoCleanupSelector"
-                visible: root.toolbar.rmtoolDocumentView?.rmtoolFastMonoReadingEnabled ?? false
+                visible: (root.toolbar.rmtoolDocumentView?.rmtoolFastMonoReadingAvailable ?? false)
+                    && (root.toolbar.rmtoolDocumentView?.rmtoolFastMonoReadingEnabled ?? false)
                 Layout.fillWidth: true
                 label: "\u5f3a\u5236\u5237\u65b0"
                 description: {

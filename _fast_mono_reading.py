@@ -114,7 +114,7 @@ MAX_PACKAGE_BYTES = tap.MAX_PACKAGE_BYTES
 MAX_UNPACKED_BYTES = tap.MAX_UNPACKED_BYTES
 QMD_PAYLOAD_PATH = "exthome/qt-resource-rebuilder/fast-mono-reading.qmd"
 _KNOWN_SHARED_PREDECESSOR_QMDS = {
-    (3, "20260506100933"): (
+    (4, "20260506100933"): (
         (
             1,
             "0fa777c1278318d1f98d18e7bbdbbb5dfadbd5baf463e4d7a8df0107c36a0f9d",
@@ -125,8 +125,13 @@ _KNOWN_SHARED_PREDECESSOR_QMDS = {
             "4d8f829d81d83f84d37e16668a3366468758c04b4247b809f8f843d6d0abcc8d",
             9327,
         ),
+        (
+            3,
+            "643f5569e65149798888d267f616b77034b3abb9f1b695806d12f6c22a378cea",
+            12017,
+        ),
     ),
-    (3, "20260612085811"): (
+    (4, "20260612085811"): (
         (
             1,
             "0fa777c1278318d1f98d18e7bbdbbb5dfadbd5baf463e4d7a8df0107c36a0f9d",
@@ -137,8 +142,13 @@ _KNOWN_SHARED_PREDECESSOR_QMDS = {
             "4d8f829d81d83f84d37e16668a3366468758c04b4247b809f8f843d6d0abcc8d",
             9327,
         ),
+        (
+            3,
+            "643f5569e65149798888d267f616b77034b3abb9f1b695806d12f6c22a378cea",
+            12017,
+        ),
     ),
-    (3, "20260629074044"): (
+    (4, "20260629074044"): (
         (
             1,
             "587844a02383b70b1851b78b1d0bb3a5a2ff6c38559d6d3c78ac673bd964f18f",
@@ -149,8 +159,13 @@ _KNOWN_SHARED_PREDECESSOR_QMDS = {
             "7fec635a5939b1929959e84464bccfe0788d905e91d1e1704f1d0ec980237a4a",
             8448,
         ),
+        (
+            3,
+            "6949f58896651a3254c9e143461b384892f4d779e8f2553f9adf11ff8fe5707d",
+            11138,
+        ),
     ),
-    (3, "20260702125656"): (
+    (4, "20260702125656"): (
         (
             1,
             "587844a02383b70b1851b78b1d0bb3a5a2ff6c38559d6d3c78ac673bd964f18f",
@@ -160,6 +175,16 @@ _KNOWN_SHARED_PREDECESSOR_QMDS = {
             2,
             "7fec635a5939b1929959e84464bccfe0788d905e91d1e1704f1d0ec980237a4a",
             8448,
+        ),
+        (
+            3,
+            "6949f58896651a3254c9e143461b384892f4d779e8f2553f9adf11ff8fe5707d",
+            11138,
+        ),
+        (
+            3,
+            "9eb1e98a731458f1b46b170e11bfd29d11edbec04caf8befedc859fefd9acf5d",
+            11339,
         ),
     ),
 }
@@ -296,8 +321,8 @@ def parse_manifest(
         device_verified = entry.get("device_verified")
         if type(offline_verified) is not bool or type(device_verified) is not bool:
             raise RuntimeError("快速黑白包验证级别必须是布尔值。")
-        if revision != 3:
-            raise RuntimeError("快速黑白包修订版本必须是 r3。")
+        if revision != 4:
+            raise RuntimeError("快速黑白包修订版本必须是 r4。")
         if (
             not isinstance(size, int)
             or isinstance(size, bool)

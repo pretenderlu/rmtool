@@ -11,7 +11,9 @@ While fast monochrome is enabled, a native `强制刷新` foldout row shows the
 current cleanup interval. Opening it pushes a stock-style choice page with 5,
 10, 20, 30, and `从不`; the system toolbar supplies the back action. It defaults
 to every 10 page turns for each xochitl session, counts both taps and swipes,
-and uses the stock GhostBuster full-clear path 500 ms after the threshold.
+and uses the stock GhostBuster full-clear path 500 ms after the threshold. The
+row and its cleanup counter are both gated by the active PDF/EPUB reader, so a
+previously enabled reading session cannot expose or trigger them in notebooks.
 
 ## Download and offline behavior
 
@@ -41,7 +43,7 @@ passed qmd-tool hash checks, QMLDiff compatibility, patch replay, patched-QML
 assertions, archive validation, and deterministic rebuild against recovered
 official firmware. rmtool allows their installation only after an explicit
 not-yet-device-tested warning. The earlier Move 3.27.3 fast-mono behavior was
-device tested, but the new r3 cleanup-refresh QMD with its native selector
+device tested, but the corrected r4 cleanup-refresh QMD with its native selector
 remains offline verified until the complete package is tested again on-device.
 
 The .163 and .164 beta releases share internal version `20260702125656`, but

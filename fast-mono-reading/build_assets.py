@@ -22,16 +22,16 @@ import _tap_page_turn as tap
 BASE_QMD_PATH = "exthome/qt-resource-rebuilder/tap-page-turn.qmd"
 QMD_VARIANTS = {
     "3.27": (
-        "643f5569e65149798888d267f616b77034b3abb9f1b695806d12f6c22a378cea",
-        12017,
+        "a53c7de04cdb33a4ad15ea7afae976e2310854e2ce5868b5941af7ebd12d0279",
+        12286,
     ),
     "3.28": (
-        "6949f58896651a3254c9e143461b384892f4d779e8f2553f9adf11ff8fe5707d",
-        11138,
+        "5ad0a13fff4a49716b2b2c31cf96a048d5f3cf23a6d6f615ea874c5043a3554f",
+        11407,
     ),
     "3.28.0.164": (
-        "9eb1e98a731458f1b46b170e11bfd29d11edbec04caf8befedc859fefd9acf5d",
-        11339,
+        "5ad0a13fff4a49716b2b2c31cf96a048d5f3cf23a6d6f615ea874c5043a3554f",
+        11407,
     ),
 }
 DEFAULT_QMD_PATHS = {
@@ -173,7 +173,7 @@ def build_archive(
         "xochitl_sha256": base.xochitl_sha256,
         "offline_verified": offline_verified,
         "device_verified": device_verified,
-        "package_revision": 3,
+        "package_revision": 4,
         "asset": asset,
         "sha256": sha256(archive),
         "size": len(archive),
