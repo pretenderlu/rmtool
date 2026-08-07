@@ -176,11 +176,11 @@ class FastMonoReadingTests(unittest.TestCase):
         self.assertTrue(all(package.offline_verified for package in packages))
         self.assertFalse(any(package.device_verified for package in packages))
         self.assertEqual({package.channel for package in packages}, {"stable", "beta"})
-        self.assertTrue(all(package.package_revision == 3 for package in packages))
+        self.assertTrue(all(package.package_revision == 4 for package in packages))
         verified = self.package_for("chiappa", "20260612085811")
         self.assertEqual(
             verified.file(fast.QMD_PAYLOAD_PATH).sha256,
-            "643f5569e65149798888d267f616b77034b3abb9f1b695806d12f6c22a378cea",
+            "a53c7de04cdb33a4ad15ea7afae976e2310854e2ce5868b5941af7ebd12d0279",
         )
         for platform in ("chiappa", "ferrari"):
             package = next(
@@ -191,7 +191,7 @@ class FastMonoReadingTests(unittest.TestCase):
             )
             self.assertEqual(
                 package.file(fast.QMD_PAYLOAD_PATH).sha256,
-                "9eb1e98a731458f1b46b170e11bfd29d11edbec04caf8befedc859fefd9acf5d",
+                "5ad0a13fff4a49716b2b2c31cf96a048d5f3cf23a6d6f615ea874c5043a3554f",
             )
             self.assertTrue(package.asset.endswith("-3.28.0.164.tar.gz"))
 
@@ -211,12 +211,15 @@ class FastMonoReadingTests(unittest.TestCase):
                 "587844a02383b70b1851b78b1d0bb3a5a2ff6c38559d6d3c78ac673bd964f18f",
                 "4d8f829d81d83f84d37e16668a3366468758c04b4247b809f8f843d6d0abcc8d",
                 "7fec635a5939b1929959e84464bccfe0788d905e91d1e1704f1d0ec980237a4a",
+                "643f5569e65149798888d267f616b77034b3abb9f1b695806d12f6c22a378cea",
+                "6949f58896651a3254c9e143461b384892f4d779e8f2553f9adf11ff8fe5707d",
+                "9eb1e98a731458f1b46b170e11bfd29d11edbec04caf8befedc859fefd9acf5d",
             },
         )
-        self.assertTrue(all(len(specs) == 2 for specs in predecessors.values()))
+        self.assertTrue(all(len(specs) in (3, 4) for specs in predecessors.values()))
         self.assertTrue(
             all(
-                {revision for revision, _spec in specs} == {1, 2}
+                {revision for revision, _spec in specs} == {1, 2, 3}
                 for specs in predecessors.values()
             )
         )
@@ -243,6 +246,18 @@ class FastMonoReadingTests(unittest.TestCase):
                     "7fec635a5939b1929959e84464bccfe0788d905e91d1e1704f1d0ec980237a4a",
                     8448,
                 ),
+                (
+                    "643f5569e65149798888d267f616b77034b3abb9f1b695806d12f6c22a378cea",
+                    12017,
+                ),
+                (
+                    "6949f58896651a3254c9e143461b384892f4d779e8f2553f9adf11ff8fe5707d",
+                    11138,
+                ),
+                (
+                    "9eb1e98a731458f1b46b170e11bfd29d11edbec04caf8befedc859fefd9acf5d",
+                    11339,
+                ),
             },
         )
         current = self.package()
@@ -253,7 +268,7 @@ class FastMonoReadingTests(unittest.TestCase):
             (),
         )
 
-    def test_vellum_r1_and_r2_enabled_predecessors_are_outdated(self):
+    def test_vellum_enabled_predecessors_are_outdated(self):
         package = self.package()
         for revision, predecessor in fast._known_shared_predecessor_specs(package):
             with self.subTest(revision=revision):
@@ -274,8 +289,8 @@ class FastMonoReadingTests(unittest.TestCase):
             {key: tuple(reversed(records))},
         ):
             predecessors = fast._known_shared_predecessor_specs(package)
-            self.assertEqual([revision for revision, _spec in predecessors], [2, 1])
-            revision, r1 = predecessors[1]
+            self.assertEqual([revision for revision, _spec in predecessors], [3, 2, 1])
+            revision, r1 = predecessors[-1]
             status = self.vellum_status(
                 package,
                 revision=revision,
@@ -368,7 +383,7 @@ class FastMonoReadingTests(unittest.TestCase):
         )
         self.assertEqual(status.state, fast.FastMonoReadingState.BROKEN)
 
-    def test_current_vellum_r3_enabled_status_is_unchanged(self):
+    def test_current_vellum_r4_enabled_status_is_unchanged(self):
         package = self.package()
         status = self.vellum_status(
             package,
@@ -413,6 +428,8 @@ class FastMonoReadingTests(unittest.TestCase):
                 RuntimeError("current mismatch"),
                 RuntimeError("not r1"),
                 RuntimeError("not r2"),
+                RuntimeError("not r3-a"),
+                RuntimeError("not r3-b"),
             ),
         ):
             with self.assertRaisesRegex(RuntimeError, "current mismatch"):
@@ -465,7 +482,20 @@ class FastMonoReadingTests(unittest.TestCase):
                     source,
                 )
                 self.assertIn(
-                    "visible: root.toolbar.rmtoolDocumentView?.rmtoolFastMonoReadingEnabled ?? false",
+                    "visible: (root.toolbar.rmtoolDocumentView?.rmtoolFastMonoReadingAvailable ?? false)\n"
+                    "                    && (root.toolbar.rmtoolDocumentView?.rmtoolFastMonoReadingEnabled ?? false)",
+                    source,
+                )
+                self.assertIn(
+                    "if (root.rmtoolFastMonoReadingAvailable\n"
+                    "                        && root.rmtoolFastMonoReadingEnabled\n"
+                    "                        && root.rmtoolFastMonoCleanupInterval > 0)",
+                    source,
+                )
+                self.assertIn(
+                    "if (!root.rmtoolFastMonoReadingAvailable\n"
+                    "                        || !root.rmtoolFastMonoReadingEnabled\n"
+                    "                        || root.rmtoolFastMonoCleanupInterval <= 0)",
                     source,
                 )
                 self.assertIn("const interval = root.toolbar.rmtoolDocumentView?.rmtoolFastMonoCleanupInterval ?? 10", source)
