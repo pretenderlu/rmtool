@@ -117,7 +117,11 @@ jobs:
                   "repo_manifest": Path("native-chinese/manifest.json"),
                   "release_dir": Path(os.environ["NATIVE_CHINESE_RELEASE_DIR"]),
                   "asset_prefix": "rmtool-native-chinese-",
-                  "extra_keys": {"urls"},
+                  "extra_keys": {
+                      "offline_verified",
+                      "device_verified",
+                      "urls",
+                  },
                   "url_bases": (
                       "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese",
                       "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets",
@@ -197,16 +201,18 @@ jobs:
                       )
                   identities.add(identity)
 
-                  if feature["extra_keys"] and (
-                      feature["name"] == "fast-mono-reading"
-                      and (
-                          type(package.get("offline_verified")) is not bool
-                          or type(package.get("device_verified")) is not bool
-                          or type(package.get("package_revision")) is not int
-                          or package["package_revision"] <= 0
-                      )
+                  if feature["name"] in {"fast-mono-reading", "native-chinese"} and (
+                      type(package.get("offline_verified")) is not bool
+                      or type(package.get("device_verified")) is not bool
                   ):
-                      raise SystemExit("Invalid fast monochrome verification metadata.")
+                      raise SystemExit(
+                          f"Invalid {feature['name']} verification metadata."
+                      )
+                  if feature["name"] == "fast-mono-reading" and (
+                      type(package.get("package_revision")) is not int
+                      or package["package_revision"] <= 0
+                  ):
+                      raise SystemExit("Invalid fast monochrome package revision.")
                   if feature["url_bases"] is not None and package.get("urls") != [
                       f"{base}/{name}" for base in feature["url_bases"]
                   ]:
