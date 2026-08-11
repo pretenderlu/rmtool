@@ -32,10 +32,10 @@ the manifest are resolved below the same COS prefix or fixed GitHub release.
 
 ## Support matrix
 
-| Platform | 3.27.1.0 (`20260506100933`) | 3.27.3.0 (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) |
-| --- | --- | --- | --- | --- | --- |
-| Paper Pro (`ferrari`) | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
-| Paper Pro Move (`chiappa`) | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
+| Platform | 3.27.1.0 (`20260506100933`) | 3.27.3.0 (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Paper Pro (`ferrari`) | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
+| Paper Pro Move (`chiappa`) | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Waiting for firmware |
 
 All entries require `aarch64` and an exact platform, internal firmware, and
 stock xochitl SHA-256 match from `manifest.json`. Offline-verified packages
@@ -48,23 +48,20 @@ remains offline verified until the complete package is tested again on-device.
 
 The .163 and .164 beta releases share internal version `20260702125656`, but
 their exact stock xochitl hashes and release-qualified `.164` asset names are
-different. rmtool also recognizes a completely verified `.163` rmtool/Vellum
+different. rmtool also recognizes a completely verified `.163` historical rmtool/Vellum
 installation left behind by a firmware upgrade and offers cleanup before the
 `.164` package can be installed. Unknown or modified predecessor state remains
 blocked.
 
 ## Deployment boundaries
 
-When a standard Vellum-managed Xovi runtime is present, rmtool installs an
-independent minimal `rmtool-fast-mono-reading` APK. It depends exactly on the
-matching `remarkable-os` version and on `rmpp=1.0.0-r0` for Ferrari or
-`rmppmove=1.0.0-r0` for Chiappa, plus the proven QRR/AppLoad runtime range.
-A clean device uses rmtool's standalone Xovi/QRR deployment.
-
-On clean devices, tap-to-turn and fast monochrome share rmtool's standalone
-Xovi/QRR runtime while retaining separate QMD state. Unmanaged Xovi is rejected
-before upload. The earlier `rmtool-fast-mono-reading-canary` package conflicts
-with the production package and must be removed first.
+New installations always use rmtool's shared Xovi/QRR runtime. Tap-to-turn,
+fast monochrome, and native Simplified Chinese retain separate state while
+sharing that runtime. rmtool no longer builds or installs Vellum APKs. It can
+strictly verify and remove only its historical `rmtool-fast-mono-reading`
+package; the user must remove the remaining Vellum/AppLoader runtime through
+the [official Vellum CLI instructions](https://github.com/vellum-dev/vellum-cli#usage).
+Mixed and unmanaged Xovi layouts are rejected before upload.
 
 Neither installation nor disable restarts xochitl. Wait for rmtool to close
 SSH, then restart the device manually.
@@ -93,6 +90,6 @@ py -3.14 fast-mono-reading/build_assets.py `
 
 The builder verifies every base archive against the tap-to-turn manifest,
 replaces only the tap QMD, checks the final payload whitelist and packaged QMD
-hashtab, builds every output twice, and writes ten archives plus an aggregate
+hashtab, builds every output twice, and writes eleven archives plus an aggregate
 manifest below `build/fast-mono-reading/`. Commit the reviewed manifest and QMD
 sources only; publish the large archives as release assets.

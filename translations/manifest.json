@@ -125,6 +125,16 @@
           "stock_french_sha256": "ef07588e04ade2f19ce2e4545fc9d5e63f7a541b3410803b4727cf82f1b5f946"
         }
       ]
+    },
+    "20260806095513": {
+      "asset": "reMarkable_zh_CN-3.28.0.166-ferrari.qm",
+      "release_version": "3.28.0.166",
+      "channel": "beta",
+      "platform": "ferrari",
+      "size": 196567,
+      "sha256": "6bdca18626173b9fadbd350347afebcab0cae3639f8d206d86b9723cd3dda127",
+      "stock_french_sha256": "2b03e8bdf26566d06189604f4678b1929af60b8bef65b662fafc9f04eebed9cc",
+      "xochitl_sha256": "8726b4fce55a9154a5014956e5204401ce881d752c1ff3813adb622a68aac2f9"
     }
   }
 }

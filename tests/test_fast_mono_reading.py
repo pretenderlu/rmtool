@@ -1,10 +1,10 @@
 import hashlib
+import inspect
 import io
 import json
 import tarfile
 import tempfile
 import unittest
-import zlib
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -123,8 +123,6 @@ class FastMonoReadingTests(unittest.TestCase):
         ), patch.object(
             tap, "_vellum_installed_version", return_value=installed
         ), patch.object(
-            tap, "_assert_vellum_runtime"
-        ), patch.object(
             tap, "_vellum_package_owns_path", return_value=owns_qmd
         ), patch.object(
             fast, "_vellum_payload_paths_valid", return_value=paths_valid
@@ -136,24 +134,6 @@ class FastMonoReadingTests(unittest.TestCase):
             tap, "_active_with_shared_xovi", return_value=True
         ):
             return fast.get_status(ssh, (package,))
-
-    @staticmethod
-    def apk_members(apk):
-        members = []
-        remaining = apk
-        while remaining:
-            stream = zlib.decompressobj(16 + zlib.MAX_WBITS)
-            raw = stream.decompress(remaining) + stream.flush()
-            remaining = stream.unused_data
-            with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
-                members.append(
-                    {
-                        item.name: archive.extractfile(item).read()
-                        for item in archive.getmembers()
-                        if item.isfile()
-                    }
-                )
-        return members
 
     def test_repository_manifest_matches_complete_local_allowlist(self):
         packages = self.packages()
@@ -172,7 +152,7 @@ class FastMonoReadingTests(unittest.TestCase):
             for package in packages
         }
         self.assertEqual(identities, fast.ALLOWED_TARGETS)
-        self.assertEqual(len(packages), 10)
+        self.assertEqual(len(packages), 11)
         self.assertTrue(all(package.offline_verified for package in packages))
         self.assertFalse(any(package.device_verified for package in packages))
         self.assertEqual({package.channel for package in packages}, {"stable", "beta"})
@@ -194,6 +174,17 @@ class FastMonoReadingTests(unittest.TestCase):
                 "5ad0a13fff4a49716b2b2c31cf96a048d5f3cf23a6d6f615ea874c5043a3554f",
             )
             self.assertTrue(package.asset.endswith("-3.28.0.164.tar.gz"))
+        ferrari_166 = next(
+            item
+            for item in packages
+            if item.platform == "ferrari"
+            and item.release_version == "3.28.0.166"
+        )
+        self.assertEqual(
+            ferrari_166.file(fast.QMD_PAYLOAD_PATH).sha256,
+            "5ad0a13fff4a49716b2b2c31cf96a048d5f3cf23a6d6f615ea874c5043a3554f",
+        )
+        self.assertFalse(ferrari_166.device_verified)
 
     def test_known_shared_predecessors_are_exact_and_revision_bounded(self):
         predecessors = {
@@ -216,11 +207,12 @@ class FastMonoReadingTests(unittest.TestCase):
                 "9eb1e98a731458f1b46b170e11bfd29d11edbec04caf8befedc859fefd9acf5d",
             },
         )
-        self.assertTrue(all(len(specs) in (3, 4) for specs in predecessors.values()))
+        self.assertTrue(all(len(specs) in (0, 3, 4) for specs in predecessors.values()))
         self.assertTrue(
             all(
                 {revision for revision, _spec in specs} == {1, 2, 3}
                 for specs in predecessors.values()
+                if specs
             )
         )
         self.assertEqual(
@@ -268,7 +260,7 @@ class FastMonoReadingTests(unittest.TestCase):
             (),
         )
 
-    def test_vellum_enabled_predecessors_are_outdated(self):
+    def test_vellum_enabled_predecessors_are_legacy_removal_targets(self):
         package = self.package()
         for revision, predecessor in fast._known_shared_predecessor_specs(package):
             with self.subTest(revision=revision):
@@ -277,7 +269,7 @@ class FastMonoReadingTests(unittest.TestCase):
                     revision=revision,
                     qmd_sha256=predecessor.sha256,
                 )
-                self.assertEqual(status.state, fast.FastMonoReadingState.OUTDATED)
+                self.assertEqual(status.state, fast.FastMonoReadingState.LEGACY_VELLUM)
                 self.assertTrue(status.recovery_available)
 
     def test_predecessor_revision_does_not_depend_on_record_order(self):
@@ -297,7 +289,7 @@ class FastMonoReadingTests(unittest.TestCase):
                 qmd_sha256=r1.sha256,
             )
         self.assertEqual(revision, 1)
-        self.assertEqual(status.state, fast.FastMonoReadingState.OUTDATED)
+        self.assertEqual(status.state, fast.FastMonoReadingState.LEGACY_VELLUM)
 
     def test_vellum_predecessor_rejects_modified_or_mismatched_payload(self):
         package = self.package()
@@ -372,7 +364,7 @@ class FastMonoReadingTests(unittest.TestCase):
             qmd_sha256=r2.sha256,
             enabled=False,
         )
-        self.assertEqual(status.state, fast.FastMonoReadingState.OUTDATED)
+        self.assertEqual(status.state, fast.FastMonoReadingState.LEGACY_VELLUM)
 
         status = self.vellum_status(
             package,
@@ -390,7 +382,7 @@ class FastMonoReadingTests(unittest.TestCase):
             revision=package.package_revision,
             qmd_sha256=package.file(fast.QMD_PAYLOAD_PATH).sha256,
         )
-        self.assertEqual(status.state, fast.FastMonoReadingState.ENABLED)
+        self.assertEqual(status.state, fast.FastMonoReadingState.LEGACY_VELLUM)
 
     def test_shared_revision_accepts_only_exact_known_predecessor(self):
         package = self.package_for("ferrari", "20260702125656")
@@ -719,116 +711,41 @@ class FastMonoReadingTests(unittest.TestCase):
                 self.assertEqual(fast.download_package(package, state_dir), cache)
             download.assert_not_called()
 
-    def test_vellum_apk_is_deterministic_for_both_color_platforms(self):
-        for original in (
-            self.package_for("chiappa", "20260612085811"),
-            self.package_for("ferrari", "20260629074044"),
-        ):
-            with self.subTest(platform=original.platform, release=original.release_version):
-                qmd = b"qmd"
-                package = replace(
-                    original,
-                    files=tuple(
-                        fast.PayloadFile(
-                            item.path,
-                            hashlib.sha256(qmd).hexdigest(),
-                            len(qmd),
-                            item.mode,
-                        )
-                        if item.path == fast.QMD_PAYLOAD_PATH
-                        else item
-                        for item in original.files
-                    ),
-                )
-                first = fast._build_vellum_apk(package, qmd, b"GPL")
-                self.assertEqual(first, fast._build_vellum_apk(package, qmd, b"GPL"))
-                control, data = self.apk_members(first)
-                pkginfo = control[".PKGINFO"].decode()
-                dependencies = (
-                    "qt-resource-rebuilder>=19.0.0",
-                    "qt-resource-rebuilder<20.0.0",
-                    "appload>=0.5.3",
-                    f"remarkable-os={package.release_version}-r0",
-                    f"{'rmppmove' if package.platform == 'chiappa' else 'rmpp'}=1.0.0-r0",
-                    "!rmtool-fast-mono-reading-canary",
-                )
-                for dependency in dependencies:
-                    self.assertIn(f"depend = {dependency}", pkginfo)
-                self.assertIn(f"pkgname = {fast.VELLUM_PACKAGE_NAME}", pkginfo)
-                self.assertIn(
-                    f"pkgver = {package.release_version}-r{package.package_revision}",
-                    pkginfo,
-                )
-                self.assertEqual(
-                    set(data),
-                    {
-                        fast.SHARED_QMD.removeprefix("/"),
-                        fast.VELLUM_LICENSE_PATH.removeprefix("/"),
-                        fast.VELLUM_SOURCES_PATH.removeprefix("/"),
-                    },
-                )
-                sources = data[fast.VELLUM_SOURCES_PATH.removeprefix("/")].decode()
-                qmd_version = "3.28" if package.release_version.startswith("3.28") else "3.27"
-                self.assertIn(f"fast-mono-reading-{qmd_version}.qmd", sources)
-                self.assertNotIn(tap.SHARED_QMD.removeprefix("/"), data)
-
     def test_clean_device_selects_standalone(self):
         ssh = FakeSSH()
         with patch.object(tap, "_vellum_installed_version", return_value=None):
             self.assertEqual(fast._deployment_mode(ssh, self.package()), "standalone")
 
-    def test_disabled_current_vellum_marker_can_be_reinstalled(self):
+    def test_vellum_runtime_without_rmtool_package_requires_manual_removal(self):
         package = self.package()
-        token = "12345678-1234-1234-1234-123456789abc:1:1"
-        marker = json.loads(
-            fast._vellum_marker(package, enabled=False, process_token=token)
-        )
-        ssh = FakeSSH(
-            files={
-                fast.REMOTE_BASE,
-                fast.MARKER_PATH,
-                tap.VELLUM_BIN,
-                tap.SHARED_XOVI_LIBRARY,
-                tap.SHARED_QRR_LIBRARY,
-                tap.SHARED_APPLOAD_LIBRARY,
-            },
-            dropins=tap.SHARED_XOVI_DROPIN,
-        )
+        ssh = FakeSSH(files={tap.VELLUM_BIN})
         identity = fast.DeviceIdentity(
             package.firmware,
             package.platform,
             package.architecture,
             package.xochitl_sha256,
         )
-        expected_dropin = "\n".join(
-            (
-                "[Service]",
-                f'Environment="LD_PRELOAD={tap.SHARED_XOVI_LIBRARY}"',
-                'Environment="XOVI_ROOT=/home/root/xovi/services/xochitl.service/"',
-            )
-        )
+        with patch.object(
+            tap, "get_device_identity", return_value=identity
+        ), patch.object(
+            tap, "_vellum_installed_version", return_value=None
+        ), patch.object(
+            tap, "_vellum_runtime_present", return_value=True
+        ), patch.object(
+            fast._xovi_standalone, "has_shared_artifacts", return_value=False
+        ):
+            status = fast.get_status(ssh, (package,))
 
-        def installed_version(_ssh, name):
-            return None if name == fast.VELLUM_PACKAGE_NAME else "1.0.0-r0"
+        self.assertEqual(status.state, fast.FastMonoReadingState.VELLUM_RUNTIME)
+        self.assertFalse(status.recovery_available)
+        self.assertIn(tap.VELLUM_UNINSTALL_COMMAND, status.detail)
 
-        result = Mock()
-        with patch.object(tap, "get_device_identity", return_value=identity), patch.object(
-            tap, "_preflight_device"
-        ), patch.object(fast, "_read_marker", return_value=marker), patch.object(
-            tap, "_vellum_installed_version", side_effect=installed_version
-        ), patch.object(
-            tap, "_vellum_installed_packages", return_value={"xovi"}
-        ), patch.object(
-            tap, "_remote_text", return_value=expected_dropin
-        ), patch.object(
-            tap, "_assert_vellum_runtime"
-        ), patch.object(
-            fast, "_enable_vellum", return_value=result
-        ) as enable_vellum:
-            self.assertEqual(fast._deployment_mode(ssh, package), "vellum")
-            self.assertIs(fast.enable(ssh, package, "unused.tar.gz"), result)
-
-        enable_vellum.assert_called_once_with(ssh, package, "unused.tar.gz")
+    def test_module_has_no_vellum_install_path(self):
+        source = inspect.getsource(fast)
+        self.assertIn("_xovi_standalone.enable_shared", source)
+        self.assertNotIn("_enable_vellum", source)
+        self.assertNotIn("_build_vellum_apk", source)
+        self.assertNotIn("vellum add", source.casefold())
 
     def test_fast_disabled_vellum_state_missing_runtime_refuses_before_writes(self):
         package = self.package()
@@ -854,7 +771,7 @@ class FastMonoReadingTests(unittest.TestCase):
         ), patch.object(
             tap, "_vellum_installed_packages", return_value=set()
         ):
-            with self.assertRaisesRegex(RuntimeError, "运行环境不完整"):
+            with self.assertRaisesRegex(RuntimeError, "Vellum 官方说明"):
                 fast.enable(ssh, package, "unused.tar.gz")
 
         self.assertEqual(ssh.transfers, {})
@@ -892,7 +809,7 @@ class FastMonoReadingTests(unittest.TestCase):
         ), patch.object(
             tap, "_vellum_installed_packages", return_value=set()
         ):
-            with self.assertRaisesRegex(RuntimeError, "运行环境不完整"):
+            with self.assertRaisesRegex(RuntimeError, "Vellum 官方说明"):
                 fast.enable(ssh, package, "unused.tar.gz")
 
         self.assertEqual(ssh.transfers, {})
@@ -930,7 +847,7 @@ class FastMonoReadingTests(unittest.TestCase):
         ):
             status = fast.disable(ssh, (package,))
 
-        self.assertEqual(status.state, fast.FastMonoReadingState.NOT_INSTALLED)
+        self.assertEqual(status.state, fast.FastMonoReadingState.VELLUM_RUNTIME)
         self.assertNotIn(fast.MARKER_PATH, ssh.files)
         self.assertNotIn(fast.REMOTE_BASE, ssh.files)
         self.assertFalse(any("vellum del" in command for command in ssh.commands))
@@ -1097,13 +1014,13 @@ class FastMonoReadingTests(unittest.TestCase):
                 ), patch.object(
                     tap, "_vellum_installed_version", return_value=installed
                 ), patch.object(
-                    tap, "_assert_vellum_runtime"
-                ), patch.object(
                     tap, "_vellum_package_owns_path", return_value=owns_qmd
                 ), patch.object(
                     fast, "_vellum_payload_paths_valid", return_value=paths_valid
                 ), patch.object(
                     tap, "_remote_sha256", return_value=actual_hash
+                ), patch.object(
+                    fast, "_marker_dir_has_only_marker", return_value=True
                 ):
                     with self.assertRaises(RuntimeError):
                         fast.disable(ssh, (package,))
@@ -1149,11 +1066,13 @@ class FastMonoReadingTests(unittest.TestCase):
             ), patch.object(
                 fast, "_read_marker", return_value=marker
             ), patch.object(
+                fast, "_trusted_catalog", return_value=(package,)
+            ), patch.object(
+                fast, "_vellum_payload_revision", return_value=(revision, "")
+            ), patch.object(
                 tap,
                 "_vellum_installed_version",
-                side_effect=(f"{package.release_version}-r{revision}", None),
-            ), patch.object(
-                tap, "_assert_vellum_runtime"
+                return_value=None,
             ), patch.object(
                 tap, "_vellum_package_owns_path", return_value=True
             ), patch.object(
@@ -1161,9 +1080,7 @@ class FastMonoReadingTests(unittest.TestCase):
             ), patch.object(
                 tap, "_remote_sha256", return_value=qmd_hash
             ), patch.object(
-                tap, "_xochitl_process_token", return_value="new-token"
-            ), patch.object(
-                fast, "_write_marker"
+                fast, "_marker_dir_has_only_marker", return_value=True
             ), patch.object(
                 fast, "get_status", return_value=result
             ):
@@ -1212,128 +1129,6 @@ class FastMonoReadingTests(unittest.TestCase):
             fast.disable(ssh)
         self.assertEqual(ssh.transfers, {})
 
-    def test_vellum_canary_is_blocked_before_any_transfer(self):
-        ssh = FakeSSH(files={tap.VELLUM_BIN})
-        with patch.object(
-            tap,
-            "_vellum_installed_packages",
-            return_value={"xovi", fast.VELLUM_CONFLICTS[0]},
-        ):
-            with self.assertRaisesRegex(
-                RuntimeError, r"vellum del rmtool-fast-mono-reading-canary"
-            ):
-                fast._deployment_mode(ssh, self.package())
-        self.assertEqual(ssh.transfers, {})
-
-    def test_standard_vellum_accepts_independent_tap_package(self):
-        package = self.package()
-        tap_package = self.tap_package_for(package)
-        marker = json.loads(
-            tap._vellum_marker(
-                tap_package,
-                enabled=True,
-                process_token="12345678-1234-1234-1234-123456789abc:1:1",
-            )
-        )
-        ssh = FakeSSH(
-            files={
-                tap.VELLUM_BIN,
-                tap.SHARED_XOVI_LIBRARY,
-                tap.SHARED_QRR_LIBRARY,
-                tap.SHARED_APPLOAD_LIBRARY,
-                tap.REMOTE_BASE,
-                tap.MARKER_PATH,
-                tap.SHARED_QMD,
-            },
-            dropins=tap.SHARED_XOVI_DROPIN,
-        )
-        expected_dropin = "\n".join(
-            (
-                "[Service]",
-                f'Environment="LD_PRELOAD={tap.SHARED_XOVI_LIBRARY}"',
-                'Environment="XOVI_ROOT=/home/root/xovi/services/xochitl.service/"',
-            )
-        )
-        def remote_text(_ssh, path):
-            if path == tap.SHARED_XOVI_DROPIN:
-                return expected_dropin
-            raise AssertionError(path)
-
-        def installed_version(_ssh, name):
-            if name == tap.VELLUM_PACKAGE_NAME:
-                return tap._vellum_package_version(tap_package)
-            if name == "xovi":
-                return "1.0.0-r0"
-            return None
-
-        with patch.object(tap, "_read_marker", return_value=marker), patch.object(
-            tap, "_vellum_installed_version", side_effect=installed_version
-        ), patch.object(tap, "_remote_text", side_effect=remote_text), patch.object(
-            tap, "_assert_vellum_runtime"
-        ), patch.object(
-            tap, "_vellum_package_owns_path", return_value=True
-        ), patch.object(
-            tap, "_vellum_payload_paths_valid", return_value=True
-        ), patch.object(
-            tap, "_remote_sha256", return_value=marker["qmd_sha256"]
-        ), patch.object(
-            tap, "_vellum_installed_packages", return_value={tap.VELLUM_PACKAGE_NAME, "xovi"}
-        ), patch.object(
-            tap, "_vellum_payload_valid", wraps=tap._vellum_payload_valid
-        ) as validate:
-            self.assertEqual(fast._deployment_mode(ssh, package), "vellum")
-
-        validate.assert_called_once_with(ssh, tap_package, marker)
-        self.assertEqual(ssh.transfers, {})
-        self.assertFalse(any(" rm " in f" {command} " for command in ssh.commands))
-
-    def test_fast_install_rejects_invalid_vellum_tap_peer_before_writes(self):
-        package = self.package()
-        tap_package = self.tap_package_for(package)
-        base_marker = json.loads(
-            tap._vellum_marker(
-                tap_package,
-                enabled=True,
-                process_token="12345678-1234-1234-1234-123456789abc:1:1",
-            )
-        )
-        cases = (
-            ("hash", {"qmd_sha256": "0" * 64}, tap._vellum_package_version(tap_package), True, True),
-            ("version", {}, "3.27.3.0-r99", True, True),
-            ("ownership", {}, tap._vellum_package_version(tap_package), False, True),
-            ("path", {}, tap._vellum_package_version(tap_package), True, False),
-        )
-        for name, changes, installed, owns, paths_valid in cases:
-            marker = dict(base_marker)
-            marker.update(changes)
-            ssh = FakeSSH(
-                files={tap.VELLUM_BIN, tap.REMOTE_BASE, tap.MARKER_PATH, tap.SHARED_QMD}
-            )
-            with self.subTest(name=name), patch.object(
-                tap, "_read_marker", return_value=marker
-            ), patch.object(
-                tap, "_vellum_installed_version", return_value=installed
-            ), patch.object(
-                tap, "_assert_vellum_runtime"
-            ), patch.object(
-                tap, "_vellum_package_owns_path", return_value=owns
-            ), patch.object(
-                tap, "_vellum_payload_paths_valid", return_value=paths_valid
-            ), patch.object(
-                tap, "_remote_sha256", return_value=marker["qmd_sha256"]
-            ):
-                with self.assertRaises(RuntimeError):
-                    fast._deployment_mode(ssh, package)
-            self.assertEqual(ssh.transfers, {})
-            self.assertFalse(
-                any(
-                    command.startswith(("rm ", "mv ", "cp ", "mkdir ", "rmdir "))
-                    or "vellum add" in command
-                    or "vellum del" in command
-                    for command in ssh.commands
-                )
-            )
-
     def test_fast_install_rejects_unowned_or_mislabeled_tap_peer_before_writes(self):
         package = self.package()
         for name, files, marker in (
@@ -1362,94 +1157,6 @@ class FastMonoReadingTests(unittest.TestCase):
                 )
             )
 
-    def test_tap_install_accepts_exact_vellum_fast_peer(self):
-        fast_package = self.package()
-        tap_package = self.tap_package_for(fast_package)
-        marker = json.loads(
-            fast._vellum_marker(
-                fast_package,
-                enabled=True,
-                process_token="12345678-1234-1234-1234-123456789abc:1:1",
-            )
-        )
-        ssh = FakeSSH(
-            files={
-                tap.VELLUM_BIN,
-                tap.SHARED_XOVI_LIBRARY,
-                tap.SHARED_QRR_LIBRARY,
-                tap.SHARED_APPLOAD_LIBRARY,
-                fast.REMOTE_BASE,
-                fast.MARKER_PATH,
-                fast.SHARED_QMD,
-            },
-            dropins=tap.SHARED_XOVI_DROPIN,
-        )
-        expected_dropin = "\n".join(
-            (
-                "[Service]",
-                f'Environment="LD_PRELOAD={tap.SHARED_XOVI_LIBRARY}"',
-                'Environment="XOVI_ROOT=/home/root/xovi/services/xochitl.service/"',
-            )
-        )
-
-        def installed_version(_ssh, name):
-            if name == fast.VELLUM_PACKAGE_NAME:
-                return marker["vellum_version"]
-            if name == "xovi":
-                return "1.0.0-r0"
-            return None
-
-        with patch.object(fast, "_read_marker", return_value=marker), patch.object(
-            tap, "_vellum_installed_version", side_effect=installed_version
-        ), patch.object(tap, "_remote_text", return_value=expected_dropin), patch.object(
-            tap, "_assert_vellum_runtime"
-        ), patch.object(
-            tap, "_vellum_package_owns_path", return_value=True
-        ), patch.object(
-            fast, "_vellum_payload_paths_valid", return_value=True
-        ), patch.object(
-            tap, "_remote_sha256", return_value=marker["qmd_sha256"]
-        ), patch.object(
-            fast, "_vellum_payload_revision", wraps=fast._vellum_payload_revision
-        ) as validate:
-            self.assertEqual(tap._deployment_mode(ssh, tap_package), "vellum")
-
-        validate.assert_called_once_with(ssh, fast_package, marker)
-        self.assertEqual(ssh.transfers, {})
-
-    def test_tap_disabled_current_vellum_marker_can_reinstall(self):
-        tap_package = self.tap_package_for()
-        marker = json.loads(
-            tap._vellum_marker(
-                tap_package,
-                enabled=False,
-                process_token="12345678-1234-1234-1234-123456789abc:1:1",
-            )
-        )
-        ssh = FakeSSH(
-            files={tap.VELLUM_BIN, tap.REMOTE_BASE, tap.MARKER_PATH},
-            dropins=tap.SHARED_XOVI_DROPIN,
-        )
-        expected_dropin = "\n".join(
-            (
-                "[Service]",
-                f'Environment="LD_PRELOAD={tap.SHARED_XOVI_LIBRARY}"',
-                'Environment="XOVI_ROOT=/home/root/xovi/services/xochitl.service/"',
-            )
-        )
-
-        def installed_version(_ssh, name):
-            return "1.0.0-r0" if name == "xovi" else None
-
-        with patch.object(tap, "_read_marker", return_value=marker), patch.object(
-            tap, "_vellum_installed_version", side_effect=installed_version
-        ), patch.object(tap, "_remote_text", return_value=expected_dropin), patch.object(
-            tap, "_assert_vellum_runtime"
-        ):
-            self.assertEqual(tap._deployment_mode(ssh, tap_package), "vellum")
-
-        self.assertEqual(ssh.transfers, {})
-
     def test_tap_disabled_vellum_state_missing_runtime_refuses_before_writes(self):
         fast_package = self.package()
         tap_package = self.tap_package_for(fast_package)
@@ -1473,7 +1180,7 @@ class FastMonoReadingTests(unittest.TestCase):
         ), patch.object(tap, "_read_marker", return_value=marker), patch.object(
             tap, "_vellum_installed_version", return_value=None
         ):
-            with self.assertRaisesRegex(RuntimeError, "运行环境不完整"):
+            with self.assertRaisesRegex(RuntimeError, "Vellum 官方说明"):
                 tap.enable(ssh, tap_package, "unused.tar.gz")
 
         self.assertEqual(ssh.transfers, {})
@@ -1509,7 +1216,7 @@ class FastMonoReadingTests(unittest.TestCase):
         ), patch.object(fast, "_read_marker", return_value=marker), patch.object(
             tap, "_vellum_installed_version", return_value=None
         ):
-            with self.assertRaisesRegex(RuntimeError, "运行环境不完整"):
+            with self.assertRaisesRegex(RuntimeError, "Vellum 官方说明"):
                 tap.enable(ssh, tap_package, "unused.tar.gz")
 
         self.assertEqual(ssh.transfers, {})
@@ -1549,80 +1256,6 @@ class FastMonoReadingTests(unittest.TestCase):
         self.assertIn(moved_guard, script)
         self.assertIn(restore_guard, script)
         self.assertLess(script.index(moved_guard), script.index(restore_guard))
-
-    def test_vellum_marker_failure_rolls_back_only_fast_mono_package(self):
-        package = self.package()
-        installed = {"value": False}
-        ssh = FakeSSH()
-
-        def extract(_archive, _package, destination):
-            root = Path(destination)
-            for path, data in (
-                (fast.QMD_PAYLOAD_PATH, b"qmd"),
-                ("qmd-tool", b"tool"),
-                ("LICENSE.qmd-tool", b"license"),
-            ):
-                target = root.joinpath(*path.split("/"))
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(data)
-            return root
-
-        qmd_hash = hashlib.sha256(b"qmd").hexdigest()
-        tool_hash = hashlib.sha256(b"tool").hexdigest()
-        package = replace(
-            package,
-            files=tuple(
-                fast.PayloadFile(item.path, qmd_hash, 3, item.mode)
-                if item.path == fast.QMD_PAYLOAD_PATH
-                else fast.PayloadFile(item.path, tool_hash, 4, item.mode)
-                if item.path == "qmd-tool"
-                else item
-                for item in package.files
-            ),
-        )
-
-        def installed_version(_ssh, name):
-            if name == fast.VELLUM_PACKAGE_NAME:
-                return fast._vellum_package_version(package) if installed["value"] else None
-            return "1.0.0-r0"
-
-        original_exec = ssh.exec_checked
-
-        def exec_checked(command):
-            result = original_exec(command)
-            if f" add --allow-untrusted " in command and "--simulate" not in command:
-                installed["value"] = True
-            if f" del {fast.VELLUM_PACKAGE_NAME}" in command:
-                installed["value"] = False
-            return result
-
-        ssh.exec_checked = exec_checked
-
-        def remote_sha(_ssh, path):
-            if path == fast.SHARED_QMD or path.endswith("fast-mono-reading.qmd"):
-                return qmd_hash
-            if path.endswith("qmd-tool"):
-                return tool_hash
-            if path.endswith(".apk"):
-                return hashlib.sha256(ssh.transfers[path]).hexdigest()
-            raise AssertionError(path)
-
-        with patch.object(fast, "extract_verified_package", side_effect=extract), patch.object(
-            fast, "_build_vellum_apk", return_value=b"apk"
-        ), patch.object(tap, "_xochitl_process_token", return_value="12345678-1234-1234-1234-123456789abc:1:1"), patch.object(
-            tap, "_vellum_installed_version", side_effect=installed_version
-        ), patch.object(tap, "_remote_sha256", side_effect=remote_sha), patch.object(
-            tap, "_vellum_package_owns_path", return_value=True
-        ), patch.object(fast, "_vellum_payload_paths_valid", return_value=True), patch.object(
-            fast, "_write_marker", side_effect=RuntimeError("marker failed")
-        ):
-            with self.assertRaisesRegex(RuntimeError, "marker failed"):
-                fast._enable_vellum(ssh, package, "unused.tar.gz")
-
-        self.assertFalse(installed["value"])
-        commands = "\n".join(ssh.commands)
-        self.assertIn(f"del {fast.VELLUM_PACKAGE_NAME}", commands)
-        self.assertNotIn(f"del {tap.VELLUM_PACKAGE_NAME}", commands)
 
     def test_enable_rejects_identity_before_preflight_or_write(self):
         package = self.package()

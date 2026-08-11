@@ -37,25 +37,3 @@ QMD source now lives at
 `fast-mono-reading/qmd-src/fast-mono-reading-3.27.qmd`; the validator remains
 offline-only and contains no SSH, installer, persistence, service restart, or
 device-reboot logic.
-
-## Standalone Vellum canary
-
-After validation, build a deterministic unsigned Vellum APK from the compiled
-QMD:
-
-```powershell
-python refresh-optimization/build_move_3_27_3_vellum_canary.py `
-  --compiled-qmd build/refresh-optimization/qmd/fast-mono-reading-3.27.qmd
-```
-
-The APK package is `rmtool-fast-mono-reading-canary` revision
-`3.27.3.0-r1`. It requires
-`qt-resource-rebuilder>=19.0.0`, `qt-resource-rebuilder<20.0.0`, and
-`appload>=0.5.3`, while pinning the target to `remarkable-os=3.27.3.0-r0` and
-`rmppmove=1.0.0-r0`. It owns only the compiled QMD at
-`/home/root/xovi/exthome/qt-resource-rebuilder/` plus GPL license and source
-metadata below its Vellum license directory. The builder inspects both APK
-members and verifies the package identity, exact dependency list, installed
-QMD path, file whitelist, payload bytes, and deterministic output before
-writing under `build/refresh-optimization/`. It does not install or deploy the
-APK.

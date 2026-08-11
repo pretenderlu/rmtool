@@ -28,6 +28,8 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 import rmrl
 import rmtool
 import _fast_mono_reading
+import _legacy_vellum
+import _native_chinese
 import _rmkit_cn
 import _ssh
 import _tap_page_turn
@@ -1276,6 +1278,7 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertIsInstance(tap_page_turn_group, QtWidgets.QGroupBox)
         self.assertEqual(rmkit_group.title(), "系统汉化")
         self.assertEqual(tap_page_turn_group.title(), "阅读优化与手势")
+        self.assertIs(toolbox.native_chinese_section.parentWidget(), rmkit_group)
         self.assertIs(
             toolbox.fast_mono_reading_section.parentWidget(),
             tap_page_turn_group,
@@ -1323,6 +1326,7 @@ class WallpaperUiTests(unittest.TestCase):
     def test_toolbox_feature_titles_share_one_semantic_selector(self):
         sections = (
             (_tab_toolbox.RmkitCnSection, "原生界面中文"),
+                (_tab_toolbox.NativeChineseSection, "原生简体中文"),
             (_tab_toolbox.TapPageTurnSection, "点击翻页"),
             (_tab_toolbox.FastMonoReadingSection, "快速黑白阅读"),
         )
@@ -1334,6 +1338,159 @@ class WallpaperUiTests(unittest.TestCase):
                 title = section.findChild(QtWidgets.QLabel, "toolboxFeatureTitle")
                 self.assertIsNotNone(title)
                 self.assertEqual(title.text(), expected_text)
+
+    def test_native_chinese_section_exposes_exact_actions_and_emergency_controls(self):
+        section = _tab_toolbox.NativeChineseSection(
+            FakeConnectionClient(connected=True, host="10.11.99.1")
+        )
+        self.addCleanup(section.deleteLater)
+        package = _native_chinese._trusted_catalog()[0]
+        identity = _native_chinese.tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+
+        section._apply_status(
+            _native_chinese.NativeChineseStatus(
+                _native_chinese.NativeChineseState.NOT_INSTALLED,
+                identity,
+                package,
+            )
+        )
+        self.assertTrue(section.detect_button.isEnabled())
+        self.assertTrue(section.enable_button.isEnabled())
+        self.assertFalse(section.disable_button.isEnabled())
+        self.assertFalse(section.set_emergency_button.isEnabled())
+        self.assertFalse(section.clear_emergency_button.isEnabled())
+
+        section._apply_status(
+            _native_chinese.NativeChineseStatus(
+                _native_chinese.NativeChineseState.EMERGENCY_DISABLED,
+                identity,
+                package,
+                installed=True,
+                emergency_disabled=True,
+            )
+        )
+        self.assertFalse(section.enable_button.isEnabled())
+        self.assertTrue(section.disable_button.isEnabled())
+        self.assertFalse(section.set_emergency_button.isEnabled())
+        self.assertTrue(section.clear_emergency_button.isEnabled())
+
+        section._apply_status(
+            _native_chinese.NativeChineseStatus(
+                _native_chinese.NativeChineseState.ENABLED,
+                identity,
+                package,
+                installed=True,
+            )
+        )
+        self.assertTrue(section.set_emergency_button.isEnabled())
+        self.assertFalse(section.clear_emergency_button.isEnabled())
+
+        section._apply_status(
+            _native_chinese.NativeChineseStatus(
+                _native_chinese.NativeChineseState.FIRMWARE_RESIDUE,
+                identity,
+                installed=True,
+            )
+        )
+        self.assertEqual(section.disable_button.text(), "清理残留")
+        self.assertTrue(section.disable_button.isEnabled())
+        self.assertFalse(section.set_emergency_button.isEnabled())
+
+    def test_native_chinese_section_labels_stable_move_as_device_verified(self):
+        section = _tab_toolbox.NativeChineseSection(
+            FakeConnectionClient(connected=True, host="10.11.99.1")
+        )
+        self.addCleanup(section.deleteLater)
+        package = _native_chinese._trusted_catalog()[1]
+        identity = _native_chinese.tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        section._apply_status(
+            _native_chinese.NativeChineseStatus(
+                _native_chinese.NativeChineseState.NOT_INSTALLED,
+                identity,
+                package,
+            )
+        )
+        self.assertIn("正式版", section.catalog_label.text())
+        self.assertIn("硬件 Chiappa", section.catalog_label.text())
+        self.assertIn("已实机验证", section.catalog_label.text())
+
+    def test_legacy_vellum_cleanup_exposes_one_strict_action(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.LegacyVellumCleanupSection(client)
+        self.addCleanup(section.deleteLater)
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=True
+        ) as ask, mock.patch.object(
+            rmtool, "Worker", return_value=worker
+        ) as worker_cls, mock.patch.object(
+            section.thread_pool, "start"
+        ), mock.patch.object(
+            _tab_toolbox, "show_info"
+        ) as show_info:
+            section.cleanup_button.click()
+            worker.signals.finished.connect.call_args.args[0](
+                _tap_page_turn.RMTOOL_VELLUM_PACKAGE_NAMES
+            )
+
+        self.assertEqual(section.cleanup_button.text(), "一键卸载旧版插件")
+        self.assertIn("全部通过后才开始删除", ask.call_args.args[2])
+        self.assertIn("不会被卸载", ask.call_args.args[2])
+        worker_cls.assert_called_once_with(_legacy_vellum.remove_legacy_plugins, client)
+        self.assertIn("rmtool-tap-page-turn", section.status_label.text())
+        self.assertIn("本体仍保留", show_info.call_args.args[2])
+
+    def test_legacy_vellum_cleanup_reports_none_found(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.LegacyVellumCleanupSection(client)
+        self.addCleanup(section.deleteLater)
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=True
+        ), mock.patch.object(rmtool, "Worker", return_value=worker), mock.patch.object(
+            section.thread_pool, "start"
+        ), mock.patch.object(_tab_toolbox, "show_info") as show_info:
+            section.cleanup_button.click()
+            worker.signals.finished.connect.call_args.args[0](())
+
+        self.assertIn("未检测到", section.status_label.text())
+        self.assertIn("没有需要卸载", show_info.call_args.args[2])
+
+    def test_legacy_vellum_cleanup_preserves_partial_failure_detail(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.LegacyVellumCleanupSection(client)
+        self.addCleanup(section.deleteLater)
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+        error = RuntimeError(
+            "已确认卸载：rmtool-tap-page-turn；rmtool-fast-mono-reading 的卸载结果无法确认"
+        )
+
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=True
+        ), mock.patch.object(rmtool, "Worker", return_value=worker), mock.patch.object(
+            section.thread_pool, "start"
+        ), mock.patch.object(_tab_toolbox, "show_error") as show_error:
+            section.cleanup_button.click()
+            worker.signals.error.connect.call_args.args[0](error)
+
+        self.assertIn("rmtool-tap-page-turn", section.status_label.text())
+        self.assertIn("卸载结果无法确认", section.status_label.text())
+        self.assertIn("rmtool-tap-page-turn", show_error.call_args.args[2])
 
     @staticmethod
     def tap_page_turn_package():
@@ -1805,6 +1962,54 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertFalse(section.enable_button.isEnabled())
         self.assertFalse(section.disable_button.isEnabled())
         self.assertIn("重新连接并检测", section.status_label.text())
+
+    def test_vellum_runtime_only_exposes_clickable_official_uninstall_link(self):
+        cases = (
+            (
+                _tab_toolbox.TapPageTurnSection,
+                _tap_page_turn.TapPageTurnStatus,
+                _tap_page_turn.TapPageTurnState.VELLUM_RUNTIME,
+                self.tap_page_turn_package(),
+            ),
+            (
+                _tab_toolbox.FastMonoReadingSection,
+                _fast_mono_reading.FastMonoReadingStatus,
+                _fast_mono_reading.FastMonoReadingState.VELLUM_RUNTIME,
+                self.fast_mono_package(),
+            ),
+        )
+        for section_type, status_type, state, package in cases:
+            with self.subTest(section=section_type.__name__):
+                client = FakeConnectionClient(connected=True, host="10.11.99.1")
+                section = section_type(client)
+                self.addCleanup(section.deleteLater)
+                identity = _tap_page_turn.DeviceIdentity(
+                    package.firmware,
+                    package.platform,
+                    package.architecture,
+                    package.xochitl_sha256,
+                )
+                section._apply_status(
+                    status_type(
+                        state,
+                        identity,
+                        package,
+                        (package,),
+                        detail="请按 Vellum 官方说明卸载。",
+                    )
+                )
+
+                self.assertFalse(section.enable_button.isEnabled())
+                self.assertFalse(section.disable_button.isEnabled())
+                self.assertFalse(section.vellum_help_button.isHidden())
+                with mock.patch.object(
+                    QtGui.QDesktopServices, "openUrl", return_value=True
+                ) as open_url:
+                    section.vellum_help_button.click()
+                self.assertEqual(
+                    open_url.call_args.args[0].toString(),
+                    _tap_page_turn.VELLUM_UNINSTALL_URL,
+                )
 
     def test_shared_firmware_residue_uses_cleanup_action_in_both_sections(self):
         cases = (
@@ -3408,6 +3613,101 @@ class FontUiTests(unittest.TestCase):
         self.assertEqual(widget.set_active_button.text(), "设为系统字体")
         self.assertTrue(widget.delete_button.isEnabled())
 
+    def test_font_inventory_displays_device_verification_level(self):
+        widget = rmtool.FontTab(
+            FakeConnectionClient(connected=True), rmtool._default_config()
+        )
+        self.addCleanup(widget.deleteLater)
+        verification = _rmkit_cn.FontMirrorVerification(
+            "pending", "待实机验证", "Paper Pro Move 正式版尚待实机验证。"
+        )
+
+        widget._apply_font_inventory((), verification=verification)
+
+        self.assertIn("字体镜像：待实机验证", widget.manager_status_label.text())
+        self.assertEqual(
+            widget.manager_status_label.toolTip(), verification.detail
+        )
+
+    def test_font_inventory_enables_only_validated_legacy_migration(self):
+        widget = rmtool.FontTab(
+            FakeConnectionClient(connected=True), rmtool._default_config()
+        )
+        self.addCleanup(widget.deleteLater)
+        ready = _rmkit_cn.LegacySystemFontMigration(
+            "ready",
+            "检测到可迁移的旧版系统字体：legacy.ttf。",
+            "legacy.ttf",
+            _rmkit_cn.LEGACY_SYSTEM_FONT_PATHS[".ttf"],
+        )
+
+        widget._apply_font_inventory((), migration=ready)
+
+        self.assertTrue(widget.migrate_font_button.isEnabled())
+        self.assertIn("检测到可迁移", widget.manager_status_label.text())
+
+        invalid = _rmkit_cn.LegacySystemFontMigration(
+            "invalid", "旧版系统字体与原文件内容不一致。"
+        )
+        widget._apply_font_inventory((), migration=invalid)
+        self.assertFalse(widget.migrate_font_button.isEnabled())
+        self.assertIn("内容不一致", widget.manager_status_label.text())
+
+        widget._apply_font_inventory(())
+        self.assertFalse(widget.migrate_font_button.isEnabled())
+        self.assertNotIn("内容不一致", widget.manager_status_label.text())
+
+    def test_legacy_font_migration_uses_one_confirmation_and_one_worker(self):
+        client = FakeConnectionClient(connected=True)
+        widget = rmtool.FontTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        widget._apply_font_inventory(
+            (),
+            migration=_rmkit_cn.LegacySystemFontMigration(
+                "ready",
+                "检测到可迁移的旧版系统字体：legacy.ttf。",
+                "legacy.ttf",
+                _rmkit_cn.LEGACY_SYSTEM_FONT_PATHS[".ttf"],
+            ),
+        )
+
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=True
+        ) as confirm, mock.patch.object(widget, "_start_font_worker") as start_worker:
+            widget.migrate_font_button.click()
+
+        confirm.assert_called_once()
+        start_worker.assert_called_once()
+        self.assertIs(
+            start_worker.call_args.args[0], _rmkit_cn.migrate_legacy_system_font
+        )
+        self.assertEqual(
+            start_worker.call_args.args[1:3], (client, rmtool.DEFAULT_FONT_DIR)
+        )
+        self.assertIn("不会自动重启", confirm.call_args.args[2])
+
+    def test_disconnect_clears_legacy_migration_action(self):
+        client = FakeConnectionClient(connected=True)
+        widget = rmtool.FontTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        widget._apply_font_inventory(
+            (),
+            migration=_rmkit_cn.LegacySystemFontMigration(
+                "ready",
+                "检测到可迁移的旧版系统字体：legacy.ttf。",
+                "legacy.ttf",
+                _rmkit_cn.LEGACY_SYSTEM_FONT_PATHS[".ttf"],
+            ),
+        )
+        self.assertTrue(widget.migrate_font_button.isEnabled())
+
+        client._connected = False
+        widget._on_connection_changed(False)
+
+        self.assertIsNone(widget._legacy_font_migration)
+        self.assertFalse(widget.migrate_font_button.isEnabled())
+        self.assertEqual(widget.manager_status_label.text(), "设备未连接。")
+
     def test_font_inventory_shows_and_protects_all_legacy_active_matches(self):
         widget = rmtool.FontTab(
             FakeConnectionClient(connected=True), rmtool._default_config()
@@ -3461,6 +3761,8 @@ class FontUiTests(unittest.TestCase):
 
         self.assertEqual(widget.font_table.rowCount(), 0)
         self.assertEqual(widget.manager_status_label.text(), "设备未连接。")
+        self.assertIsNone(widget._legacy_font_migration)
+        self.assertFalse(widget.migrate_font_button.isEnabled())
         self.assertFalse(widget._busy)
 
     def test_reconnect_waits_for_stale_worker_before_refreshing(self):
@@ -3494,7 +3796,13 @@ class FontUiTests(unittest.TestCase):
 
             self.assertTrue(widget._busy)
             self.assertEqual(worker_cls.call_count, 2)
-            refresh_worker.signals.finished.connect.call_args.args[0](())
+        refresh_worker.signals.finished.connect.call_args.args[0](
+            (
+                (),
+                _rmkit_cn.FontMirrorVerification("unverified", "未实机验证", "测试"),
+                _rmkit_cn.LegacySystemFontMigration("none", "无需迁移"),
+            )
+        )
 
         self.assertFalse(widget._busy)
 
@@ -3522,7 +3830,13 @@ class FontUiTests(unittest.TestCase):
 
             self.assertEqual(worker_cls.call_count, 2)
             self.assertTrue(widget._busy)
-            refresh_worker.signals.finished.connect.call_args.args[0](())
+        refresh_worker.signals.finished.connect.call_args.args[0](
+            (
+                (),
+                _rmkit_cn.FontMirrorVerification("unverified", "未实机验证", "测试"),
+                _rmkit_cn.LegacySystemFontMigration("none", "无需迁移"),
+            )
+        )
 
         self.assertFalse(widget._busy)
         self.assertEqual(widget.font_table.rowCount(), 0)
@@ -3606,7 +3920,7 @@ class FontUiTests(unittest.TestCase):
             widget._set_selected_active()
 
         self.assertIn("重新应用 active.ttf", confirm.call_args.args[2])
-        self.assertIn("修复锁屏阶段使用的字体镜像", confirm.call_args.args[2])
+        self.assertIn("修复 /data 中供锁屏使用的当前字体副本", confirm.call_args.args[2])
         self.assertEqual(confirm.call_args.kwargs["confirm_text"], "重新应用系统字体")
         start_worker.assert_called_once()
         self.assertIs(start_worker.call_args.args[0], _rmkit_cn.set_active_user_font)

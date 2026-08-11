@@ -1,0 +1,45 @@
+; Native Simplified Chinese language entry probe for Chiappa 3.27.3.0.
+
+AFFECT [[2614788545268785717]]
+    TRAVERSE [[7711904883727328]]#[[6504254477]]
+        REBUILD [[214634455770]]
+            LOCATE AFTER ALL
+            INSERT STREAM /.concat(["zh_CN"])/
+        END REBUILD
+
+        TRAVERSE [[425121728314878811.13610640237189283980]]
+            REBUILD [[6504315758]]
+                LOCATE BEFORE ALL
+                INSERT { modelData === "zh_CN" ? "简体中文" : }
+            END REBUILD
+        END TRAVERSE
+    END TRAVERSE
+END AFFECT
+
+AFFECT [[3401883773828043418]]
+    TRAVERSE [[3819512207256720568]]#[[6504254477]]
+        TRAVERSE [[14125623155555875541]]#[[7082545991543]]
+            TRAVERSE [[425121728314878811.6502554441]]#[[254537518361619520]]
+                TRAVERSE [[425121728314878811.7711515867978328]][.[[7083177691309]]~[[7306372059341634724]]]
+                    REBUILD [[7083177691309]]
+                        LOCATE BEFORE ALL
+                        INSERT { languageSettings.languageCode === "zh_CN" ? "简体中文" : }
+                    END REBUILD
+                END TRAVERSE
+            END TRAVERSE
+        END TRAVERSE
+
+        TRAVERSE [[254480451320573660]]#[[17993826873061832317]]
+            TRAVERSE [[3632852931850195970]]
+                REBUILD [[214634455770]]
+                    LOCATE AFTER ALL
+                    INSERT STREAM /.concat(["zh_CN"])/
+                END REBUILD
+                REBUILD [[233725082496895]]
+                    LOCATE AFTER STREAM /=> {/
+                    INSERT { if (modelData === "zh_CN") return "简体中文"; }
+                END REBUILD
+            END TRAVERSE
+        END TRAVERSE
+    END TRAVERSE
+END AFFECT

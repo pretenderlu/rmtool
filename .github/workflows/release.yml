@@ -75,6 +75,7 @@ jobs:
             --add-data "$root/translations/manifest.json:translations" \
             --add-data "$root/tap-page-turn/manifest.json:tap-page-turn" \
             --add-data "$root/fast-mono-reading/manifest.json:fast-mono-reading" \
+            --add-data "$root/native-chinese/manifest.json:native-chinese" \
             --distpath dist \
             --workpath build/macos \
             --specpath build \

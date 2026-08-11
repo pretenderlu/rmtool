@@ -23,6 +23,8 @@ BETA_164_CHIAPPA_QM_SIZE = 192220
 BETA_164_CHIAPPA_QM_SHA256 = "50dc76f758b51fa10bf026269e1788904fe564d00ed6e37b97fed7dc02399348"
 BETA_164_FERRARI_QM_SIZE = 196446
 BETA_164_FERRARI_QM_SHA256 = "18c564eea746a1508343b85197d958b003729b3274f5a6a880285c552dc7348a"
+BETA_166_FERRARI_QM_SIZE = 196567
+BETA_166_FERRARI_QM_SHA256 = "6bdca18626173b9fadbd350347afebcab0cae3639f8d206d86b9723cd3dda127"
 LEGACY_SUPPLEMENT_MESSAGES = 84
 LEGACY_MESSAGES = FERRARI_MESSAGES + LEGACY_SUPPLEMENT_MESSAGES
 LEGACY_SUPPLEMENT_KEY_SHA256 = "52d97ca57b9fc74f74ae99af843eeaa9813e5530818adbe4be426d60c6f492fa"
@@ -228,6 +230,17 @@ def key_digest(keys):
 
 
 class RmkitCnTranslationCatalogTests(unittest.TestCase):
+    def test_beta_166_ferrari_catalog_loads_with_qt(self):
+        qm_path = (
+            Path(__file__).resolve().parents[1]
+            / "translations/reMarkable_zh_CN-3.28.0.166-ferrari.qm"
+        )
+        data = qm_path.read_bytes()
+        self.assertEqual(len(data), BETA_166_FERRARI_QM_SIZE)
+        self.assertEqual(hashlib.sha256(data).hexdigest(), BETA_166_FERRARI_QM_SHA256)
+        translator = QtCore.QTranslator()
+        self.assertTrue(translator.load(str(qm_path)))
+
     def test_chinese_catalog_is_complete_and_well_formed(self):
         catalog_path = (
             Path(__file__).resolve().parents[1]

@@ -1,0 +1,11 @@
+version 0.2.0
+
+condition _ZN11QTranslator4loadERK7QLocaleRK7QStringS5_S5_S5_
+condition _ZN11QTranslator4loadERK7QStringS2_S2_S2_
+
+import _ZN11QTranslator4loadERK7QLocaleRK7QStringS5_S5_S5_:vptr:cvptr:cvptr:cvptr:cvptr:cvptr>bool
+import _ZN11QTranslator4loadERK7QStringS2_S2_S2_:vptr:cvptr:cvptr:cvptr:cvptr>bool
+import? _ZN7QStringC1EPK5QCharx:vptr:cvptr:i64>void
+import? _ZNK7QLocale8languageEv:cvptr>int
+
+override _ZN11QTranslator4loadERK7QLocaleRK7QStringS5_S5_S5_

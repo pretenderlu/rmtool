@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import _fast_mono_reading as fast
+import _native_chinese as native
 import _tap_page_turn as tap
 import _xovi_standalone as shared
 
@@ -29,6 +30,34 @@ class SharedXoviTests(unittest.TestCase):
             )
             yield tap_package, fast_package
 
+    @staticmethod
+    def multifile_feature():
+        return shared.SharedFeatureSpec(
+            "native-chinese",
+            "ferrari-166",
+            "native.qmd",
+            f"{shared.SHARED_QRR_HOME}/rmtool-native-chinese.qmd",
+            "a" * 64,
+            10,
+            0o644,
+            (
+                shared.SharedFeatureFileSpec(
+                    "extensions.d/native-chinese-translator.so",
+                    "extensions.d/native-chinese-translator.so",
+                    "b" * 64,
+                    11,
+                    0o644,
+                ),
+                shared.SharedFeatureFileSpec(
+                    "native-chinese/reMarkable_zh_CN.qm",
+                    "native-chinese/reMarkable_zh_CN.qm",
+                    "c" * 64,
+                    12,
+                    0o644,
+                ),
+            ),
+        )
+
     def shared_residue_ssh(
         self,
         old_tap,
@@ -42,7 +71,13 @@ class SharedXoviTests(unittest.TestCase):
         lower_dropins=(),
         feature_ids=None,
         feature_overrides=None,
+        legacy_launcher=False,
+        layout=None,
+        startup_pending=False,
+        pending_mode=0o600,
+        pending_size=0,
     ):
+        layout = layout or shared.SHARED_LAYOUT
         identity = tap.DeviceIdentity(
             old_tap.firmware,
             old_tap.platform,
@@ -58,8 +93,14 @@ class SharedXoviTests(unittest.TestCase):
             if feature_ids is None or feature_id in feature_ids
         }
         enabled = tuple(state.spec for state in states.values())
-        launcher = shared.shared_launcher(runtime, enabled).encode()
-        dropin = shared.shared_dropin(runtime, enabled).encode()
+        launcher = shared.shared_launcher(
+            runtime,
+            enabled,
+            recovery_sentinel=not legacy_launcher,
+            startup_guard=(not legacy_launcher and layout == shared.SHARED_LAYOUT),
+            layout=layout,
+        ).encode()
+        dropin = shared.shared_dropin(runtime, enabled, layout=layout).encode()
         marker = shared.shared_marker(
             runtime,
             states,
@@ -69,17 +110,16 @@ class SharedXoviTests(unittest.TestCase):
         if marker_bytes is not None:
             marker = marker_bytes
         expected = {item.path: item for item in runtime.files}
-        expected.update(
-            {
-                state.spec.runtime_path: shared.SharedFileSpec(
-                    state.spec.runtime_path,
-                    state.spec.sha256,
-                    state.spec.size,
-                    state.spec.mode,
-                )
-                for state in states.values()
-            }
-        )
+        expected.update({
+            item.runtime_path: shared.SharedFileSpec(
+                item.runtime_path,
+                item.sha256,
+                item.size,
+                item.mode,
+            )
+            for state in states.values()
+            for item in state.spec.files
+        })
         expected.update(
             {
                 "launcher.sh": shared.SharedFileSpec(
@@ -102,21 +142,34 @@ class SharedXoviTests(unittest.TestCase):
             while parent:
                 dirs.add(parent)
                 parent = posixpath.dirname(parent)
-        base = shared.SHARED_LAYOUT.remote_base
+        if startup_pending:
+            expected["startup.pending"] = shared.SharedFileSpec(
+                "startup.pending",
+                hashlib.sha256(b"").hexdigest(),
+                0,
+                0o600,
+            )
+        base = layout.remote_base
         records = [f"41ed|0|0|0|{base}"]
         records.extend(f"41ed|0|0|0|{base}/{path}" for path in sorted(dirs))
-        records.extend(
-            f"{0o100000 | item.mode:x}|0|0|{item.size}|{base}/{path}"
-            for path, item in sorted(expected.items())
-        )
+        for path, item in sorted(expected.items()):
+            mode = pending_mode if path == "startup.pending" else item.mode
+            size = pending_size if path == "startup.pending" else item.size
+            records.append(f"{0o100000 | mode:x}|0|0|{size}|{base}/{path}")
         if extra_path:
             records.append(f"81a4|0|0|1|{base}/{extra_path}")
         hashes = {
             f"{base}/{path}": item.sha256 for path, item in expected.items()
         }
+        if shared.SHARED_LAYOUT.dropin_path in visible_dropins:
+            hashes[shared.SHARED_LAYOUT.dropin_path] = hashlib.sha256(
+                dropin
+            ).hexdigest()
         if modified_path:
             hashes[f"{base}/{modified_path}"] = "0" * 64
-        present = {base, shared.SHARED_MARKER_PATH, *visible_dropins}
+        present = {base, f"{base}/package.json", *visible_dropins}
+        if startup_pending:
+            present.add(f"{base}/startup.pending")
         ssh = Mock()
         ssh.file_exists.side_effect = lambda path: path in present
         def open_remote(*_args, **_kwargs):
@@ -125,13 +178,21 @@ class SharedXoviTests(unittest.TestCase):
             return remote
 
         ssh.open_remote.side_effect = open_remote
-        ssh.exec_command.return_value = ("", "", 0 if active else 1)
+        def execute_raw(command):
+            if command.startswith("[ -e "):
+                exists = any(f"[ -e {path} ]" in command for path in present)
+                return "", "", 0 if exists else 1
+            return "", "", 0 if active else 1
+
+        ssh.exec_command.side_effect = execute_raw
 
         def execute(command):
             if command.startswith("for file in /etc/systemd/system"):
                 return "\n".join(visible_dropins)
             if command.startswith("stat -c '%f|%u|%g"):
                 return "\n".join(records)
+            if command.startswith("stat -c '%f %u %g'"):
+                return "81a4 0 0"
             if command.startswith("sha256sum"):
                 path = command.split("sha256sum ", 1)[1]
                 return f"{hashes[path]}  {path}\n"
@@ -148,7 +209,7 @@ class SharedXoviTests(unittest.TestCase):
 
     def test_all_targets_have_identical_common_runtime(self):
         pairs = tuple(self.contexts())
-        self.assertEqual(len(pairs), 10)
+        self.assertEqual(len(pairs), 11)
         for tap_package, fast_package in pairs:
             with self.subTest(
                 platform=tap_package.platform, firmware=tap_package.firmware
@@ -168,8 +229,11 @@ class SharedXoviTests(unittest.TestCase):
                 ):
                     context_runtime, trusted, legacies = context
                     self.assertEqual(context_runtime, tap_runtime)
+                    expected_features = {"tap-page-turn", "fast-mono-reading"}
+                    if native.select_package(native._trusted_catalog(), identity):
+                        expected_features.add("native-chinese")
                     self.assertEqual(
-                        set(trusted), {"tap-page-turn", "fast-mono-reading"}
+                        set(trusted), expected_features
                     )
                     self.assertEqual(len(legacies), 2)
 
@@ -190,15 +254,326 @@ class SharedXoviTests(unittest.TestCase):
         self.assertIn('*) stock ;;', first)
         self.assertIn("qmd_count", first)
 
+    def test_multifile_launcher_has_generic_recovery_and_strict_extensions(self):
+        tap_package, _fast_package = next(iter(self.contexts()))
+        runtime, tap_feature = tap._shared_specs(tap_package)
+        native_feature = self.multifile_feature()
+
+        launcher = shared.shared_launcher(runtime, (tap_feature, native_feature))
+        self.assertIn(
+            f"[ ! -e {shared.SHARED_RECOVERY_SENTINEL} ] || stock",
+            launcher,
+        )
+        self.assertTrue(
+            shared.SHARED_RECOVERY_SENTINEL.startswith(
+                "/data/rmtool/"
+            )
+        )
+        self.assertIn('case "${extension##*/}" in', launcher)
+        self.assertIn(
+            "native-chinese-translator.so|qt-resource-rebuilder.so", launcher
+        )
+        self.assertIn('[ "$extension_count" -eq 2 ]', launcher)
+        self.assertIn("native-chinese/reMarkable_zh_CN.qm", launcher)
+
+        tap_only = shared.shared_launcher(runtime, (tap_feature,))
+        self.assertIn(shared.SHARED_RECOVERY_SENTINEL, tap_only)
+        legacy = shared.shared_launcher(
+            runtime,
+            (tap_feature,),
+            recovery_sentinel=False,
+            startup_guard=False,
+        )
+        self.assertNotIn(shared.SHARED_RECOVERY_SENTINEL, legacy)
+
+    def test_shared_launcher_uses_data_and_latches_failed_startup(self):
+        tap_package, _fast_package = next(iter(self.contexts()))
+        runtime, tap_feature = tap._shared_specs(tap_package)
+        launcher = shared.shared_launcher(runtime, (tap_feature,))
+
+        self.assertEqual(
+            shared.SHARED_LAYOUT.remote_base,
+            "/data/rmtool/xovi-standalone",
+        )
+        self.assertIn("PENDING=/data/rmtool/xovi-standalone/startup.pending", launcher)
+        self.assertIn("ln \"$PENDING_TMP\" \"$PENDING\"", launcher)
+        self.assertIn("chmod 0600 \"$PENDING_TMP\"", launcher)
+        self.assertIn("chown root:root \"$PENDING_TMP\"", launcher)
+        self.assertIn("600:0:0:0", launcher)
+        self.assertIn(f"sleep {shared.SHARED_STARTUP_STABLE_SECONDS}", launcher)
+        self.assertIn('readlink "/proc/$main_pid/exe"', launcher)
+        self.assertLess(
+            launcher.index("arm_startup_guard || stock"),
+            launcher.index("export LD_PRELOAD"),
+        )
+        self.assertLess(
+            launcher.index("clear_guard_when_stable $$ &"),
+            launcher.index("exec /usr/bin/xochitl --system", launcher.index("export LD_PRELOAD")),
+        )
+        self.assertNotIn("systemd-run", launcher)
+        self.assertNotIn("nohup", launcher)
+
+    def test_shared_dropin_keeps_early_data_ordering(self):
+        tap_package, _fast_package = next(iter(self.contexts()))
+        runtime, tap_feature = tap._shared_specs(tap_package)
+        text = shared.shared_dropin(runtime, (tap_feature,))
+
+        self.assertIn("After=data.mount", text)
+        self.assertNotIn("home.mount", text)
+        self.assertNotIn("ConditionPathExists=", text)
+        self.assertIn("ExecStart=/bin/sh -c", text)
+        self.assertIn("then exec /bin/sh /data/rmtool/xovi-standalone/launcher.sh", text)
+        self.assertIn("else exec /usr/bin/xochitl --system", text)
+        self.assertIn("KillMode=control-group", text)
+
+        legacy = shared.shared_dropin(
+            runtime, (tap_feature,), layout=shared.LEGACY_SHARED_LAYOUT
+        )
+        self.assertIn("After=home.mount", legacy)
+        self.assertIn(
+            f"ConditionPathExists={shared.LEGACY_SHARED_LAYOUT.launcher_path}",
+            legacy,
+        )
+        self.assertNotIn("/bin/sh -c", legacy)
+
+    def test_every_new_shared_target_uses_only_early_data_ordering(self):
+        packages = (*tap._trusted_catalog(), *native._trusted_catalog())
+        identities = {
+            (
+                package.firmware,
+                package.platform,
+                package.architecture,
+                package.xochitl_sha256,
+            )
+            for package in packages
+        }
+        for firmware, platform, architecture, xochitl_sha256 in identities:
+            identity = tap.DeviceIdentity(
+                firmware, platform, architecture, xochitl_sha256
+            )
+            runtime, trusted, _legacies = tap._trusted_shared_context(identity)
+            text = shared.shared_dropin(runtime, trusted.values())
+            with self.subTest(platform=platform, firmware=firmware):
+                self.assertIn("After=data.mount", text)
+                self.assertNotIn("home.mount", text)
+                self.assertNotIn("ConditionPathExists=", text)
+                self.assertIn("else exec /usr/bin/xochitl --system", text)
+
+    def test_startup_pending_is_strictly_validated_and_reported(self):
+        tap_package, fast_package = next(iter(self.contexts()))
+        ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+            tap_package,
+            fast_package,
+            visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+            startup_pending=True,
+        )
+        inspection = shared.inspect_shared(ssh, runtime, trusted)
+        self.assertTrue(inspection.startup_pending)
+        self.assertFalse(inspection.active)
+        with self.assertRaisesRegex(RuntimeError, "自动启动保护已触发"):
+            shared.assert_startup_guard_not_latched(inspection)
+
+        ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+            tap_package,
+            fast_package,
+            visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+            startup_pending=True,
+            pending_mode=0o644,
+        )
+        with self.assertRaisesRegex(RuntimeError, "权限或大小已变化"):
+            shared.inspect_shared(ssh, runtime, trusted)
+
+    def test_exact_home_shared_layout_is_recognized_for_migration(self):
+        tap_package, fast_package = next(iter(self.contexts()))
+        ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+            tap_package,
+            fast_package,
+            visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+            layout=shared.LEGACY_SHARED_LAYOUT,
+        )
+        inspection = shared.inspect_shared(ssh, runtime, trusted)
+        self.assertEqual(inspection.layout, shared.LEGACY_SHARED_LAYOUT)
+
+        script = shared.shared_transaction_script(
+            "/data/rmtool/xovi-standalone.staging-test",
+            "a" * 32,
+            (shared.LEGACY_SHARED_LAYOUT,),
+            enable_dropin=True,
+        )
+        self.assertIn(shared.LEGACY_SHARED_LAYOUT.remote_base, script)
+        self.assertIn(shared.SHARED_LAYOUT.remote_base, script)
+        self.assertNotIn("upper-1", script)
+
+    def test_emergency_sentinel_clear_requires_root_owned_regular_file(self):
+        ssh = Mock()
+        ssh.exec_checked.return_value = ""
+
+        with (
+            patch.object(
+                shared, "recovery_sentinel_present", side_effect=(True, False)
+            ),
+            patch.object(
+                shared,
+                "_remote_entry_exists",
+                side_effect=lambda _ssh, path: path == shared.SHARED_RECOVERY_SENTINEL,
+            ),
+        ):
+            shared.clear_recovery_sentinel(ssh)
+
+        commands = [call.args[0] for call in ssh.exec_checked.call_args_list]
+        clear = next(
+            command for command in commands if "stat -c '%a:%u:%g:%s'" in command
+        )
+        self.assertIn("[ -f", clear)
+        self.assertIn("[ ! -L", clear)
+        self.assertIn("= '600:0:0:0'", clear)
+        self.assertIn(shared.SHARED_RECOVERY_SENTINEL, clear)
+
+    def test_emergency_sentinel_set_is_atomic_root_owned_and_never_restarts(self):
+        ssh = Mock()
+        ssh.exec_checked.return_value = ""
+
+        with (
+            patch.object(shared, "_remote_entry_exists", return_value=False),
+            patch.object(shared, "recovery_sentinel_present", return_value=True),
+        ):
+            shared.set_recovery_sentinel(ssh)
+
+        commands = [call.args[0] for call in ssh.exec_checked.call_args_list]
+        create = next(command for command in commands if " ln " in command)
+        self.assertIn("umask 077", create)
+        self.assertIn("chmod 0600", create)
+        self.assertIn("chown root:root", create)
+        self.assertIn(shared.SHARED_RECOVERY_SENTINEL, create)
+        self.assertNotIn("mount", create)
+        self.assertFalse(any("restart" in command or "reboot" in command for command in commands))
+        self.assertTrue(any("600:0:0:0" in command for command in commands))
+
+    def test_old_home_emergency_sentinel_is_validated_then_mirrored_to_data(self):
+        ssh = Mock()
+        ssh.exec_checked.return_value = ""
+
+        with (
+            patch.object(
+                shared,
+                "_remote_entry_exists",
+                side_effect=lambda _ssh, path: path == shared.LEGACY_RECOVERY_SENTINEL,
+            ),
+            patch.object(shared, "recovery_sentinel_present", return_value=True),
+        ):
+            shared.set_recovery_sentinel(ssh)
+
+        commands = [call.args[0] for call in ssh.exec_checked.call_args_list]
+        self.assertTrue(any(shared.LEGACY_RECOVERY_SENTINEL in item for item in commands))
+        self.assertTrue(any(
+            " ln " in item and shared.SHARED_RECOVERY_SENTINEL in item
+            for item in commands
+        ))
+
+    def test_emergency_sentinel_detects_dangling_symlink_and_refuses_it(self):
+        ssh = Mock()
+        ssh.exec_command.return_value = ("", "", 0)
+        ssh.exec_checked.side_effect = ("", RuntimeError("invalid sentinel"), "")
+
+        self.assertTrue(shared.recovery_sentinel_present(ssh))
+        with self.assertRaisesRegex(RuntimeError, "invalid sentinel"):
+            shared.set_recovery_sentinel(ssh)
+
+    def test_feature_layout_rejects_runtime_peer_and_qmd_path_collisions(self):
+        tap_package, fast_package = next(iter(self.contexts()))
+        runtime, tap_feature = tap._shared_specs(tap_package)
+        _runtime, fast_feature = fast._shared_specs(fast_package)
+        native = self.multifile_feature()
+
+        collisions = (
+            shared.SharedFeatureSpec(
+                "native-chinese",
+                native.package_id,
+                native.archive_path,
+                runtime.files[0].path,
+                native.sha256,
+                native.size,
+                native.mode,
+            ),
+            shared.SharedFeatureSpec(
+                "native-chinese",
+                native.package_id,
+                native.archive_path,
+                tap_feature.runtime_path,
+                native.sha256,
+                native.size,
+                native.mode,
+            ),
+            shared.SharedFeatureSpec(
+                "native-chinese",
+                native.package_id,
+                native.archive_path,
+                "native-chinese/outside-qrr.qmd",
+                native.sha256,
+                native.size,
+                native.mode,
+            ),
+        )
+        for feature in collisions:
+            with self.subTest(path=feature.runtime_path):
+                with self.assertRaises(RuntimeError):
+                    shared.assert_feature_layout(
+                        runtime, (tap_feature, fast_feature, feature)
+                    )
+
+        shared.assert_feature_layout(
+            runtime, (tap_feature, fast_feature, native)
+        )
+
+    def test_inspection_accepts_exact_legacy_launcher_marker(self):
+        tap_package, fast_package = next(iter(self.contexts()))
+        ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+            tap_package,
+            fast_package,
+            visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+            legacy_launcher=True,
+        )
+        inspection = shared.inspect_shared(ssh, runtime, trusted)
+        self.assertEqual(set(inspection.states), set(trusted))
+        self.assertTrue(inspection.dropin_present)
+
+    def test_multifile_owned_tree_rejects_modified_and_unknown_extra_paths(self):
+        tap_package, fast_package = next(iter(self.contexts()))
+        _runtime, tap_feature = tap._shared_specs(tap_package)
+        native_feature = self.multifile_feature()
+        overrides = {
+            tap_feature.feature_id: tap_feature,
+            native_feature.feature_id: native_feature,
+        }
+        for modified_path, extra_path in (
+            ("native-chinese/reMarkable_zh_CN.qm", None),
+            (None, "extensions.d/untrusted.so"),
+        ):
+            with self.subTest(modified=modified_path, extra=extra_path):
+                ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+                    tap_package,
+                    fast_package,
+                    feature_ids=("tap-page-turn", "native-chinese"),
+                    feature_overrides=overrides,
+                    modified_path=modified_path,
+                    extra_path=extra_path,
+                    visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+                )
+                with self.assertRaises(RuntimeError):
+                    shared.inspect_shared(ssh, runtime, trusted)
+
     def test_shared_dropin_always_reaches_fail_open_launcher(self):
         tap_package, fast_package = next(iter(self.contexts()))
         runtime, tap_feature = tap._shared_specs(tap_package)
         _runtime, fast_feature = fast._shared_specs(fast_package)
         text = shared.shared_dropin(runtime, (tap_feature, fast_feature))
         conditions = [line for line in text.splitlines() if line.startswith("ConditionPathExists=")]
-        self.assertEqual(conditions, [f"ConditionPathExists={shared.SHARED_LAYOUT.launcher_path}"])
+        self.assertEqual(conditions, [])
+        self.assertIn(shared.SHARED_LAYOUT.launcher_path, text)
+        self.assertIn("else exec /usr/bin/xochitl --system", text)
         self.assertNotIn(".qmd", text)
-        self.assertIn("After=home.mount", text)
+        self.assertIn("After=data.mount", text)
+        self.assertNotIn("home.mount", text)
 
     def test_marker_rejects_unknown_feature_and_self_declared_hash(self):
         tap_package, fast_package = next(iter(self.contexts()))
@@ -345,12 +720,16 @@ class SharedXoviTests(unittest.TestCase):
             }
         }
         ssh = Mock()
+        ssh.file_exists.side_effect = lambda path: path == shared.SHARED_LAYOUT.remote_base
         remote = MagicMock()
         remote.__enter__.return_value = io.StringIO(json.dumps(marker))
         ssh.open_remote.return_value = remote
         runtime, trusted, _legacies = tap._trusted_shared_context_from_marker(ssh)
         self.assertEqual(runtime.xochitl_sha256, tap_package.xochitl_sha256)
-        self.assertEqual(set(trusted), {"tap-page-turn", "fast-mono-reading"})
+        self.assertEqual(
+            set(trusted),
+            {"tap-page-turn", "fast-mono-reading", "native-chinese"},
+        )
 
         marker["identity"]["xochitl_sha256"] = "0" * 64
         remote.__enter__.return_value = io.StringIO(json.dumps(marker))
@@ -390,8 +769,10 @@ class SharedXoviTests(unittest.TestCase):
             ):
                 result = module.get_status(ssh, ())
             self.assertEqual(result.state, state)
-            self.assertTrue(
-                result.dropin_present if module is tap else result.recovery_available
+            expected_recovery = module is tap
+            self.assertEqual(
+                result.dropin_present if module is tap else result.recovery_available,
+                expected_recovery,
             )
             inspect.assert_called_once()
 
@@ -640,7 +1021,7 @@ class SharedXoviTests(unittest.TestCase):
                 ),
             )
 
-    def test_164_upgrade_recognizes_and_removes_exact_163_vellum_markers(self):
+    def test_164_upgrade_offers_targeted_removal_for_exact_163_vellum_packages(self):
         for platform in ("chiappa", "ferrari"):
             old_tap = next(
                 item for item in tap._trusted_catalog()
@@ -658,21 +1039,17 @@ class SharedXoviTests(unittest.TestCase):
                 item for item in fast._trusted_catalog()
                 if item.platform == platform and item.release_version == "3.28.0.164"
             )
-            new_identity = tap.DeviceIdentity(
+            identity = tap.DeviceIdentity(
                 new_tap.firmware,
                 new_tap.platform,
                 new_tap.architecture,
                 new_tap.xochitl_sha256,
             )
-            old_tap_marker = json.loads(
-                tap._vellum_marker(
-                    old_tap, enabled=True, process_token=self.TOKEN
-                )
+            tap_marker = json.loads(
+                tap._vellum_marker(old_tap, enabled=True, process_token=self.TOKEN)
             )
-            old_fast_marker = json.loads(
-                fast._vellum_marker(
-                    old_fast, enabled=True, process_token=self.TOKEN
-                )
+            fast_marker = json.loads(
+                fast._vellum_marker(old_fast, enabled=True, process_token=self.TOKEN)
             )
             ssh = Mock()
             ssh.file_exists.side_effect = lambda path: path in {
@@ -684,8 +1061,8 @@ class SharedXoviTests(unittest.TestCase):
             }
             with (
                 patch.object(shared, "has_shared_artifacts", return_value=False),
-                patch.object(tap, "get_device_identity", return_value=new_identity),
-                patch.object(tap, "_read_marker", return_value=old_tap_marker),
+                patch.object(tap, "get_device_identity", return_value=identity),
+                patch.object(tap, "_read_marker", return_value=tap_marker),
                 patch.object(
                     tap,
                     "_vellum_installed_version",
@@ -693,13 +1070,13 @@ class SharedXoviTests(unittest.TestCase):
                 ),
                 patch.object(tap, "_vellum_payload_valid", return_value=(True, "")),
             ):
-                status = tap.get_status(ssh, (old_tap, new_tap))
-            self.assertEqual(status.state, tap.TapPageTurnState.OUTDATED)
+                tap_status = tap.get_status(ssh, (old_tap, new_tap))
+            self.assertEqual(tap_status.state, tap.TapPageTurnState.LEGACY_VELLUM)
 
             with (
                 patch.object(shared, "has_shared_artifacts", return_value=False),
-                patch.object(tap, "get_device_identity", return_value=new_identity),
-                patch.object(fast, "_read_marker", return_value=old_fast_marker),
+                patch.object(tap, "get_device_identity", return_value=identity),
+                patch.object(fast, "_read_marker", return_value=fast_marker),
                 patch.object(
                     tap,
                     "_vellum_installed_version",
@@ -711,49 +1088,60 @@ class SharedXoviTests(unittest.TestCase):
                     return_value=(old_fast.package_revision, ""),
                 ),
             ):
-                status = fast.get_status(ssh, (old_fast, new_fast))
-            self.assertEqual(status.state, fast.FastMonoReadingState.OUTDATED)
+                fast_status = fast.get_status(ssh, (old_fast, new_fast))
+            self.assertEqual(
+                fast_status.state, fast.FastMonoReadingState.LEGACY_VELLUM
+            )
 
             result = object()
-            ssh.file_exists.side_effect = None
-            ssh.file_exists.return_value = False
+            tap_ssh = Mock()
+            tap_ssh.file_exists.return_value = False
             with (
-                patch.object(tap, "_read_marker", return_value=old_tap_marker),
+                patch.object(tap, "_read_marker", return_value=tap_marker),
                 patch.object(tap, "_trusted_catalog", return_value=(old_tap, new_tap)),
-                patch.object(tap, "_vellum_payload_paths_valid", return_value=True),
                 patch.object(tap, "_vellum_payload_valid", return_value=(True, "")),
+                patch.object(tap, "_vellum_payload_paths_valid", return_value=True),
+                patch.object(tap, "_marker_dir_has_only_marker", return_value=True),
                 patch.object(
                     tap,
                     "_vellum_installed_version",
                     side_effect=(tap._vellum_package_version(old_tap), None),
                 ),
-                patch.object(tap, "_xochitl_process_token", return_value=self.TOKEN),
-                patch.object(tap, "get_device_identity", return_value=new_identity),
-                patch.object(tap, "_write_vellum_marker") as write_tap,
                 patch.object(tap, "get_status", return_value=result),
             ):
-                self.assertIs(tap._disable_vellum(ssh, (old_tap, new_tap)), result)
-            written_tap = json.loads(write_tap.call_args.args[1])
-            self.assertEqual(written_tap["xochitl_sha256"], new_tap.xochitl_sha256)
+                self.assertIs(tap._disable_vellum(tap_ssh, (old_tap, new_tap)), result)
+            tap_commands = [call.args[0] for call in tap_ssh.exec_checked.call_args_list]
+            self.assertEqual(
+                tap_commands[0],
+                f"{tap.VELLUM_BIN} del {tap.VELLUM_PACKAGE_NAME}",
+            )
+            self.assertNotIn("self uninstall", "\n".join(tap_commands))
+            self.assertNotIn("--all", "\n".join(tap_commands))
 
+            fast_ssh = Mock()
+            fast_ssh.file_exists.return_value = False
             with (
-                patch.object(fast, "_read_marker", return_value=old_fast_marker),
+                patch.object(fast, "_read_marker", return_value=fast_marker),
                 patch.object(fast, "_trusted_catalog", return_value=(old_fast, new_fast)),
-                patch.object(fast, "_vellum_payload_paths_valid", return_value=True),
                 patch.object(
                     fast,
                     "_vellum_payload_revision",
                     return_value=(old_fast.package_revision, ""),
                 ),
+                patch.object(fast, "_marker_dir_has_only_marker", return_value=True),
                 patch.object(tap, "_vellum_installed_version", return_value=None),
-                patch.object(tap, "_xochitl_process_token", return_value=self.TOKEN),
-                patch.object(tap, "get_device_identity", return_value=new_identity),
-                patch.object(fast, "_write_marker") as write_fast,
                 patch.object(fast, "get_status", return_value=result),
             ):
-                self.assertIs(fast._disable_vellum(ssh, (old_fast, new_fast)), result)
-            written_fast = json.loads(write_fast.call_args.args[1])
-            self.assertEqual(written_fast["xochitl_sha256"], new_fast.xochitl_sha256)
+                self.assertIs(
+                    fast._disable_vellum(fast_ssh, (old_fast, new_fast)), result
+                )
+            fast_commands = [call.args[0] for call in fast_ssh.exec_checked.call_args_list]
+            self.assertEqual(
+                fast_commands[0],
+                f"{tap.VELLUM_BIN} del {fast.VELLUM_PACKAGE_NAME}",
+            )
+            self.assertNotIn("self uninstall", "\n".join(fast_commands))
+            self.assertNotIn("--all", "\n".join(fast_commands))
 
     def test_shared_process_tokens_map_to_each_feature_status(self):
         tap_package, fast_package = next(iter(self.contexts()))
@@ -853,6 +1241,144 @@ class SharedXoviTests(unittest.TestCase):
             states = stage.call_args.args[2]
             self.assertEqual(set(states), {feature.feature_id})
             self.assertTrue(states[feature.feature_id].enabled)
+
+    def test_multifile_stage_preserves_every_peer_file(self):
+        tap_package, _fast_package = next(iter(self.contexts()))
+        runtime, tap_feature = tap._shared_specs(tap_package)
+        native_feature = self.multifile_feature()
+        states = {
+            tap_feature.feature_id: shared.SharedFeatureState(
+                tap_feature, True, self.TOKEN
+            ),
+            native_feature.feature_id: shared.SharedFeatureState(
+                native_feature, True, self.TOKEN
+            ),
+        }
+        previous_sources = {
+            item.runtime_path: f"/installed/{item.runtime_path}"
+            for item in native_feature.files
+        }
+        enabled = (tap_feature, native_feature)
+        launcher = shared.shared_launcher(runtime, enabled).encode()
+        dropin = shared.shared_dropin(runtime, enabled).encode()
+        marker = b"marker"
+        expected_hashes = {
+            item.path: item.sha256 for item in runtime.files
+        }
+        expected_hashes.update({
+            item.runtime_path: item.sha256
+            for feature in enabled
+            for item in feature.files
+        })
+        expected_hashes.update({
+            "launcher.sh": hashlib.sha256(launcher).hexdigest(),
+            f"systemd/{shared.SHARED_LAYOUT.dropin_name}": hashlib.sha256(
+                dropin
+            ).hexdigest(),
+            "package.json": hashlib.sha256(marker).hexdigest(),
+        })
+
+        def remote_sha(_ssh, path):
+            relative = path.split("/stage/", 1)[1]
+            return expected_hashes[relative]
+
+        ssh = Mock()
+        ssh.exec_checked.return_value = ""
+        with (
+            patch.object(shared, "_upload_path") as upload_path,
+            patch.object(shared, "_upload_bytes"),
+            patch.object(shared, "_remote_sha256", side_effect=remote_sha),
+            patch.object(shared, "shared_marker", return_value=marker),
+        ):
+            shared._stage_shared(
+                ssh,
+                runtime,
+                states,
+                tap_feature,
+                Path("unused"),
+                previous_sources,
+                "/stage",
+            )
+
+        commands = "\n".join(
+            call.args[0] for call in ssh.exec_checked.call_args_list
+        )
+        for item in native_feature.files:
+            self.assertIn(
+                f"cp /installed/{item.runtime_path} /stage/{item.runtime_path}",
+                commands,
+            )
+        uploaded = {call.args[2] for call in upload_path.call_args_list}
+        self.assertIn(f"/stage/{tap_feature.runtime_path}", uploaded)
+        self.assertNotIn(f"/stage/{native_feature.runtime_path}", uploaded)
+
+    def test_multifile_disable_removes_all_owned_files_and_keeps_peer(self):
+        tap_package, _fast_package = next(iter(self.contexts()))
+        runtime, tap_feature = tap._shared_specs(tap_package)
+        native_feature = self.multifile_feature()
+        trusted = {
+            tap_feature.feature_id: tap_feature,
+            native_feature.feature_id: native_feature,
+        }
+        states = {
+            tap_feature.feature_id: shared.SharedFeatureState(
+                tap_feature, True, self.TOKEN
+            ),
+            native_feature.feature_id: shared.SharedFeatureState(
+                native_feature, True, self.TOKEN
+            ),
+        }
+        inspection = shared.SharedInspection(states, True, True)
+        final = shared.SharedInspection({}, True, True)
+        launcher = shared.shared_launcher(runtime, (tap_feature,)).encode()
+        dropin = shared.shared_dropin(runtime, (tap_feature,)).encode()
+        marker = b"marker"
+
+        def remote_sha(_ssh, path):
+            if path.endswith("/" + tap_feature.runtime_path):
+                return tap_feature.sha256
+            if path.endswith("/launcher.sh"):
+                return hashlib.sha256(launcher).hexdigest()
+            if path.endswith("/" + shared.SHARED_LAYOUT.dropin_name):
+                return hashlib.sha256(dropin).hexdigest()
+            if path.endswith("/package.json"):
+                return hashlib.sha256(marker).hexdigest()
+            raise AssertionError(path)
+
+        ssh = Mock()
+        ssh.exec_checked.return_value = ""
+        with (
+            patch.object(
+                shared, "inspect_shared", side_effect=(inspection, final)
+            ),
+            patch.object(shared, "_process_token", return_value=self.TOKEN),
+            patch.object(shared, "_upload_bytes"),
+            patch.object(shared, "_remote_sha256", side_effect=remote_sha),
+            patch.object(shared, "shared_marker", return_value=marker),
+            patch.object(
+                shared,
+                "shared_transaction_script",
+                return_value="#!/bin/sh\n:",
+            ),
+        ):
+            result = shared.disable_shared(
+                ssh, runtime, native_feature.feature_id, trusted
+            )
+
+        self.assertIs(result, final)
+        commands = "\n".join(
+            call.args[0] for call in ssh.exec_checked.call_args_list
+        )
+        for item in native_feature.files:
+            self.assertIn(
+                f"rm -f {shared.SHARED_LAYOUT.remote_base}.staging-",
+                commands,
+            )
+            self.assertIn(item.runtime_path, commands)
+        self.assertNotIn(
+            f"rm -f {shared.SHARED_LAYOUT.remote_base}.staging-" + tap_feature.runtime_path,
+            commands,
+        )
 
     def test_both_legacy_migration_directions_preserve_peer(self):
         tap_package, fast_package = next(iter(self.contexts()))
@@ -1105,8 +1631,15 @@ class SharedXoviTests(unittest.TestCase):
         self.assertIn(shared.SHARED_LAYOUT.dropin_path, script)
         self.assertIn("ROLLBACK_OK=0", script)
         self.assertIn("rollback incomplete; recovery kept", script)
-        self.assertIn("/home/root/.local/share/rmtool/.xovi-dropins-", script)
-        self.assertLess(script.index("mount -o remount,ro"), script.index("systemctl daemon-reload"))
+        self.assertIn("/data/rmtool/.xovi-dropins-", script)
+        self.assertIn(
+            'mount -o remount,ro "$MOUNT_DIR" || return 1', script
+        )
+        self.assertIn('umount "$MOUNT_DIR" || return 1', script)
+        self.assertLess(
+            script.index("mount -o remount,ro"),
+            script.index("systemctl daemon-reload"),
+        )
 
     def test_operation_lock_releases_after_failure(self):
         ssh = Mock()

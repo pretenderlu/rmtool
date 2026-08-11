@@ -34,13 +34,24 @@ class StandaloneLayout:
 
 
 SHARED_LAYOUT = StandaloneLayout(
-    remote_base="/home/root/.local/share/rmtool/xovi-standalone",
+    remote_base="/data/rmtool/xovi-standalone",
     dropin_name="92-rmtool-xovi-standalone.conf",
     log_tag="rmtool-xovi-standalone",
     mount_tag="rmtool-xovi-shared",
 )
+LEGACY_SHARED_LAYOUT = StandaloneLayout(
+    remote_base="/home/root/.local/share/rmtool/xovi-standalone",
+    dropin_name=SHARED_LAYOUT.dropin_name,
+    log_tag=SHARED_LAYOUT.log_tag,
+    mount_tag=SHARED_LAYOUT.mount_tag,
+)
 SHARED_MARKER_PATH = f"{SHARED_LAYOUT.remote_base}/package.json"
 SHARED_QRR_HOME = "exthome/qt-resource-rebuilder"
+SHARED_RECOVERY_SENTINEL = "/data/rmtool/disable-xovi"
+LEGACY_RECOVERY_SENTINEL = "/home/root/.local/share/rmtool/disable-xovi"
+SHARED_STARTUP_PENDING = f"{SHARED_LAYOUT.remote_base}/startup.pending"
+SHARED_STARTUP_STABLE_SECONDS = 90
+_EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 _OPERATION_LOCK = "/tmp/rmtool-xovi-standalone.lock"
 _PROCESS_TOKEN_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9]+:[0-9]+"
@@ -73,6 +84,29 @@ class SharedFeatureSpec:
     sha256: str
     size: int
     mode: int
+    extra_files: tuple["SharedFeatureFileSpec", ...] = ()
+
+    @property
+    def files(self) -> tuple["SharedFeatureFileSpec", ...]:
+        return (
+            SharedFeatureFileSpec(
+                self.archive_path,
+                self.runtime_path,
+                self.sha256,
+                self.size,
+                self.mode,
+            ),
+            *self.extra_files,
+        )
+
+
+@dataclass(frozen=True)
+class SharedFeatureFileSpec:
+    archive_path: str
+    runtime_path: str
+    sha256: str
+    size: int
+    mode: int
 
 
 @dataclass(frozen=True)
@@ -100,6 +134,8 @@ class SharedInspection:
     states: Mapping[str, SharedFeatureState]
     active: bool
     dropin_present: bool
+    startup_pending: bool = False
+    layout: StandaloneLayout = SHARED_LAYOUT
 
 
 _COMMON_ARCHIVE_PATHS = (
@@ -114,12 +150,23 @@ def specs_from_package(
     package,
     feature_id: str,
     archive_qmd_path: str,
+    extra_archive_paths: Iterable[str] = (),
 ) -> tuple[SharedRuntimeSpec, SharedFeatureSpec]:
     files = tuple(
         SharedFileSpec(item.path, item.sha256, item.size, item.mode)
         for item in (package.file(path) for path in _COMMON_ARCHIVE_PATHS)
     )
     qmd = package.file(archive_qmd_path)
+    extra_files = tuple(
+        SharedFeatureFileSpec(
+            item.path,
+            item.path,
+            item.sha256,
+            item.size,
+            item.mode,
+        )
+        for item in (package.file(path) for path in extra_archive_paths)
+    )
     feature = SharedFeatureSpec(
         feature_id,
         package.package_id,
@@ -128,6 +175,7 @@ def specs_from_package(
         qmd.sha256,
         qmd.size,
         qmd.mode,
+        extra_files,
     )
     return (
         SharedRuntimeSpec(
@@ -150,30 +198,158 @@ def assert_common_runtime(
             raise RuntimeError("两个功能的 Xovi/QRR 运行资源不一致，拒绝自动合并。")
 
 
+def assert_feature_layout(
+    runtime: SharedRuntimeSpec,
+    features: Iterable[SharedFeatureSpec],
+) -> None:
+    """Reject ambiguous ownership before inspecting or mutating a shared tree."""
+    owners = {item.path: "runtime" for item in runtime.files}
+    if len(owners) != len(runtime.files):
+        raise RuntimeError("共享 Xovi 运行资源路径重复。")
+    for feature in features:
+        for item in feature.files:
+            path = PurePosixPath(item.runtime_path)
+            if (
+                path.is_absolute()
+                or ".." in path.parts
+                or str(path) != item.runtime_path
+            ):
+                raise RuntimeError("共享 Xovi 功能文件路径不安全。")
+            if item.runtime_path.lower().endswith(".qmd") and (
+                path.suffix != ".qmd" or str(path.parent) != SHARED_QRR_HOME
+            ):
+                raise RuntimeError("共享 Xovi 功能 QMD 必须位于共享 QRR 目录。")
+            previous = owners.get(item.runtime_path)
+            if previous is not None:
+                raise RuntimeError(
+                    f"共享 Xovi 文件路径冲突：{item.runtime_path}"
+                )
+            owners[item.runtime_path] = feature.feature_id
+
+
 def shared_launcher(
     runtime: SharedRuntimeSpec,
     enabled: Iterable[SharedFeatureSpec],
+    *,
+    recovery_sentinel: bool = True,
+    startup_guard: bool = True,
+    layout: StandaloneLayout = SHARED_LAYOUT,
 ) -> str:
     enabled = tuple(sorted(enabled, key=lambda value: value.feature_id))
+    assert_feature_layout(runtime, enabled)
     checks = []
-    for item in (*runtime.files, *(SharedFileSpec(
-        feature.runtime_path,
-        feature.sha256,
-        feature.size,
-        feature.mode,
-    ) for feature in enabled)):
-        remote = posixpath.join(SHARED_LAYOUT.remote_base, item.path)
+    feature_files = tuple(
+        SharedFileSpec(item.runtime_path, item.sha256, item.size, item.mode)
+        for feature in enabled
+        for item in feature.files
+    )
+    for item in (*runtime.files, *feature_files):
+        remote = posixpath.join(layout.remote_base, item.path)
         checks.append(
             f'[ "$(file_sha {shlex.quote(remote)})" = "{item.sha256}" ] || stock'
         )
     checks_text = "\n".join(checks)
-    qmd_names = tuple(posixpath.basename(feature.runtime_path) for feature in enabled)
+    qmd_names = tuple(
+        posixpath.basename(item.runtime_path)
+        for feature in enabled
+        for item in feature.files
+        if item.runtime_path.endswith(".qmd")
+    )
     qmd_cases = "|".join(qmd_names) or "__rmtool_no_qmd__"
+    extension_paths = tuple(sorted({
+        "extensions.d/qt-resource-rebuilder.so",
+        *(
+            item.runtime_path
+            for feature in enabled
+            for item in feature.files
+            if posixpath.dirname(item.runtime_path) == "extensions.d"
+            and item.runtime_path.endswith(".so")
+        ),
+    }))
+    extension_cases = "|".join(
+        posixpath.basename(path) for path in extension_paths
+    )
+    extension_check = f"""extension_count=0
+for extension in "$BASE"/extensions.d/*.so; do
+    [ -f "$extension" ] && [ ! -L "$extension" ] || stock
+    case "${{extension##*/}}" in
+        {extension_cases}) ;;
+        *) stock ;;
+    esac
+    extension_count=$((extension_count + 1))
+done
+[ "$extension_count" -eq {len(extension_paths)} ] || stock"""
+    if recovery_sentinel and layout == LEGACY_SHARED_LAYOUT:
+        recovery_check = f"[ ! -e {LEGACY_RECOVERY_SENTINEL} ] || stock"
+    elif recovery_sentinel:
+        recovery_check = (
+            f"[ ! -e {SHARED_RECOVERY_SENTINEL} ] || stock\n"
+            f"[ ! -e {LEGACY_RECOVERY_SENTINEL} ] || stock"
+        )
+    else:
+        recovery_check = ""
+    pending_path = f"{layout.remote_base}/startup.pending"
+    startup_check = (
+        f'if [ -e "$PENDING" ] || [ -L "$PENDING" ]; then\n'
+        f'    logger -t {shlex.quote(layout.log_tag)} '
+        '"previous Xovi startup did not stabilize; starting stock xochitl" '
+        '2>/dev/null || true\n'
+        '    stock\n'
+        'fi'
+        if startup_guard
+        else ""
+    )
+    preflight_checks = checks_text
+    for check in (recovery_check, startup_check):
+        if check:
+            preflight_checks += "\n" + check
+    pending_variable = (
+        f"PENDING={shlex.quote(pending_path)}\n"
+        f'PENDING_TMP="$BASE/.startup-pending-$$.tmp"'
+        if startup_guard
+        else ""
+    )
+    startup_functions = f"""
+arm_startup_guard() {{
+    [ ! -e "$PENDING" ] && [ ! -L "$PENDING" ] || return 1
+    trap 'rm -f "$PENDING_TMP"' EXIT HUP INT TERM
+    umask 077
+    if ! (: > "$PENDING_TMP" &&
+        chmod 0600 "$PENDING_TMP" &&
+        chown root:root "$PENDING_TMP" &&
+        ln "$PENDING_TMP" "$PENDING"); then
+        rm -f "$PENDING_TMP"
+        trap - EXIT HUP INT TERM
+        return 1
+    fi
+    rm -f "$PENDING_TMP"
+    trap - EXIT HUP INT TERM
+    [ -f "$PENDING" ] && [ ! -L "$PENDING" ] &&
+        [ "$(stat -c '%a:%u:%g:%s' "$PENDING")" = '600:0:0:0' ]
+}}
+
+clear_guard_when_stable() {{
+    main_pid=$1
+    sleep {SHARED_STARTUP_STABLE_SECONDS}
+    [ "$(readlink "/proc/$main_pid/exe" 2>/dev/null)" = "/usr/bin/xochitl" ] || return 0
+    [ -f "$PENDING" ] && [ ! -L "$PENDING" ] &&
+        [ "$(stat -c '%a:%u:%g:%s' "$PENDING")" = '600:0:0:0' ] || return 0
+    rm -f "$PENDING" || return 0
+    logger -t {shlex.quote(layout.log_tag)} "Xovi startup stable; guard cleared" 2>/dev/null || true
+}}
+""" if startup_guard else ""
+    startup_arm = (
+        "arm_startup_guard || stock\n"
+        "clear_guard_when_stable $$ &"
+        if startup_guard
+        else ""
+    )
     return f"""#!/bin/sh
-BASE={shlex.quote(SHARED_LAYOUT.remote_base)}
+BASE={shlex.quote(layout.remote_base)}
+{pending_variable}
 
 stock() {{
-    logger -t {shlex.quote(SHARED_LAYOUT.log_tag)} "preflight failed; starting stock xochitl" 2>/dev/null || true
+    logger -t {shlex.quote(layout.log_tag)} "preflight failed; starting stock xochitl" 2>/dev/null || true
     unset LD_PRELOAD XOVI_ROOT QML_DISABLE_DISK_CACHE QML_XHR_ALLOW_FILE_WRITE QML_XHR_ALLOW_FILE_READ
     exec /usr/bin/xochitl --system
 }}
@@ -182,6 +358,7 @@ file_sha() {{
     [ -f "$1" ] && [ ! -L "$1" ] || return 1
     sha256sum "$1" | awk '{{print $1}}'
 }}
+{startup_functions}
 
 [ "$(uname -m)" = "{runtime.architecture}" ] || stock
 machine=$(cat /sys/devices/soc0/machine 2>/dev/null || true)
@@ -197,10 +374,11 @@ esac
 version=$(tr -cd '0-9' < /etc/version)
 [ "$version" = "{runtime.firmware}" ] || stock
 [ "$(file_sha /usr/bin/xochitl)" = "{runtime.xochitl_sha256}" ] || stock
-{checks_text}
+[ "$(stat -c '%a:%u:%g' "$BASE" 2>/dev/null)" = '755:0:0' ] || stock
+{preflight_checks}
 
 set -- "$BASE"/extensions.d/*.so
-[ "$#" -eq 1 ] && [ "$1" = "$BASE/extensions.d/qt-resource-rebuilder.so" ] || stock
+{extension_check}
 qmd_count=0
 for qmd in "$BASE"/{SHARED_QRR_HOME}/*.qmd; do
     [ -f "$qmd" ] && [ ! -L "$qmd" ] || stock
@@ -212,6 +390,7 @@ for qmd in "$BASE"/{SHARED_QRR_HOME}/*.qmd; do
 done
 [ "$qmd_count" -eq {len(qmd_names)} ] || stock
 
+{startup_arm}
 export XOVI_ROOT="$BASE"
 export QML_DISABLE_DISK_CACHE=1
 export QML_XHR_ALLOW_FILE_WRITE=1
@@ -221,14 +400,30 @@ exec /usr/bin/xochitl --system
 """
 
 
-def shared_dropin(runtime: SharedRuntimeSpec, enabled: Iterable[SharedFeatureSpec]) -> str:
-    return f"""[Unit]
+def shared_dropin(
+    runtime: SharedRuntimeSpec,
+    enabled: Iterable[SharedFeatureSpec],
+    *,
+    layout: StandaloneLayout = SHARED_LAYOUT,
+) -> str:
+    if layout == LEGACY_SHARED_LAYOUT:
+        return f"""[Unit]
 After=home.mount
-ConditionPathExists={SHARED_LAYOUT.launcher_path}
+ConditionPathExists={layout.launcher_path}
 
 [Service]
 ExecStart=
-ExecStart={SHARED_LAYOUT.launcher_path}
+ExecStart={layout.launcher_path}
+WatchdogSec=0
+"""
+    launcher = shlex.quote(layout.launcher_path)
+    return f"""[Unit]
+After=data.mount
+
+[Service]
+ExecStart=
+ExecStart=/bin/sh -c 'if [ -f {launcher} ] && [ ! -L {launcher} ] && [ -r {launcher} ]; then exec /bin/sh {launcher}; else exec /usr/bin/xochitl --system; fi'
+KillMode=control-group
 WatchdogSec=0
 """
 
@@ -376,11 +571,11 @@ def _process_token(ssh_client) -> str:
     return token
 
 
-def _active(ssh_client) -> bool:
+def _active(ssh_client, layout: StandaloneLayout = SHARED_LAYOUT) -> bool:
     command = (
         "pid=$(systemctl show xochitl -p MainPID --value 2>/dev/null || true); "
         '[ -n "$pid" ] && [ "$pid" != 0 ] && '
-        f"grep -Fq '{SHARED_LAYOUT.remote_base}/xovi.so' /proc/$pid/maps 2>/dev/null"
+        f"grep -Fq '{layout.remote_base}/xovi.so' /proc/$pid/maps 2>/dev/null"
     )
     _stdout, _stderr, code = ssh_client.exec_command(command)
     return code == 0
@@ -392,14 +587,25 @@ def has_shared_artifacts(ssh_client) -> bool:
         for path in (
             SHARED_LAYOUT.remote_base,
             SHARED_MARKER_PATH,
+            LEGACY_SHARED_LAYOUT.remote_base,
+            f"{LEGACY_SHARED_LAYOUT.remote_base}/package.json",
             SHARED_LAYOUT.dropin_path,
         )
     )
 
 
 def read_shared_identity(ssh_client) -> tuple[str, str, str, str]:
+    current = ssh_client.file_exists(SHARED_LAYOUT.remote_base)
+    legacy = ssh_client.file_exists(LEGACY_SHARED_LAYOUT.remote_base)
+    if current and legacy:
+        raise RuntimeError("检测到 /data 与 /home 两套共享 Xovi 布局。")
+    marker_path = (
+        SHARED_MARKER_PATH
+        if current
+        else f"{LEGACY_SHARED_LAYOUT.remote_base}/package.json"
+    )
     try:
-        marker = json.loads(_remote_text(ssh_client, SHARED_MARKER_PATH))
+        marker = json.loads(_remote_text(ssh_client, marker_path))
     except Exception as exc:
         raise RuntimeError("共享 Xovi 标记不是有效 JSON。") from exc
     identity = marker.get("identity") if isinstance(marker, dict) else None
@@ -500,13 +706,97 @@ def inspect_shared(
     *,
     check_lower: bool = False,
 ) -> SharedInspection:
+    assert_feature_layout(runtime, trusted.values())
+    current = ssh_client.file_exists(SHARED_LAYOUT.remote_base)
+    legacy = ssh_client.file_exists(LEGACY_SHARED_LAYOUT.remote_base)
+    if current and legacy:
+        raise RuntimeError("检测到 /data 与 /home 两套共享 Xovi 布局。")
+    layout = LEGACY_SHARED_LAYOUT if legacy else SHARED_LAYOUT
     return _inspect_shared(
         ssh_client,
         runtime,
         trusted,
+        layout=layout,
         check_lower=check_lower,
         expected_dropin=None,
     )
+
+
+def assert_startup_guard_not_latched(inspection: SharedInspection) -> None:
+    if inspection.startup_pending and not inspection.active:
+        raise RuntimeError(
+            "共享 Xovi 自动启动保护已触发；上一次插件启动未稳定，当前正使用原生 xochitl。"
+        )
+
+
+def _remote_entry_exists(ssh_client, path: str) -> bool:
+    if ssh_client.file_exists(path) is True:
+        return True
+    result = ssh_client.exec_command(
+        f"[ -e {shlex.quote(path)} ] || [ -L {shlex.quote(path)} ]"
+    )
+    if not isinstance(result, tuple) or len(result) != 3:
+        return False
+    _stdout, _stderr, code = result
+    return code == 0
+
+
+def recovery_sentinel_present(ssh_client) -> bool:
+    return any(
+        _remote_entry_exists(ssh_client, path)
+        for path in (SHARED_RECOVERY_SENTINEL, LEGACY_RECOVERY_SENTINEL)
+    )
+
+
+def _assert_recovery_sentinel(ssh_client, sentinel: str = SHARED_RECOVERY_SENTINEL) -> None:
+    path = shlex.quote(sentinel)
+    ssh_client.exec_checked(
+        f"[ -f {path} ] && [ ! -L {path} ] && "
+        f"[ \"$(stat -c '%a:%u:%g:%s' {path})\" = '600:0:0:0' ]"
+    )
+
+
+def set_recovery_sentinel(ssh_client) -> None:
+    with _operation_lock(ssh_client):
+        path = shlex.quote(SHARED_RECOVERY_SENTINEL)
+        if _remote_entry_exists(ssh_client, SHARED_RECOVERY_SENTINEL):
+            _assert_recovery_sentinel(ssh_client)
+            return
+        if _remote_entry_exists(ssh_client, LEGACY_RECOVERY_SENTINEL):
+            _assert_recovery_sentinel(ssh_client, LEGACY_RECOVERY_SENTINEL)
+        directory = shlex.quote(posixpath.dirname(SHARED_RECOVERY_SENTINEL))
+        temporary = shlex.quote(
+            f"{posixpath.dirname(SHARED_RECOVERY_SENTINEL)}/"
+            f".disable-xovi-{uuid.uuid4().hex}.tmp"
+        )
+        ssh_client.exec_checked(
+            f"set -eu; mkdir -p {directory}; "
+            f"[ -d {directory} ] && [ ! -L {directory} ]; "
+            f"trap 'rm -f {temporary}' EXIT HUP INT TERM; "
+            f"umask 077; : > {temporary}; chmod 0600 {temporary}; "
+            f"chown root:root {temporary}; ln {temporary} {path}; rm -f {temporary}; "
+            "trap - EXIT HUP INT TERM"
+        )
+        if not recovery_sentinel_present(ssh_client):
+            raise RuntimeError("共享 Xovi 紧急停用标记未能创建。")
+        _assert_recovery_sentinel(ssh_client)
+
+
+def clear_recovery_sentinel(ssh_client) -> None:
+    with _operation_lock(ssh_client):
+        if not recovery_sentinel_present(ssh_client):
+            return
+        for sentinel in (SHARED_RECOVERY_SENTINEL, LEGACY_RECOVERY_SENTINEL):
+            if not _remote_entry_exists(ssh_client, sentinel):
+                continue
+            path = shlex.quote(sentinel)
+            ssh_client.exec_checked(
+                f"[ -f {path} ] && [ ! -L {path} ] && "
+                f"[ \"$(stat -c '%a:%u:%g:%s' {path})\" = '600:0:0:0' ] && "
+                f"rm -f {path}"
+            )
+        if recovery_sentinel_present(ssh_client):
+            raise RuntimeError("共享 Xovi 紧急停用标记未能清除。")
 
 
 def inspect_shared_firmware_residue(
@@ -523,10 +813,16 @@ def inspect_shared_firmware_residue(
     )
     if installed_identity == current_identity:
         raise RuntimeError("共享 Xovi 与当前固件身份相同，不属于固件升级残留。")
+    current = ssh_client.file_exists(SHARED_LAYOUT.remote_base)
+    legacy = ssh_client.file_exists(LEGACY_SHARED_LAYOUT.remote_base)
+    if current and legacy:
+        raise RuntimeError("检测到 /data 与 /home 两套共享 Xovi 布局。")
+    layout = LEGACY_SHARED_LAYOUT if legacy else SHARED_LAYOUT
     inspection = _inspect_shared(
         ssh_client,
         runtime,
         trusted,
+        layout=layout,
         check_lower=True,
         expected_dropin=False,
     )
@@ -543,23 +839,24 @@ def _inspect_shared(
     runtime: SharedRuntimeSpec,
     trusted: Mapping[str, SharedFeatureSpec],
     *,
+    layout: StandaloneLayout,
     check_lower: bool,
     expected_dropin: Optional[bool],
 ) -> SharedInspection:
     artifacts = has_shared_artifacts(ssh_client)
     if not artifacts:
-        return SharedInspection({}, False, False)
+        return SharedInspection({}, False, False, False, layout)
     _assert_managed_dropins(
         ssh_client,
         (SHARED_LAYOUT.dropin_path,) if expected_dropin is None else (),
     )
     if not (
-        ssh_client.file_exists(SHARED_LAYOUT.remote_base)
-        and ssh_client.file_exists(SHARED_MARKER_PATH)
+        ssh_client.file_exists(layout.remote_base)
+        and ssh_client.file_exists(f"{layout.remote_base}/package.json")
     ):
         raise RuntimeError("共享 Xovi 目录、标记或 drop-in 不完整。")
     try:
-        marker = json.loads(_remote_text(ssh_client, SHARED_MARKER_PATH))
+        marker = json.loads(_remote_text(ssh_client, f"{layout.remote_base}/package.json"))
     except Exception as exc:
         raise RuntimeError("共享 Xovi 标记不是有效 JSON。") from exc
     if not isinstance(marker, dict) or set(marker) != {
@@ -569,26 +866,54 @@ def _inspect_shared(
         raise RuntimeError("共享 Xovi 标记字段无效。")
     states = _parse_states(marker, trusted)
     enabled = tuple(state.spec for state in states.values() if state.enabled)
-    launcher_text = shared_launcher(runtime, enabled)
-    dropin_text = shared_dropin(runtime, enabled)
-    launcher_sha = hashlib.sha256(launcher_text.encode()).hexdigest()
+    dropin_text = shared_dropin(runtime, enabled, layout=layout)
     dropin_sha = hashlib.sha256(dropin_text.encode()).hexdigest()
+    launcher_text = shared_launcher(
+        runtime,
+        enabled,
+        layout=layout,
+        startup_guard=layout == SHARED_LAYOUT,
+    )
+    launcher_sha = hashlib.sha256(launcher_text.encode()).hexdigest()
     if marker != _marker_document(runtime, states, launcher_sha, dropin_sha):
-        raise RuntimeError("共享 Xovi 标记与内置信任清单不匹配。")
+        candidates = (
+            shared_launcher(
+                runtime,
+                enabled,
+                layout=layout,
+                startup_guard=False,
+            ),
+            shared_launcher(
+                runtime,
+                enabled,
+                layout=layout,
+                recovery_sentinel=False,
+                startup_guard=False,
+            ),
+        )
+        for candidate in candidates:
+            candidate_sha = hashlib.sha256(candidate.encode()).hexdigest()
+            if marker == _marker_document(
+                runtime, states, candidate_sha, dropin_sha
+            ):
+                launcher_text = candidate
+                launcher_sha = candidate_sha
+                break
+        else:
+            raise RuntimeError("共享 Xovi 标记与内置信任清单不匹配。")
+    marker_bytes = (
+        json.dumps(marker, ensure_ascii=True, sort_keys=True) + "\n"
+    ).encode("ascii")
     expected_files = {}
     if enabled:
         expected_files.update({item.path: item for item in runtime.files})
-        expected_files.update(
-            {
-                state.spec.runtime_path: SharedFileSpec(
-                    state.spec.runtime_path,
-                    state.spec.sha256,
-                    state.spec.size,
-                    state.spec.mode,
-                )
-                for state in states.values() if state.enabled
-            }
-        )
+        expected_files.update({
+            item.runtime_path: SharedFileSpec(
+                item.runtime_path, item.sha256, item.size, item.mode
+            )
+            for state in states.values() if state.enabled
+            for item in state.spec.files
+        })
         expected_files["launcher.sh"] = SharedFileSpec(
             "launcher.sh", launcher_sha, len(launcher_text.encode()), 0o755
         )
@@ -599,12 +924,17 @@ def _inspect_shared(
             0o644,
         )
     expected_files["package.json"] = SharedFileSpec(
-        "package.json", hashlib.sha256(shared_marker(runtime, states, launcher_sha, dropin_sha)).hexdigest(),
-        len(shared_marker(runtime, states, launcher_sha, dropin_sha)), 0o644
+        "package.json", hashlib.sha256(marker_bytes).hexdigest(),
+        len(marker_bytes), 0o644
     )
-    _validate_owned_tree(
-        ssh_client, SHARED_LAYOUT.remote_base, expected_files, "共享 Xovi"
+    startup_pending = _remote_entry_exists(
+        ssh_client, f"{layout.remote_base}/startup.pending"
     )
+    if startup_pending:
+        expected_files["startup.pending"] = SharedFileSpec(
+            "startup.pending", _EMPTY_SHA256, 0, 0o600
+        )
+    _validate_owned_tree(ssh_client, layout.remote_base, expected_files, "共享 Xovi")
     dropin_present = ssh_client.file_exists(SHARED_LAYOUT.dropin_path)
     dropin_required = bool(enabled) if expected_dropin is None else expected_dropin
     if dropin_present != dropin_required:
@@ -618,7 +948,13 @@ def _inspect_shared(
             ssh_client,
             {SHARED_LAYOUT.dropin_path: dropin_sha if dropin_required else None},
         )
-    return SharedInspection(states, _active(ssh_client), dropin_present)
+    return SharedInspection(
+        states,
+        _active(ssh_client, layout),
+        dropin_present,
+        startup_pending,
+        layout,
+    )
 
 
 def _check_lower_dropins(ssh_client, expected: Mapping[str, Optional[str]]) -> None:
@@ -914,10 +1250,14 @@ def shared_transaction_script(
     remove_base: bool = False,
 ) -> str:
     layouts = tuple(legacy_layouts)
-    bases = (SHARED_LAYOUT.remote_base, *(layout.remote_base for layout in layouts))
-    dropins = (SHARED_LAYOUT.dropin_path, *(layout.dropin_path for layout in layouts))
+    bases = tuple(dict.fromkeys(
+        (SHARED_LAYOUT.remote_base, *(layout.remote_base for layout in layouts))
+    ))
+    dropins = tuple(dict.fromkeys(
+        (SHARED_LAYOUT.dropin_path, *(layout.dropin_path for layout in layouts))
+    ))
     mount_dir = f"/tmp/rmtool-xovi-rootfs-{token}"
-    backup_dir = f"/home/root/.local/share/rmtool/.xovi-dropins-{token}"
+    backup_dir = f"/data/rmtool/.xovi-dropins-{token}"
     base_backups = tuple(f"{base}.backup-{token}" for base in bases)
     upper_backups = tuple(f"{backup_dir}/upper-{index}" for index in range(len(dropins)))
     lower_backups = tuple(f"{backup_dir}/lower-{index}" for index in range(len(dropins)))
@@ -988,8 +1328,8 @@ ROLLBACK_OK=1
 unmount_root() {{
     [ "$MOUNTED" -eq 1 ] || return 0
     sync
-    mount -o remount,ro "$MOUNT_DIR"
-    umount "$MOUNT_DIR"
+    mount -o remount,ro "$MOUNT_DIR" || return 1
+    umount "$MOUNT_DIR" || return 1
     MOUNTED=0
     rmdir "$MOUNT_DIR"
 }}
@@ -1095,9 +1435,13 @@ def _upload_path(ssh_client, local: Path, remote: str, mode: int) -> None:
 def _qmd_check_command(stage: str, enabled: Iterable[SharedFeatureSpec]) -> str:
     check = f"{stage}/check"
     copies = " && ".join(
-        f"cp {shlex.quote(stage + '/' + feature.runtime_path)} "
-        f"{shlex.quote(check + '/qmd/' + feature.feature_id + '.qmd')}"
+        f"cp {shlex.quote(stage + '/' + item.runtime_path)} "
+        f"{shlex.quote(check + '/qmd/' + feature.feature_id + '-' + str(index) + '.qmd')}"
         for feature in sorted(enabled, key=lambda value: value.feature_id)
+        for index, item in enumerate(
+            (item for item in feature.files if item.runtime_path.endswith('.qmd')),
+            start=1,
+        )
     )
     return (
         f"mkdir -p {shlex.quote(check + '/hashtabs')} {shlex.quote(check + '/qmd')} && "
@@ -1125,14 +1469,13 @@ def _stage_shared(
     dropin_sha = hashlib.sha256(dropin_text.encode()).hexdigest()
     marker = shared_marker(runtime, states, launcher_sha, dropin_sha)
     expected = {item.path: item for item in runtime.files}
-    expected.update(
-        {
-            feature.runtime_path: SharedFileSpec(
-                feature.runtime_path, feature.sha256, feature.size, feature.mode
-            )
-            for feature in enabled
-        }
-    )
+    expected.update({
+        item.runtime_path: SharedFileSpec(
+            item.runtime_path, item.sha256, item.size, item.mode
+        )
+        for feature in enabled
+        for item in feature.files
+    })
     directories = {stage, f"{stage}/systemd"}
     directories.update(posixpath.dirname(f"{stage}/{path}") for path in expected)
     ssh_client.exec_checked(
@@ -1142,17 +1485,20 @@ def _stage_shared(
         local = extracted_root.joinpath(*PurePosixPath(item.path).parts)
         _upload_path(ssh_client, local, f"{stage}/{item.path}", item.mode)
     for feature in enabled:
-        remote = f"{stage}/{feature.runtime_path}"
-        if feature.feature_id == incoming.feature_id:
-            local = extracted_root.joinpath(*PurePosixPath(feature.archive_path).parts)
-            _upload_path(ssh_client, local, remote, feature.mode)
-        else:
-            source = previous_sources.get(feature.feature_id)
-            if source is None:
-                raise RuntimeError("无法从已验证安装中保留另一项功能。")
-            ssh_client.exec_checked(
-                f"cp {shlex.quote(source)} {shlex.quote(remote)} && chmod {feature.mode:o} {shlex.quote(remote)}"
-            )
+        for item in feature.files:
+            remote = f"{stage}/{item.runtime_path}"
+            if feature.feature_id == incoming.feature_id:
+                local = extracted_root.joinpath(*PurePosixPath(item.archive_path).parts)
+                _upload_path(ssh_client, local, remote, item.mode)
+            else:
+                source = previous_sources.get(item.runtime_path)
+                if source is None and item.runtime_path == feature.runtime_path:
+                    source = previous_sources.get(feature.feature_id)
+                if source is None:
+                    raise RuntimeError("无法从已验证安装中保留另一项功能。")
+                ssh_client.exec_checked(
+                    f"cp {shlex.quote(source)} {shlex.quote(remote)} && chmod {item.mode:o} {shlex.quote(remote)}"
+                )
     _upload_bytes(ssh_client, launcher_text.encode(), f"{stage}/launcher.sh", 0o755)
     _upload_bytes(
         ssh_client,
@@ -1201,8 +1547,9 @@ def _enable_shared_locked(
     trusted: Mapping[str, SharedFeatureSpec],
     legacy_specs: Iterable[LegacyStandaloneSpec],
 ) -> SharedInspection:
-    if set(trusted) - {"tap-page-turn", "fast-mono-reading"}:
-        raise RuntimeError("共享 Xovi 仅支持点击翻页和快速黑白。")
+    if set(trusted) - {"tap-page-turn", "fast-mono-reading", "native-chinese"}:
+        raise RuntimeError("共享 Xovi 包含不受支持的功能。")
+    assert_feature_layout(runtime, trusted.values())
     legacy_specs = tuple(legacy_specs)
     _assert_managed_dropins(
         ssh_client,
@@ -1220,26 +1567,42 @@ def _enable_shared_locked(
         raise RuntimeError("检测到共享与旧版独立 Xovi 混合布局，拒绝修改。")
     if len(present_legacy) > 1:
         raise RuntimeError("检测到两套旧版独立 Xovi 布局，拒绝自动合并。")
-    if feature.feature_id in inspection.states and inspection.states[feature.feature_id].enabled:
+    if (
+        feature.feature_id in inspection.states
+        and inspection.states[feature.feature_id].enabled
+        and inspection.layout == SHARED_LAYOUT
+    ):
         return inspection
     current = _process_token(ssh_client)
     states = dict(inspection.states)
     previous_sources = {
-        feature_id: f"{SHARED_LAYOUT.remote_base}/{state.spec.runtime_path}"
-        for feature_id, state in inspection.states.items() if state.enabled
+        item.runtime_path: f"{inspection.layout.remote_base}/{item.runtime_path}"
+        for state in inspection.states.values() if state.enabled
+        for item in state.spec.files
     }
+    previous_sources.update({
+        state.spec.feature_id: f"{inspection.layout.remote_base}/{state.spec.runtime_path}"
+        for state in inspection.states.values() if state.enabled
+    })
     for legacy in present_legacy:
         enabled = ssh_client.file_exists(legacy.layout.dropin_path)
         states[legacy.feature.feature_id] = SharedFeatureState(
             legacy.feature, enabled, current
         )
         if enabled:
+            for item in legacy.feature.files:
+                previous_sources[item.runtime_path] = posixpath.join(
+                    legacy.layout.remote_base, item.archive_path
+                )
             previous_sources[legacy.feature.feature_id] = posixpath.join(
                 legacy.layout.remote_base, legacy.feature.archive_path
             )
     states[feature.feature_id] = SharedFeatureState(feature, True, current)
     enabled_specs = tuple(state.spec for state in states.values() if state.enabled)
-    if len({item.runtime_path for item in enabled_specs}) != len(enabled_specs):
+    feature_paths = [
+        item.runtime_path for spec in enabled_specs for item in spec.files
+    ]
+    if len(set(feature_paths)) != len(feature_paths):
         raise RuntimeError("共享 Xovi 功能路径发生冲突。")
 
     token = uuid.uuid4().hex
@@ -1250,8 +1613,11 @@ def _enable_shared_locked(
         _stage_shared(
             ssh_client, runtime, states, feature, Path(extracted_root), previous_sources, stage
         )
+        migrated_layouts = [item.layout for item in present_legacy]
+        if inspection.states and inspection.layout != SHARED_LAYOUT:
+            migrated_layouts.append(inspection.layout)
         script = shared_transaction_script(
-            stage, token, (item.layout for item in present_legacy), enable_dropin=True
+            stage, token, migrated_layouts, enable_dropin=True
         )
         _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
         ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
@@ -1322,7 +1688,10 @@ def _disable_shared_locked(
     ssh_client.exec_checked(f"rm -rf {shlex.quote(stage)}")
     try:
         ssh_client.exec_checked(
-            f"cp -a {shlex.quote(SHARED_LAYOUT.remote_base)} {shlex.quote(stage)}"
+            f"cp -a {shlex.quote(inspection.layout.remote_base)} {shlex.quote(stage)}"
+        )
+        ssh_client.exec_checked(
+            f"rm -f {shlex.quote(stage + '/startup.pending')}"
         )
         launcher_text = shared_launcher(runtime, enabled)
         dropin_text = shared_dropin(runtime, enabled)
@@ -1330,12 +1699,13 @@ def _disable_shared_locked(
         dropin_sha = hashlib.sha256(dropin_text.encode()).hexdigest()
         marker = shared_marker(runtime, states, launcher_sha, dropin_sha)
         if enabled:
-            ssh_client.exec_checked(
-                f"rm -f {shlex.quote(stage + '/' + state.spec.runtime_path)}"
-            )
-            ssh_client.exec_checked(
-                f"test ! -e {shlex.quote(stage + '/' + state.spec.runtime_path)}"
-            )
+            for item in state.spec.files:
+                ssh_client.exec_checked(
+                    f"rm -f {shlex.quote(stage + '/' + item.runtime_path)}"
+                )
+                ssh_client.exec_checked(
+                    f"test ! -e {shlex.quote(stage + '/' + item.runtime_path)}"
+                )
             _upload_bytes(
                 ssh_client, launcher_text.encode(), f"{stage}/launcher.sh", 0o755
             )
@@ -1363,14 +1733,23 @@ def _disable_shared_locked(
             if _remote_sha256(ssh_client, f"{stage}/{path}") != digest:
                 raise RuntimeError(f"设备端共享 Xovi 文件 {path} 更新校验失败。")
         for peer in enabled:
-            if _remote_sha256(
-                ssh_client, f"{stage}/{peer.runtime_path}"
-            ) != peer.sha256:
-                raise RuntimeError(f"共享 Xovi 未能完整保留 {peer.feature_id}。")
+            for item in peer.files:
+                if _remote_sha256(
+                    ssh_client, f"{stage}/{item.runtime_path}"
+                ) != item.sha256:
+                    raise RuntimeError(f"共享 Xovi 未能完整保留 {peer.feature_id}。")
         if enabled:
             ssh_client.exec_checked(_qmd_check_command(stage, enabled))
         ssh_client.exec_checked(f"rm -rf {shlex.quote(stage + '/check')}")
-        script = shared_transaction_script(stage, token, (), enable_dropin=bool(enabled))
+        migrated_layouts = (
+            (inspection.layout,) if inspection.layout != SHARED_LAYOUT else ()
+        )
+        script = shared_transaction_script(
+            stage,
+            token,
+            migrated_layouts,
+            enable_dropin=bool(enabled),
+        )
         _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
         ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
     except Exception:
@@ -1394,7 +1773,7 @@ def remove_shared_firmware_residue(
     current_identity: tuple[str, str, str, str],
 ) -> SharedInspection:
     with _operation_lock(ssh_client):
-        inspect_shared_firmware_residue(
+        inspection = inspect_shared_firmware_residue(
             ssh_client,
             runtime,
             trusted,
@@ -1411,7 +1790,7 @@ def remove_shared_firmware_residue(
             script = shared_transaction_script(
                 stage,
                 token,
-                (),
+                (inspection.layout,) if inspection.layout != SHARED_LAYOUT else (),
                 enable_dropin=False,
                 remove_base=True,
             )
