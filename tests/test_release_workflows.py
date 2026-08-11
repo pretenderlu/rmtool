@@ -169,6 +169,12 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('"name": "native-chinese"', workflow)
         self.assertIn('"asset_prefix": "rmtool-native-chinese-"', workflow)
         self.assertIn(
+            'feature["name"] in {"fast-mono-reading", "native-chinese"}',
+            workflow,
+        )
+        self.assertIn('type(package.get("offline_verified")) is not bool', workflow)
+        self.assertIn('type(package.get("device_verified")) is not bool', workflow)
+        self.assertIn(
             "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese",
             workflow,
         )
