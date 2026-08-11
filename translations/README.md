@@ -88,6 +88,15 @@ The `.164` supplements were merged from the corrected Qt 6 UTF-8 stock
 inventories. The resulting Chiappa and Ferrari catalogs compile with 1979 and
 2012 finished messages respectively, with no unfinished or empty entries.
 
+Beta `3.28.0.166` for Ferrari uses internal version `20260806095513` and an
+exact release-qualified catalog:
+
+- Asset: `reMarkable_zh_CN-3.28.0.166-ferrari.qm`
+- Size: 196567 bytes
+- Chinese SHA-256: `6bdca18626173b9fadbd350347afebcab0cae3639f8d206d86b9723cd3dda127`
+- Stock French SHA-256: `2b03e8bdf26566d06189604f4678b1929af60b8bef65b662fafc9f04eebed9cc`
+- xochitl SHA-256: `8726b4fce55a9154a5014956e5204401ce881d752c1ff3813adb622a68aac2f9`
+
 Paper Pro (Ferrari) enable and restore were validated on a real device.
 Paper Pro Move (Chiappa), Paper Pure (Tatsu), RM1, and RM2 `3.27.3.0` were
 validated offline against official firmware only and remain pending

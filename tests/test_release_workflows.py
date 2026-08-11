@@ -154,9 +154,11 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
         self.assertIn("tap-page-turn-assets", workflow)
         self.assertIn("fast-mono-reading-assets", workflow)
+        self.assertIn("native-chinese-assets", workflow)
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("- tap-page-turn/manifest.json", workflow)
         self.assertIn("- fast-mono-reading/manifest.json", workflow)
+        self.assertIn("- native-chinese/manifest.json", workflow)
         self.assertIn("release manifest does not match", workflow)
         self.assertIn('document.get("schema_version") != 1', workflow)
         self.assertIn("ASSET_RE.fullmatch(name)", workflow)
@@ -164,6 +166,18 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("downloaded != set(assets)", workflow)
         self.assertIn('"name": "tap-page-turn"', workflow)
         self.assertIn('"name": "fast-mono-reading"', workflow)
+        self.assertIn('"name": "native-chinese"', workflow)
+        self.assertIn('"asset_prefix": "rmtool-native-chinese-"', workflow)
+        self.assertIn(
+            "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese",
+            workflow,
+        )
+        self.assertIn(
+            "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets",
+            workflow,
+        )
+        self.assertIn("NATIVE_CHINESE_RELEASE_DIR", workflow)
+        self.assertIn("Invalid {feature['name']} download URLs.", workflow)
         self.assertIn('key = f"{feature}/{name}"', workflow)
         self.assertIn("client.upload_file(", workflow)
         self.assertIn("LocalFilePath=str(path)", workflow)
@@ -213,6 +227,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         )
 
         self.assertIn("tap-page-turn/manifest.json:tap-page-turn", workflow)
+        self.assertIn("native-chinese/manifest.json:native-chinese", workflow)
         for name in (
             "rmtool-windows-x64.zip",
             "rmtool-windows-x64-onefile.exe",

@@ -18,6 +18,7 @@ $required = @(
     "translations\manifest.json",
     "tap-page-turn\manifest.json",
     "fast-mono-reading\manifest.json",
+    "native-chinese\manifest.json",
     "rmrl\__init__.py"
 )
 foreach ($path in $required) {
@@ -77,6 +78,7 @@ $commonArguments = @(
     "--add-data", "$(Join-Path $root 'translations\manifest.json');translations",
     "--add-data", "$(Join-Path $root 'tap-page-turn\manifest.json');tap-page-turn",
     "--add-data", "$(Join-Path $root 'fast-mono-reading\manifest.json');fast-mono-reading",
+    "--add-data", "$(Join-Path $root 'native-chinese\manifest.json');native-chinese",
     "--distpath", (Join-Path $root "dist"),
     "--specpath", (Join-Path $root "build")
 )

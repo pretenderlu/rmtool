@@ -12,19 +12,32 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import _rmkit_cn
+import _tap_page_turn as tap
 
 
 class FakeSFTP:
-    def __init__(self, files):
+    def __init__(self, files, file_modes=None, file_owners=None):
         self.files = files
+        self.file_modes = file_modes or {}
+        self.file_owners = file_owners or {}
+
+    def _attributes(self, path):
+        uid, gid = self.file_owners.get(path, (0, 0))
+        return SimpleNamespace(
+            st_mode=self.file_modes.get(path, stat.S_IFREG | 0o644),
+            st_uid=uid,
+            st_gid=gid,
+        )
 
     def stat(self, path):
         if path not in self.files:
             raise IOError(path)
-        return SimpleNamespace(st_mode=stat.S_IFREG | 0o644)
+        return self._attributes(path)
 
     def lstat(self, path):
-        return self.stat(path)
+        if path not in self.files:
+            raise IOError(path)
+        return self._attributes(path)
 
     def open(self, path, _mode="rb"):
         if path not in self.files:
@@ -34,7 +47,7 @@ class FakeSFTP:
     def listdir_attr(self, remote_dir):
         prefix = remote_dir.rstrip("/") + "/"
         return [
-            SimpleNamespace(filename=path[len(prefix):], st_mode=stat.S_IFREG | 0o644)
+            SimpleNamespace(filename=path[len(prefix):], **vars(self._attributes(path)))
             for path in sorted(self.files)
             if path.startswith(prefix) and "/" not in path[len(prefix):]
         ]
@@ -71,6 +84,8 @@ class FakeSSH:
         fail_cache_count=0,
         root_free_bytes=1024 * 1024 * 1024,
         fail_exec_once_contains=(),
+        file_modes=None,
+        file_owners=None,
     ):
         self.files = dict(files or {})
         self.firmware = firmware
@@ -91,6 +106,8 @@ class FakeSSH:
         self.fail_cache_count = fail_cache_count
         self.root_free_bytes = root_free_bytes
         self.fail_exec_once_contains = list(fail_exec_once_contains)
+        self.file_modes = dict(file_modes or {})
+        self.file_owners = dict(file_owners or {})
         if cjk_available:
             self.cjk_files.add(self.active_font)
         self.transfer_count = 0
@@ -101,7 +118,7 @@ class FakeSSH:
 
     @contextmanager
     def sftp_session(self):
-        yield FakeSFTP(self.files)
+        yield FakeSFTP(self.files, self.file_modes, self.file_owners)
 
     def exec_checked(self, command):
         self.events.append(("exec", command))
@@ -174,12 +191,44 @@ class FakeSSH:
             return "cache refreshed\n"
         if command == _rmkit_cn.SYSTEM_FONT_FREE_COMMAND:
             return f"{self.root_free_bytes // 1024}\n"
+        if command.startswith("wc -c < "):
+            path = shlex.split(command)[-1]
+            if path not in self.files:
+                raise IOError(path)
+            return f"{len(self.files[path])}\n"
         if command in ("mount -o remount,rw /", "mount -o remount,ro /"):
             return ""
         if command == "sync":
             return ""
 
         args = shlex.split(command)
+        if args[:1] == ["/bin/sh"] and len(args) == 2:
+            stage_dir = str(Path(args[1]).parent).replace("\\", "/")
+            config_index = list(_rmkit_cn.SYSTEM_FONT_ROOT_PATHS).index(
+                _rmkit_cn.SYSTEM_FONTCONFIG_FILE
+            )
+            config_stage = f"{stage_dir}/file-{config_index}"
+            config = self.files.get(config_stage)
+            verifies_matches = (
+                _rmkit_cn.SYSTEM_FONT_MATCH_ENV.encode() in self.files[args[1]]
+            )
+            if config is not None and verifies_matches:
+                scan_path = ET.fromstring(config.decode("utf-8")).find(
+                    "./match[@target='scan']/test[@name='file']/string"
+                )
+                expected = scan_path.text if scan_path is not None else ""
+                for pattern, matched in self.system_font_match_paths.items():
+                    if matched != expected:
+                        raise RuntimeError(
+                            f"锁屏字体匹配校验失败：{pattern} 实际指向 {matched}。"
+                        )
+            for path in _rmkit_cn.LEGACY_SYSTEM_FONT_PATHS.values():
+                self.files.pop(path, None)
+            if config is not None:
+                self.files[_rmkit_cn.SYSTEM_FONTCONFIG_FILE] = config
+            else:
+                self.files.pop(_rmkit_cn.SYSTEM_FONTCONFIG_FILE, None)
+            return ""
         if args[:2] == ["mkdir", "-p"]:
             return ""
         if args[:2] == ["cp", "-p"]:
@@ -194,6 +243,12 @@ class FakeSSH:
         if args[:2] == ["rm", "-f"]:
             for path in args[2:]:
                 self.files.pop(path, None)
+            return ""
+        if args[:2] == ["rm", "-rf"]:
+            prefix = args[2].rstrip("/") + "/"
+            for path in tuple(self.files):
+                if path == args[2] or path.startswith(prefix):
+                    self.files.pop(path, None)
             return ""
         if args and args[0] == "chmod":
             return ""
@@ -237,6 +292,8 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             "list_user_fonts",
             "upload_user_font",
             "set_active_user_font",
+            "get_legacy_system_font_migration",
+            "migrate_legacy_system_font",
             "delete_user_font",
             "upload_font",
             "set_language_config",
@@ -1222,6 +1279,284 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(ssh.files[target], b"link target")
         self.assertFalse(any(".rmtool-" in path for path in ssh.files))
 
+    def _legacy_system_font_files(self, *, include_user_config=True):
+        directory = "/home/root/.local/share/fonts"
+        source = f"{directory}/legacy-source.ttf"
+        legacy = _rmkit_cn.LEGACY_SYSTEM_FONT_PATHS[".ttf"]
+        data = b"exact legacy font bytes"
+        files = {
+            source: data,
+            legacy: data,
+            _rmkit_cn.SYSTEM_FONTCONFIG_FILE: _rmkit_cn._legacy_system_fontconfig(
+                "Legacy Family", legacy
+            ),
+        }
+        if include_user_config:
+            files[_rmkit_cn.FONTCONFIG_FILE] = _rmkit_cn.fontconfig_override(
+                "Legacy Family", source
+            ).encode("utf-8")
+        return directory, source, legacy, files
+
+    def test_legacy_system_font_migration_succeeds_from_exact_layout(self):
+        directory, source, legacy, files = self._legacy_system_font_files()
+        files[f"{directory}/duplicate.ttf"] = files[source]
+        ssh = FakeSSH(files, device_font_family="Legacy Family")
+
+        status = _rmkit_cn.get_legacy_system_font_migration(ssh, directory)
+        migrated = _rmkit_cn.migrate_legacy_system_font(ssh, directory)
+
+        target = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        self.assertTrue(status.migratable)
+        self.assertEqual(status.filename, "legacy-source.ttf")
+        self.assertEqual(migrated.filename, "legacy-source.ttf")
+        self.assertEqual(ssh.files[source], b"exact legacy font bytes")
+        self.assertNotIn(legacy, ssh.files)
+        self.assertEqual(ssh.files[target], b"exact legacy font bytes")
+        self.assertEqual(
+            _rmkit_cn._font_config_target(
+                ssh.files[_rmkit_cn.SYSTEM_FONTCONFIG_FILE]
+            ),
+            target,
+        )
+        commands = "\n".join(value for kind, value in ssh.events if kind == "exec")
+        self.assertNotIn("restart xochitl", commands)
+        self.assertNotIn("reboot", commands)
+
+    def test_legacy_system_font_migration_reports_no_legacy_state(self):
+        status = _rmkit_cn.get_legacy_system_font_migration(
+            FakeSSH(), "/home/root/.local/share/fonts"
+        )
+
+        self.assertEqual(status.state, "none")
+        self.assertFalse(status.migratable)
+
+    def test_legacy_system_font_migration_ignores_clean_current_layout(self):
+        target = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        files = {
+            target: b"current data font",
+            _rmkit_cn.SYSTEM_FONTCONFIG_FILE: _rmkit_cn.fontconfig_override(
+                "Current Family", target
+            ).replace(
+                "<!-- ponytail: user-level UI font override; restore the prior file to undo. -->",
+                "<!-- rmtool system UI font; owner: user -->",
+            ).encode("utf-8"),
+        }
+        ssh = FakeSSH(files, device_font_family="Current Family")
+
+        status = _rmkit_cn.get_legacy_system_font_migration(
+            ssh, "/home/root/.local/share/fonts"
+        )
+
+        self.assertEqual(status.state, "none")
+        self.assertFalse(status.migratable)
+        self.assertEqual(ssh.transfer_count, 0)
+
+    def test_legacy_system_font_migration_ignores_unrelated_file_without_legacy_layout(self):
+        files = {f"{_rmkit_cn.LEGACY_SYSTEM_FONT_DIR}/notes.txt": b"unrelated"}
+        ssh = FakeSSH(files)
+
+        status = _rmkit_cn.get_legacy_system_font_migration(
+            ssh, "/home/root/.local/share/fonts"
+        )
+
+        self.assertEqual(status.state, "none")
+        self.assertFalse(status.migratable)
+        self.assertEqual(ssh.events, [])
+
+    def test_legacy_system_font_migration_rejects_missing_ambiguous_and_mismatch(self):
+        directory, source, _, files = self._legacy_system_font_files()
+        missing = dict(files)
+        del missing[source]
+
+        _, _, _, ambiguous = self._legacy_system_font_files(
+            include_user_config=False
+        )
+        ambiguous[f"{directory}/duplicate.ttf"] = b"exact legacy font bytes"
+
+        mismatch = dict(files)
+        mismatch[source] = b"different user font"
+        malformed = dict(files)
+        malformed[_rmkit_cn.FONTCONFIG_FILE] = b"<fontconfig>"
+
+        for label, candidate, message in (
+            ("missing", missing, "缺失"),
+            ("ambiguous", ambiguous, "多个"),
+            ("mismatch", mismatch, "内容不一致"),
+            ("malformed", malformed, "无法解析"),
+        ):
+            with self.subTest(label=label):
+                status = _rmkit_cn.get_legacy_system_font_migration(
+                    FakeSSH(candidate, device_font_family="Legacy Family"), directory
+                )
+                self.assertEqual(status.state, "invalid")
+                self.assertIn(message, status.detail)
+
+    def test_legacy_system_font_migration_refuses_special_and_mixed_before_writes(self):
+        directory, source, legacy, files = self._legacy_system_font_files()
+        mixed_types = dict(files)
+        mixed_types[_rmkit_cn.LEGACY_SYSTEM_FONT_PATHS[".otf"]] = files[legacy]
+        mixed_layout = dict(files)
+        mixed_layout[_rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]] = files[legacy]
+        malformed_system_config = dict(files)
+        malformed_system_config[_rmkit_cn.SYSTEM_FONTCONFIG_FILE] = b"<fontconfig>"
+        cases = (
+            ("legacy-symlink", dict(files), {legacy: stat.S_IFLNK | 0o777}),
+            ("source-special", dict(files), {source: stat.S_IFCHR | 0o600}),
+            ("mixed-types", mixed_types, {}),
+            ("mixed-layout", mixed_layout, {}),
+            ("malformed-system-config", malformed_system_config, {}),
+        )
+
+        for label, candidate, modes in cases:
+            with self.subTest(label=label):
+                ssh = FakeSSH(
+                    candidate,
+                    file_modes=modes,
+                    device_font_family="Legacy Family",
+                )
+                before = dict(ssh.files)
+                with self.assertRaises(RuntimeError):
+                    _rmkit_cn.migrate_legacy_system_font(ssh, directory)
+                self.assertEqual(ssh.files, before)
+                self.assertEqual(ssh.transfer_count, 0)
+                self.assertFalse(
+                    any(
+                        kind == "exec"
+                        and value.startswith(
+                            ("mkdir ", "rm ", "mv ", "cp ", "chmod ", "mount ", "/bin/sh ")
+                        )
+                        for kind, value in ssh.events
+                    )
+                )
+
+    def test_legacy_system_font_migration_rejects_non_rmtool_configs_and_extra_files(self):
+        directory, source, legacy, files = self._legacy_system_font_files()
+        arbitrary_system_config = dict(files)
+        arbitrary_system_config[_rmkit_cn.SYSTEM_FONTCONFIG_FILE] = (
+            _rmkit_cn.fontconfig_override("Legacy Family", legacy).encode("utf-8")
+        )
+        arbitrary_user_config = dict(files)
+        arbitrary_user_config[_rmkit_cn.FONTCONFIG_FILE] = (
+            _rmkit_cn.fontconfig_override("Another Family", source).encode("utf-8")
+        )
+        extra_root_file = dict(files)
+        extra_root_file[f"{_rmkit_cn.LEGACY_SYSTEM_FONT_DIR}/extra.ttf"] = b"extra"
+
+        for label, candidate, message in (
+            ("system-config", arbitrary_system_config, "不是旧版 rmtool"),
+            ("user-config", arbitrary_user_config, "不是旧版 rmtool"),
+            ("extra-root-file", extra_root_file, "额外文件"),
+        ):
+            with self.subTest(label=label):
+                ssh = FakeSSH(candidate, device_font_family="Legacy Family")
+                before = dict(ssh.files)
+
+                status = _rmkit_cn.get_legacy_system_font_migration(ssh, directory)
+
+                self.assertEqual(status.state, "invalid")
+                self.assertIn(message, status.detail)
+                self.assertEqual(ssh.files, before)
+                self.assertEqual(ssh.transfer_count, 0)
+
+    def test_legacy_system_font_migration_rejects_wrong_mode_or_owner(self):
+        directory, source, legacy, files = self._legacy_system_font_files()
+        paths = (
+            legacy,
+            _rmkit_cn.SYSTEM_FONTCONFIG_FILE,
+            _rmkit_cn.FONTCONFIG_FILE,
+        )
+
+        for path in paths:
+            with self.subTest(path=path, defect="mode"):
+                ssh = FakeSSH(
+                    files,
+                    device_font_family="Legacy Family",
+                    file_modes={path: stat.S_IFREG | 0o600},
+                )
+                status = _rmkit_cn.get_legacy_system_font_migration(ssh, directory)
+                self.assertEqual(status.state, "invalid")
+                self.assertIn("0644", status.detail)
+                self.assertEqual(ssh.transfer_count, 0)
+
+            with self.subTest(path=path, defect="owner"):
+                ssh = FakeSSH(
+                    files,
+                    device_font_family="Legacy Family",
+                    file_owners={path: (502, 20)},
+                )
+                status = _rmkit_cn.get_legacy_system_font_migration(ssh, directory)
+                self.assertEqual(status.state, "invalid")
+                self.assertIn("root:root", status.detail)
+                self.assertEqual(ssh.transfer_count, 0)
+
+    def test_legacy_system_font_migration_accepts_regular_home_source_metadata(self):
+        directory, source, _, files = self._legacy_system_font_files()
+        ssh = FakeSSH(
+            files,
+            device_font_family="Legacy Family",
+            file_modes={source: stat.S_IFREG | 0o600},
+            file_owners={source: (1000, 1000)},
+        )
+
+        status = _rmkit_cn.get_legacy_system_font_migration(ssh, directory)
+
+        self.assertTrue(status.migratable)
+        self.assertEqual(status.filename, "legacy-source.ttf")
+
+    def test_legacy_system_font_migration_revalidates_snapshot_before_first_write(self):
+        directory, source, _, files = self._legacy_system_font_files()
+        ssh = FakeSSH(files, device_font_family="Legacy Family")
+        original_get = _rmkit_cn.get_legacy_system_font_migration
+        calls = 0
+
+        def mutate_after_initial_detection(client, remote_dir):
+            nonlocal calls
+            status = original_get(client, remote_dir)
+            calls += 1
+            if calls == 1:
+                client.files[source] = b"changed after detection"
+            return status
+
+        with patch.object(
+            _rmkit_cn,
+            "get_legacy_system_font_migration",
+            side_effect=mutate_after_initial_detection,
+        ), self.assertRaisesRegex(RuntimeError, "迁移开始前发生变化"):
+            _rmkit_cn.migrate_legacy_system_font(ssh, directory)
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(ssh.transfer_count, 0)
+        mutating_commands = (
+            "mkdir ",
+            "rm ",
+            "mv ",
+            "cp ",
+            "chmod ",
+            "mount ",
+            "/bin/sh ",
+        )
+        self.assertFalse(
+            any(
+                kind == "exec" and value.startswith(mutating_commands)
+                for kind, value in ssh.events
+            )
+        )
+
+    def test_legacy_system_font_migration_inherits_activation_rollback(self):
+        directory, _, _, files = self._legacy_system_font_files()
+        ssh = FakeSSH(
+            files, fail_cache_count=1, device_font_family="Legacy Family"
+        )
+        before = dict(ssh.files)
+
+        with self.assertRaisesRegex(IOError, "cache failure"):
+            _rmkit_cn.migrate_legacy_system_font(ssh, directory)
+
+        self.assertEqual(ssh.files, before)
+        commands = "\n".join(value for kind, value in ssh.events if kind == "exec")
+        self.assertNotIn("restart xochitl", commands)
+        self.assertNotIn("reboot", commands)
+
     def test_set_active_user_font_creates_exact_system_mirror(self):
         font_dir = "/home/root/.local/share/fonts"
         target = f"{font_dir}/selected.ttf"
@@ -1241,23 +1576,44 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         )
         system_config = ssh.files[_rmkit_cn.SYSTEM_FONTCONFIG_FILE].decode("utf-8")
         self.assertIn(f"<string>{system_target}</string>", system_config)
+        self.assertIn(f"<dir>{_rmkit_cn.SYSTEM_FONT_DIR}</dir>", system_config)
         self.assertFalse(any(".rmtool-" in path for path in ssh.files))
 
     def test_system_mirror_is_verified_without_home_fontconfig(self):
-        font_dir = "/home/root/.local/share/fonts"
-        target = f"{font_dir}/selected.otf"
-        ssh = FakeSSH({target: b"otf font"})
+        target = _rmkit_cn.SYSTEM_FONT_PATHS[".otf"]
+        root_files = {
+            **{path: None for path in _rmkit_cn.LEGACY_SYSTEM_FONT_PATHS.values()},
+            _rmkit_cn.SYSTEM_FONTCONFIG_FILE: ("/data/staged-config", "0" * 64),
+        }
+        script = _rmkit_cn._root_font_transaction_script(
+            "token", root_files, target
+        )
 
-        _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.otf")
-
-        commands = [value for kind, value in ssh.events if kind == "exec"]
         for pattern in _rmkit_cn.FONT_OVERRIDE_MATCH_PATTERNS:
-            command = (
-                f"{_rmkit_cn.SYSTEM_FONT_MATCH_ENV} "
-                "fc-match --format='%{file}\\n' "
-                f"{shlex.quote(pattern)} | head -n 1"
-            )
-            self.assertIn(command, commands)
+            self.assertIn(shlex.quote(pattern), script)
+        self.assertIn("mount --bind /", script)
+        self.assertIn("mount -o remount,rw /", script)
+        self.assertIn('mount -o remount,rw "$MOUNT_DIR"', script)
+        self.assertIn("mount -o remount,ro / || return 1", script)
+        self.assertIn(
+            'mount -o remount,ro "$MOUNT_DIR" || return 1', script
+        )
+        self.assertIn('umount "$MOUNT_DIR" || return 1', script)
+
+    def test_restore_keeps_previous_data_font_if_root_restore_fails(self):
+        target = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        previous = {path: None for path in _rmkit_cn.SYSTEM_FONT_STATE_PATHS}
+        previous[target] = b"previous font"
+        ssh = FakeSSH({target: b"failed replacement"})
+
+        with patch.object(
+            _rmkit_cn,
+            "_apply_persistent_root_font_state",
+            side_effect=RuntimeError("root restore failed"),
+        ), self.assertRaisesRegex(RuntimeError, "root restore failed"):
+            _rmkit_cn._restore_system_font_mirror(ssh, previous, "token")
+
+        self.assertEqual(ssh.files[target], b"previous font")
 
     def test_set_active_user_font_switches_ttf_to_otf_without_stale_copy(self):
         font_dir = "/home/root/.local/share/fonts"
@@ -1274,7 +1630,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         )
         self.assertFalse(any(".rmtool-" in path for path in ssh.files))
 
-    def test_set_active_user_font_rejects_low_root_space_before_mutation(self):
+    def test_set_active_user_font_rejects_low_data_space_before_mutation(self):
         font_dir = "/home/root/.local/share/fonts"
         target = f"{font_dir}/selected.ttf"
         previous = b"existing user fontconfig"
@@ -1284,13 +1640,13 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         )
         before = dict(ssh.files)
 
-        with self.assertRaisesRegex(RuntimeError, "根分区空间不足"):
+        with self.assertRaisesRegex(RuntimeError, "/data 分区空间不足"):
             _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
 
         self.assertEqual(ssh.files, before)
         self.assertFalse(any(kind == "transfer" for kind, _ in ssh.events))
 
-    def test_system_mirror_space_check_covers_larger_rollback_font(self):
+    def test_system_mirror_space_check_only_needs_new_atomic_stage(self):
         font_dir = "/home/root/.local/share/fonts"
         target = f"{font_dir}/selected.ttf"
         old_system_font = _rmkit_cn.SYSTEM_FONT_PATHS[".otf"]
@@ -1299,16 +1655,107 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         ssh = FakeSSH(
             {target: new_font_data, old_system_font: old_font_data},
             root_free_bytes=(
-                _rmkit_cn.SYSTEM_FONT_FREE_RESERVE + len(new_font_data) + 1
+                _rmkit_cn.SYSTEM_FONT_FREE_RESERVE + len(new_font_data) + 1024
             ),
         )
-        before = dict(ssh.files)
+        _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
 
-        with self.assertRaisesRegex(RuntimeError, "根分区空间不足"):
+        self.assertEqual(
+            ssh.files[_rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]], new_font_data
+        )
+        self.assertNotIn(old_system_font, ssh.files)
+
+    def test_selected_system_font_rejects_more_than_24_mib(self):
+        font_dir = "/home/root/.local/share/fonts"
+        target = f"{font_dir}/selected.ttf"
+        font_data = b"x" * (_rmkit_cn.SYSTEM_FONT_MAX_BYTES + 1)
+        ssh = FakeSSH({target: font_data})
+
+        with self.assertRaisesRegex(RuntimeError, "超过 24 MiB"):
             _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
 
-        self.assertEqual(ssh.files, before)
         self.assertFalse(any(kind == "transfer" for kind, _ in ssh.events))
+
+    def test_font_mirror_verification_labels_are_exact(self):
+        cases = (
+            (
+                _rmkit_cn.FONT_MIRROR_VERIFIED_IDENTITY,
+                "verified",
+                "已实机验证",
+            ),
+            (
+                _rmkit_cn.FONT_MIRROR_MOVE_PENDING_IDENTITY,
+                "pending",
+                "待实机验证",
+            ),
+            (
+                ("20990101000000", "rm2", "armv7l", "f" * 64),
+                "unverified",
+                "未实机验证",
+            ),
+        )
+        for identity, level, label in cases:
+            with self.subTest(identity=identity), patch.object(
+                tap,
+                "get_device_identity",
+                return_value=tap.DeviceIdentity(*identity),
+            ):
+                result = _rmkit_cn.get_font_mirror_verification(FakeSSH())
+            self.assertEqual((result.level, result.label), (level, label))
+
+    def test_legacy_localization_font_backup_marker_remains_parseable(self):
+        state = {
+            path: None for path in _rmkit_cn.LEGACY_SYSTEM_FONT_BACKUP_PATHS
+        }
+        marker = {"system_mirror_before_localization": state}
+
+        self.assertEqual(_rmkit_cn._parse_system_font_backup_state(marker), state)
+
+    def test_setting_font_cleans_legacy_root_mirror_and_validation_files(self):
+        font_dir = "/home/root/.local/share/fonts"
+        target = f"{font_dir}/selected.ttf"
+        files = {
+            target: b"selected",
+            _rmkit_cn.LEGACY_SYSTEM_FONT_PATHS[".otf"]: b"legacy",
+            **{path: b"test" for path in _rmkit_cn.SYSTEM_FONT_VALIDATION_ARTIFACTS},
+        }
+        ssh = FakeSSH(files)
+
+        _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
+
+        for path in _rmkit_cn.LEGACY_SYSTEM_FONT_PATHS.values():
+            self.assertNotIn(path, ssh.files)
+        for path in _rmkit_cn.SYSTEM_FONT_VALIDATION_ARTIFACTS:
+            self.assertNotIn(path, ssh.files)
+        self.assertEqual(
+            ssh.files[_rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]], b"selected"
+        )
+
+    def test_user_font_config_source_stays_active_when_system_mirror_matches(self):
+        font_dir = "/home/root/.local/share/fonts"
+        source = f"{font_dir}/selected.ttf"
+        data_target = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        config = _rmkit_cn.fontconfig_override("Selected", source).encode("utf-8")
+        matches = {
+            pattern: data_target for pattern in _rmkit_cn.FONT_OVERRIDE_MATCH_PATTERNS
+        }
+        ssh = FakeSSH(
+            {
+                source: b"source",
+                data_target: b"source",
+                _rmkit_cn.FONTCONFIG_FILE: config,
+            },
+            font_match_paths=matches,
+        )
+
+        fonts = _rmkit_cn.list_user_fonts(ssh, font_dir)
+
+        self.assertEqual(
+            [(font.filename, font.active) for font in fonts],
+            [("selected.ttf", True)],
+        )
+        with self.assertRaisesRegex(RuntimeError, "当前系统字体不能删除"):
+            _rmkit_cn.delete_user_font(ssh, font_dir, "selected.ttf")
 
     def test_set_active_user_font_restores_system_mirror_on_match_failure(self):
         font_dir = "/home/root/.local/share/fonts"
@@ -1919,7 +2366,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         ssh = self.make_ssh(
             cjk_available=False,
             cjk_font_data=(font_data,),
-            fail_transfer_at=6,
+            fail_transfer_at=8,
             fail_exec_commands=(remove_command,),
         )
 
@@ -1996,6 +2443,9 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             )
             for platform in ("chiappa", "ferrari")
         }
+        beta_166_path = Path(
+            "translations/reMarkable_zh_CN-3.28.0.166-ferrari.qm"
+        )
         manifest_path = Path("translations/manifest.json")
         self.assertEqual(
             _rmkit_cn.BUNDLED_TRANSLATION_MANIFEST_PATH,
@@ -2170,6 +2620,36 @@ class RmkitCnLocalizationTests(unittest.TestCase):
                 item.localized_qm_sha256,
                 hashlib.sha256(data).hexdigest(),
             )
+        beta_166 = packages["20260806095513"]
+        beta_166_data = beta_166_path.read_bytes()
+        self.assertEqual(beta_166.release_version, "3.28.0.166")
+        self.assertEqual(beta_166.channel, "beta")
+        self.assertEqual(beta_166.platform, "ferrari")
+        self.assertEqual(beta_166.asset, beta_166_path.name)
+        self.assertEqual(beta_166.size, len(beta_166_data))
+        self.assertEqual(beta_166.size, 196_567)
+        self.assertEqual(
+            beta_166.localized_qm_sha256,
+            "6bdca18626173b9fadbd350347afebcab0cae3639f8d206d86b9723cd3dda127",
+        )
+        self.assertEqual(
+            hashlib.sha256(beta_166_data).hexdigest(),
+            beta_166.localized_qm_sha256,
+        )
+        self.assertEqual(
+            beta_166.stock_french_sha256,
+            "2b03e8bdf26566d06189604f4678b1929af60b8bef65b662fafc9f04eebed9cc",
+        )
+        self.assertEqual(
+            beta_166.xochitl_sha256,
+            "8726b4fce55a9154a5014956e5204401ce881d752c1ff3813adb622a68aac2f9",
+        )
+        invalid_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        invalid_manifest["firmwares"]["20260806095513"]["xochitl_sha256"] = "bad"
+        with self.assertRaisesRegex(RuntimeError, "xochitl"):
+            _rmkit_cn.parse_translation_manifest(
+                json.dumps(invalid_manifest).encode("utf-8")
+            )
         build_script = Path("build-portable.ps1").read_text(encoding="utf-8-sig")
         release_workflow = Path(".github/workflows/release.yml").read_text(
             encoding="utf-8"
@@ -2182,6 +2662,12 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         )
         self.assertIn(
             "translations/manifest.json:translations", release_workflow
+        )
+        self.assertIn(
+            "native-chinese\\manifest.json');native-chinese", build_script
+        )
+        self.assertIn(
+            "native-chinese/manifest.json:native-chinese", release_workflow
         )
         self.assertNotIn("translations:translations", release_workflow)
         self.assertNotIn(".qm", release_workflow)

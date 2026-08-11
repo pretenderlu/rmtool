@@ -11,6 +11,8 @@ from PyQt5 import QtCore, QtGui, QtWidgets, sip
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
 import _rmkit_cn
 import _fast_mono_reading
+import _legacy_vellum
+import _native_chinese
 import _tap_page_turn
 from _ssh import SSHClientWrapper, remount_rw, require_connection
 import rmtool as _rmtool  # late-bound access to avoid circular import
@@ -41,6 +43,10 @@ class FontTab(QtWidgets.QWidget):
         self.thread_pool = QtCore.QThreadPool.globalInstance()
         self._font_progress: Optional[QtWidgets.QProgressDialog] = None
         self._fonts: tuple[_rmkit_cn.UserFont, ...] = ()
+        self._font_verification: Optional[_rmkit_cn.FontMirrorVerification] = None
+        self._legacy_font_migration: Optional[
+            _rmkit_cn.LegacySystemFontMigration
+        ] = None
         self._busy = False
         self._connected: Optional[bool] = None
         self._worker_generation = 0
@@ -113,6 +119,8 @@ class FontTab(QtWidgets.QWidget):
         self.delete_button = QtWidgets.QPushButton("删除")
         self.delete_button.setProperty("btnRole", "danger")
         self.delete_button.clicked.connect(self._delete_selected_font)
+        self.migrate_font_button = QtWidgets.QPushButton("迁移旧版字体设置")
+        self.migrate_font_button.clicked.connect(self._migrate_legacy_font)
         self.restart_button = QtWidgets.QPushButton("重启生效")
         self.restart_button.clicked.connect(self._restart_device)
 
@@ -122,6 +130,7 @@ class FontTab(QtWidgets.QWidget):
         manager_actions.addWidget(self.refresh_button)
         manager_actions.addWidget(self.set_active_button)
         manager_actions.addWidget(self.delete_button)
+        manager_actions.addWidget(self.migrate_font_button)
         manager_actions.addStretch()
         manager_actions.addWidget(self.restart_button)
 
@@ -274,6 +283,8 @@ class FontTab(QtWidgets.QWidget):
                 self._font_progress = None
         if not connected:
             self._fonts = ()
+            self._font_verification = None
+            self._legacy_font_migration = None
             self.font_table.setRowCount(0)
             self.manager_status_label.setText("设备未连接。")
         else:
@@ -305,6 +316,11 @@ class FontTab(QtWidgets.QWidget):
         )
         self.delete_button.setEnabled(
             connected and selected is not None and not selected.active
+        )
+        self.migrate_font_button.setEnabled(
+            connected
+            and self._legacy_font_migration is not None
+            and self._legacy_font_migration.migratable
         )
         self.restart_button.setEnabled(connected)
 
@@ -409,20 +425,34 @@ class FontTab(QtWidgets.QWidget):
             return
         self._pending_refresh = None
         self._start_font_worker(
-            _rmkit_cn.list_user_fonts,
+            self._load_font_inventory,
             self.ssh_client,
             self._font_dir(),
             pending="正在读取设备字体…",
-            on_success=lambda fonts: self._apply_font_inventory(
-                fonts, select_filename=select_filename, success=success
+            on_success=lambda inventory: self._apply_font_inventory(
+                inventory[0],
+                verification=inventory[1],
+                migration=inventory[2],
+                select_filename=select_filename,
+                success=success,
             ),
             error_prefix="字体列表刷新失败",
+        )
+
+    @staticmethod
+    def _load_font_inventory(ssh_client, remote_dir: str):
+        return (
+            _rmkit_cn.list_user_fonts(ssh_client, remote_dir),
+            _rmkit_cn.get_font_mirror_verification(ssh_client),
+            _rmkit_cn.get_legacy_system_font_migration(ssh_client, remote_dir),
         )
 
     def _apply_font_inventory(
         self,
         fonts: tuple[_rmkit_cn.UserFont, ...],
         *,
+        verification: Optional[_rmkit_cn.FontMirrorVerification] = None,
+        migration: Optional[_rmkit_cn.LegacySystemFontMigration] = None,
         select_filename: str = "",
         success: str = "",
     ):
@@ -431,6 +461,8 @@ class FontTab(QtWidgets.QWidget):
             selected = self._selected_device_font()
             previous = selected.filename if selected else ""
         self._fonts = tuple(fonts)
+        self._font_verification = verification
+        self._legacy_font_migration = migration
         self.font_table.setRowCount(len(self._fonts))
         selected_row = -1
         for row, font in enumerate(self._fonts):
@@ -450,9 +482,33 @@ class FontTab(QtWidgets.QWidget):
             if len(active_fonts) > 1
             else ""
         )
-        self.manager_status_label.setText(
-            f"已读取 {len(self._fonts)} 个用户字体；当前系统字体：{active}{legacy_note}。"
+        verification_note = (
+            f"；字体镜像：{self._font_verification.label}"
+            if self._font_verification is not None
+            else ""
         )
+        migration_note = (
+            f"；{self._legacy_font_migration.detail}"
+            if self._legacy_font_migration is not None
+            and self._legacy_font_migration.state != "none"
+            else ""
+        )
+        self.manager_status_label.setText(
+            f"已读取 {len(self._fonts)} 个用户字体；当前系统字体：{active}"
+            f"{legacy_note}{verification_note}{migration_note}。"
+        )
+        tooltip = "\n".join(
+            detail
+            for detail in (
+                self._font_verification.detail if self._font_verification else "",
+                self._legacy_font_migration.detail
+                if self._legacy_font_migration
+                and self._legacy_font_migration.state != "none"
+                else "",
+            )
+            if detail
+        )
+        self.manager_status_label.setToolTip(tooltip)
         self._update_action_buttons()
         if success:
             show_info(self, _rmtool.APP_NAME, success)
@@ -480,7 +536,7 @@ class FontTab(QtWidgets.QWidget):
         connection_generation = self._connection_generation
         self._set_busy(True)
         worker = _rmtool.Worker(
-            _rmkit_cn.list_user_fonts, self.ssh_client, self._font_dir()
+            self._load_font_inventory, self.ssh_client, self._font_dir()
         )
 
         def finish_quiet():
@@ -492,7 +548,7 @@ class FontTab(QtWidgets.QWidget):
                     select_filename=pending_refresh[0], success=pending_refresh[1]
                 )
 
-        def on_finished(fonts):
+        def on_finished(inventory):
             if sip.isdeleted(self):
                 on_done()
                 return
@@ -500,7 +556,9 @@ class FontTab(QtWidgets.QWidget):
                 if connection_generation != self._connection_generation:
                     # Stale result from a previous connection; discard it.
                     return
-                self._apply_font_inventory(fonts)
+                self._apply_font_inventory(
+                    inventory[0], verification=inventory[1], migration=inventory[2]
+                )
             except Exception:
                 # Never let an apply failure stall the serial coordinator.
                 logging.exception("Failed to apply post-connect font inventory")
@@ -536,6 +594,33 @@ class FontTab(QtWidgets.QWidget):
         self.thread_pool.start(worker)
 
     @require_connection
+    def _migrate_legacy_font(self):
+        migration = self._legacy_font_migration
+        if migration is None or not migration.migratable:
+            return
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            f"将旧版系统字体设置迁移到新的 /data 字体镜像。"
+            f"用户字体 {migration.filename} 会继续保留在 /home，设备不会自动重启。"
+            "是否继续？",
+            confirm_text="迁移旧版字体设置",
+            cancel_text="取消",
+        ):
+            return
+        self._start_font_worker(
+            _rmkit_cn.migrate_legacy_system_font,
+            self.ssh_client,
+            self._font_dir(),
+            pending="正在迁移并验证旧版字体设置…",
+            on_success=lambda font: self._refresh_fonts(
+                select_filename=font.filename,
+                success="旧版字体设置已迁移。请在准备好后点击“重启生效”。",
+            ),
+            error_prefix="旧版字体设置迁移失败",
+        )
+
+    @require_connection
     def _set_selected_active(self):
         selected = self._selected_device_font()
         if not selected:
@@ -543,7 +628,7 @@ class FontTab(QtWidgets.QWidget):
         reapply = selected.active
         action = "重新应用系统字体" if reapply else "设为系统字体"
         message = (
-            f"重新应用 {selected.filename} 作为系统界面字体，并修复锁屏阶段使用的字体镜像。"
+            f"重新应用 {selected.filename} 作为系统界面字体，并修复 /data 中供锁屏使用的当前字体副本。"
             if reapply
             else f"将 {selected.filename} 设为系统界面字体。"
         )
@@ -1285,6 +1370,342 @@ class RmkitCnSection(QtWidgets.QWidget):
         )
 
 
+class NativeChineseSection(QtWidgets.QWidget):
+    def __init__(self, ssh_client: SSHClientWrapper, parent=None):
+        super().__init__(parent)
+        self.ssh_client = ssh_client
+        self.thread_pool = QtCore.QThreadPool.globalInstance()
+        self._status: Optional[_native_chinese.NativeChineseStatus] = None
+        self._busy = False
+
+        title = QtWidgets.QLabel("原生简体中文")
+        title.setObjectName("toolboxFeatureTitle")
+        detail = QtWidgets.QLabel(
+            "为精确支持的固件增加独立的“简体中文”选项，保留法语。"
+            "旧版法语槽位汉化需先还原并手动重启，再连接设备启用此插件。"
+        )
+        detail.setWordWrap(True)
+        self.catalog_label = QtWidgets.QLabel("精确包：检测后显示")
+        self.catalog_label.setWordWrap(True)
+        self.status_label = QtWidgets.QLabel("设备已连接，尚未检测")
+        self.status_label.setWordWrap(True)
+
+        self.detect_button = QtWidgets.QPushButton("检测状态")
+        self.enable_button = QtWidgets.QPushButton("启用原生中文")
+        self.disable_button = QtWidgets.QPushButton("停用")
+        self.set_emergency_button = QtWidgets.QPushButton("紧急停用共享 Xovi")
+        self.clear_emergency_button = QtWidgets.QPushButton("清除紧急停用")
+        buttons = QtWidgets.QHBoxLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.setSpacing(_rmtool.SUBSECTION_GAP)
+        for button in (
+            self.detect_button,
+            self.enable_button,
+            self.disable_button,
+            self.set_emergency_button,
+            self.clear_emergency_button,
+        ):
+            buttons.addWidget(button)
+        buttons.addStretch()
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(_rmtool.SUBSECTION_GAP)
+        layout.addWidget(title)
+        layout.addWidget(detail)
+        layout.addWidget(self.catalog_label)
+        layout.addWidget(self.status_label)
+        layout.addLayout(buttons)
+
+        self.detect_button.clicked.connect(self._detect_status)
+        self.enable_button.clicked.connect(self._enable)
+        self.disable_button.clicked.connect(self._disable)
+        self.set_emergency_button.clicked.connect(self._set_emergency)
+        self.clear_emergency_button.clicked.connect(self._clear_emergency)
+        self.ssh_client.connection_changed.connect(self._on_connection_changed)
+        self._on_connection_changed(self.ssh_client.is_connected())
+
+    def _on_connection_changed(self, connected: bool):
+        if not connected:
+            self._status = None
+            self.catalog_label.setText("精确包：检测后显示")
+            self.status_label.setText("设备未连接")
+        elif self._status is None:
+            self.status_label.setText("设备已连接，尚未检测")
+        self._update_buttons()
+
+    def _update_buttons(self):
+        connected = self.ssh_client.is_connected() and not self._busy
+        state = self._status.state if self._status else None
+        self.disable_button.setText(
+            "清理残留"
+            if state is _native_chinese.NativeChineseState.FIRMWARE_RESIDUE
+            else "停用"
+        )
+        self.detect_button.setEnabled(connected)
+        self.enable_button.setEnabled(
+            connected
+            and self._status is not None
+            and self._status.package is not None
+            and state
+            in (
+                _native_chinese.NativeChineseState.NOT_INSTALLED,
+                _native_chinese.NativeChineseState.INSTALLED_DISABLED,
+            )
+        )
+        self.disable_button.setEnabled(
+            connected
+            and self._status is not None
+            and self._status.installed
+            and state
+            not in (
+                _native_chinese.NativeChineseState.INSTALLED_DISABLED,
+                _native_chinese.NativeChineseState.DISABLE_PENDING_REBOOT,
+            )
+        )
+        self.clear_emergency_button.setEnabled(
+            connected
+            and self._status is not None
+            and self._status.emergency_disabled
+        )
+        self.set_emergency_button.setEnabled(
+            connected
+            and self._status is not None
+            and self._status.installed
+            and not self._status.emergency_disabled
+            and state is not _native_chinese.NativeChineseState.FIRMWARE_RESIDUE
+        )
+
+    def _set_busy(self, busy: bool, message: str = ""):
+        self._busy = busy
+        if message:
+            self.status_label.setText(message)
+        self._update_buttons()
+
+    def _apply_status(self, status: _native_chinese.NativeChineseStatus):
+        self._status = status
+        package = status.package
+        if package is None:
+            self.catalog_label.setText("精确包：当前设备不匹配")
+        else:
+            channel_names = {"stable": "正式版", "beta": "测试版"}
+            verification = (
+                "已实机验证"
+                if package.device_verified
+                else "离线验证，尚待实机"
+            )
+            self.catalog_label.setText(
+                f"精确包：{package.release_version} | {channel_names[package.channel]} | "
+                f"硬件 {package.platform.title()} | 内部版本 {package.firmware} | "
+                f"{verification}"
+            )
+        messages = {
+            _native_chinese.NativeChineseState.INCOMPATIBLE: "当前设备没有精确匹配的原生中文包",
+            _native_chinese.NativeChineseState.NOT_INSTALLED: "尚未安装原生简体中文",
+            _native_chinese.NativeChineseState.INSTALLED_DISABLED: "原生中文当前未启用",
+            _native_chinese.NativeChineseState.ENABLE_PENDING_REBOOT: "已部署，等待手动重启后生效",
+            _native_chinese.NativeChineseState.ENABLED: "原生简体中文已加载",
+            _native_chinese.NativeChineseState.DISABLE_PENDING_REBOOT: "已停用，等待手动重启后完全移除",
+            _native_chinese.NativeChineseState.EMERGENCY_DISABLED: "共享 Xovi 已被紧急标记停用",
+            _native_chinese.NativeChineseState.FIRMWARE_RESIDUE: (
+                "检测到固件升级后遗留的原生中文共享 Xovi 状态，可安全清理"
+            ),
+            _native_chinese.NativeChineseState.BROKEN: "检测到不完整或不可信的原生中文安装",
+        }
+        message = messages[status.state]
+        if status.detail:
+            message += f"：{status.detail}"
+        if status.emergency_disabled and status.state != _native_chinese.NativeChineseState.EMERGENCY_DISABLED:
+            message += "\n紧急停用标记存在，共享 Xovi 不会在下次启动时载入。"
+        self.status_label.setText(message)
+        self._update_buttons()
+
+    def _start_worker(
+        self,
+        fn,
+        *args,
+        pending: str,
+        success: str = "",
+        close_connection: bool = False,
+    ):
+        self._set_busy(True, pending)
+        worker = _rmtool.Worker(fn, *args)
+
+        def on_finished(status: _native_chinese.NativeChineseStatus):
+            if sip.isdeleted(self):
+                if close_connection:
+                    self.ssh_client.close()
+                return
+            self._set_busy(False)
+            self._apply_status(status)
+            if close_connection:
+                self.ssh_client.close()
+            if success:
+                show_info(self, _rmtool.APP_NAME, success)
+
+        def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                if close_connection:
+                    self.ssh_client.close()
+                logging.error("Native Chinese operation failed after tab close: %s", exc)
+                return
+            if close_connection:
+                self.ssh_client.close()
+            self._set_busy(False)
+            self._status = None
+            self._update_buttons()
+            self.status_label.setText("操作失败，未自动重启设备；请重新连接并检测状态")
+            logging.error("Native Chinese operation failed: %s", exc)
+            show_error(
+                self,
+                _rmtool.APP_NAME,
+                f"操作失败：{exc}\n设备不会被自动重启。",
+            )
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self.thread_pool.start(worker)
+
+    @require_connection
+    def _detect_status(self):
+        self._start_worker(
+            _native_chinese.get_cloud_status,
+            self.ssh_client,
+            str(_rmtool.app_state_dir()),
+            pending="正在核对设备身份、精确包与共享 Xovi 状态…",
+        )
+
+    @require_connection
+    def _enable(self):
+        if not self._status or not self._status.package:
+            return
+        package = self._status.package
+        verification_notice = (
+            "该精确包已完成对应真机验证。"
+            if package.device_verified
+            else "该精确包已完成官方固件离线验证，尚待对应真机验证。"
+        )
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            f"{verification_notice}"
+            "它会增加独立的“简体中文”选项，不替换法语。"
+            "如果旧版法语槽位汉化仍在启用，操作会被拒绝；请先还原并手动重启，"
+            "再重新连接设备执行本步骤。"
+            "本次只部署文件，不重启 xochitl 或设备；完成后请手动重启。"
+            "是否继续？",
+            confirm_text="部署并启用",
+            cancel_text="取消",
+        ):
+            return
+        self._start_worker(
+            _native_chinese.enable_cloud,
+            self.ssh_client,
+            self._status.package,
+            str(_rmtool.app_state_dir()),
+            pending="正在下载、验证并部署原生中文资源…",
+            success=(
+                "原生简体中文已部署并通过校验，SSH 会话已关闭。\n"
+                "请手动重启设备，然后在语言设置中选择“简体中文”。"
+            ),
+            close_connection=True,
+        )
+
+    @require_connection
+    def _disable(self):
+        if not self._status or not self._status.installed:
+            return
+        residue = (
+            self._status.state
+            is _native_chinese.NativeChineseState.FIRMWARE_RESIDUE
+        )
+        if residue:
+            title = "清理旧固件原生中文残留"
+            confirmation = (
+                "固件升级后，旧共享 Xovi 已不再载入。将先把 zh_CN 安全改为 en，"
+                "再删除经内置清单验证的整套旧共享状态；旧固件的其他 rmtool Xovi "
+                "功能也会一并移除。本次不会重启设备，是否继续？"
+            )
+            confirm_text = "清理残留"
+            pending = "正在验证并清理旧固件原生中文共享 Xovi 残留…"
+            success = (
+                "旧固件共享 Xovi 残留已清理，SSH 会话已关闭。\n"
+                "重新连接并检测后，可安装当前固件支持的功能。"
+            )
+        else:
+            title = _rmtool.APP_NAME
+            confirmation = (
+                "将停用原生简体中文。如果当前选中 zh_CN，rmtool 会先把"
+                "[General] language 安全改为 en，再移除该功能的 QMD、扩展和翻译目录。"
+                "其他共享 Xovi 功能会保留。操作不会重启设备，是否继续？"
+            )
+            confirm_text = "停用原生中文"
+            pending = "正在安全停用原生简体中文…"
+            success = "原生简体中文已停用，SSH 会话已关闭。\n请手动重启设备。"
+        if not ask_confirmation(
+            self,
+            title,
+            confirmation,
+            confirm_text=confirm_text,
+            cancel_text="取消",
+        ):
+            return
+        self._start_worker(
+            _native_chinese.disable,
+            self.ssh_client,
+            _native_chinese._trusted_catalog(),
+            pending=pending,
+            success=success,
+            close_connection=True,
+        )
+
+    @require_connection
+    def _set_emergency(self):
+        if (
+            not self._status
+            or not self._status.installed
+            or self._status.emergency_disabled
+        ):
+            return
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "将创建共享 Xovi 紧急停用标记。当前界面不会重启；下次手动重启时，"
+            "点击翻页、快速黑白和原生中文等 rmtool 共享 Xovi 功能都不会载入。"
+            "是否继续？",
+            confirm_text="创建停用标记",
+            cancel_text="取消",
+        ):
+            return
+        self._start_worker(
+            _native_chinese.set_emergency_disable,
+            self.ssh_client,
+            _native_chinese._trusted_catalog(),
+            pending="正在创建紧急停用标记…",
+            success="紧急停用标记已创建；当前界面未重启，下次手动重启时生效。",
+        )
+
+    @require_connection
+    def _clear_emergency(self):
+        if not self._status or not self._status.emergency_disabled:
+            return
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "清除紧急停用标记后，已启用的共享 Xovi 功能会在下次手动重启时恢复加载。是否继续？",
+            confirm_text="清除标记",
+            cancel_text="取消",
+        ):
+            return
+        self._start_worker(
+            _native_chinese.clear_emergency_disable,
+            self.ssh_client,
+            _native_chinese._trusted_catalog(),
+            pending="正在清除紧急停用标记…",
+            success="紧急停用标记已清除；如需恢复加载，请稍后手动重启设备。",
+        )
+
+
 class TapPageTurnSection(QtWidgets.QWidget):
     def __init__(self, ssh_client: SSHClientWrapper, parent=None):
         super().__init__(parent)
@@ -1331,6 +1752,8 @@ class TapPageTurnSection(QtWidgets.QWidget):
         self.detect_button = QtWidgets.QPushButton("检测状态")
         self.enable_button = QtWidgets.QPushButton("启用点击翻页")
         self.disable_button = QtWidgets.QPushButton("停用")
+        self.vellum_help_button = QtWidgets.QPushButton("Vellum 官方卸载")
+        self.vellum_help_button.hide()
         self.project_button = QtWidgets.QPushButton("查看说明")
 
         buttons = QtWidgets.QHBoxLayout()
@@ -1339,6 +1762,7 @@ class TapPageTurnSection(QtWidgets.QWidget):
         buttons.addWidget(self.detect_button)
         buttons.addWidget(self.enable_button)
         buttons.addWidget(self.disable_button)
+        buttons.addWidget(self.vellum_help_button)
         buttons.addWidget(self.project_button)
         buttons.addStretch()
 
@@ -1362,6 +1786,11 @@ class TapPageTurnSection(QtWidgets.QWidget):
         self.detect_button.clicked.connect(self._detect_status)
         self.enable_button.clicked.connect(self._enable)
         self.disable_button.clicked.connect(self._disable)
+        self.vellum_help_button.clicked.connect(
+            lambda: QtGui.QDesktopServices.openUrl(
+                QtCore.QUrl(_tap_page_turn.VELLUM_UNINSTALL_URL)
+            )
+        )
         self.project_button.clicked.connect(
             lambda: QtGui.QDesktopServices.openUrl(
                 QtCore.QUrl(f"{_tap_page_turn.REPO_URL}/tree/main/tap-page-turn")
@@ -1408,7 +1837,10 @@ class TapPageTurnSection(QtWidgets.QWidget):
         state = self._status.state if self._status else None
         if state == _tap_page_turn.TapPageTurnState.FIRMWARE_RESIDUE:
             self.disable_button.setText("清理残留")
-        elif state == _tap_page_turn.TapPageTurnState.OUTDATED:
+        elif state in (
+            _tap_page_turn.TapPageTurnState.OUTDATED,
+            _tap_page_turn.TapPageTurnState.LEGACY_VELLUM,
+        ):
             self.disable_button.setText("卸载旧版")
         else:
             self.disable_button.setText("停用")
@@ -1431,6 +1863,9 @@ class TapPageTurnSection(QtWidgets.QWidget):
                 _tap_page_turn.TapPageTurnState.NOT_INSTALLED,
                 _tap_page_turn.TapPageTurnState.INSTALLED_DISABLED,
             )
+        )
+        self.vellum_help_button.setVisible(
+            state == _tap_page_turn.TapPageTurnState.VELLUM_RUNTIME
         )
 
     def _set_busy(self, busy: bool, message: str = ""):
@@ -1491,15 +1926,18 @@ class TapPageTurnSection(QtWidgets.QWidget):
             _tap_page_turn.TapPageTurnState.ENABLE_PENDING_REBOOT: (
                 "持久化已部署，等待冷启动生效"
             ),
-            _tap_page_turn.TapPageTurnState.WAITING_FOR_XOVI: (
-                "点击翻页已部署，等待 AppLoader/Xovi 激活"
-            ),
             _tap_page_turn.TapPageTurnState.ENABLED: "点击翻页已启用并正在运行",
             _tap_page_turn.TapPageTurnState.DISABLE_PENDING_REBOOT: (
                 "持久化已停用，当前进程将在冷启动后恢复原生"
             ),
             _tap_page_turn.TapPageTurnState.OUTDATED: (
                 "检测到旧固件的 rmtool 点击翻页，请先卸载旧版"
+            ),
+            _tap_page_turn.TapPageTurnState.LEGACY_VELLUM: (
+                "检测到 rmtool 安装的旧版 Vellum 点击翻页包，请先卸载"
+            ),
+            _tap_page_turn.TapPageTurnState.VELLUM_RUNTIME: (
+                "Vellum/AppLoader Xovi 仍在设备中，rmtool 插件安装已暂停"
             ),
             _tap_page_turn.TapPageTurnState.FIRMWARE_RESIDUE: (
                 "检测到固件升级后遗留的旧共享 Xovi 状态，可安全清理"
@@ -1576,10 +2014,9 @@ class TapPageTurnSection(QtWidgets.QWidget):
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
-            "将下载并校验固件专用资源。若设备已有兼容的 AppLoader/Xovi，"
-            "rmtool 会生成固件专用 Vellum APK，并通过 Vellum 安装；"
-            "否则使用 rmtool 管理的共享 Xovi 组件，并与快速黑白共用。Vellum 模式不增加设备端开关，"
-            "安装期间 QMD 始终随 Xovi 加载。"
+            "将下载并校验固件专用资源，并安装到 rmtool 管理的共享 Xovi；"
+            "点击翻页可与快速黑白和原生简体中文共用同一运行时。"
+            "若检测到 Vellum/AppLoader Xovi，安装会在上传前停止。"
             "本次操作不会重启界面或设备；完成后 SSH 会话会关闭，请从设备菜单手动冷启动。"
             "是否继续？",
             confirm_text="部署持久化",
@@ -1604,6 +2041,10 @@ class TapPageTurnSection(QtWidgets.QWidget):
         if not self._status or not self._status.dropin_present:
             return
         outdated = self._status.state == _tap_page_turn.TapPageTurnState.OUTDATED
+        legacy_vellum = (
+            self._status.state
+            == _tap_page_turn.TapPageTurnState.LEGACY_VELLUM
+        )
         residue = (
             self._status.state
             == _tap_page_turn.TapPageTurnState.FIRMWARE_RESIDUE
@@ -1621,6 +2062,20 @@ class TapPageTurnSection(QtWidgets.QWidget):
                 "旧固件共享 Xovi 残留已完整清理，SSH 会话已关闭。\n"
                 "重新连接并检测后，可安装当前固件的点击翻页和快速黑白。"
             )
+        elif legacy_vellum:
+            title = "卸载旧版 Vellum 点击翻页"
+            confirmation = (
+                "将通过 Vellum 仅卸载已精确验证的 rmtool-tap-page-turn 包。"
+                "不会卸载 Vellum、AppLoader、Xovi 或任何第三方包。"
+                "完成后请按界面中的官方链接自行卸载 Vellum 运行环境，"
+                "再重新检测并安装 rmtool 共享 Xovi 版本。是否继续？"
+            )
+            confirm_text = "卸载旧版"
+            pending = "正在验证并卸载 rmtool 的旧版 Vellum 点击翻页包…"
+            success = (
+                "旧版 Vellum 点击翻页包已卸载，SSH 会话已关闭。\n"
+                "请重新连接，按 Vellum 官方说明卸载其运行环境后，再安装 rmtool 版本。"
+            )
         elif outdated:
             title = "卸载旧版点击翻页"
             confirmation = (
@@ -1637,8 +2092,8 @@ class TapPageTurnSection(QtWidgets.QWidget):
         else:
             title = _rmtool.APP_NAME
             confirmation = (
-                "将停用 rmtool 的点击翻页配置；Vellum 模式只卸载 rmtool 的独立 APK，"
-                "不会删除或修改 AppLoader 及其他 Xovi 扩展。"
+                "将停用 rmtool 共享 Xovi 中的点击翻页配置；"
+                "其他 rmtool 功能及其共享运行时会按需保留。"
                 "资源缓存会保留，本次操作不会重启界面或设备；完成后请手动冷启动。"
                 "是否继续？"
             )
@@ -1713,6 +2168,8 @@ class FastMonoReadingSection(QtWidgets.QWidget):
         self.enable_button = QtWidgets.QPushButton("安装并启用")
         self.disable_button = QtWidgets.QPushButton("停用")
         self.clear_button = QtWidgets.QPushButton("清除状态")
+        self.vellum_help_button = QtWidgets.QPushButton("Vellum 官方卸载")
+        self.vellum_help_button.hide()
         self.project_button = QtWidgets.QPushButton("查看说明")
 
         buttons = QtWidgets.QHBoxLayout()
@@ -1723,6 +2180,7 @@ class FastMonoReadingSection(QtWidgets.QWidget):
             self.enable_button,
             self.disable_button,
             self.clear_button,
+            self.vellum_help_button,
             self.project_button,
         ):
             buttons.addWidget(button)
@@ -1749,6 +2207,11 @@ class FastMonoReadingSection(QtWidgets.QWidget):
         self.enable_button.clicked.connect(self._enable)
         self.disable_button.clicked.connect(self._disable)
         self.clear_button.clicked.connect(self._clear_status)
+        self.vellum_help_button.clicked.connect(
+            lambda: QtGui.QDesktopServices.openUrl(
+                QtCore.QUrl(_tap_page_turn.VELLUM_UNINSTALL_URL)
+            )
+        )
         self.project_button.clicked.connect(
             lambda: QtGui.QDesktopServices.openUrl(
                 QtCore.QUrl(
@@ -1802,7 +2265,10 @@ class FastMonoReadingSection(QtWidgets.QWidget):
         state = self._status.state if self._status else None
         if state == _fast_mono_reading.FastMonoReadingState.FIRMWARE_RESIDUE:
             self.disable_button.setText("清理残留")
-        elif state == _fast_mono_reading.FastMonoReadingState.OUTDATED:
+        elif state in (
+            _fast_mono_reading.FastMonoReadingState.OUTDATED,
+            _fast_mono_reading.FastMonoReadingState.LEGACY_VELLUM,
+        ):
             self.disable_button.setText("卸载旧版")
         else:
             self.disable_button.setText("停用")
@@ -1827,6 +2293,9 @@ class FastMonoReadingSection(QtWidgets.QWidget):
             )
         )
         self.clear_button.setEnabled(connected and self._status is not None)
+        self.vellum_help_button.setVisible(
+            state == _fast_mono_reading.FastMonoReadingState.VELLUM_RUNTIME
+        )
 
     def _set_busy(self, busy: bool, message: str = ""):
         self._busy = busy
@@ -1883,9 +2352,6 @@ class FastMonoReadingSection(QtWidgets.QWidget):
             _fast_mono_reading.FastMonoReadingState.ENABLE_PENDING_REBOOT: (
                 "持久化已部署，等待手动重启设备生效"
             ),
-            _fast_mono_reading.FastMonoReadingState.WAITING_FOR_XOVI: (
-                "快速黑白已部署，等待 AppLoader/Xovi 激活"
-            ),
             _fast_mono_reading.FastMonoReadingState.ENABLED: (
                 "快速黑白阅读扩展已加载；PDF/EPUB 菜单开关默认关闭"
             ),
@@ -1894,6 +2360,12 @@ class FastMonoReadingSection(QtWidgets.QWidget):
             ),
             _fast_mono_reading.FastMonoReadingState.OUTDATED: (
                 "检测到 rmtool 安装的旧版快速黑白，请先卸载旧版"
+            ),
+            _fast_mono_reading.FastMonoReadingState.LEGACY_VELLUM: (
+                "检测到 rmtool 安装的旧版 Vellum 快速黑白包，请先卸载"
+            ),
+            _fast_mono_reading.FastMonoReadingState.VELLUM_RUNTIME: (
+                "Vellum/AppLoader Xovi 仍在设备中，rmtool 插件安装已暂停"
             ),
             _fast_mono_reading.FastMonoReadingState.FIRMWARE_RESIDUE: (
                 "检测到固件升级后遗留的旧共享 Xovi 状态，可安全清理"
@@ -2002,7 +2474,7 @@ class FastMonoReadingSection(QtWidgets.QWidget):
             f"将安装 {package.platform.title()} {package.release_version} "
             f"（内部版本 {package.firmware}）快速黑白阅读扩展。"
             f"{verification_notice}"
-            "标准 Vellum/Xovi 设备会安装独立最小 APK；其他设备会使用 rmtool 管理的共享 Xovi 组件，并与点击翻页共用。"
+            "扩展将安装到 rmtool 管理的共享 Xovi，并与点击翻页和原生简体中文共用同一运行时。"
             "若检测到非托管 Xovi，将在上传前拒绝操作。"
             "本次不会重启 xochitl 或设备；完成后 SSH 会话会关闭，请手动重启设备。"
             "重启后请在 PDF/EPUB 阅读页的更多菜单中按需开启“快速黑白”，每次重启默认关闭。"
@@ -2033,6 +2505,10 @@ class FastMonoReadingSection(QtWidgets.QWidget):
             self._status.state
             == _fast_mono_reading.FastMonoReadingState.OUTDATED
         )
+        legacy_vellum = (
+            self._status.state
+            == _fast_mono_reading.FastMonoReadingState.LEGACY_VELLUM
+        )
         residue = (
             self._status.state
             == _fast_mono_reading.FastMonoReadingState.FIRMWARE_RESIDUE
@@ -2049,6 +2525,20 @@ class FastMonoReadingSection(QtWidgets.QWidget):
             success = (
                 "旧固件共享 Xovi 残留已完整清理，SSH 会话已关闭。\n"
                 "重新连接并检测后，可安装当前固件的点击翻页和快速黑白。"
+            )
+        elif legacy_vellum:
+            dialog_title = "卸载旧版 Vellum 快速黑白"
+            confirmation = (
+                "将通过 Vellum 仅卸载已精确验证的 rmtool-fast-mono-reading 包。"
+                "不会卸载 Vellum、AppLoader、Xovi、点击翻页或任何第三方包。"
+                "完成后请按界面中的官方链接自行卸载 Vellum 运行环境，"
+                "再重新检测并安装 rmtool 共享 Xovi 版本。是否继续？"
+            )
+            confirm_text = "卸载旧版"
+            pending = "正在验证并卸载 rmtool 的旧版 Vellum 快速黑白包…"
+            success = (
+                "旧版 Vellum 快速黑白包已卸载，SSH 会话已关闭。\n"
+                "请重新连接，按 Vellum 官方说明卸载其运行环境后，再安装 rmtool 版本。"
             )
         elif outdated:
             dialog_title = "卸载旧版快速黑白"
@@ -2068,8 +2558,9 @@ class FastMonoReadingSection(QtWidgets.QWidget):
         else:
             dialog_title = _rmtool.APP_NAME
             confirmation = (
-                "将停用 rmtool 的快速黑白阅读配置。Vellum 模式只卸载独立的快速黑白 APK，"
-                "不会修改 AppLoader、点击翻页或其他扩展。操作不会重启设备；完成后请手动重启。"
+                "将停用 rmtool 共享 Xovi 中的快速黑白阅读配置。"
+                "点击翻页、原生简体中文及共享运行时会按需保留。"
+                "操作不会重启设备；完成后请手动重启。"
                 "是否继续？"
             )
             confirm_text = "停用快速黑白"
@@ -2096,6 +2587,85 @@ class FastMonoReadingSection(QtWidgets.QWidget):
         )
 
 
+class LegacyVellumCleanupSection(QtWidgets.QWidget):
+    def __init__(self, ssh_client: SSHClientWrapper, parent=None):
+        super().__init__(parent)
+        self.ssh_client = ssh_client
+        self.thread_pool = QtCore.QThreadPool.globalInstance()
+        self._busy = False
+
+        self.status_label = QtWidgets.QLabel(
+            "仅清理 rmtool 历史安装的点击翻页和快速黑白 Vellum 包；"
+            "不会卸载 Vellum、AppLoader、Xovi 或其他插件。"
+        )
+        self.status_label.setWordWrap(True)
+        self.cleanup_button = QtWidgets.QPushButton("一键卸载旧版插件")
+        self.cleanup_button.clicked.connect(self._cleanup)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(_rmtool.SUBSECTION_GAP)
+        layout.addWidget(self.status_label)
+        layout.addWidget(self.cleanup_button, 0, QtCore.Qt.AlignLeft)
+
+        self.ssh_client.connection_changed.connect(self._on_connection_changed)
+        self._on_connection_changed(self.ssh_client.is_connected())
+
+    def _on_connection_changed(self, connected: bool):
+        self.cleanup_button.setEnabled(connected and not self._busy)
+
+    @require_connection
+    def _cleanup(self):
+        if not ask_confirmation(
+            self,
+            "一键卸载旧版插件",
+            "rmtool 会先完整验证检测到的两个历史 Vellum 功能包，全部通过后才开始删除。"
+            "任一包的标记、版本、所有权或文件哈希异常时，将不会删除任何包。"
+            "Vellum、AppLoader、Xovi、当前 rmtool 共享功能和第三方插件都不会被卸载。"
+            "是否继续？",
+            confirm_text="卸载旧版插件",
+            cancel_text="取消",
+            danger=True,
+        ):
+            return
+
+        self._busy = True
+        self._on_connection_changed(True)
+        self.status_label.setText("正在验证并卸载 rmtool 历史 Vellum 功能包…")
+        worker = _rmtool.Worker(_legacy_vellum.remove_legacy_plugins, self.ssh_client)
+
+        def on_finished(removed: tuple[str, ...]):
+            if sip.isdeleted(self):
+                return
+            self._busy = False
+            self._on_connection_changed(self.ssh_client.is_connected())
+            if removed:
+                names = "、".join(removed)
+                self.status_label.setText(f"已卸载：{names}")
+                show_info(
+                    self,
+                    _rmtool.APP_NAME,
+                    "已卸载通过验证的 rmtool 旧版插件。Vellum/AppLoader/Xovi 本体仍保留。",
+                )
+            else:
+                self.status_label.setText("未检测到 rmtool 安装的旧版 Vellum 插件")
+                show_info(self, _rmtool.APP_NAME, "没有需要卸载的 rmtool 旧版插件。")
+
+        def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                logging.error("Legacy Vellum cleanup failed after tab close: %s", exc)
+                return
+            self._busy = False
+            self._on_connection_changed(self.ssh_client.is_connected())
+            self.status_label.setText(f"旧版插件清理失败：{exc}")
+            logging.error("Legacy Vellum cleanup failed: %s", exc)
+            show_error(self, _rmtool.APP_NAME, f"操作失败：{exc}")
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self.thread_pool.start(worker)
+
+
 class ToolboxTab(QtWidgets.QWidget):
     def __init__(
         self,
@@ -2107,8 +2677,10 @@ class ToolboxTab(QtWidgets.QWidget):
         self.time_section = TimeTab(ssh_client)
         self.control_section = ControlTab(ssh_client)
         self.rmkit_cn_section = RmkitCnSection(ssh_client)
+        self.native_chinese_section = NativeChineseSection(ssh_client)
         self.tap_page_turn_section = TapPageTurnSection(ssh_client)
         self.fast_mono_reading_section = FastMonoReadingSection(ssh_client)
+        self.legacy_vellum_cleanup_section = LegacyVellumCleanupSection(ssh_client)
 
         time_group = QtWidgets.QGroupBox("时间管理")
         time_layout = QtWidgets.QVBoxLayout()
@@ -2126,6 +2698,11 @@ class ToolboxTab(QtWidgets.QWidget):
         rmkit_cn_layout = QtWidgets.QVBoxLayout()
         rmkit_cn_layout.setContentsMargins(0, _rmtool.SUBSECTION_GAP, 0, 0)
         rmkit_cn_layout.addWidget(self.rmkit_cn_section)
+        localization_divider = QtWidgets.QFrame()
+        localization_divider.setFrameShape(QtWidgets.QFrame.HLine)
+        localization_divider.setFrameShadow(QtWidgets.QFrame.Sunken)
+        rmkit_cn_layout.addWidget(localization_divider)
+        rmkit_cn_layout.addWidget(self.native_chinese_section)
         rmkit_cn_group.setLayout(rmkit_cn_layout)
 
         tap_page_turn_group = QtWidgets.QGroupBox("阅读优化与手势")
@@ -2139,18 +2716,23 @@ class ToolboxTab(QtWidgets.QWidget):
         divider.setFrameShadow(QtWidgets.QFrame.Sunken)
         tap_page_turn_layout.addWidget(divider)
         tap_page_turn_layout.addWidget(self.fast_mono_reading_section)
+        cleanup_divider = QtWidgets.QFrame()
+        cleanup_divider.setFrameShape(QtWidgets.QFrame.HLine)
+        cleanup_divider.setFrameShadow(QtWidgets.QFrame.Sunken)
+        tap_page_turn_layout.addWidget(cleanup_divider)
+        tap_page_turn_layout.addWidget(self.legacy_vellum_cleanup_section)
         tap_page_turn_group.setLayout(tap_page_turn_layout)
 
         koreader_group = QtWidgets.QGroupBox("KOReader / 第三方应用")
         koreader_info = QtWidgets.QLabel(
-            "安装 KOReader 等第三方应用需要通过 vellum 包管理器，"
-            "请参考以下项目文档：\n"
+            "安装 KOReader 等第三方应用仍可使用 Vellum；rmtool 自带插件已改用独立的共享 Xovi，"
+            "不会代装或卸载 Vellum。请参考以下项目文档：\n"
         )
         koreader_info.setWordWrap(True)
 
         koreader_links = QtWidgets.QLabel(
-            '<a href="https://github.com/vellum-dev/vellum-cli">'
-            "vellum (包管理器)</a>"
+            '<a href="https://github.com/vellum-dev/vellum-cli#usage">'
+            "Vellum（安装与官方卸载）</a>"
             '  |  <a href="https://github.com/asivery/rm-xovi-extensions">'
             "xovi (扩展框架)</a>"
             '  |  <a href="https://github.com/asivery/rm-appload">'

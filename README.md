@@ -71,6 +71,7 @@ All firmware-specific resources managed by rmtool use two fixed sources. The cli
 | Resource | Tencent COS (mainland China preferred) | GitHub fallback |
 | --- | --- | --- |
 | Chinese localization | [COS root](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/) | [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/tag/localization-assets) |
+| Native Simplified Chinese | [`native-chinese/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/) | [`native-chinese-assets`](https://github.com/pretenderlu/rmtool/releases/tag/native-chinese-assets) |
 | Tap to turn pages | [`tap-page-turn/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/tap-page-turn/) | [`tap-page-turn-assets`](https://github.com/pretenderlu/rmtool/releases/tag/tap-page-turn-assets) |
 | Fast monochrome reading | [`fast-mono-reading/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/fast-mono-reading/) | [`fast-mono-reading-assets`](https://github.com/pretenderlu/rmtool/releases/tag/fast-mono-reading-assets) |
 
@@ -119,13 +120,13 @@ The main files are:
 - **Wallpaper management**: Read and preview the device's current startup, suspend, carousel, and shutdown wallpapers. The current UI produces portrait wallpapers at the selected device's native resolution, with fit, crop, and stretch modes plus horizontal and vertical crop offsets. The cover-wall generator arranges selected document thumbnails with optional text into a local poster wallpaper; no document data is sent to a cloud service.
 - **Document center**: Search and inspect document metadata and thumbnails; batch-upload PDF/EPUB files, check free space, and batch-delete documents. Export parseable handwriting from `.rm` or `.note` data in one document to a white-background PDF without merging the original PDF/EPUB pages.
 - **KOReader file manager**: Detect an existing KOReader installation and browse its book library. Search folders, upload or download book files, create folders, and delete entries without leaving the detected library root. rmtool does not install KOReader itself.
-- **Font manager**: Preview and upload multiple TTF/OTF fonts, optionally rename an upload to `zwzt.ttf`, inspect the device's top-level user fonts, switch the exact font file used by the system UI, and delete inactive fonts. Applying a font also creates a verified system-partition mirror so Chinese remains available on the passcode screen before encrypted `/home` is mounted. The active font can be reapplied to create or repair that mirror. Uploading does not change the active font or reboot the device; restart is a separate confirmed action.
+- **Font manager**: Preview and upload multiple TTF/OTF fonts, optionally rename an upload to `zwzt.ttf`, inspect the device's top-level user fonts, switch the exact font file used by the system UI, and delete inactive fonts. Uploaded originals remain under `/home`; only the selected font is atomically mirrored to `/data/rmtool/fonts` for the pre-unlock UI. Root stores only a small, persistent Fontconfig file. A one-click migration is offered only when the old root mirror, rmtool-generated Fontconfig files, metadata, and one `/home` original match the exact legacy layout; no font is re-uploaded. Selected fonts are limited to 24 MiB and activation keeps at least 32 MiB free on `/data`. The UI labels exact device/firmware identities as device verified, pending validation, or unverified. Uploading does not change the active font or reboot the device; restart is a separate confirmed action.
 - **Time management**: Sync the computer's time, inspect system time, hardware clock, and timezone, or set the timezone to `Asia/Shanghai`.
 - **Device control**: Restart the device, enable Wi-Fi SSH, and increase frontlight brightness on devices with the `rm_frontlight` interface while installing a persistence service.
 - **Tap to turn pages**: On exactly supported firmware, enable persistent left/right tap regions in PDF and EPUB reading views while retaining native swipe navigation and document links.
 - **Fast monochrome reading**: On exact supported Paper Pro and Paper Pro Move 3.27/3.28 builds, add a session-scoped `快速黑白` switch and stock cleanup-refresh selector to the PDF/EPUB More menu. Cleanup defaults to every 10 real page turns, with 5/20/30/never choices. Packages are labelled separately as device verified or offline verified.
 - **Theme and logs**: Light and dark themes are persisted. The bottom log panel supports level filtering, pause, automatic scrolling, clearing, and opening the log file.
-- **Third-party application links**: The toolbox links to documentation for vellum, xovi, rm-appload, and KOReader. It does not include one-click installers.
+- **Third-party application links**: The toolbox links to Vellum install/uninstall documentation, xovi, rm-appload, and KOReader. rmtool plugins do not install through Vellum.
 
 ### Wallpaper notes
 
@@ -146,29 +147,42 @@ The normal workflow is to click "Enable Chinese" and let rmtool download and ins
 
 The platform code is the hardware identifier used inside official firmware packages. It is separate from the 14-digit internal firmware version shown in each column.
 
-| Device model | Platform code | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) |
-| --- | --- | --- | --- | --- | --- | --- |
-| reMarkable Paper Pro | `ferrari` | Supported | Supported | Supported | Supported | Supported |
-| reMarkable Paper Pro Move | `chiappa` | Supported | Supported | Supported | Supported | Supported |
-| reMarkable Paper Pure | `tatsu` | Not available | Supported | Not available | Not available | Not available |
-| reMarkable 1 | `rm1` | Not available | Supported | Not available | Not available | Not available |
-| reMarkable 2 | `rm2` | Not available | Supported | Not available | Not available | Not available |
+| Device model | Platform code | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| reMarkable Paper Pro | `ferrari` | Supported | Supported | Supported | Supported | Supported | Supported |
+| reMarkable Paper Pro Move | `chiappa` | Supported | Supported | Supported | Supported | Supported | Waiting for firmware |
+| reMarkable Paper Pure | `tatsu` | Not available | Supported | Not available | Not available | Not available | Not available |
+| reMarkable 1 | `rm1` | Not available | Supported | Not available | Not available | Not available | Not available |
+| reMarkable 2 | `rm2` | Not available | Supported | Not available | Not available | Not available | Not available |
 
 Enable and restore have been verified on a real Paper Pro (`ferrari`) for 3.28.0.162 and 3.28.0.163. The 3.28.0.164 packages, Paper Pro Move (`chiappa`) beta support, and the listed 3.27.3 packages for Paper Pro Move, Paper Pure (`tatsu`), reMarkable 1 (`rm1`), and reMarkable 2 (`rm2`) have been validated offline against official firmware but not yet deployed to those devices. Versions 3.28.0.163 and 3.28.0.164 share the same internal version, so rmtool distinguishes them by the exact stock French catalog hash instead of the version string alone. The cloud manifest remains the source of truth for actual availability. See the [localization documentation](translations/README.md) and [manifest format](translations/manifest.json).
 
-Localization reuses xochitl's built-in French language slot, so French is unavailable while Chinese is enabled. rmtool first backs up the original configuration and `reMarkable_fr.qm`, then checks whether the current primary font supports Simplified Chinese. The official reMarkable 1 and reMarkable 2 firmware images contain no CJK fonts, so this fallback is required. If the current primary font does not support Chinese, you can install the bundled Noto Sans CJK SC or select a local TTF/OTF file. The selected UI font is mirrored byte-for-byte to an rmtool-owned system-font path and verified by SHA-256 and system-only Fontconfig matching. This keeps Chinese readable on the passcode screen while encrypted `/home` is still unavailable; the normal user-font copy remains the managed source. After enabling localization, applying or repairing fonts, or restoring the original UI, rmtool closes SSH and **does not restart the device automatically**. After enabling Chinese, restart the device manually, then open Settings > Language and select French to activate the Chinese UI. Restoring the original UI only requires the prompted restart.
+The established localization path reuses xochitl's built-in French language slot, so French is unavailable while Chinese is enabled. rmtool first backs up the original configuration and `reMarkable_fr.qm`, then checks whether the current primary font supports Simplified Chinese. The official reMarkable 1 and reMarkable 2 firmware images contain no CJK fonts, so this fallback is required. If the current primary font does not support Chinese, you can install the bundled Noto Sans CJK SC or select a local TTF/OTF file. The selected UI font remains managed under `/home`; one verified active copy is stored under `/data/rmtool/fonts`, while only `/etc/fonts/conf.d/99-rmtool-ui-font.conf` is persisted on the root filesystem. This keeps the same font available on the passcode screen before encrypted `/home` is unlocked without consuming root space with a full font. After enabling localization, applying or repairing fonts, or restoring the original UI, rmtool closes SSH and **does not restart the device automatically**. After enabling Chinese, restart the device manually, then open Settings > Language and select French to activate the Chinese UI. Restoring the original UI only requires the prompted restart.
+
+#### Independent Simplified Chinese plugin
+
+Exact-build plugins add an independent **Simplified Chinese** language option while preserving French:
+
+| Device | 3.27.1 stable | 3.27.3 stable | 3.28.162 beta | 3.28.163 beta | 3.28.164 beta | 3.28.166 beta |
+| --- | --- | --- | --- | --- | --- | --- |
+| Paper Pro (`ferrari`) | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | **Device verified** |
+| Paper Pro Move (`chiappa`) | Offline verified | **Device verified** | Offline verified | Offline verified | Offline verified | Waiting for firmware |
+
+The Move stable package has passed real-device installation, language switching, reboot, and removal tests. It remains gated to the exact official xochitl hash. Its stock firmware has no CJK font, so rmtool requires a Chinese-capable active system font before deployment and refuses without writing when coverage is missing.
+
+The independent plugin and French-slot localization cannot be active together. To migrate safely, first restore French-slot localization and manually reboot. Then reconnect, enable the independent plugin, and reboot manually again before selecting Simplified Chinese. rmtool deliberately keeps this as two explicit stages so a failed second stage leaves the device on the stock language path.
 
 ### Tap to turn pages
 
 Tap-to-turn is available for the exact builds below. rmtool requires a match for the hardware platform, CPU architecture, internal firmware version, and `/usr/bin/xochitl` SHA-256. Other devices and firmware versions are rejected rather than guessed.
 
-| Device model | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) |
-| --- | --- | --- | --- | --- | --- | --- |
-| reMarkable Paper Pro | `ferrari` | Offline verified | Offline verified | **Device verified** | **Device verified** | Offline verified |
-| reMarkable Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
-| reMarkable Paper Pure | `tatsu` | Not available | Offline verified | Not available | Not available | Not available |
-| reMarkable 1 | `rm1` | Not available | Offline verified | Not available | Not available | Not available |
-| reMarkable 2 | `rm2` | Not available | Offline verified | Not available | Not available | Not available |
+| Device model | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| reMarkable Paper Pro | `ferrari` | Offline verified | Offline verified | **Device verified** | **Device verified** | Offline verified | Offline verified |
+| reMarkable Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Waiting for firmware |
+| reMarkable Paper Pure | `tatsu` | Not available | Offline verified | Not available | Not available | Not available | Not available |
+| reMarkable 1 | `rm1` | Not available | Offline verified | Not available | Not available | Not available | Not available |
+| reMarkable 2 | `rm2` | Not available | Offline verified | Not available | Not available | Not available | Not available |
 
 "Offline verified" means the package passed extraction, QMLDiff compatibility, patch replay, architecture, archive, and hash checks against the corresponding official firmware. Only Paper Pro 3.28 has completed enable, disable, rollback, and cold-boot testing on a physical device so far.
 
@@ -176,16 +190,16 @@ In a PDF or EPUB reading view, a short one-finger tap in the left-middle region 
 
 Enabling and disabling are intentionally separated from activation. rmtool writes and validates the persistent configuration, closes SSH, and never restarts xochitl or reboots the device automatically. Use the device menu to perform a full restart after either operation. The launcher checks the device and every runtime file on each boot and falls back to stock xochitl if any check fails. See [tap-page-turn](tap-page-turn/README.md) for the package and license details.
 
-When Vellum owns the standard AppLoader/Xovi runtime, rmtool verifies the installed `xovi`, `qt-resource-rebuilder`, and `appload` packages, their file ownership, and the firmware-specific runtime hashes. It checks the QMD against the existing hashtab, builds a deterministic unsigned APK locally from the authenticated asset, and uses `vellum add` or `vellum del` to manage it. The APK has exact OS and hardware dependencies and conflicts with other tap-to-page packages. It does not add an AppLoader icon or an on-device toggle: while installed, its QMD is always loaded whenever Xovi and qt-resource-rebuilder are active. AppLoader, its systemd drop-in, hashtab, applications, and other extensions are left unchanged. Unknown layouts or modified runtimes are rejected instead of falling back to standalone deployment.
+All new feature installations use one rmtool-owned shared Xovi/QRR runtime. rmtool no longer creates or installs Vellum APKs. The reading-optimization toolbox provides one-click cleanup that validates both historical `rmtool-tap-page-turn` and `rmtool-fast-mono-reading` packages before removing either one, without touching Vellum, current shared-Xovi features, or third-party packages. After those packages are removed, uninstall the remaining Vellum/AppLoader runtime through the [official Vellum CLI instructions](https://github.com/vellum-dev/vellum-cli#usage) before installing the rmtool version; rmtool never runs `vellum self uninstall` or `--all` automatically.
 
 ### Fast monochrome reading
 
 Fast monochrome reading is available for the exact color-device builds below. rmtool requires the platform, architecture, internal firmware version, and stock `/usr/bin/xochitl` SHA-256 to match its local allowlist; a same-version but modified xochitl is rejected.
 
-| Device model | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) |
-| --- | --- | --- | --- | --- | --- | --- |
-| reMarkable Paper Pro | `ferrari` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
-| reMarkable Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
+| Device model | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| reMarkable Paper Pro | `ferrari` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
+| reMarkable Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Waiting for firmware |
 
 "Offline verified" means the package passed qmd-tool hash checks, QMLDiff compatibility, patch replay, patched-QML assertions, archive validation, and deterministic rebuild against recovered official firmware. The earlier Move 3.27.3 fast-mono behavior passed real-device tests, but the new r3 package with periodic cleanup and a native foldout selector remains offline verified until the complete package is tested again.
 
@@ -193,7 +207,7 @@ The .163 and .164 beta releases expose the same 14-digit internal version. Tap-t
 
 After installation and a manual device restart, open a PDF or EPUB and use `More > 快速黑白`. While enabled, `强制刷新` can run the stock cleanup after every 5, 10, 20, or 30 actual page changes, or never; the session default is 10. Both taps and swipes count, and cleanup waits 500 ms for the page to render. Turning fast monochrome off immediately restores stock screen-mode selection and resets the counter.
 
-A standard Vellum-managed Xovi installation receives an independent minimal `rmtool-fast-mono-reading` APK. Without Vellum, tap-to-turn and fast monochrome share one rmtool-owned Xovi/QRR runtime while retaining separate QMD state. Unmanaged Xovi/drop-ins are rejected before upload. Feature manifests and payloads are fetched from Tencent COS first and the fixed GitHub release second, with exact size and SHA-256 verification and validated-cache fallback. Installation and removal never restart xochitl; wait for rmtool to close SSH, then restart from the device menu. See [fast-mono-reading](fast-mono-reading/README.md) for exact package and build details.
+Tap-to-turn, fast monochrome, and native Simplified Chinese share one rmtool-owned Xovi/QRR runtime while retaining separate feature state. Vellum/AppLoader and unmanaged Xovi layouts block installation to prevent mixed runtimes. Feature manifests and payloads are fetched from Tencent COS first and the fixed GitHub release second, with exact size, SHA-256 verification, and validated-cache fallback. Installation and removal never restart xochitl; wait for rmtool to close SSH, then restart from the device menu. See [fast-mono-reading](fast-mono-reading/README.md) for exact package and build details.
 
 ## Usage recommendations
 
@@ -212,7 +226,7 @@ A standard Vellum-managed Xovi installation receives an independent minimal `rmt
 - **Uploaded document does not appear on the device**: Return to the document center and restart xochitl, or restart the device manually.
 - **"Export to PDF" is unavailable**: Select exactly one document containing `.rm` or `.note` handwriting resources. Export renders only parseable handwriting and does not merge original PDF/EPUB pages, typed text, or other non-handwriting content.
 - **Localization buttons are disabled**: Click "Check Status" first. rmtool can use COS, GitHub, a validated cache, or its bundled baseline catalog, but the internal firmware version plus the SHA-256 of the original `reMarkable_fr.qm` must match the same manifest entry. Installing without network access also requires a validated cached package or a matching package imported from disk.
-- **Tap-to-turn cannot be enabled**: Click "Check Status" first. The model, firmware, architecture, and stock xochitl hash must match one exact row above. A modified xochitl or payload also blocks deployment. Vellum mode additionally requires package ownership and runtime hashes to match, and refuses conflicting tap-to-page packages; custom or modified Xovi installations are not treated as clean standalone devices.
+- **Tap-to-turn cannot be enabled**: Click "Check Status" first. The model, firmware, architecture, and stock xochitl hash must match one exact row above. A modified xochitl or payload also blocks deployment. If Vellum is detected, first let rmtool remove only its verified historical feature packages, then follow the official Vellum uninstall instructions and detect again.
 - **Tap-to-turn still works immediately after disabling**: This is expected because rmtool does not kill the running xochitl process. Restart the tablet from its device menu to return to the stock interface.
 - **macOS cannot create its configuration**: Make sure the current user can create and write `~/Library/Application Support/rmtool/`.
 - **Diagnostic information is needed**: Click the log button in the lower-left corner, filter by level, or choose "Open Log File". Before sharing a log, check it for private information such as the device address.

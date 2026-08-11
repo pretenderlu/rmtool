@@ -26,13 +26,13 @@ the manifest are resolved below the same COS prefix or fixed GitHub release.
 
 ## Support matrix
 
-| Device | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) |
-| --- | --- | --- | --- | --- | --- | --- |
-| Paper Pro | `ferrari` | Offline verified | Offline verified | **Device verified** | Offline verified | Offline verified |
-| Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
-| Paper Pure | `tatsu` | - | Offline verified | - | - | - |
-| reMarkable 1 | `rm1` | - | Offline verified | - | - | - |
-| reMarkable 2 | `rm2` | - | Offline verified | - | - | - |
+| Device | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Paper Pro | `ferrari` | Offline verified | Offline verified | **Device verified** | Offline verified | Offline verified | Offline verified |
+| Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Waiting for firmware |
+| Paper Pure | `tatsu` | - | Offline verified | - | - | - | - |
+| reMarkable 1 | `rm1` | - | Offline verified | - | - | - | - |
+| reMarkable 2 | `rm2` | - | Offline verified | - | - | - | - |
 
 Offline validation uses the official firmware image and includes QML resource
 recovery, QMLDiff compatibility and replay, binary architecture, archive, and
@@ -42,7 +42,7 @@ rollback, and cold-boot validation on physical hardware so far.
 The .163 and .164 beta releases share internal version `20260702125656`.
 Their package names remain unique, and selection additionally requires the
 exact stock xochitl SHA-256, so an old package cannot match the new firmware.
-An exact rmtool or Vellum `.163` installation retained across the upgrade is
+An exact rmtool or historical Vellum `.163` installation retained across the upgrade is
 offered a verified cleanup path before `.164` can be installed; modified or
 unknown state remains blocked.
 
@@ -62,23 +62,12 @@ The persistent launcher verifies the architecture, platform, internal firmware
 version, xochitl SHA-256, and every runtime payload hash on each boot. A
 mismatch starts stock xochitl without `LD_PRELOAD`.
 
-If Vellum owns the standard AppLoader/Xovi layout, rmtool verifies the Vellum
-database entries and file ownership for `xovi`, `qt-resource-rebuilder`, and
-`appload`, then checks the runtime hashes against the selected firmware asset.
-After checking the QMD against the existing hashtab, rmtool builds a
-deterministic unsigned noarch APK containing only the QMD, license, and source
-metadata. The APK has exact OS and device dependencies and conflicts with the
-known tap-to-page packages. Installation and removal use only `vellum add` and
-`vellum del`.
-
-The Vellum package has no AppLoader icon and no on-device toggle. While the
-package is installed, qt-resource-rebuilder always discovers its QMD whenever
-Xovi is active; rmtool's enable and disable actions are the only management
-switch. AppLoader's drop-in, hashtab, applications, and other extensions are
-never changed. Custom layouts, unknown persistence, and runtime hash mismatches
-are rejected rather than falling back to standalone deployment. AppLoader
-installations that need manual Xovi activation after a restart keep that
-behavior, and rmtool reports the waiting state.
+New installations always use rmtool's shared Xovi/QRR runtime. rmtool no longer
+builds or installs Vellum APKs. It retains strict read-only validation and
+targeted `vellum del rmtool-tap-page-turn` removal for its historical package;
+Vellum, AppLoader, Xovi, and unrelated packages are never removed. The user
+must then follow the [official Vellum CLI uninstall instructions](https://github.com/vellum-dev/vellum-cli#usage)
+before rmtool enables shared-Xovi installation. Mixed runtimes are rejected.
 
 Enabling or disabling never restarts xochitl or reboots the tablet. The user
 must use the device menu to perform a full restart after the SSH deployment

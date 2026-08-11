@@ -334,7 +334,7 @@ class FontsRefreshQuietTests(unittest.TestCase):
         # The quiet path never opens the modal font progress dialog.
         progress_cls.assert_not_called()
         worker_cls.assert_called_once_with(
-            _rmkit_cn.list_user_fonts, tab.ssh_client, tab._font_dir()
+            tab._load_font_inventory, tab.ssh_client, tab._font_dir()
         )
         return worker_instance, done
 
@@ -358,7 +358,15 @@ class FontsRefreshQuietTests(unittest.TestCase):
         font = _rmkit_cn.UserFont(
             "alpha.ttf", "Alpha", f"{rmtool.DEFAULT_FONT_DIR}alpha.ttf", False
         )
-        on_finished((font,))
+        on_finished(
+            (
+                (font,),
+                _rmkit_cn.FontMirrorVerification(
+                    "unverified", "未实机验证", "测试"
+                ),
+                _rmkit_cn.LegacySystemFontMigration("none", "无需迁移"),
+            )
+        )
 
         self.assertEqual(done, [True])
         self.assertEqual(tab.font_table.rowCount(), 1)
@@ -385,7 +393,15 @@ class FontsRefreshQuietTests(unittest.TestCase):
         font = _rmkit_cn.UserFont(
             "stale.ttf", "Stale", f"{rmtool.DEFAULT_FONT_DIR}stale.ttf", False
         )
-        on_finished((font,))
+        on_finished(
+            (
+                (font,),
+                _rmkit_cn.FontMirrorVerification(
+                    "unverified", "未实机验证", "测试"
+                ),
+                _rmkit_cn.LegacySystemFontMigration("none", "无需迁移"),
+            )
+        )
 
         self.assertEqual(done, [True])
         self.assertEqual(tab.font_table.rowCount(), 0)
@@ -399,7 +415,13 @@ class FontsRefreshQuietTests(unittest.TestCase):
         # the tab as busy so no second SSH channel is opened alongside it.
         self.assertTrue(tab._busy)
         on_finished = worker_instance.signals.finished.connect.call_args.args[0]
-        on_finished(())
+        on_finished(
+            (
+                (),
+                _rmkit_cn.FontMirrorVerification("unverified", "未实机验证", "测试"),
+                _rmkit_cn.LegacySystemFontMigration("none", "无需迁移"),
+            )
+        )
 
         self.assertFalse(tab._busy)
         self.assertEqual(done, [True])
@@ -426,7 +448,15 @@ class FontsRefreshQuietTests(unittest.TestCase):
             self.assertEqual(worker_cls.call_count, 1)
 
             on_finished = quiet_worker.signals.finished.connect.call_args.args[0]
-            on_finished(())
+            on_finished(
+                (
+                    (),
+                    _rmkit_cn.FontMirrorVerification(
+                        "unverified", "未实机验证", "测试"
+                    ),
+                    _rmkit_cn.LegacySystemFontMigration("none", "无需迁移"),
+                )
+            )
             # After the quiet refresh finishes, the queued manual refresh runs
             # (with its usual modal progress).
             self.assertEqual(worker_cls.call_count, 2)
