@@ -11,8 +11,8 @@
       "offline_verified": true,
       "device_verified": true,
       "asset": "rmtool-native-chinese-ferrari-20260806095513-3.28.0.166.tar.gz",
-      "sha256": "bf4a4b86572255fe242c38baf022c50a666075967c318f26ae8b0d3b8a744805",
-      "size": 3895488,
+      "sha256": "8f36287c1ea3a0bd26c0ed9af1deebb1efb0c9fbe0954fd7ecf3df2441b3cffc",
+      "size": 3895479,
       "urls": [
         "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-ferrari-20260806095513-3.28.0.166.tar.gz",
         "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-ferrari-20260806095513-3.28.0.166.tar.gz"
@@ -38,14 +38,14 @@
         },
         {
           "path": "exthome/qt-resource-rebuilder/native-chinese.qmd",
-          "sha256": "342bf869065f9b5378fe726b5b73ea9141aa14dc18ad92e780914db19e0b7682",
-          "size": 1802,
+          "sha256": "38800be2f6954fb95c9dfbbf3f6e29a84dde6183d1d385ff757e37c92e5c9e75",
+          "size": 1569,
           "mode": 420
         },
         {
           "path": "native-chinese/reMarkable_zh_CN.qm",
-          "sha256": "6bdca18626173b9fadbd350347afebcab0cae3639f8d206d86b9723cd3dda127",
-          "size": 196567,
+          "sha256": "49cf09fc23ef3fcacb956d426915e3f80b85a02fa7e597a8b5fc8013a2bdb931",
+          "size": 196626,
           "mode": 420
         },
         {
@@ -72,8 +72,8 @@
       "offline_verified": true,
       "device_verified": true,
       "asset": "rmtool-native-chinese-chiappa-20260612085811-3.27.3.0.tar.gz",
-      "sha256": "ca6d64ca1feaa15ee23772077d66fbb07a28058d9f67e37298def382d59769df",
-      "size": 3879054,
+      "sha256": "90a92eec2bd331925aca86e54241a88f9296d03609d95a49f398d6d1d7641c6d",
+      "size": 3879072,
       "urls": [
         "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-chiappa-20260612085811-3.27.3.0.tar.gz",
         "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-chiappa-20260612085811-3.27.3.0.tar.gz"
@@ -105,8 +105,8 @@
         },
         {
           "path": "native-chinese/reMarkable_zh_CN.qm",
-          "sha256": "47ba9d8a6f38b3763d013ecc489d44e8742704404b50a5de102b42e33dfebbfb",
-          "size": 175519,
+          "sha256": "7f9eefadc342b665e407feb6184fabab7629694d950da93a92991a3705f019bb",
+          "size": 175578,
           "mode": 420
         },
         {
@@ -133,8 +133,8 @@
       "offline_verified": true,
       "device_verified": false,
       "asset": "rmtool-native-chinese-chiappa-20260506100933-3.27.1.0.tar.gz",
-      "sha256": "3fe0eac7f533705d67cff789c930c1a6185b9ad8014d23d3ed9423cb057953d9",
-      "size": 3879253,
+      "sha256": "f60f3c20f08a4b52816e0db6ded92194bbc5885ba84c7291f211492c2b2dddce",
+      "size": 3879289,
       "urls": [
         "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-chiappa-20260506100933-3.27.1.0.tar.gz",
         "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-chiappa-20260506100933-3.27.1.0.tar.gz"
@@ -166,8 +166,8 @@
         },
         {
           "path": "native-chinese/reMarkable_zh_CN.qm",
-          "sha256": "47ba9d8a6f38b3763d013ecc489d44e8742704404b50a5de102b42e33dfebbfb",
-          "size": 175519,
+          "sha256": "7f9eefadc342b665e407feb6184fabab7629694d950da93a92991a3705f019bb",
+          "size": 175578,
           "mode": 420
         },
         {
@@ -194,8 +194,8 @@
       "offline_verified": true,
       "device_verified": false,
       "asset": "rmtool-native-chinese-ferrari-20260506100933-3.27.1.0.tar.gz",
-      "sha256": "a20026057962032921e0e2a1b6265df7ff5b25d9c597dbeeb5b2557a7168f678",
-      "size": 3883803,
+      "sha256": "84cf57ddd98e1658218d3bcbd48107029b6607e5be66932b291adceceef50ab7",
+      "size": 3883860,
       "urls": [
         "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-ferrari-20260506100933-3.27.1.0.tar.gz",
         "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-ferrari-20260506100933-3.27.1.0.tar.gz"
@@ -227,8 +227,8 @@
         },
         {
           "path": "native-chinese/reMarkable_zh_CN.qm",
-          "sha256": "28b82b8a0ca32aa83fe49ef4c5db792bd1a5908ae8135c2fa9eefe8cf0a98fd9",
-          "size": 179412,
+          "sha256": "b1efead9b7f8fe136e0f0429af603480192575804147986e77fa0ebb2873059d",
+          "size": 179471,
           "mode": 420
         },
         {
@@ -255,8 +255,8 @@
       "offline_verified": true,
       "device_verified": false,
       "asset": "rmtool-native-chinese-ferrari-20260612085811-3.27.3.0.tar.gz",
-      "sha256": "abd6189befd2914480ef852e1832025b3eca3a435e58dd5310602e6f5bdee94b",
-      "size": 3884122,
+      "sha256": "7b7a3054378d293b8bede2af599be8f0c4977d38e507ef6102382958ff1f2dfd",
+      "size": 3884149,
       "urls": [
         "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-ferrari-20260612085811-3.27.3.0.tar.gz",
         "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-ferrari-20260612085811-3.27.3.0.tar.gz"
@@ -288,8 +288,8 @@
         },
         {
           "path": "native-chinese/reMarkable_zh_CN.qm",
-          "sha256": "28b82b8a0ca32aa83fe49ef4c5db792bd1a5908ae8135c2fa9eefe8cf0a98fd9",
-          "size": 179412,
+          "sha256": "b1efead9b7f8fe136e0f0429af603480192575804147986e77fa0ebb2873059d",
+          "size": 179471,
           "mode": 420
         },
         {
@@ -316,8 +316,8 @@
       "offline_verified": true,
       "device_verified": false,
       "asset": "rmtool-native-chinese-chiappa-20260629074044-3.28.0.162.tar.gz",
-      "sha256": "952ed49759e51da83331bbeb20d3841e60fd3bdef1fd0c937976a5ff506b8bed",
-      "size": 3887851,
+      "sha256": "fef57f917cfbebd22507d164df6b13ade4521e9ee9416bd2d4daf35ec27b7c1a",
+      "size": 3887874,
       "urls": [
         "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-chiappa-20260629074044-3.28.0.162.tar.gz",
         "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-chiappa-20260629074044-3.28.0.162.tar.gz"
@@ -349,8 +349,8 @@
         },
         {
           "path": "native-chinese/reMarkable_zh_CN.qm",
-          "sha256": "4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e",
-          "size": 178170,
+          "sha256": "496dc225fc6b50180ebaa44917717b3b7ad27ee79295a92ea5548384eace10b2",
+          "size": 178229,
           "mode": 420
         },
         {
@@ -377,8 +377,8 @@
       "offline_verified": true,
       "device_verified": false,
       "asset": "rmtool-native-chinese-ferrari-20260629074044-3.28.0.162.tar.gz",
-      "sha256": "a80de85ed3e44163beb2d7680c18e02f406cbe907cd862024aff162c32fe76f7",
-      "size": 3914760,
+      "sha256": "5a912a017009011d61d75504073f85047dde073b65c8c594e62a6040dc9e66bf",
+      "size": 3914780,
       "urls": [
         "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-ferrari-20260629074044-3.28.0.162.tar.gz",
         "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-ferrari-20260629074044-3.28.0.162.tar.gz"
@@ -410,8 +410,8 @@
         },
         {
           "path": "native-chinese/reMarkable_zh_CN.qm",
-          "sha256": "4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e",
-          "size": 178170,
+          "sha256": "496dc225fc6b50180ebaa44917717b3b7ad27ee79295a92ea5548384eace10b2",
+          "size": 178229,
           "mode": 420
         },
         {
@@ -438,8 +438,8 @@
       "offline_verified": true,
       "device_verified": false,
       "asset": "rmtool-native-chinese-chiappa-20260702125656-3.28.0.163.tar.gz",
-      "sha256": "9aba0e5df18391240bfa762d8844907cc9742b8f0625cc3323a3cb9e4d98b093",
-      "size": 3887738,
+      "sha256": "bb34f3c25f258ce3351e9b77c9e77d9bce40bad092039d35ffc2d168e63c3a7b",
+      "size": 3887768,
       "urls": [
         "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-chiappa-20260702125656-3.28.0.163.tar.gz",
         "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-chiappa-20260702125656-3.28.0.163.tar.gz"
@@ -471,8 +471,8 @@
         },
         {
           "path": "native-chinese/reMarkable_zh_CN.qm",
-          "sha256": "4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e",
-          "size": 178170,
+          "sha256": "496dc225fc6b50180ebaa44917717b3b7ad27ee79295a92ea5548384eace10b2",
+          "size": 178229,
           "mode": 420
         },
         {
@@ -499,8 +499,8 @@
       "offline_verified": true,
       "device_verified": false,
       "asset": "rmtool-native-chinese-ferrari-20260702125656-3.28.0.163.tar.gz",
-      "sha256": "4a94fe9e2b8ebb5e2c19e287561c9b62ff490103945be664f7736850a25c2cab",
-      "size": 3890491,
+      "sha256": "29588ad0264145f7fd3f259d24c64ec7e74658c7066ab0df64ef7742f33c137c",
+      "size": 3890505,
       "urls": [
         "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-ferrari-20260702125656-3.28.0.163.tar.gz",
         "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-ferrari-20260702125656-3.28.0.163.tar.gz"
@@ -532,8 +532,8 @@
         },
         {
           "path": "native-chinese/reMarkable_zh_CN.qm",
-          "sha256": "4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e",
-          "size": 178170,
+          "sha256": "496dc225fc6b50180ebaa44917717b3b7ad27ee79295a92ea5548384eace10b2",
+          "size": 178229,
           "mode": 420
         },
         {
@@ -560,8 +560,8 @@
       "offline_verified": true,
       "device_verified": false,
       "asset": "rmtool-native-chinese-chiappa-20260702125656-3.28.0.164.tar.gz",
-      "sha256": "7beb8763a4bf6b544d8519a0a82e20562b734eb8146d8610d4feb9224109f97c",
-      "size": 3891663,
+      "sha256": "ae131cde1fd64e094b4a3bd957309d0ae645af882606b1c96ded5a7b524eb91b",
+      "size": 3891698,
       "urls": [
         "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-chiappa-20260702125656-3.28.0.164.tar.gz",
         "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-chiappa-20260702125656-3.28.0.164.tar.gz"
@@ -593,8 +593,8 @@
         },
         {
           "path": "native-chinese/reMarkable_zh_CN.qm",
-          "sha256": "50dc76f758b51fa10bf026269e1788904fe564d00ed6e37b97fed7dc02399348",
-          "size": 192220,
+          "sha256": "266d9a115167e1e67b36c0954f315ca1e0413bdd838b1d539fe02f73dd7e6036",
+          "size": 192279,
           "mode": 420
         },
         {
@@ -621,8 +621,8 @@
       "offline_verified": true,
       "device_verified": false,
       "asset": "rmtool-native-chinese-ferrari-20260702125656-3.28.0.164.tar.gz",
-      "sha256": "da01aa9541f4662d76deff72ed33a6e2d5deb62164db0a0d2165d23b947a1762",
-      "size": 3895780,
+      "sha256": "4dc34ed4cb3a6e8461f79f154234580c73d2c39b2047000e6a621fc1a89c37bf",
+      "size": 3895829,
       "urls": [
         "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-ferrari-20260702125656-3.28.0.164.tar.gz",
         "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-ferrari-20260702125656-3.28.0.164.tar.gz"
@@ -654,8 +654,8 @@
         },
         {
           "path": "native-chinese/reMarkable_zh_CN.qm",
-          "sha256": "18c564eea746a1508343b85197d958b003729b3274f5a6a880285c552dc7348a",
-          "size": 196446,
+          "sha256": "2221df2db380bd72895a3578c921232a6e73744cdc4a614c89acd44e2cef356d",
+          "size": 196505,
           "mode": 420
         },
         {

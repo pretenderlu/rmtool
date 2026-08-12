@@ -9,6 +9,7 @@ on:
       - tap-page-turn/manifest.json
       - fast-mono-reading/manifest.json
       - native-chinese/manifest.json
+      - pinyin-input/manifest.json
 
 permissions:
   contents: read
@@ -41,7 +42,8 @@ jobs:
           mkdir -p \
             "$RUNNER_TEMP/tap-page-turn-release" \
             "$RUNNER_TEMP/fast-mono-reading-release" \
-            "$RUNNER_TEMP/native-chinese-release"
+            "$RUNNER_TEMP/native-chinese-release" \
+            "$RUNNER_TEMP/pinyin-input-release"
           gh release download tap-page-turn-assets \
             --repo "$GITHUB_REPOSITORY" \
             --dir "$RUNNER_TEMP/tap-page-turn-release" \
@@ -57,6 +59,11 @@ jobs:
             --dir "$RUNNER_TEMP/native-chinese-release" \
             --pattern manifest.json \
             --pattern "*.tar.gz"
+          gh release download pinyin-input-assets \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$RUNNER_TEMP/pinyin-input-release" \
+            --pattern manifest.json \
+            --pattern "*.tar.gz"
 
       - name: Verify manifests and release payloads
         env:
@@ -64,6 +71,7 @@ jobs:
           TAP_RELEASE_DIR: ${{ runner.temp }}/tap-page-turn-release
           FAST_MONO_RELEASE_DIR: ${{ runner.temp }}/fast-mono-reading-release
           NATIVE_CHINESE_RELEASE_DIR: ${{ runner.temp }}/native-chinese-release
+          PINYIN_RELEASE_DIR: ${{ runner.temp }}/pinyin-input-release
         run: |
           python - <<'PY'
           import hashlib
@@ -125,6 +133,21 @@ jobs:
                   "url_bases": (
                       "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese",
                       "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets",
+                  ),
+              },
+              {
+                  "name": "pinyin-input",
+                  "repo_manifest": Path("pinyin-input/manifest.json"),
+                  "release_dir": Path(os.environ["PINYIN_RELEASE_DIR"]),
+                  "asset_prefix": "rmtool-pinyin-input-",
+                  "extra_keys": {
+                      "offline_verified",
+                      "device_verified",
+                      "urls",
+                  },
+                  "url_bases": (
+                      "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input",
+                      "https://github.com/pretenderlu/rmtool/releases/download/pinyin-input-assets",
                   ),
               },
           )
@@ -201,7 +224,7 @@ jobs:
                       )
                   identities.add(identity)
 
-                  if feature["name"] in {"fast-mono-reading", "native-chinese"} and (
+                  if feature["name"] in {"fast-mono-reading", "native-chinese", "pinyin-input"} and (
                       type(package.get("offline_verified")) is not bool
                       or type(package.get("device_verified")) is not bool
                   ):
@@ -280,6 +303,7 @@ jobs:
           TAP_RELEASE_DIR: ${{ runner.temp }}/tap-page-turn-release
           FAST_MONO_RELEASE_DIR: ${{ runner.temp }}/fast-mono-reading-release
           NATIVE_CHINESE_RELEASE_DIR: ${{ runner.temp }}/native-chinese-release
+          PINYIN_RELEASE_DIR: ${{ runner.temp }}/pinyin-input-release
           TENCENT_CLOUD_SECRET_ID: ${{ secrets.TENCENT_CLOUD_SECRET_ID }}
           TENCENT_CLOUD_SECRET_KEY: ${{ secrets.TENCENT_CLOUD_SECRET_KEY }}
         run: |
@@ -305,6 +329,7 @@ jobs:
               "tap-page-turn": Path(os.environ["TAP_RELEASE_DIR"]),
               "fast-mono-reading": Path(os.environ["FAST_MONO_RELEASE_DIR"]),
               "native-chinese": Path(os.environ["NATIVE_CHINESE_RELEASE_DIR"]),
+              "pinyin-input": Path(os.environ["PINYIN_RELEASE_DIR"]),
           }
           client = CosS3Client(
               CosConfig(
@@ -441,6 +466,7 @@ jobs:
           TAP_RELEASE_DIR: ${{ runner.temp }}/tap-page-turn-release
           FAST_MONO_RELEASE_DIR: ${{ runner.temp }}/fast-mono-reading-release
           NATIVE_CHINESE_RELEASE_DIR: ${{ runner.temp }}/native-chinese-release
+          PINYIN_RELEASE_DIR: ${{ runner.temp }}/pinyin-input-release
         run: |
           python - <<'PY'
           import hashlib
@@ -456,6 +482,7 @@ jobs:
               "tap-page-turn": Path(os.environ["TAP_RELEASE_DIR"]),
               "fast-mono-reading": Path(os.environ["FAST_MONO_RELEASE_DIR"]),
               "native-chinese": Path(os.environ["NATIVE_CHINESE_RELEASE_DIR"]),
+              "pinyin-input": Path(os.environ["PINYIN_RELEASE_DIR"]),
           }
           cache_buster = (
               f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"

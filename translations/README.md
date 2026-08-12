@@ -50,21 +50,21 @@ Tatsu `3.27.3.0` has this stock French SHA-256:
 - `2ee88b18955776e8f6f52949b6c172d50d14f60f3e59d75db7d17881377a7b3a`
 
 Its translation keys are a strict subset of Chiappa, so it reuses the same
-175519-byte Chinese asset with SHA-256
-`47ba9d8a6f38b3763d013ecc489d44e8742704404b50a5de102b42e33dfebbfb`.
+175578-byte Chinese asset with SHA-256
+`7f9eefadc342b665e407feb6184fabab7629694d950da93a92991a3705f019bb`.
 
-RM1 and RM2 `3.27.3.0` use one shared 188407-byte legacy catalog with SHA-256
-`517e70cdf4d862b8ceec57d3238ece72b3799aecdf075c0183668acfc2137c64`.
+RM1 and RM2 `3.27.3.0` use one shared 188466-byte legacy catalog with SHA-256
+`f29f6bd02cc98f8d357bd286bff6f354d3ba4219c2bf7d7bf339a61f01b7dc2e`.
 Their exact stock French SHA-256 values are:
 
 - RM1: `0767babb6d55fc960565568d6af89455ba233194a4d887d70bd1c7987c3898a4`
 - RM2: `8080219cb5b3a75a1423ac0cee5bd12d3ee1c9029ff22ecf981cf075559900a7`
 
 The manifest also supports beta `3.28.0.162`, internal version
-`20260629074044`, with one shared 178170-byte Chinese asset:
+`20260629074044`, with one shared 178229-byte Chinese asset:
 
 - Localized SHA-256:
-  `4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e`
+  `496dc225fc6b50180ebaa44917717b3b7ad27ee79295a92ea5548384eace10b2`
 - Chiappa stock French SHA-256:
   `3d722f4018f33a24c738bfd14f821603c176d06c9d7e81714e2763d3d40eeb12`
 - Ferrari stock French SHA-256:
@@ -72,7 +72,7 @@ The manifest also supports beta `3.28.0.162`, internal version
 
 Beta `3.28.0.163`, internal version `20260702125656`, ships byte-identical
 stock English, French, German, and Spanish catalogs on both Chiappa and
-Ferrari, so it reuses the same 178170-byte Chinese asset and the same stock
+Ferrari, so it reuses the same 178229-byte Chinese asset and the same stock
 French SHA-256 values as `3.28.0.162`.
 
 Beta `3.28.0.164` retains internal version `20260702125656` but changes both
@@ -81,19 +81,19 @@ and exact carrier hashes instead of overwriting or reusing the `.163` entries:
 
 | Platform | Chinese asset | Size | Chinese SHA-256 | Stock French SHA-256 |
 | --- | --- | ---: | --- | --- |
-| Chiappa | `reMarkable_zh_CN-3.28.0.164-chiappa.qm` | 192220 | `50dc76f758b51fa10bf026269e1788904fe564d00ed6e37b97fed7dc02399348` | `53728fd166e2658363c38c3951c135f59ca1502f2d2e9c43ee6c4cff1ae9871a` |
-| Ferrari | `reMarkable_zh_CN-3.28.0.164-ferrari.qm` | 196446 | `18c564eea746a1508343b85197d958b003729b3274f5a6a880285c552dc7348a` | `ef07588e04ade2f19ce2e4545fc9d5e63f7a541b3410803b4727cf82f1b5f946` |
+| Chiappa | `reMarkable_zh_CN-3.28.0.164-chiappa.qm` | 192279 | `266d9a115167e1e67b36c0954f315ca1e0413bdd838b1d539fe02f73dd7e6036` | `53728fd166e2658363c38c3951c135f59ca1502f2d2e9c43ee6c4cff1ae9871a` |
+| Ferrari | `reMarkable_zh_CN-3.28.0.164-ferrari.qm` | 196505 | `2221df2db380bd72895a3578c921232a6e73744cdc4a614c89acd44e2cef356d` | `ef07588e04ade2f19ce2e4545fc9d5e63f7a541b3410803b4727cf82f1b5f946` |
 
 The `.164` supplements were merged from the corrected Qt 6 UTF-8 stock
-inventories. The resulting Chiappa and Ferrari catalogs compile with 1979 and
-2012 finished messages respectively, with no unfinished or empty entries.
+inventories. The resulting Chiappa and Ferrari catalogs compile with 1980 and
+2013 finished messages respectively, with no unfinished or empty entries.
 
 Beta `3.28.0.166` for Ferrari uses internal version `20260806095513` and an
 exact release-qualified catalog:
 
 - Asset: `reMarkable_zh_CN-3.28.0.166-ferrari.qm`
-- Size: 196567 bytes
-- Chinese SHA-256: `6bdca18626173b9fadbd350347afebcab0cae3639f8d206d86b9723cd3dda127`
+- Size: 196626 bytes
+- Chinese SHA-256: `49cf09fc23ef3fcacb956d426915e3f80b85a02fa7e597a8b5fc8013a2bdb931`
 - Stock French SHA-256: `2b03e8bdf26566d06189604f4678b1929af60b8bef65b662fafc9f04eebed9cc`
 - xochitl SHA-256: `8726b4fce55a9154a5014956e5204401ce881d752c1ff3813adb622a68aac2f9`
 
@@ -113,15 +113,16 @@ values:
 - Chiappa: `786f326b177394d6ce210195034b2b0e0665b377945c72d5882d0ed8d43d9047`
 - Ferrari: `2a140a2200c0b770f5e152f32bd8184ca45dab1cc9bae08f0e9d2e9c782d82e3`
 
-The catalog contains 1847 messages: the 1779-key union of the active messages
+The catalog contains 1848 messages: the 1779-key union of the active messages
 in the stock English, French, German, and Spanish catalogs, plus 64 static QML
-keys proven by the production xochitl binary and four finite runtime values:
+keys proven by the production xochitl binary and five finite runtime values:
 `SettingsModel / Wifi`, `SettingsModel / Developer`,
-`SettingsModel / Experimental`, and `PenColorModel / Magenta`.
-The Ferrari catalog contains those 1847 messages plus 26 exact keys from its
+`SettingsModel / Experimental`, `PenColorModel / Magenta`, and
+`LanguageAndKeyboard / Chinese`.
+The Ferrari catalog contains those 1848 messages plus 26 exact keys from its
 four stock catalogs and five static `SettingsWindow` keys found only in its
 embedded QML, for 1878 messages total. The legacy catalog adds exactly the 84
-keys missing from the official RM2 four-language union, for 1962 messages total;
+keys missing from the official RM2 four-language union, for 1963 messages total;
 RM1's 1671-key union and RM2's 1763-key union are both fully covered. Ferrari
 adds no new dynamic translation path. The three RM1/RM2 dynamic sites were
 already audited as a subset of the supported Ferrari sites and are not newly
@@ -167,6 +168,16 @@ lconvert -sort-contexts -locations none `
   -o "$env:TEMP/reMarkable_zh_CN-3.28.0.164-ferrari.ts"
 lrelease -nounfinished "$env:TEMP/reMarkable_zh_CN-3.28.0.164-ferrari.ts" `
   -qm translations/reMarkable_zh_CN-3.28.0.164-ferrari.qm
+
+lconvert -sort-contexts -locations none `
+  translations/reMarkable_zh_CN.ts `
+  translations/reMarkable_zh_CN_ferrari_supplement.ts `
+  translations/reMarkable_zh_CN_3_28_0_164_supplement.ts `
+  translations/reMarkable_zh_CN_3_28_0_164_ferrari_supplement.ts `
+  translations/reMarkable_zh_CN_3_28_0_166_ferrari_supplement.ts `
+  -o "$env:TEMP/reMarkable_zh_CN-3.28.0.166-ferrari.ts"
+lrelease -nounfinished "$env:TEMP/reMarkable_zh_CN-3.28.0.166-ferrari.ts" `
+  -qm translations/reMarkable_zh_CN-3.28.0.166-ferrari.qm
 ```
 
 The TS file must contain no empty or `unfinished` translations before release.

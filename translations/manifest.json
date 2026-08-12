@@ -6,8 +6,8 @@
       "release_version": "3.27.1.0",
       "channel": "stable",
       "platform": "chiappa",
-      "size": 175519,
-      "sha256": "47ba9d8a6f38b3763d013ecc489d44e8742704404b50a5de102b42e33dfebbfb",
+      "size": 175578,
+      "sha256": "7f9eefadc342b665e407feb6184fabab7629694d950da93a92991a3705f019bb",
       "stock_french_sha256": "8e0db0f7a2d3116469e1aae4f52657ccc38d0422b5b958ae512554bd018f285e",
       "variants": [
         {
@@ -15,8 +15,8 @@
           "release_version": "3.27.1.0",
           "channel": "stable",
           "platform": "ferrari",
-          "size": 179412,
-          "sha256": "28b82b8a0ca32aa83fe49ef4c5db792bd1a5908ae8135c2fa9eefe8cf0a98fd9",
+          "size": 179471,
+          "sha256": "b1efead9b7f8fe136e0f0429af603480192575804147986e77fa0ebb2873059d",
           "stock_french_sha256": "9f62dc83b150e48b8d4e1688c1b16d22aa09fdd1ba09b772954394ec6c1ab4fb"
         }
       ]
@@ -26,8 +26,8 @@
       "release_version": "3.27.3.0",
       "channel": "stable",
       "platform": "chiappa",
-      "size": 175519,
-      "sha256": "47ba9d8a6f38b3763d013ecc489d44e8742704404b50a5de102b42e33dfebbfb",
+      "size": 175578,
+      "sha256": "7f9eefadc342b665e407feb6184fabab7629694d950da93a92991a3705f019bb",
       "stock_french_sha256": "8e0db0f7a2d3116469e1aae4f52657ccc38d0422b5b958ae512554bd018f285e",
       "variants": [
         {
@@ -35,8 +35,8 @@
           "release_version": "3.27.3.0",
           "channel": "stable",
           "platform": "ferrari",
-          "size": 179412,
-          "sha256": "28b82b8a0ca32aa83fe49ef4c5db792bd1a5908ae8135c2fa9eefe8cf0a98fd9",
+          "size": 179471,
+          "sha256": "b1efead9b7f8fe136e0f0429af603480192575804147986e77fa0ebb2873059d",
           "stock_french_sha256": "9f62dc83b150e48b8d4e1688c1b16d22aa09fdd1ba09b772954394ec6c1ab4fb"
         },
         {
@@ -44,16 +44,16 @@
           "release_version": "3.27.3.0",
           "channel": "stable",
           "platform": "tatsu",
-          "size": 175519,
-          "sha256": "47ba9d8a6f38b3763d013ecc489d44e8742704404b50a5de102b42e33dfebbfb",
+          "size": 175578,
+          "sha256": "7f9eefadc342b665e407feb6184fabab7629694d950da93a92991a3705f019bb",
           "stock_french_sha256": "2ee88b18955776e8f6f52949b6c172d50d14f60f3e59d75db7d17881377a7b3a"
         },
         {
           "asset": "reMarkable_zh_CN-20260612085811-legacy.qm",
           "release_version": "3.27.3.0",
           "channel": "stable",
-          "size": 188407,
-          "sha256": "517e70cdf4d862b8ceec57d3238ece72b3799aecdf075c0183668acfc2137c64",
+          "size": 188466,
+          "sha256": "f29f6bd02cc98f8d357bd286bff6f354d3ba4219c2bf7d7bf339a61f01b7dc2e",
           "platform": "rm1",
           "stock_french_sha256": "0767babb6d55fc960565568d6af89455ba233194a4d887d70bd1c7987c3898a4"
         },
@@ -61,8 +61,8 @@
           "asset": "reMarkable_zh_CN-20260612085811-legacy.qm",
           "release_version": "3.27.3.0",
           "channel": "stable",
-          "size": 188407,
-          "sha256": "517e70cdf4d862b8ceec57d3238ece72b3799aecdf075c0183668acfc2137c64",
+          "size": 188466,
+          "sha256": "f29f6bd02cc98f8d357bd286bff6f354d3ba4219c2bf7d7bf339a61f01b7dc2e",
           "platform": "rm2",
           "stock_french_sha256": "8080219cb5b3a75a1423ac0cee5bd12d3ee1c9029ff22ecf981cf075559900a7"
         }
@@ -73,8 +73,8 @@
       "release_version": "3.28.0.162",
       "channel": "beta",
       "platform": "chiappa",
-      "size": 178170,
-      "sha256": "4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e",
+      "size": 178229,
+      "sha256": "496dc225fc6b50180ebaa44917717b3b7ad27ee79295a92ea5548384eace10b2",
       "stock_french_sha256": "3d722f4018f33a24c738bfd14f821603c176d06c9d7e81714e2763d3d40eeb12",
       "variants": [
         {
@@ -82,8 +82,8 @@
           "release_version": "3.28.0.162",
           "channel": "beta",
           "platform": "ferrari",
-          "size": 178170,
-          "sha256": "4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e",
+          "size": 178229,
+          "sha256": "496dc225fc6b50180ebaa44917717b3b7ad27ee79295a92ea5548384eace10b2",
           "stock_french_sha256": "24393f00d9edb933933b436ffe5020990dd97d31d7788172907d75ff1d42d3a5"
         }
       ]
@@ -93,8 +93,8 @@
       "release_version": "3.28.0.163",
       "channel": "beta",
       "platform": "chiappa",
-      "size": 178170,
-      "sha256": "4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e",
+      "size": 178229,
+      "sha256": "496dc225fc6b50180ebaa44917717b3b7ad27ee79295a92ea5548384eace10b2",
       "stock_french_sha256": "3d722f4018f33a24c738bfd14f821603c176d06c9d7e81714e2763d3d40eeb12",
       "variants": [
         {
@@ -102,8 +102,8 @@
           "release_version": "3.28.0.163",
           "channel": "beta",
           "platform": "ferrari",
-          "size": 178170,
-          "sha256": "4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e",
+          "size": 178229,
+          "sha256": "496dc225fc6b50180ebaa44917717b3b7ad27ee79295a92ea5548384eace10b2",
           "stock_french_sha256": "24393f00d9edb933933b436ffe5020990dd97d31d7788172907d75ff1d42d3a5"
         },
         {
@@ -111,8 +111,8 @@
           "release_version": "3.28.0.164",
           "channel": "beta",
           "platform": "chiappa",
-          "size": 192220,
-          "sha256": "50dc76f758b51fa10bf026269e1788904fe564d00ed6e37b97fed7dc02399348",
+          "size": 192279,
+          "sha256": "266d9a115167e1e67b36c0954f315ca1e0413bdd838b1d539fe02f73dd7e6036",
           "stock_french_sha256": "53728fd166e2658363c38c3951c135f59ca1502f2d2e9c43ee6c4cff1ae9871a"
         },
         {
@@ -120,8 +120,8 @@
           "release_version": "3.28.0.164",
           "channel": "beta",
           "platform": "ferrari",
-          "size": 196446,
-          "sha256": "18c564eea746a1508343b85197d958b003729b3274f5a6a880285c552dc7348a",
+          "size": 196505,
+          "sha256": "2221df2db380bd72895a3578c921232a6e73744cdc4a614c89acd44e2cef356d",
           "stock_french_sha256": "ef07588e04ade2f19ce2e4545fc9d5e63f7a541b3410803b4727cf82f1b5f946"
         }
       ]
@@ -131,8 +131,8 @@
       "release_version": "3.28.0.166",
       "channel": "beta",
       "platform": "ferrari",
-      "size": 196567,
-      "sha256": "6bdca18626173b9fadbd350347afebcab0cae3639f8d206d86b9723cd3dda127",
+      "size": 196626,
+      "sha256": "49cf09fc23ef3fcacb956d426915e3f80b85a02fa7e597a8b5fc8013a2bdb931",
       "stock_french_sha256": "2b03e8bdf26566d06189604f4678b1929af60b8bef65b662fafc9f04eebed9cc",
       "xochitl_sha256": "8726b4fce55a9154a5014956e5204401ce881d752c1ff3813adb622a68aac2f9"
     }

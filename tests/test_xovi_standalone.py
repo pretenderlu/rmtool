@@ -3,11 +3,13 @@ import io
 import json
 import posixpath
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import _fast_mono_reading as fast
 import _native_chinese as native
+import _pinyin_input as pinyin
 import _tap_page_turn as tap
 import _xovi_standalone as shared
 
@@ -232,6 +234,8 @@ class SharedXoviTests(unittest.TestCase):
                     expected_features = {"tap-page-turn", "fast-mono-reading"}
                     if native.select_package(native._trusted_catalog(), identity):
                         expected_features.add("native-chinese")
+                    if pinyin.select_package(pinyin._trusted_catalog(), identity):
+                        expected_features.add("pinyin-input")
                     self.assertEqual(
                         set(trusted), expected_features
                     )
@@ -253,6 +257,14 @@ class SharedXoviTests(unittest.TestCase):
         self.assertIn('set -- "$BASE"/extensions.d/*.so', first)
         self.assertIn('*) stock ;;', first)
         self.assertIn("qmd_count", first)
+
+    def test_non_resource_launchers_do_not_change_environment_contract(self):
+        tap_package, fast_package = next(iter(self.contexts()))
+        runtime, tap_feature = tap._shared_specs(tap_package)
+        _runtime, fast_feature = fast._shared_specs(fast_package)
+        for enabled in ((tap_feature,), (tap_feature, fast_feature)):
+            launcher = shared.shared_launcher(runtime, enabled)
+            self.assertNotIn("QT_RESOURCE_REBUILDER_PATH", launcher)
 
     def test_multifile_launcher_has_generic_recovery_and_strict_extensions(self):
         tap_package, _fast_package = next(iter(self.contexts()))
@@ -336,7 +348,7 @@ class SharedXoviTests(unittest.TestCase):
         )
         self.assertNotIn("/bin/sh -c", legacy)
 
-    def test_every_new_shared_target_uses_only_early_data_ordering(self):
+    def test_every_new_shared_target_uses_required_mount_ordering(self):
         packages = (*tap._trusted_catalog(), *native._trusted_catalog())
         identities = {
             (
@@ -403,6 +415,37 @@ class SharedXoviTests(unittest.TestCase):
         self.assertIn(shared.LEGACY_SHARED_LAYOUT.remote_base, script)
         self.assertIn(shared.SHARED_LAYOUT.remote_base, script)
         self.assertNotIn("upper-1", script)
+
+    def test_revision_inspection_accepts_only_explicit_same_identity_specs(self):
+        feature = self.multifile_feature()
+        predecessor = replace(feature, sha256="d" * 64, size=9)
+        runtime = Mock()
+        expected = shared.SharedInspection({}, False, False)
+
+        with patch.object(
+            shared,
+            "inspect_shared",
+            side_effect=(RuntimeError("current mismatch"), expected),
+        ) as inspect:
+            inspection, installed, revisions = shared.inspect_shared_revisions(
+                Mock(),
+                runtime,
+                {feature.feature_id: feature},
+                {feature.feature_id: (("v1", predecessor),)},
+            )
+        self.assertIs(inspection, expected)
+        self.assertEqual(installed[feature.feature_id], predecessor)
+        self.assertEqual(revisions, {feature.feature_id: "v1"})
+        self.assertEqual(inspect.call_count, 2)
+
+        forged = replace(predecessor, package_id="other-package")
+        with self.assertRaisesRegex(RuntimeError, "前代功能规格无效"):
+            shared.inspect_shared_revisions(
+                Mock(),
+                runtime,
+                {feature.feature_id: feature},
+                {feature.feature_id: (("forged", forged),)},
+            )
 
     def test_emergency_sentinel_clear_requires_root_owned_regular_file(self):
         ssh = Mock()
@@ -728,7 +771,12 @@ class SharedXoviTests(unittest.TestCase):
         self.assertEqual(runtime.xochitl_sha256, tap_package.xochitl_sha256)
         self.assertEqual(
             set(trusted),
-            {"tap-page-turn", "fast-mono-reading", "native-chinese"},
+            {
+                "tap-page-turn",
+                "fast-mono-reading",
+                "native-chinese",
+                "pinyin-input",
+            },
         )
 
         marker["identity"]["xochitl_sha256"] = "0" * 64
@@ -1241,6 +1289,71 @@ class SharedXoviTests(unittest.TestCase):
             states = stage.call_args.args[2]
             self.assertEqual(set(states), {feature.feature_id})
             self.assertTrue(states[feature.feature_id].enabled)
+
+    def test_enable_replaces_exact_predecessor_and_preserves_peer(self):
+        pinyin_package = pinyin._trusted_catalog()[0]
+        identity = tap.DeviceIdentity(
+            pinyin_package.firmware,
+            pinyin_package.platform,
+            pinyin_package.architecture,
+            pinyin_package.xochitl_sha256,
+        )
+        runtime, current_pinyin = pinyin._shared_specs(pinyin_package)
+        _runtime, trusted, legacies = tap._trusted_shared_context(identity)
+        tap_feature = trusted["tap-page-turn"]
+        for old in pinyin._known_shared_predecessor_specs(pinyin_package):
+            predecessor = old.feature
+            installed_trusted = dict(trusted)
+            installed_trusted[pinyin.FEATURE_ID] = predecessor
+            states = {
+                tap_feature.feature_id: shared.SharedFeatureState(
+                    tap_feature, True, self.TOKEN
+                ),
+                predecessor.feature_id: shared.SharedFeatureState(
+                    predecessor, True, self.TOKEN
+                ),
+            }
+            inspection = shared.SharedInspection(states, True, True)
+            final = shared.SharedInspection({}, True, True)
+            ssh = Mock()
+            ssh.file_exists.return_value = False
+            ssh.exec_checked.return_value = ""
+            stage = Mock(return_value=("1" * 64, "2" * 64))
+            with self.subTest(reason=old.reason):
+                with (
+                    patch.object(shared, "has_shared_artifacts", return_value=True),
+                    patch.object(
+                        shared, "inspect_shared", side_effect=(inspection, final)
+                    ) as inspect,
+                    patch.object(shared, "validate_legacy", return_value=False),
+                    patch.object(shared, "_process_token", return_value=self.TOKEN),
+                    patch.object(shared, "_stage_shared", stage),
+                    patch.object(
+                        shared,
+                        "shared_transaction_script",
+                        return_value="#!/bin/sh\n:",
+                    ),
+                    patch.object(shared, "_upload_bytes"),
+                ):
+                    result = shared._enable_shared_locked(
+                        ssh,
+                        runtime,
+                        current_pinyin,
+                        Path("unused"),
+                        installed_trusted,
+                        legacies,
+                    )
+            self.assertIs(result, final)
+            target_states = stage.call_args.args[2]
+            self.assertIs(target_states[tap_feature.feature_id].spec, tap_feature)
+            self.assertTrue(target_states[tap_feature.feature_id].enabled)
+            self.assertIs(target_states[pinyin.FEATURE_ID].spec, current_pinyin)
+            self.assertTrue(target_states[pinyin.FEATURE_ID].enabled)
+            previous_sources = stage.call_args.args[5]
+            self.assertIn(tap_feature.runtime_path, previous_sources)
+            self.assertIn(predecessor.runtime_path, previous_sources)
+            final_trusted = inspect.call_args_list[-1].args[2]
+            self.assertIs(final_trusted[pinyin.FEATURE_ID], current_pinyin)
 
     def test_multifile_stage_preserves_every_peer_file(self):
         tap_package, _fast_package = next(iter(self.contexts()))

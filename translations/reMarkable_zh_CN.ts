@@ -3214,6 +3214,10 @@ automatic repair and restart</source>
       <translation>加拿大英语</translation>
     </message>
     <message>
+      <source>Chinese</source>
+      <translation>中文</translation>
+    </message>
+    <message>
       <source>Canadian French</source>
       <translation>加拿大法语</translation>
     </message>

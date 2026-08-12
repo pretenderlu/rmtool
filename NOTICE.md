@@ -32,3 +32,14 @@ licensed under the GNU General Public License v3.0.
 Each asset archive includes the corresponding license texts. Source code and
 installation information are available from the linked upstream repositories;
 rmtool's QMLDiff source is maintained under `tap-page-turn/qmd-src/`.
+
+## Offline Pinyin input
+
+Firmware-specific Pinyin input archives redistribute `ime_hook.so`,
+`zh_CN.rcc`, and `ime-server` from, and an rmtool-adapted
+`pinyin_interceptor.qmd` based on,
+[boangs/rmkit](https://github.com/boangs/rmkit), licensed under the GNU General
+Public License v3.0. The server embeds the
+[rime-frost](https://github.com/gaboolic/rime-frost) dictionary, also licensed
+under the GNU General Public License v3.0. Each archive includes the upstream
+rmkit notice and license.

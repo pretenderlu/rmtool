@@ -24,10 +24,16 @@ QMD_VARIANTS = {
         1721,
         "57a44ef3ff56b8d84fd2cafbdd5a678aaf2121c671676886c782b30b9b2e8395",
     ),
-    "3.28": (
-        REPO_ROOT / "native-chinese/qmd/ferrari-3.28.0.166.qmd",
+    # Keep the original bytes for already published 3.28.162-164 packages.
+    "3.28.162-164": (
+        REPO_ROOT / "native-chinese/qmd/ferrari-3.28.0.162-164.qmd",
         1802,
         "342bf869065f9b5378fe726b5b73ea9141aa14dc18ad92e780914db19e0b7682",
+    ),
+    "3.28.166": (
+        REPO_ROOT / "native-chinese/qmd/ferrari-3.28.0.166.qmd",
+        1569,
+        "38800be2f6954fb95c9dfbbf3f6e29a84dde6183d1d385ff757e37c92e5c9e75",
     ),
 }
 CATALOG_PATHS = {
@@ -70,7 +76,9 @@ def sha256(data: bytes) -> str:
 
 
 def _variant(release_version: str) -> str:
-    return "3.28" if release_version.startswith("3.28.") else "3.27"
+    if release_version == "3.28.0.166":
+        return "3.28.166"
+    return "3.28.162-164" if release_version.startswith("3.28.") else "3.27"
 
 
 def _qmd_bytes() -> dict[str, bytes]:
@@ -208,7 +216,7 @@ def build_target(
                 extracted.joinpath(*PurePosixPath(path).parts).read_bytes(),
                 package.file(path).mode,
             )
-            for path in RUNTIME_PATHS
+            for path in sorted(RUNTIME_PATHS)
         }
         tap_qmd = extracted.joinpath(*PurePosixPath(TAP_QMD_PATH).parts).read_bytes()
 
@@ -286,6 +294,8 @@ def main() -> int:
         default=REPO_ROOT / "native-chinese/manifest.json",
     )
     parser.add_argument("--local-cache", type=Path)
+    parser.add_argument("--target-firmware")
+    parser.add_argument("--target-platform")
     args = parser.parse_args()
     if not args.qmd_tool.is_file():
         raise FileNotFoundError(args.qmd_tool)
@@ -293,8 +303,21 @@ def main() -> int:
     cache_roots = tuple(args.cache_root) or DEFAULT_CACHE_ROOTS
     qmds = _qmd_bytes()
     records = _translation_records()
+    base_packages = _target_base_packages()
+    if bool(args.target_firmware) != bool(args.target_platform):
+        raise RuntimeError("Target firmware and platform must be provided together")
+    if args.target_firmware:
+        base_packages = tuple(
+            package
+            for package in base_packages
+            if package.firmware == args.target_firmware
+            and package.platform == args.target_platform
+        )
+        if len(base_packages) != 1:
+            raise RuntimeError("Target must select exactly one native-Chinese package")
+
     built = []
-    for package in _target_base_packages():
+    for package in base_packages:
         archive = _find_base_archive(package, cache_roots)
         built.append(
             build_target(
@@ -306,9 +329,33 @@ def main() -> int:
             )
         )
 
+    entries = [entry for entry, _ in built]
+    if args.target_firmware:
+        previous = json.loads(args.manifest.read_text(encoding="utf-8"))
+        replacements = {
+            (
+                entry["firmware"],
+                entry["platform"],
+                entry["architecture"],
+                entry["xochitl_sha256"],
+            ): entry
+            for entry in entries
+        }
+        entries = [
+            replacements.get(
+                (
+                    entry["firmware"],
+                    entry["platform"],
+                    entry["architecture"],
+                    entry["xochitl_sha256"],
+                ),
+                entry,
+            )
+            for entry in previous["packages"]
+        ]
     manifest = (
         json.dumps(
-            {"schema_version": 1, "packages": [entry for entry, _ in built]},
+            {"schema_version": 1, "packages": entries},
             ensure_ascii=False,
             indent=2,
         )
@@ -319,7 +366,25 @@ def main() -> int:
         raise RuntimeError("Generated native-Chinese manifest is incomplete")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    for package, (_entry, archive) in zip(packages, built, strict=True):
+    built_by_identity = {
+        (
+            entry["firmware"],
+            entry["platform"],
+            entry["architecture"],
+            entry["xochitl_sha256"],
+        ): archive
+        for entry, archive in built
+    }
+    for package in packages:
+        identity = (
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        archive = built_by_identity.get(identity)
+        if archive is None:
+            continue
         output = args.output_dir / package.asset
         tap._write_atomic(output, archive)
         with tempfile.TemporaryDirectory() as temporary:

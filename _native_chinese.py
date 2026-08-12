@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
@@ -49,7 +49,7 @@ CHIAPPA_3273_IDENTITY = (
     "aarch64",
     "227a9bfe928ef5d164359e490d97648ffca40a5de13f07a9eb57a618a403f084",
 )
-# Kept for callers/tests that use the first device-verified target as a fixture.
+# Kept for callers/tests that use the first exact target as a fixture.
 SUPPORTED_IDENTITY = FERRARI_166_IDENTITY
 ALLOWED_TARGETS = {
     FERRARI_166_IDENTITY: ("3.28.0.166", "beta", True, True),
@@ -116,6 +116,36 @@ EXPECTED_ASSETS = {
     for identity, policy in ALLOWED_TARGETS.items()
 }
 MAX_PACKAGE_BYTES = 32 * 1024 * 1024
+FERRARI_166_V2_ARCHIVE_SHA256 = (
+    "c75cfaf2de83ba00b52cf047aa5bf27124abc451de72ba9f6abe6b45cde7d521"
+)
+FERRARI_166_V2_QMD_SHA256 = (
+    "c34b0838cbac4c7dd37fef13feb84f256bc3588ed484a998d99fec50c0f19ab0"
+)
+FERRARI_166_V2_QMD_SIZE = 1840
+FERRARI_166_V1_ARCHIVE_SHA256 = (
+    "bf4a4b86572255fe242c38baf022c50a666075967c318f26ae8b0d3b8a744805"
+)
+FERRARI_166_V1_QMD_SHA256 = (
+    "342bf869065f9b5378fe726b5b73ea9141aa14dc18ad92e780914db19e0b7682"
+)
+FERRARI_166_V1_QMD_SIZE = 1802
+FERRARI_166_LEGACY_CATALOG_SHA256 = (
+    "6bdca18626173b9fadbd350347afebcab0cae3639f8d206d86b9723cd3dda127"
+)
+FERRARI_166_LEGACY_CATALOG_SIZE = 196567
+CATALOG_LABEL_PREDECESSORS = {
+    ("20260506100933", "chiappa", "aarch64", "4646e0aef1cef2b3417889073ad5faba9259ae6b41f68326e75ef9a5c520c322"): ("3fe0eac7f533705d67cff789c930c1a6185b9ad8014d23d3ed9423cb057953d9", "47ba9d8a6f38b3763d013ecc489d44e8742704404b50a5de102b42e33dfebbfb", 175519),
+    ("20260506100933", "ferrari", "aarch64", "29b9896b07f59636d910d8a740f6562c502f676a1a70f8814459229d25cc5288"): ("a20026057962032921e0e2a1b6265df7ff5b25d9c597dbeeb5b2557a7168f678", "28b82b8a0ca32aa83fe49ef4c5db792bd1a5908ae8135c2fa9eefe8cf0a98fd9", 179412),
+    ("20260612085811", "chiappa", "aarch64", "227a9bfe928ef5d164359e490d97648ffca40a5de13f07a9eb57a618a403f084"): ("ca6d64ca1feaa15ee23772077d66fbb07a28058d9f67e37298def382d59769df", "47ba9d8a6f38b3763d013ecc489d44e8742704404b50a5de102b42e33dfebbfb", 175519),
+    ("20260612085811", "ferrari", "aarch64", "9749880daa2f10844e77b560ec0ecddd1634d43eb328af637c7026edf3ef120e"): ("abd6189befd2914480ef852e1832025b3eca3a435e58dd5310602e6f5bdee94b", "28b82b8a0ca32aa83fe49ef4c5db792bd1a5908ae8135c2fa9eefe8cf0a98fd9", 179412),
+    ("20260629074044", "chiappa", "aarch64", "9e3e0372a15da25b148ac17667feb566014440e079c3e3ee504112d556ad2e10"): ("952ed49759e51da83331bbeb20d3841e60fd3bdef1fd0c937976a5ff506b8bed", "4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e", 178170),
+    ("20260629074044", "ferrari", "aarch64", "10082aeb857c69c3f404ab189d7403318ba97d0c169e756ae9a5b3532b248a4a"): ("a80de85ed3e44163beb2d7680c18e02f406cbe907cd862024aff162c32fe76f7", "4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e", 178170),
+    ("20260702125656", "chiappa", "aarch64", "08171df6296b99d04b3694b337bd0ce911e6a93356955961a37de9dd93a0394d"): ("9aba0e5df18391240bfa762d8844907cc9742b8f0625cc3323a3cb9e4d98b093", "4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e", 178170),
+    ("20260702125656", "ferrari", "aarch64", "49f60572e830f6c4f20d800a56d644cdf53cd65a8e240b2b27106cce55040f89"): ("4a94fe9e2b8ebb5e2c19e287561c9b62ff490103945be664f7736850a25c2cab", "4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e", 178170),
+    ("20260702125656", "chiappa", "aarch64", "3a9e18483b73f43016fb25b451e3ece0efba7aa1cc92e080771e138ce6bbca98"): ("7beb8763a4bf6b544d8519a0a82e20562b734eb8146d8610d4feb9224109f97c", "50dc76f758b51fa10bf026269e1788904fe564d00ed6e37b97fed7dc02399348", 192220),
+    ("20260702125656", "ferrari", "aarch64", "113bf7ea62ad171ea03c77c1f90e0666bcff163242a22ebca84372533b270c1c"): ("da01aa9541f4662d76deff72ed33a6e2d5deb62164db0a0d2165d23b947a1762", "18c564eea746a1508343b85197d958b003729b3274f5a6a880285c552dc7348a", 196446),
+}
 
 
 class NativeChineseState(Enum):
@@ -127,6 +157,7 @@ class NativeChineseState(Enum):
     DISABLE_PENDING_REBOOT = "disable_pending_reboot"
     EMERGENCY_DISABLED = "emergency_disabled"
     FIRMWARE_RESIDUE = "firmware_residue"
+    OUTDATED = "outdated"
     BROKEN = "broken"
 
 
@@ -165,6 +196,13 @@ class NativeChineseStatus:
     detail: str = ""
     installed: bool = False
     emergency_disabled: bool = False
+
+
+@dataclass(frozen=True)
+class _SharedPredecessor:
+    reason: str
+    archive_sha256: str
+    feature: _xovi_standalone.SharedFeatureSpec
 
 
 def parse_manifest(data: bytes) -> tuple[NativeChinesePackage, ...]:
@@ -335,6 +373,113 @@ def _shared_specs(package: NativeChinesePackage):
     )
 
 
+def _known_shared_predecessor_specs(
+    package: NativeChinesePackage,
+) -> tuple[_SharedPredecessor, ...]:
+    identity = (
+        package.firmware,
+        package.platform,
+        package.architecture,
+        package.xochitl_sha256,
+    )
+    _runtime, current = _shared_specs(package)
+    catalog_predecessor = CATALOG_LABEL_PREDECESSORS.get(identity)
+    if catalog_predecessor is not None:
+        archive_sha256, catalog_sha256, catalog_size = catalog_predecessor
+        extra_files = tuple(
+            replace(item, sha256=catalog_sha256, size=catalog_size)
+            if item.runtime_path == CATALOG_PATH
+            else item
+            for item in current.extra_files
+        )
+        return (
+            _SharedPredecessor(
+                "keyboard_label_catalog_missing",
+                archive_sha256,
+                replace(current, extra_files=extra_files),
+            ),
+        )
+    if identity != FERRARI_166_IDENTITY:
+        return ()
+    legacy_extra_files = tuple(
+        replace(
+            item,
+            sha256=FERRARI_166_LEGACY_CATALOG_SHA256,
+            size=FERRARI_166_LEGACY_CATALOG_SIZE,
+        )
+        if item.runtime_path == CATALOG_PATH
+        else item
+        for item in current.extra_files
+    )
+    v2 = replace(
+        current,
+        sha256=FERRARI_166_V2_QMD_SHA256,
+        size=FERRARI_166_V2_QMD_SIZE,
+        extra_files=legacy_extra_files,
+    )
+    v1 = replace(
+        current,
+        sha256=FERRARI_166_V1_QMD_SHA256,
+        size=FERRARI_166_V1_QMD_SIZE,
+        extra_files=legacy_extra_files,
+    )
+    return (
+        _SharedPredecessor(
+            "keyboard_label_qml_override",
+            FERRARI_166_V2_ARCHIVE_SHA256,
+            v2,
+        ),
+        _SharedPredecessor(
+            "unconditional_keyboard_label_qml_override",
+            FERRARI_166_V1_ARCHIVE_SHA256,
+            v1,
+        ),
+    )
+
+
+def _inspect_shared_revision(
+    ssh_client,
+    runtime: _xovi_standalone.SharedRuntimeSpec,
+    trusted: dict[str, _xovi_standalone.SharedFeatureSpec],
+    package: NativeChinesePackage,
+    *,
+    check_lower: bool = False,
+):
+    revisions = {
+        FEATURE_ID: tuple(
+            (item.reason, item.feature)
+            for item in _known_shared_predecessor_specs(package)
+        )
+    }
+    try:
+        import _pinyin_input as pinyin
+
+        peer = pinyin.select_package(pinyin._trusted_catalog(), _package_identity(package))
+        if peer is not None and pinyin.FEATURE_ID in trusted:
+            revisions[pinyin.FEATURE_ID] = tuple(
+                (item.reason, item.feature)
+                for item in pinyin._known_shared_predecessor_specs(peer)
+            )
+    except ImportError:
+        pass
+    return _xovi_standalone.inspect_shared_revisions(
+        ssh_client,
+        runtime,
+        trusted,
+        {feature_id: items for feature_id, items in revisions.items() if items},
+        check_lower=check_lower,
+    )
+
+
+def _package_identity(package: NativeChinesePackage) -> tap.DeviceIdentity:
+    return tap.DeviceIdentity(
+        package.firmware,
+        package.platform,
+        package.architecture,
+        package.xochitl_sha256,
+    )
+
+
 def _trusted_shared_context(identity: tap.DeviceIdentity):
     return tap._trusted_shared_context(identity)
 
@@ -412,7 +557,15 @@ def get_status(
                 emergency,
             )
         runtime, trusted, _legacies = _trusted_shared_context(identity)
-        inspection = _xovi_standalone.inspect_shared(ssh_client, runtime, trusted)
+        if package is None:
+            inspection = _xovi_standalone.inspect_shared(
+                ssh_client, runtime, trusted
+            )
+            revisions = {}
+        else:
+            inspection, _installed_trusted, revisions = _inspect_shared_revision(
+                ssh_client, runtime, trusted, package
+            )
         if package is None and FEATURE_ID not in inspection.states:
             return NativeChineseStatus(
                 NativeChineseState.INCOMPATIBLE,
@@ -422,6 +575,20 @@ def get_status(
             )
         if package is None:
             raise RuntimeError("当前固件没有精确匹配的原生中文包。")
+        if FEATURE_ID in revisions:
+            detail = (
+                "已精确验证为缺少中文键盘名称翻译的旧版原生中文包，可直接修复更新"
+                if revisions[FEATURE_ID] == "keyboard_label_catalog_missing"
+                else "已精确验证为仍通过 QML 改写键盘名称的旧版原生中文包，可直接修复更新"
+            )
+            return NativeChineseStatus(
+                NativeChineseState.OUTDATED,
+                identity,
+                package,
+                detail,
+                True,
+                emergency,
+            )
         state, detail, installed = _state_from_inspection(ssh_client, inspection, emergency)
         return NativeChineseStatus(state, identity, package, detail, installed, emergency)
     except Exception as exc:
@@ -494,14 +661,24 @@ def enable(
     _runtime, feature = _shared_specs(package)
     with tempfile.TemporaryDirectory() as temporary:
         extracted = tap.extract_verified_package(archive_path, package, temporary)
-        _xovi_standalone.enable_shared(
-            ssh_client,
-            runtime,
-            feature,
-            extracted,
-            feature_trust,
-            legacies,
-        )
+        with _xovi_standalone._operation_lock(ssh_client):
+            installed_trust = feature_trust
+            if _xovi_standalone.has_shared_artifacts(ssh_client):
+                _inspection, installed_trust, _revisions = _inspect_shared_revision(
+                    ssh_client,
+                    runtime,
+                    feature_trust,
+                    package,
+                    check_lower=True,
+                )
+            _xovi_standalone._enable_shared_locked(
+                ssh_client,
+                runtime,
+                feature,
+                extracted,
+                installed_trust,
+                legacies,
+            )
     return get_status(ssh_client, (package,))
 
 
@@ -564,7 +741,16 @@ def disable(
         )
         return get_status(ssh_client, tuple(catalog) or _trusted_catalog())
     with _xovi_standalone._operation_lock(ssh_client):
-        inspection = _xovi_standalone.inspect_shared(ssh_client, runtime, trusted)
+        package = select_package(tuple(catalog) or _trusted_catalog(), marker_identity)
+        if package is None:
+            raise RuntimeError("当前设备没有可验证的原生中文包。")
+        inspection, installed_trusted, revisions = _inspect_shared_revision(
+            ssh_client,
+            runtime,
+            trusted,
+            package,
+            check_lower=True,
+        )
         if FEATURE_ID not in inspection.states:
             raise RuntimeError("原生简体中文尚未安装。")
         _switch_selected_chinese_to_english(ssh_client)
@@ -572,7 +758,8 @@ def disable(
             ssh_client,
             runtime,
             FEATURE_ID,
-            trusted,
+            installed_trusted,
+            trusted[FEATURE_ID] if FEATURE_ID in revisions else None,
         )
     return get_status(ssh_client, tuple(catalog) or _trusted_catalog())
 

@@ -13,6 +13,7 @@ import _rmkit_cn
 import _fast_mono_reading
 import _legacy_vellum
 import _native_chinese
+import _pinyin_input
 import _tap_page_turn
 from _ssh import SSHClientWrapper, remount_rw, require_connection
 import rmtool as _rmtool  # late-bound access to avoid circular import
@@ -1451,7 +1452,13 @@ class NativeChineseSection(QtWidgets.QWidget):
             in (
                 _native_chinese.NativeChineseState.NOT_INSTALLED,
                 _native_chinese.NativeChineseState.INSTALLED_DISABLED,
+                _native_chinese.NativeChineseState.OUTDATED,
             )
+        )
+        self.enable_button.setText(
+            "修复并更新"
+            if state is _native_chinese.NativeChineseState.OUTDATED
+            else "启用原生中文"
         )
         self.disable_button.setEnabled(
             connected
@@ -1510,6 +1517,7 @@ class NativeChineseSection(QtWidgets.QWidget):
             _native_chinese.NativeChineseState.FIRMWARE_RESIDUE: (
                 "检测到固件升级后遗留的原生中文共享 Xovi 状态，可安全清理"
             ),
+            _native_chinese.NativeChineseState.OUTDATED: "已安装的原生中文包需要修复更新",
             _native_chinese.NativeChineseState.BROKEN: "检测到不完整或不可信的原生中文安装",
         }
         message = messages[status.state]
@@ -1580,6 +1588,7 @@ class NativeChineseSection(QtWidgets.QWidget):
         if not self._status or not self._status.package:
             return
         package = self._status.package
+        updating = self._status.state is _native_chinese.NativeChineseState.OUTDATED
         verification_notice = (
             "该精确包已完成对应真机验证。"
             if package.device_verified
@@ -1589,12 +1598,18 @@ class NativeChineseSection(QtWidgets.QWidget):
             self,
             _rmtool.APP_NAME,
             f"{verification_notice}"
+            + (
+                "将把键盘中文名称补丁迁移到原生中文功能，并保留其他插件。"
+                if updating
+                else ""
+            )
+            +
             "它会增加独立的“简体中文”选项，不替换法语。"
             "如果旧版法语槽位汉化仍在启用，操作会被拒绝；请先还原并手动重启，"
             "再重新连接设备执行本步骤。"
             "本次只部署文件，不重启 xochitl 或设备；完成后请手动重启。"
             "是否继续？",
-            confirm_text="部署并启用",
+            confirm_text="修复并更新" if updating else "部署并启用",
             cancel_text="取消",
         ):
             return
@@ -1603,7 +1618,11 @@ class NativeChineseSection(QtWidgets.QWidget):
             self.ssh_client,
             self._status.package,
             str(_rmtool.app_state_dir()),
-            pending="正在下载、验证并部署原生中文资源…",
+            pending=(
+                "正在验证并更新原生中文资源…"
+                if updating
+                else "正在下载、验证并部署原生中文资源…"
+            ),
             success=(
                 "原生简体中文已部署并通过校验，SSH 会话已关闭。\n"
                 "请手动重启设备，然后在语言设置中选择“简体中文”。"
@@ -1703,6 +1722,239 @@ class NativeChineseSection(QtWidgets.QWidget):
             _native_chinese._trusted_catalog(),
             pending="正在清除紧急停用标记…",
             success="紧急停用标记已清除；如需恢复加载，请稍后手动重启设备。",
+        )
+
+
+class PinyinInputSection(QtWidgets.QWidget):
+    def __init__(self, ssh_client: SSHClientWrapper, parent=None):
+        super().__init__(parent)
+        self.ssh_client = ssh_client
+        self.thread_pool = QtCore.QThreadPool.globalInstance()
+        self._status: Optional[_pinyin_input.PinyinInputStatus] = None
+        self._busy = False
+
+        title = QtWidgets.QLabel("拼音输入法")
+        title.setObjectName("toolboxFeatureTitle")
+        detail = QtWidgets.QLabel(
+            "为系统软键盘和实体键盘增加离线拼音候选栏。词库完全保存在设备上，"
+            "不使用云端预测；功能接入 rmtool 共享 Xovi，启停不会影响其他插件。"
+        )
+        detail.setWordWrap(True)
+        self.catalog_label = QtWidgets.QLabel("精确包：检测后显示")
+        self.catalog_label.setWordWrap(True)
+        self.status_label = QtWidgets.QLabel("设备已连接，尚未检测")
+        self.status_label.setWordWrap(True)
+
+        self.detect_button = QtWidgets.QPushButton("检测状态")
+        self.enable_button = QtWidgets.QPushButton("安装并启用")
+        self.disable_button = QtWidgets.QPushButton("停用")
+        self.project_button = QtWidgets.QPushButton("查看来源")
+        buttons = QtWidgets.QHBoxLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.setSpacing(_rmtool.SUBSECTION_GAP)
+        for button in (
+            self.detect_button,
+            self.enable_button,
+            self.disable_button,
+            self.project_button,
+        ):
+            buttons.addWidget(button)
+        buttons.addStretch()
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(_rmtool.SUBSECTION_GAP)
+        layout.addWidget(title)
+        layout.addWidget(detail)
+        layout.addWidget(self.catalog_label)
+        layout.addWidget(self.status_label)
+        layout.addLayout(buttons)
+
+        self.detect_button.clicked.connect(self._detect_status)
+        self.enable_button.clicked.connect(self._enable)
+        self.disable_button.clicked.connect(self._disable)
+        self.project_button.clicked.connect(
+            lambda: QtGui.QDesktopServices.openUrl(
+                QtCore.QUrl("https://github.com/boangs/rmkit")
+            )
+        )
+        self.ssh_client.connection_changed.connect(self._on_connection_changed)
+        self._on_connection_changed(self.ssh_client.is_connected())
+
+    def _on_connection_changed(self, connected: bool):
+        if not connected:
+            self._status = None
+            self.catalog_label.setText("精确包：检测后显示")
+            self.status_label.setText("设备未连接")
+        elif self._status is None:
+            self.status_label.setText("设备已连接，尚未检测")
+        self._update_buttons()
+
+    def _update_buttons(self):
+        connected = self.ssh_client.is_connected() and not self._busy
+        state = self._status.state if self._status else None
+        self.detect_button.setEnabled(connected)
+        self.enable_button.setEnabled(
+            connected
+            and self._status is not None
+            and self._status.package is not None
+            and state in (
+                _pinyin_input.PinyinInputState.NOT_INSTALLED,
+                _pinyin_input.PinyinInputState.INSTALLED_DISABLED,
+                _pinyin_input.PinyinInputState.OUTDATED,
+            )
+        )
+        self.enable_button.setText(
+            "修复并更新"
+            if state == _pinyin_input.PinyinInputState.OUTDATED
+            else "安装并启用"
+        )
+        self.disable_button.setEnabled(
+            connected
+            and self._status is not None
+            and self._status.installed
+            and state
+            not in (
+                _pinyin_input.PinyinInputState.INSTALLED_DISABLED,
+                _pinyin_input.PinyinInputState.DISABLE_PENDING_REBOOT,
+                _pinyin_input.PinyinInputState.BROKEN,
+            )
+        )
+
+    def _apply_status(self, status: _pinyin_input.PinyinInputStatus):
+        self._status = status
+        package = status.package
+        if package is None:
+            self.catalog_label.setText("精确包：当前设备不匹配")
+        else:
+            channel_names = {"stable": "正式版", "beta": "测试版"}
+            verification = "已实机验证" if package.device_verified else "离线验证，尚待实机"
+            self.catalog_label.setText(
+                f"精确包：{package.release_version} | {channel_names[package.channel]} | "
+                f"硬件 {package.platform.title()} | "
+                f"内部版本 {package.firmware} | {verification}"
+            )
+        messages = {
+            _pinyin_input.PinyinInputState.INCOMPATIBLE: "当前固件没有精确匹配的拼音输入法包",
+            _pinyin_input.PinyinInputState.NOT_INSTALLED: "尚未安装拼音输入法",
+            _pinyin_input.PinyinInputState.INSTALLED_DISABLED: "拼音输入法当前未启用",
+            _pinyin_input.PinyinInputState.ENABLE_PENDING_REBOOT: "已部署，等待手动重启后生效",
+            _pinyin_input.PinyinInputState.ENABLED: "拼音输入法已加载",
+            _pinyin_input.PinyinInputState.DISABLE_PENDING_REBOOT: "已停用，等待手动重启后完全移除",
+            _pinyin_input.PinyinInputState.EMERGENCY_DISABLED: "共享 Xovi 已被紧急标记停用",
+            _pinyin_input.PinyinInputState.OUTDATED: "已安装的拼音包需要修复更新",
+            _pinyin_input.PinyinInputState.BROKEN: "检测到不完整或不可验证的拼音输入法状态",
+        }
+        message = messages[status.state]
+        if status.detail:
+            message += f"：{status.detail}"
+        self.status_label.setText(message)
+        self._update_buttons()
+
+    def _start_worker(
+        self, fn, *args, pending: str, success: str = "", close_connection: bool = False
+    ):
+        self._busy = True
+        self.status_label.setText(pending)
+        self._update_buttons()
+        worker = _rmtool.Worker(fn, *args)
+
+        def on_finished(status: _pinyin_input.PinyinInputStatus):
+            if sip.isdeleted(self):
+                if close_connection:
+                    self.ssh_client.close()
+                return
+            self._busy = False
+            self._apply_status(status)
+            if close_connection:
+                self.ssh_client.close()
+            if success:
+                show_info(self, _rmtool.APP_NAME, success)
+
+        def on_error(exc: Exception):
+            if close_connection:
+                self.ssh_client.close()
+            if sip.isdeleted(self):
+                return
+            self._busy = False
+            self._status = None
+            self.status_label.setText("操作失败，设备不会被自动重启；请检查日志后重试")
+            self._update_buttons()
+            logging.error("Pinyin input operation failed: %s", exc)
+            show_error(
+                self,
+                _rmtool.APP_NAME,
+                f"操作失败：{exc}\n设备不会被自动重启。",
+            )
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self.thread_pool.start(worker)
+
+    @require_connection
+    def _detect_status(self):
+        self._start_worker(
+            _pinyin_input.get_status,
+            self.ssh_client,
+            _pinyin_input._trusted_catalog(),
+            pending="正在核对设备身份、服务载荷与共享 Xovi 状态…",
+        )
+
+    @require_connection
+    def _enable(self):
+        if not self._status or not self._status.package:
+            return
+        repairing = self._status.state == _pinyin_input.PinyinInputState.OUTDATED
+        action = (
+            "将严格验证并修复已安装的旧版拼音包，把中文键盘布局资源迁移到 QRR 可读取的位置。"
+            if repairing
+            else "将下载并验证离线拼音输入法包，把候选栏和输入拦截器接入 rmtool 共享 Xovi。"
+        )
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            f"{action}"
+            "若设备已有 rmkit 输入法，操作会在写入前停止。部署过程不会重启 xochitl 或设备；"
+            "完成后请手动重启。是否继续？",
+            confirm_text="修复并更新" if repairing else "安装并启用",
+            cancel_text="取消",
+        ):
+            return
+        self._start_worker(
+            _pinyin_input.enable_cloud,
+            self.ssh_client,
+            self._status.package,
+            str(_rmtool.app_state_dir()),
+            pending=("正在验证并修复旧版拼音输入法…" if repairing else
+                     "正在下载、验证并部署拼音输入法…"),
+            success=(
+                "拼音输入法已补齐中文键盘布局并通过校验，SSH 会话已关闭。\n"
+                if repairing
+                else "拼音输入法已部署并通过校验，SSH 会话已关闭。\n"
+            ) + "请手动重启设备后，在键盘语言中选择中文。",
+            close_connection=True,
+        )
+
+    @require_connection
+    def _disable(self):
+        if not self._status or not self._status.installed:
+            return
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "将从共享 Xovi 中停用拼音候选栏和输入拦截器，并移除 rmtool 管理的离线词库服务。"
+            "其他 rmtool 插件会完整保留；本次不会重启设备。是否继续？",
+            confirm_text="停用拼音输入法",
+            cancel_text="取消",
+        ):
+            return
+        self._start_worker(
+            _pinyin_input.disable,
+            self.ssh_client,
+            _pinyin_input._trusted_catalog(),
+            pending="正在安全停用拼音输入法并保留其他共享插件…",
+            success="拼音输入法已停用，SSH 会话已关闭。\n请手动重启设备使修改生效。",
+            close_connection=True,
         )
 
 
@@ -2678,6 +2930,7 @@ class ToolboxTab(QtWidgets.QWidget):
         self.control_section = ControlTab(ssh_client)
         self.rmkit_cn_section = RmkitCnSection(ssh_client)
         self.native_chinese_section = NativeChineseSection(ssh_client)
+        self.pinyin_input_section = PinyinInputSection(ssh_client)
         self.tap_page_turn_section = TapPageTurnSection(ssh_client)
         self.fast_mono_reading_section = FastMonoReadingSection(ssh_client)
         self.legacy_vellum_cleanup_section = LegacyVellumCleanupSection(ssh_client)
@@ -2704,6 +2957,12 @@ class ToolboxTab(QtWidgets.QWidget):
         rmkit_cn_layout.addWidget(localization_divider)
         rmkit_cn_layout.addWidget(self.native_chinese_section)
         rmkit_cn_group.setLayout(rmkit_cn_layout)
+
+        pinyin_group = QtWidgets.QGroupBox("输入法")
+        pinyin_layout = QtWidgets.QVBoxLayout()
+        pinyin_layout.setContentsMargins(0, _rmtool.SUBSECTION_GAP, 0, 0)
+        pinyin_layout.addWidget(self.pinyin_input_section)
+        pinyin_group.setLayout(pinyin_layout)
 
         tap_page_turn_group = QtWidgets.QGroupBox("阅读优化与手势")
         tap_page_turn_layout = QtWidgets.QVBoxLayout()
@@ -2761,6 +3020,7 @@ class ToolboxTab(QtWidgets.QWidget):
         content_layout.addWidget(time_group)
         content_layout.addWidget(control_group)
         content_layout.addWidget(rmkit_cn_group)
+        content_layout.addWidget(pinyin_group)
         content_layout.addWidget(tap_page_turn_group)
         content_layout.addWidget(koreader_group)
         content_layout.addStretch()

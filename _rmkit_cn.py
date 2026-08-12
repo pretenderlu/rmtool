@@ -29,7 +29,7 @@ STOCK_FRENCH_QM_SHA256 = (
     "8e0db0f7a2d3116469e1aae4f52657ccc38d0422b5b958ae512554bd018f285e"
 )
 LOCALIZED_QM_SHA256 = (
-    "47ba9d8a6f38b3763d013ecc489d44e8742704404b50a5de102b42e33dfebbfb"
+    "7f9eefadc342b665e407feb6184fabab7629694d950da93a92991a3705f019bb"
 )
 TRANSLATION_COS_URL = (
     "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com"
