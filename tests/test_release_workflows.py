@@ -197,7 +197,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("part_size_mb = 2", workflow)
         self.assertIn("max_threads = 3", workflow)
         self.assertIn("Timeout=300", workflow)
-        self.assertIn('exc.get_error_code() != "AccessDenied"', workflow)
+        self.assertIn('exc.get_error_code() == "AccessDenied"', workflow)
         self.assertIn('upload_state["multipart_available"] = False', workflow)
         self.assertIn("payload = path.read_bytes()", workflow)
         self.assertIn("Body=payload", workflow)
@@ -205,6 +205,17 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("time.sleep(2 ** attempt)", workflow)
         self.assertIn("if not is_retryable_put_error(exc) or attempt == 2:", workflow)
         self.assertIn('"UserNetworkTooSlow"', workflow)
+        multipart_upload = workflow[
+            workflow.index("def upload_file_compatible") : workflow.index(
+                "for feature, names in publication.items():"
+            )
+        ]
+        self.assertLess(
+            multipart_upload.index('exc.get_error_code() == "AccessDenied"'),
+            multipart_upload.index(
+                "if not is_retryable_put_error(exc) or attempt == 2:"
+            ),
+        )
         self.assertIn("def public_object_matches(path, key):", workflow)
         self.assertIn("?precheck={precheck_token}", workflow)
         self.assertIn("while chunk := response.read(1024 * 1024):", workflow)
