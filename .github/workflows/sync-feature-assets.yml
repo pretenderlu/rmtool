@@ -402,15 +402,15 @@ jobs:
               )
 
           def put_file_with_retries(path, key, content_type):
+              payload = path.read_bytes()
               for attempt in range(3):
                   try:
-                      with path.open("rb") as body:
-                          client.put_object(
-                              Bucket=os.environ["COS_BUCKET"],
-                              Key=key,
-                              Body=body,
-                              ContentType=content_type,
-                          )
+                      client.put_object(
+                          Bucket=os.environ["COS_BUCKET"],
+                          Key=key,
+                          Body=payload,
+                          ContentType=content_type,
+                      )
                       return
                   except (CosClientError, CosServiceError) as exc:
                       if not is_retryable_put_error(exc) or attempt == 2:
