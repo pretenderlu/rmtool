@@ -1125,8 +1125,6 @@ def _install_system_font_mirror(
             != hashlib.sha256(plan.font_data).hexdigest()
         ):
             raise RuntimeError("锁屏字体镜像写入后哈希不一致。")
-        if _scan_font_family(ssh_client, target) != font_family:
-            raise RuntimeError("/data 中的系统字体无法按原字体族识别，已停止应用。")
         for stale_path in stale_targets:
             ssh_client.exec_checked(f"rm -f {shlex.quote(stale_path)}")
         root_files = {

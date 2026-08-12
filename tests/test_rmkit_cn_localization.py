@@ -1579,6 +1579,42 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertIn(f"<dir>{_rmkit_cn.SYSTEM_FONT_DIR}</dir>", system_config)
         self.assertFalse(any(".rmtool-" in path for path in ssh.files))
 
+    def test_set_active_user_font_ignores_existing_system_scan_alias(self):
+        font_dir = "/home/root/.local/share/fonts"
+        source = f"{font_dir}/new.ttf"
+        system_target = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        old_config = _rmkit_cn.fontconfig_override(
+            "Old Private Family", system_target
+        ).replace(
+            "<!-- ponytail: user-level UI font override; restore the prior file to undo. -->",
+            "<!-- rmtool system UI font; owner: user -->",
+        ).encode("utf-8")
+        ssh = FakeSSH(
+            {
+                source: b"new font bytes",
+                system_target: b"old font bytes",
+                _rmkit_cn.SYSTEM_FONTCONFIG_FILE: old_config,
+            }
+        )
+        scanned_paths = []
+
+        def scan_family(client, remote_path):
+            self.assertIs(client, ssh)
+            scanned_paths.append(remote_path)
+            if remote_path == system_target:
+                return "Old Private Family"
+            return "New Family"
+
+        with patch.object(_rmkit_cn, "_scan_font_family", side_effect=scan_family):
+            selected = _rmkit_cn.set_active_user_font(ssh, font_dir, "new.ttf")
+
+        self.assertEqual(selected.family, "New Family")
+        self.assertEqual(scanned_paths, [source])
+        self.assertEqual(ssh.files[system_target], b"new font bytes")
+        system_config = ssh.files[_rmkit_cn.SYSTEM_FONTCONFIG_FILE].decode("utf-8")
+        self.assertIn("<string>rmtool UI Font (New Family)</string>", system_config)
+        self.assertIn(f"<string>{system_target}</string>", system_config)
+
     def test_system_mirror_is_verified_without_home_fontconfig(self):
         target = _rmkit_cn.SYSTEM_FONT_PATHS[".otf"]
         root_files = {
