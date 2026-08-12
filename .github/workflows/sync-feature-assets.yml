@@ -419,21 +419,31 @@ jobs:
 
           def upload_file_compatible(path, key, content_type):
               if upload_state["multipart_available"]:
-                  try:
-                      client.upload_file(
-                          Bucket=os.environ["COS_BUCKET"],
-                          Key=key,
-                          LocalFilePath=str(path),
-                          PartSize=part_size_mb,
-                          MAXThread=max_threads,
-                          ContentType=content_type,
-                      )
-                      return
-                  except CosServiceError as exc:
-                      if exc.get_error_code() != "AccessDenied":
-                          raise
-                      upload_state["multipart_available"] = False
-                      print("Multipart upload unavailable; using PutObject compatibility mode.")
+                  for attempt in range(3):
+                      try:
+                          client.upload_file(
+                              Bucket=os.environ["COS_BUCKET"],
+                              Key=key,
+                              LocalFilePath=str(path),
+                              PartSize=part_size_mb,
+                              MAXThread=max_threads,
+                              ContentType=content_type,
+                          )
+                          return
+                      except (CosClientError, CosServiceError) as exc:
+                          if (
+                              isinstance(exc, CosServiceError)
+                              and exc.get_error_code() == "AccessDenied"
+                          ):
+                              upload_state["multipart_available"] = False
+                              print(
+                                  "Multipart upload unavailable; "
+                                  "using PutObject compatibility mode."
+                              )
+                              break
+                          if not is_retryable_put_error(exc) or attempt == 2:
+                              raise
+                          time.sleep(2 ** attempt)
               put_file_with_retries(path, key, content_type)
 
           for feature, names in publication.items():
