@@ -22,11 +22,13 @@ The stock catalogs also omit live QML lookups. A read-only audit found 91 Qt
 resource bundles, mapped 620 QML files, and inspected 1507 `qsTr` or
 `qsTranslate` calls. It found 64 exact static keys absent from the 1779-key
 stock union. The settings sidebar additionally translates finite runtime enum
-values through `qsTranslate("SettingsModel", model.title)`.
+values through `qsTranslate("SettingsModel", model.title)`, and the Pinyin
+keyboard selector resolves `LanguageAndKeyboard / Chinese` at runtime.
 
 The finite runtime supplement contains `SettingsModel / Wifi`,
 `SettingsModel / Developer`, `SettingsModel / Experimental`, and
-`xofm::libs::toolbar::PenColorModel / Magenta`.
+`xofm::libs::toolbar::PenColorModel / Magenta`, and
+`LanguageAndKeyboard / Chinese`.
 
 ## Catalog Baseline
 
@@ -41,8 +43,8 @@ firmware:
 A message key consists of context, source text, disambiguation comment, and
 numerus flag. Active messages emitted by `lconvert` from the stock QM files
 form the stock layer. The firmware layer adds the 64 static QML keys proven by
-the binary audit and four finite runtime keys. The final catalog contains
-exactly 1847 unique keys.
+the binary audit and five finite runtime keys. The final catalog contains
+exactly 1848 unique keys.
 
 ## Merge Order
 
@@ -53,7 +55,7 @@ For every baseline key, choose the Chinese translation in this order:
 3. Current Chinese catalog after same-context entity normalization: 16 keys.
 4. Exact source translation reused from another current context: eight keys.
 5. New Simplified Chinese translation: 33 keys.
-6. Firmware supplement: 64 static QML keys plus four finite runtime values.
+6. Firmware supplement: 64 static QML keys plus five finite runtime values.
 
 Foreign-language target text is never copied. Source text, comments, numerus
 metadata, and meaningful whitespace come from the stock baseline.
@@ -88,19 +90,20 @@ systemd changes.
 Automated checks pass only when the production catalog satisfies all of these
 conditions:
 
-- Exactly 1847 unique message keys and at least 300 contexts.
+- Exactly 1848 unique message keys and at least 300 contexts.
 - No empty, unfinished, obsolete, or vanished translations.
 - Source and translation placeholder multisets match for every message.
 - Source and translation markup tag multisets match for every message.
 - No duplicate message keys.
 - Qt 6 `lrelease -fail-on-unfinished` succeeds.
-- A QM-to-TS round trip retains all 1847 messages.
+- A QM-to-TS round trip retains all 1848 messages.
 - Re-running the task-local firmware QML audit reports zero missing static
   keys and zero unmapped QML resource bundles.
 - Regression checks pin the exact 64-key static supplement by its canonical
   key-set digest and all 33 manual translation targets, reject suspicious
-  replacement-character runs, and require the four finite runtime keys and
-  `LanguageAndKeyboard / French = 简体中文`.
+  replacement-character runs, and require the five finite runtime keys,
+  `LanguageAndKeyboard / French = 简体中文`, and
+  `LanguageAndKeyboard / Chinese = 中文`.
 - The full rmtool test suite remains green.
 
 After local validation, deploy the new QM through the existing safe backend,

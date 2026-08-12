@@ -2,11 +2,13 @@ import importlib.util
 import json
 import tempfile
 import unittest
+from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import _native_chinese as native
+import _pinyin_input as pinyin
 import _fast_mono_reading as fast
 import _rmkit_cn
 import _tap_page_turn as tap
@@ -52,7 +54,7 @@ class NativeChineseTests(unittest.TestCase):
                 for item in packages
                 if item.device_verified
             },
-            {("ferrari", "3.28.0.166"), ("chiappa", "3.27.3.0")},
+            {("chiappa", "3.27.3.0"), ("ferrari", "3.28.0.166")},
         )
         for package in packages:
             with self.subTest(platform=package.platform):
@@ -98,6 +100,151 @@ class NativeChineseTests(unittest.TestCase):
         self.assertTrue(selected.device_verified)
         changed = replace(identity, xochitl_sha256="f" * 64)
         self.assertIsNone(native.select_package(packages, changed))
+
+    def test_ferrari_166_uses_catalog_for_keyboard_label_and_preserves_language_label(self):
+        package = native.select_package(native._trusted_catalog(), self.identity())
+        self.assertIsNotNone(package)
+        qmd = Path("native-chinese/qmd/ferrari-3.28.0.166.qmd").read_bytes()
+        spec = package.file(native.QMD_PATH)
+        self.assertEqual(
+            (len(qmd), native.hashlib.sha256(qmd).hexdigest()),
+            (spec.size, spec.sha256),
+        )
+        source = qmd.decode("utf-8")
+        self.assertNotIn('return "中文";', source)
+        self.assertEqual(source.count('"简体中文"'), 2)
+        self.assertNotIn(
+            'return "中文";',
+            Path("pinyin-input/qmd/pinyin-input.qmd").read_text(encoding="utf-8"),
+        )
+
+        legacy = Path(
+            "native-chinese/qmd/ferrari-3.28.0.162-164.qmd"
+        ).read_bytes()
+        self.assertEqual(
+            (len(legacy), native.hashlib.sha256(legacy).hexdigest()),
+            (native.FERRARI_166_V1_QMD_SIZE, native.FERRARI_166_V1_QMD_SHA256),
+        )
+
+    def test_ferrari_166_predecessor_is_exact_and_revision_bounded(self):
+        package = native.select_package(native._trusted_catalog(), self.identity())
+        _runtime, current = native._shared_specs(package)
+        v2, v1 = native._known_shared_predecessor_specs(package)
+        self.assertEqual(
+            (v2.reason, v2.archive_sha256),
+            (
+                "keyboard_label_qml_override",
+                native.FERRARI_166_V2_ARCHIVE_SHA256,
+            ),
+        )
+        self.assertEqual(
+            (v1.reason, v1.archive_sha256),
+            (
+                "unconditional_keyboard_label_qml_override",
+                native.FERRARI_166_V1_ARCHIVE_SHA256,
+            ),
+        )
+        for predecessor, qmd_hash, qmd_size in (
+            (v2, native.FERRARI_166_V2_QMD_SHA256, native.FERRARI_166_V2_QMD_SIZE),
+            (v1, native.FERRARI_166_V1_QMD_SHA256, native.FERRARI_166_V1_QMD_SIZE),
+        ):
+            self.assertEqual(predecessor.feature.package_id, current.package_id)
+            self.assertEqual(predecessor.feature.runtime_path, current.runtime_path)
+            self.assertEqual(predecessor.feature.sha256, qmd_hash)
+            self.assertEqual(predecessor.feature.size, qmd_size)
+            catalog = next(
+                item
+                for item in predecessor.feature.extra_files
+                if item.runtime_path == native.CATALOG_PATH
+            )
+            self.assertEqual(
+                (catalog.size, catalog.sha256),
+                (
+                    native.FERRARI_166_LEGACY_CATALOG_SIZE,
+                    native.FERRARI_166_LEGACY_CATALOG_SHA256,
+                ),
+            )
+
+        for other in native._trusted_catalog():
+            if other is package:
+                continue
+            predecessors = native._known_shared_predecessor_specs(other)
+            self.assertEqual(len(predecessors), 1)
+            self.assertEqual(predecessors[0].reason, "keyboard_label_catalog_missing")
+            expected = native.CATALOG_LABEL_PREDECESSORS[
+                (other.firmware, other.platform, other.architecture, other.xochitl_sha256)
+            ]
+            self.assertEqual(predecessors[0].archive_sha256, expected[0])
+            catalog = next(
+                item for item in predecessors[0].feature.extra_files
+                if item.runtime_path == native.CATALOG_PATH
+            )
+            self.assertEqual((catalog.sha256, catalog.size), expected[1:])
+
+    def test_native_and_pinyin_old_revisions_are_jointly_strictly_recognized(self):
+        native_package = native.select_package(native._trusted_catalog(), self.identity())
+        pinyin_package = pinyin.select_package(pinyin._trusted_catalog(), self.identity())
+        runtime, native_current = native._shared_specs(native_package)
+        _runtime, pinyin_current = pinyin._shared_specs(pinyin_package)
+        native_old = native._known_shared_predecessor_specs(native_package)[0]
+        pinyin_old = pinyin._known_shared_predecessor_specs(pinyin_package)[0]
+        trusted = {
+            native.FEATURE_ID: native_current,
+            pinyin.FEATURE_ID: pinyin_current,
+        }
+        expected = shared.SharedInspection({}, False, False)
+
+        def inspect(_ssh, _runtime, candidate, **_kwargs):
+            if (
+                candidate[native.FEATURE_ID] == native_old.feature
+                and candidate[pinyin.FEATURE_ID] == pinyin_old.feature
+            ):
+                return expected
+            raise RuntimeError("not this exact pair")
+
+        with patch.object(shared, "inspect_shared", side_effect=inspect):
+            inspection, installed, revisions = native._inspect_shared_revision(
+                Mock(), runtime, trusted, native_package
+            )
+        self.assertIs(inspection, expected)
+        self.assertEqual(installed[native.FEATURE_ID], native_old.feature)
+        self.assertEqual(installed[pinyin.FEATURE_ID], pinyin_old.feature)
+        self.assertEqual(
+            revisions,
+            {
+                native.FEATURE_ID: native_old.reason,
+                pinyin.FEATURE_ID: pinyin_old.reason,
+            },
+        )
+
+        sequential_pairs = (
+            (native_old.feature, pinyin_current, native._inspect_shared_revision),
+            (native_current, pinyin_old.feature, pinyin._inspect_shared_revision),
+        )
+        for native_spec, pinyin_spec, probe in sequential_pairs:
+            def inspect_sequential(_ssh, _runtime, candidate, **_kwargs):
+                if (
+                    candidate[native.FEATURE_ID] == native_spec
+                    and candidate[pinyin.FEATURE_ID] == pinyin_spec
+                ):
+                    return expected
+                raise RuntimeError("not this sequential state")
+
+            with self.subTest(probe=probe.__module__), patch.object(
+                shared, "inspect_shared", side_effect=inspect_sequential
+            ):
+                if probe is native._inspect_shared_revision:
+                    _inspection, installed, selected = probe(
+                        Mock(), runtime, trusted, native_package
+                    )
+                    self.assertEqual(selected, {native.FEATURE_ID: native_old.reason})
+                else:
+                    _inspection, installed, own_reason = probe(
+                        Mock(), runtime, trusted, pinyin_package
+                    )
+                    self.assertEqual(own_reason, pinyin_old.reason)
+                self.assertEqual(installed[native.FEATURE_ID], native_spec)
+                self.assertEqual(installed[pinyin.FEATURE_ID], pinyin_spec)
 
     def test_build_metadata_and_reviewable_qmd_match_manifest(self):
         path = Path("native-chinese/build_assets.py").resolve()
@@ -156,7 +303,12 @@ class NativeChineseTests(unittest.TestCase):
             runtime, trusted, legacies = context
             self.assertEqual(
                 set(trusted),
-                {native.FEATURE_ID, "tap-page-turn", "fast-mono-reading"},
+                {
+                    native.FEATURE_ID,
+                    pinyin.FEATURE_ID,
+                    "tap-page-turn",
+                    "fast-mono-reading",
+                },
             )
             self.assertEqual(
                 {legacy.feature.feature_id for legacy in legacies},
@@ -346,6 +498,81 @@ class NativeChineseTests(unittest.TestCase):
         french.assert_not_called()
         deploy.assert_not_called()
 
+    def test_repair_preserves_exact_old_pinyin_peer_revision(self):
+        package = native.select_package(native._trusted_catalog(), self.identity())
+        pinyin_package = pinyin.select_package(pinyin._trusted_catalog(), self.identity())
+        runtime, current = native._shared_specs(package)
+        _runtime, pinyin_current = pinyin._shared_specs(pinyin_package)
+        native_old = native._known_shared_predecessor_specs(package)[0].feature
+        pinyin_old = pinyin._known_shared_predecessor_specs(pinyin_package)[0].feature
+        installed_trusted = {
+            native.FEATURE_ID: native_old,
+            pinyin.FEATURE_ID: pinyin_old,
+        }
+        inspection = shared.SharedInspection(
+            {
+                feature_id: shared.SharedFeatureState(
+                    feature,
+                    True,
+                    "12345678-1234-1234-1234-123456789abc:1:1",
+                )
+                for feature_id, feature in installed_trusted.items()
+            },
+            True,
+            True,
+        )
+        expected = native.NativeChineseStatus(
+            native.NativeChineseState.ENABLE_PENDING_REBOOT,
+            self.identity(),
+            package,
+            installed=True,
+        )
+        with patch.object(
+            tap, "get_device_identity", return_value=self.identity()
+        ), patch.object(
+            _rmkit_cn, "has_cjk_font", return_value=True
+        ), patch.object(
+            tap, "_preflight_device"
+        ), patch.object(
+            native, "_reject_active_french_slot"
+        ), patch.object(
+            native,
+            "_trusted_shared_context",
+            return_value=(
+                runtime,
+                {
+                    native.FEATURE_ID: current,
+                    pinyin.FEATURE_ID: pinyin_current,
+                },
+                (),
+            ),
+        ), patch.object(
+            tap, "extract_verified_package", return_value=Path("/tmp/extracted")
+        ), patch.object(
+            shared, "_operation_lock", return_value=nullcontext()
+        ), patch.object(
+            shared, "has_shared_artifacts", return_value=True
+        ), patch.object(
+            native,
+            "_inspect_shared_revision",
+            return_value=(
+                inspection,
+                installed_trusted,
+                {
+                    native.FEATURE_ID: "keyboard_label_qml_override",
+                    pinyin.FEATURE_ID: "keyboard_label_owned_by_pinyin",
+                },
+            ),
+        ), patch.object(
+            shared, "_enable_shared_locked"
+        ) as activate, patch.object(
+            native, "get_status", return_value=expected
+        ):
+            result = native.enable(Mock(), package, "package.tar.gz", ".rmtool")
+
+        self.assertIs(result, expected)
+        self.assertIs(activate.call_args.args[4], installed_trusted)
+
     def test_disable_switches_selected_chinese_to_english_before_removal(self):
         package = native._trusted_catalog()[0]
         runtime, feature = native._shared_specs(package)
@@ -404,6 +631,48 @@ class NativeChineseTests(unittest.TestCase):
         ):
             native.clear_emergency_disable(ssh)
         clear.assert_called_once_with(ssh)
+
+    def test_status_marks_exact_ferrari_166_predecessor_as_repairable(self):
+        package = native.select_package(native._trusted_catalog(), self.identity())
+        runtime, current = native._shared_specs(package)
+        predecessor = native._known_shared_predecessor_specs(package)[0]
+        inspection = shared.SharedInspection(
+            {
+                native.FEATURE_ID: shared.SharedFeatureState(
+                    predecessor.feature,
+                    True,
+                    "12345678-1234-1234-1234-123456789abc:1:1",
+                )
+            },
+            True,
+            True,
+        )
+        with patch.object(
+            tap, "get_device_identity", return_value=self.identity()
+        ), patch.object(
+            shared, "recovery_sentinel_present", return_value=False
+        ), patch.object(
+            shared, "has_shared_artifacts", return_value=True
+        ), patch.object(
+            shared, "read_shared_identity", return_value=native.FERRARI_166_IDENTITY
+        ), patch.object(
+            native,
+            "_trusted_shared_context",
+            return_value=(runtime, {native.FEATURE_ID: current}, ()),
+        ), patch.object(
+            native,
+            "_inspect_shared_revision",
+            return_value=(
+                inspection,
+                {native.FEATURE_ID: predecessor.feature},
+                {native.FEATURE_ID: predecessor.reason},
+            ),
+        ):
+            status = native.get_status(Mock(), (package,))
+
+        self.assertEqual(status.state, native.NativeChineseState.OUTDATED)
+        self.assertTrue(status.installed)
+        self.assertIn("可直接修复更新", status.detail)
 
     def test_unsupported_device_with_peer_shared_feature_is_not_broken(self):
         identity = tap.DeviceIdentity(

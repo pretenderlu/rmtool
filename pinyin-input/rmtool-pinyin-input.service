@@ -1,0 +1,12 @@
+[Unit]
+Description=rmtool offline Pinyin input service
+After=home.mount
+PartOf=xochitl.service
+
+[Service]
+Type=simple
+User=root
+ExecStartPre=/bin/sh -c '[ -f /home/root/.local/share/rmtool/pinyin-input/ime-server ] && [ ! -L /home/root/.local/share/rmtool/pinyin-input/ime-server ] && [ "$(stat -c %%a:%%u:%%g:%%s /home/root/.local/share/rmtool/pinyin-input/ime-server)" = 755:0:0:18481336 ] && [ "$(sha256sum /home/root/.local/share/rmtool/pinyin-input/ime-server | cut -c 1-64)" = ab1935dac1e91a86e7b704f9feb0de985e009f366590448fe9c6ec5e400901bf ]'
+ExecStart=/home/root/.local/share/rmtool/pinyin-input/ime-server
+Restart=on-failure
+RestartSec=3

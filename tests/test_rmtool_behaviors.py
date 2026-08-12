@@ -30,6 +30,7 @@ import rmtool
 import _fast_mono_reading
 import _legacy_vellum
 import _native_chinese
+import _pinyin_input
 import _rmkit_cn
 import _ssh
 import _tap_page_turn
@@ -1317,6 +1318,7 @@ class WallpaperUiTests(unittest.TestCase):
                 "时间管理",
                 "设备控制",
                 "系统汉化",
+                "输入法",
                 "阅读优化与手势",
                 "KOReader / 第三方应用",
                 "字体管理",
@@ -1378,6 +1380,19 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertTrue(section.disable_button.isEnabled())
         self.assertFalse(section.set_emergency_button.isEnabled())
         self.assertTrue(section.clear_emergency_button.isEnabled())
+
+        section._apply_status(
+            _native_chinese.NativeChineseStatus(
+                _native_chinese.NativeChineseState.OUTDATED,
+                identity,
+                package,
+                "可直接修复更新",
+                installed=True,
+            )
+        )
+        self.assertTrue(section.enable_button.isEnabled())
+        self.assertEqual(section.enable_button.text(), "修复并更新")
+        self.assertIn("原生中文包需要修复更新", section.status_label.text())
 
         section._apply_status(
             _native_chinese.NativeChineseStatus(
@@ -1687,6 +1702,59 @@ class WallpaperUiTests(unittest.TestCase):
         start_worker.assert_called_once_with(worker)
         self.assertEqual(client.close_calls, 1)
         self.assertIn("手动重新启动", show_info.call_args.args[2])
+
+    def test_pinyin_outdated_state_offers_direct_repair(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.PinyinInputSection(client)
+        self.addCleanup(section.deleteLater)
+        package = _pinyin_input._trusted_catalog()[0]
+        identity = _tap_page_turn.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        section._apply_status(
+            _pinyin_input.PinyinInputStatus(
+                _pinyin_input.PinyinInputState.OUTDATED,
+                identity,
+                package,
+                "可直接修复更新",
+                True,
+            )
+        )
+        self.assertTrue(section.enable_button.isEnabled())
+        self.assertEqual(section.enable_button.text(), "修复并更新")
+        self.assertIn("拼音包需要修复更新", section.status_label.text())
+
+    def test_pinyin_catalog_label_uses_exact_channel_and_hardware(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.PinyinInputSection(client)
+        self.addCleanup(section.deleteLater)
+        package = next(
+            item
+            for item in _pinyin_input._trusted_catalog()
+            if item.platform == "chiappa" and item.channel == "stable"
+        )
+        identity = _tap_page_turn.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+
+        section._apply_status(
+            _pinyin_input.PinyinInputStatus(
+                _pinyin_input.PinyinInputState.NOT_INSTALLED,
+                identity,
+                package,
+            )
+        )
+
+        self.assertIn("正式版", section.catalog_label.text())
+        self.assertIn("硬件 Chiappa", section.catalog_label.text())
+        self.assertNotIn("测试版", section.catalog_label.text())
+        self.assertNotIn("硬件 Paper Pro", section.catalog_label.text())
 
     @staticmethod
     def fast_mono_packages():

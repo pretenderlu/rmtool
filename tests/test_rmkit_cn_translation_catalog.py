@@ -12,24 +12,24 @@ from PyQt5 import QtCore
 import _rmkit_cn
 
 
-EXPECTED_MESSAGES = 1847
+EXPECTED_MESSAGES = 1848
 FERRARI_SUPPLEMENT_MESSAGES = 31
 FERRARI_MESSAGES = EXPECTED_MESSAGES + FERRARI_SUPPLEMENT_MESSAGES
 FERRARI_SUPPLEMENT_KEY_SHA256 = "9aabccaf96280039ef28f75e4147fc09a843f3095f8c2097dedc6386273db0be"
-FERRARI_QM_SHA256 = "28b82b8a0ca32aa83fe49ef4c5db792bd1a5908ae8135c2fa9eefe8cf0a98fd9"
+FERRARI_QM_SHA256 = "b1efead9b7f8fe136e0f0429af603480192575804147986e77fa0ebb2873059d"
 BETA_164_SHARED_MESSAGES = 132
 BETA_164_FERRARI_MESSAGES = 2
-BETA_164_CHIAPPA_QM_SIZE = 192220
-BETA_164_CHIAPPA_QM_SHA256 = "50dc76f758b51fa10bf026269e1788904fe564d00ed6e37b97fed7dc02399348"
-BETA_164_FERRARI_QM_SIZE = 196446
-BETA_164_FERRARI_QM_SHA256 = "18c564eea746a1508343b85197d958b003729b3274f5a6a880285c552dc7348a"
-BETA_166_FERRARI_QM_SIZE = 196567
-BETA_166_FERRARI_QM_SHA256 = "6bdca18626173b9fadbd350347afebcab0cae3639f8d206d86b9723cd3dda127"
+BETA_164_CHIAPPA_QM_SIZE = 192279
+BETA_164_CHIAPPA_QM_SHA256 = "266d9a115167e1e67b36c0954f315ca1e0413bdd838b1d539fe02f73dd7e6036"
+BETA_164_FERRARI_QM_SIZE = 196505
+BETA_164_FERRARI_QM_SHA256 = "2221df2db380bd72895a3578c921232a6e73744cdc4a614c89acd44e2cef356d"
+BETA_166_FERRARI_QM_SIZE = 196626
+BETA_166_FERRARI_QM_SHA256 = "49cf09fc23ef3fcacb956d426915e3f80b85a02fa7e597a8b5fc8013a2bdb931"
 LEGACY_SUPPLEMENT_MESSAGES = 84
 LEGACY_MESSAGES = FERRARI_MESSAGES + LEGACY_SUPPLEMENT_MESSAGES
 LEGACY_SUPPLEMENT_KEY_SHA256 = "52d97ca57b9fc74f74ae99af843eeaa9813e5530818adbe4be426d60c6f492fa"
-LEGACY_QM_SIZE = 188407
-LEGACY_QM_SHA256 = "517e70cdf4d862b8ceec57d3238ece72b3799aecdf075c0183668acfc2137c64"
+LEGACY_QM_SIZE = 188466
+LEGACY_QM_SHA256 = "f29f6bd02cc98f8d357bd286bff6f354d3ba4219c2bf7d7bf339a61f01b7dc2e"
 RM1_STOCK_MESSAGES = 1671
 RM1_STOCK_KEY_SHA256 = "0bb125ee4a3d8f429cb9a870dc5ab9ffbecdbed729ee2bf4c0ffc6b9cb9e2f4f"
 RM2_STOCK_MESSAGES = 1763
@@ -139,6 +139,7 @@ STATIC_SUPPLEMENT_KEYS = {
     ("TemplateSelectorWindow", "Back", "Template selector", False),
 }
 DYNAMIC_SUPPLEMENT_KEYS = {
+    ("LanguageAndKeyboard", "Chinese", "", False),
     ("SettingsModel", "Developer", "", False),
     ("SettingsModel", "Experimental", "", False),
     ("SettingsModel", "Wifi", "", False),
@@ -230,6 +231,32 @@ def key_digest(keys):
 
 
 class RmkitCnTranslationCatalogTests(unittest.TestCase):
+    def test_every_supported_paper_pro_catalog_translates_chinese_label(self):
+        translations = Path(__file__).resolve().parents[1] / "translations"
+        catalogs = (
+            "reMarkable_zh_CN.qm",
+            "reMarkable_zh_CN_ferrari.qm",
+            "reMarkable_zh_CN-20260629074044.qm",
+            "reMarkable_zh_CN-3.28.0.164-chiappa.qm",
+            "reMarkable_zh_CN-3.28.0.164-ferrari.qm",
+            "reMarkable_zh_CN-3.28.0.166-ferrari.qm",
+        )
+        app = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
+        for catalog in catalogs:
+            with self.subTest(catalog=catalog):
+                translator = QtCore.QTranslator()
+                self.assertTrue(translator.load(str(translations / catalog)))
+                self.assertTrue(app.installTranslator(translator))
+                try:
+                    self.assertEqual(
+                        QtCore.QCoreApplication.translate(
+                            "LanguageAndKeyboard", "Chinese"
+                        ),
+                        "中文",
+                    )
+                finally:
+                    app.removeTranslator(translator)
+
     def test_beta_166_ferrari_catalog_loads_with_qt(self):
         qm_path = (
             Path(__file__).resolve().parents[1]
@@ -240,6 +267,29 @@ class RmkitCnTranslationCatalogTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(data).hexdigest(), BETA_166_FERRARI_QM_SHA256)
         translator = QtCore.QTranslator()
         self.assertTrue(translator.load(str(qm_path)))
+        app = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
+        self.assertTrue(app.installTranslator(translator))
+        self.addCleanup(app.removeTranslator, translator)
+        self.assertEqual(
+            QtCore.QCoreApplication.translate("LanguageAndKeyboard", "Chinese"),
+            "中文",
+        )
+
+        translations = qm_path.parent
+        base = ET.parse(translations / "reMarkable_zh_CN.ts").getroot()
+        supplement = ET.parse(
+            translations / "reMarkable_zh_CN_3_28_0_166_ferrari_supplement.ts"
+        ).getroot()
+
+        def keys(root):
+            return {
+                (element_text(context.find("name")), element_text(message.find("source")))
+                for context in root.findall("context")
+                for message in context.findall("message")
+            }
+
+        self.assertIn(("LanguageAndKeyboard", "Chinese"), keys(base))
+        self.assertNotIn(("LanguageAndKeyboard", "Chinese"), keys(supplement))
 
     def test_chinese_catalog_is_complete_and_well_formed(self):
         catalog_path = (
@@ -323,7 +373,7 @@ class RmkitCnTranslationCatalogTests(unittest.TestCase):
             key_digest(STATIC_SUPPLEMENT_KEYS),
             STATIC_SUPPLEMENT_KEY_SHA256,
         )
-        self.assertEqual(len(DYNAMIC_SUPPLEMENT_KEYS), 4)
+        self.assertEqual(len(DYNAMIC_SUPPLEMENT_KEYS), 5)
         self.assertTrue(supplement_keys <= set(keys))
         stock_keys = set(keys) - supplement_keys
         self.assertEqual(len(stock_keys), STOCK_MESSAGES)

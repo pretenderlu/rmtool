@@ -15,16 +15,16 @@ persistent files; rmtool never restarts xochitl or the device. Reboot manually
 after either operation. If `zh_CN` is selected during removal, rmtool first
 changes `[General] language` to `en`.
 
-The two bold identities have passed real-device language switching and reboot
-checks. Ferrari 3.28.0.166 also passed passcode cold boot, unlock, emergency
-fail-open, and normal reboot checks. Every other package passed exact firmware,
-archive, QMD/hashtab, and shared-runtime checks offline. Move 3.28.0.166 is not
-inferred from Paper Pro and will be added only after an official image or exact
-device baseline becomes available. Because stable Chiappa firmware has no
-stock CJK font, rmtool refuses deployment until the active sans-serif font has
-Simplified Chinese coverage. The selected system font can be supplied through
-rmtool's `/data/rmtool/fonts` active mirror; the plugin itself does not carry a
-font.
+The bold identities have passed real-device language switching and reboot
+checks; Ferrari 3.28.0.166 also passed Chinese input, the `中文` keyboard label,
+passcode cold boot, unlock, emergency fail-open, and normal reboot checks. Every
+other package passed exact firmware, archive, QMD/hashtab, and shared-runtime
+checks offline. Move 3.28.0.166 is not inferred from Paper Pro and will be
+added only after an official image or exact device baseline becomes available.
+Because stable Chiappa firmware has no stock CJK font, rmtool refuses
+deployment until the active sans-serif font has Simplified Chinese coverage.
+The selected system font can be supplied through rmtool's
+`/data/rmtool/fonts` active mirror; the plugin itself does not carry a font.
 
 ## Local build
 
@@ -43,6 +43,8 @@ their manifest, verifies the corresponding Chinese catalog, and uses the
 reviewable QMD sources under `native-chinese/qmd/`. It checks the native QMD
 alone and together with tap-to-turn in both orders. The manifest records
 Tencent COS first and GitHub second, but this step does not upload either file.
+Python 3.13 is pinned above because gzip output can differ across zlib versions;
+rebuilding with that interpreter reproduces the recorded archive byte for byte.
 
 ## Local test
 

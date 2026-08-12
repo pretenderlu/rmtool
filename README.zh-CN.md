@@ -10,7 +10,7 @@
 
 </div>
 
-rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Paper Pure、reMarkable 1 和 reMarkable 2，提供多设备连接、仪表盘、壁纸、文档、KOReader 书库管理、字体、时间、设备控制、原生界面中文、按固件精确匹配的点击翻页，以及彩色设备快速黑白阅读等功能。设备操作不依赖 reMarkable 云服务；发布包内置汉化、点击翻页和快速黑白的基础可信清单，可离线识别支持情况并复用已验证缓存。固件专用载荷不会打包进应用，仍需联网下载或使用已有的有效缓存。
+rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Paper Pure、reMarkable 1 和 reMarkable 2，提供多设备连接、仪表盘、壁纸、文档、KOReader 书库管理、字体、时间、设备控制、原生界面中文、离线拼音输入、按固件精确匹配的点击翻页，以及彩色设备快速黑白阅读等功能。设备操作不依赖 reMarkable 云服务；发布包内置这些固件功能的基础可信清单，可离线识别支持情况并复用已验证缓存。固件专用载荷不会打包进应用，仍需联网下载或使用已有的有效缓存。
 
 > [!WARNING]
 > rmtool 会直接修改设备文件。请先同步或备份重要内容，并确认自己能够承担开发者模式、root SSH 和第三方修改带来的数据与保修风险。本项目不是 reMarkable 官方软件。
@@ -72,6 +72,7 @@ rmtool 管理的固件专用资源均使用两个固定来源。客户端优先�
 | --- | --- | --- |
 | 原生界面汉化 | [COS 根目录](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/) | [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/tag/localization-assets) |
 | 独立简体中文 | [`native-chinese/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/) | [`native-chinese-assets`](https://github.com/pretenderlu/rmtool/releases/tag/native-chinese-assets) |
+| 拼音输入法 | [`pinyin-input/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input/) | [`pinyin-input-assets`](https://github.com/pretenderlu/rmtool/releases/tag/pinyin-input-assets) |
 | 点击翻页 | [`tap-page-turn/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/tap-page-turn/) | [`tap-page-turn-assets`](https://github.com/pretenderlu/rmtool/releases/tag/tap-page-turn-assets) |
 | 快速黑白阅读 | [`fast-mono-reading/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/fast-mono-reading/) | [`fast-mono-reading-assets`](https://github.com/pretenderlu/rmtool/releases/tag/fast-mono-reading-assets) |
 
@@ -109,6 +110,7 @@ rmtool 按运行平台将状态保存在以下目录：
 - `remarkable_tool.log`：滚动运行日志。
 - `cache/localization/`：已校验的汉化清单和固件包缓存。
 - `cache/tap-page-turn/`：已校验的点击翻页清单和固件包缓存。
+- `cache/pinyin-input/`：已校验的离线拼音输入法包缓存。
 - `cache/fast-mono-reading/`：已校验的快速黑白清单和固件包缓存。
 
 > [!CAUTION]
@@ -125,6 +127,7 @@ rmtool 按运行平台将状态保存在以下目录：
 - **设备控制**：重启设备、开启 Wi-Fi SSH，以及为具有 `rm_frontlight` 前光接口的设备提升亮度并安装持久化服务。
 - **点击翻页**：在精确支持的固件上，为 PDF/EPUB 阅读页启用持久化的左右点击区域，同时保留原生滑动翻页和文档链接。
 - **快速黑白阅读**：在精确支持的 Paper Pro 与 Paper Pro Move 3.27/3.28 固件上，为 PDF/EPUB 的更多菜单增加会话级“快速黑白”开关和原生清屏频率选项；默认每 10 次真实翻页清屏，也可选择 5/20/30 次或从不。包会分别标注真机验证或离线验证。
+- **离线拼音输入**：为系统软键盘和实体键盘增加设备端拼音候选栏，预测与词库完全留在本机，并与其他插件共享 rmtool 现有 Xovi 运行时。
 - **主题与日志**：亮色/暗色主题会持久化；底部日志面板支持级别过滤、暂停、自动滚动、清屏和打开日志文件。
 - **第三方应用入口**：工具箱提供 Vellum 安装/卸载、xovi、rm-appload 和 KOReader 的文档链接；rmtool 自带插件不再通过 Vellum 安装。
 
@@ -172,6 +175,12 @@ Move 正式版包已通过实机安装、语言切换、重启和停用测试，
 
 独立插件不能和法语槽位汉化同时启用。无损迁移应分两步：先还原法语槽位汉化并手动重启；重新连接后，再启用独立简体中文插件并再次手动重启，最后选择“简体中文”。rmtool 故意保留两次明确操作，第二步失败时设备仍处于原生语言路径。
 
+### 离线拼音输入
+
+精确包现已覆盖 Paper Pro 与 Paper Pro Move 的 `3.27.1.0`、`3.27.3.0`、`3.28.0.162`、`3.28.0.163`、`3.28.0.164`，以及 Paper Pro `3.28.0.166`。在官方固件和精确哈希出现前，不虚构 Move `3.28.0.166`。每个包同时校验硬件、架构、内部固件版本和 xochitl SHA-256；Paper Pro `3.28.0.166` 已通过实机验证，其余 10 个目标为官方固件离线验证。
+
+本功能移植 [boangs/rmkit](https://github.com/boangs/rmkit) 中 GPL-3.0 的 QMLDiff 候选栏、小型输入 hook、`zh_CN` 键盘布局资源和本地 `rime-frost` 词库服务。只有启用拼音时，hook 和键盘资源才会加入 rmtool 共享 Xovi；所有精确版本的原生中文目录都负责把系统动态名称 `Chinese` 显示为“中文”，任何 QMD 都不接管键盘名称。词库服务保存在 `/home/root/.local/share/rmtool/pinyin-input`，启停会保留全部同伴插件，也不会重启 xochitl 或设备。旧包迁移严格限制在真实存在过的 Paper Pro `3.28.0.166` 版本，不会把旧版本规则错误套用到新目标。
+
 ### 点击翻页
 
 点击翻页支持下表中的精确构建。rmtool 会同时匹配硬件平台、CPU 架构、内部固件版本和 `/usr/bin/xochitl` SHA-256；其他设备或固件不会通过猜测强行安装。
@@ -207,7 +216,7 @@ Move 正式版包已通过实机安装、语言切换、重启和停用测试，
 
 安装并手动重启设备后，打开 PDF 或 EPUB，在“更多 > 快速黑白”中按需开启。开启后可在“强制刷新”中选择每 5、10、20、30 次真实翻页调用一次系统清屏，或选择“从不”；会话默认每 10 次，点击和滑动翻页都会计数，达到阈值后等待 500 ms 再刷新。关闭快速黑白会立即恢复原生刷新模式并重置计数。
 
-点击翻页、快速黑白和原生简体中文统一共享 rmtool 自有 Xovi/QRR 运行时，同时各自保留独立功能状态。检测到 Vellum/AppLoader 或非托管 Xovi 时会阻止安装，避免混合运行时。功能清单和载荷优先从腾讯云 COS 获取，失败后回退固定 GitHub Release，并执行精确大小、SHA-256 校验及已验证缓存回退。安装和停用均不会重启 xochitl；请等待 rmtool 关闭 SSH 后，从设备菜单手动重启。包与构建细节见[快速黑白阅读说明](fast-mono-reading/README.md)。
+点击翻页、快速黑白、原生简体中文和拼音输入统一共享 rmtool 自有 Xovi/QRR 运行时，同时各自保留独立功能状态。检测到 Vellum/AppLoader 或非托管 Xovi 时会阻止安装，避免混合运行时。功能清单和载荷优先从腾讯云 COS 获取，失败后回退固定 GitHub Release，并执行精确大小、SHA-256 校验及已验证缓存回退。安装和停用均不会重启 xochitl；请等待 rmtool 关闭 SSH 后，从设备菜单手动重启。包与构建细节见[快速黑白阅读说明](fast-mono-reading/README.md)。
 
 ## 使用建议
 
@@ -258,7 +267,7 @@ Windows 也可在依赖安装完成后双击 `rmtool.bat`，通过 `pythonw.exe`
 ## 开发与发布检查
 
 ```bash
-python -m compileall -q rmtool.py _dialogs.py _fast_mono_reading.py _log_viewer.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tests
+python -m compileall -q rmtool.py _dialogs.py _fast_mono_reading.py _log_viewer.py _pinyin_input.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tests
 python -m unittest discover -s tests -v
 git diff --check
 actionlint .github/workflows/release.yml .github/workflows/sync-localization-assets.yml .github/workflows/sync-feature-assets.yml

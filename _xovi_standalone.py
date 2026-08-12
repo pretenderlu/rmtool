@@ -13,6 +13,7 @@ import tempfile
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
+from itertools import product
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Mapping, Optional
 
@@ -85,6 +86,13 @@ class SharedFeatureSpec:
     size: int
     mode: int
     extra_files: tuple["SharedFeatureFileSpec", ...] = ()
+    preload_paths: tuple[str, ...] = ()
+    sidecars: tuple["SharedSidecarSpec", ...] = ()
+    # Historical compatibility only: reconstructs the short-lived Pinyin v2
+    # launcher so rmtool can verify and migrate it without trusting edits.
+    legacy_resource_path: str = ""
+    # Files whose root ownership, mode, and size are rechecked at startup.
+    strict_metadata_paths: tuple[str, ...] = ()
 
     @property
     def files(self) -> tuple["SharedFeatureFileSpec", ...]:
@@ -107,6 +115,16 @@ class SharedFeatureFileSpec:
     sha256: str
     size: int
     mode: int
+
+
+@dataclass(frozen=True)
+class SharedSidecarSpec:
+    remote_path: str
+    sha256: str
+    size: int
+    mode: int
+    unit_name: str = ""
+    unit_runtime_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -204,9 +222,12 @@ def assert_feature_layout(
 ) -> None:
     """Reject ambiguous ownership before inspecting or mutating a shared tree."""
     owners = {item.path: "runtime" for item in runtime.files}
+    sidecar_owners = {}
+    resource_owners = {}
     if len(owners) != len(runtime.files):
         raise RuntimeError("共享 Xovi 运行资源路径重复。")
     for feature in features:
+        feature_paths = {item.runtime_path for item in feature.files}
         for item in feature.files:
             path = PurePosixPath(item.runtime_path)
             if (
@@ -219,12 +240,72 @@ def assert_feature_layout(
                 path.suffix != ".qmd" or str(path.parent) != SHARED_QRR_HOME
             ):
                 raise RuntimeError("共享 Xovi 功能 QMD 必须位于共享 QRR 目录。")
+            if item.runtime_path.lower().endswith(".rcc") and (
+                path.suffix != ".rcc"
+                or (
+                    str(path.parent) != SHARED_QRR_HOME
+                    and item.runtime_path != feature.legacy_resource_path
+                )
+            ):
+                raise RuntimeError("共享 Xovi 功能 RCC 必须直接位于共享 QRR 目录。")
             previous = owners.get(item.runtime_path)
             if previous is not None:
                 raise RuntimeError(
                     f"共享 Xovi 文件路径冲突：{item.runtime_path}"
                 )
             owners[item.runtime_path] = feature.feature_id
+        for preload_path in feature.preload_paths:
+            if (
+                preload_path not in feature_paths
+                or not preload_path.endswith(".so")
+                or posixpath.dirname(preload_path) == "extensions.d"
+            ):
+                raise RuntimeError("共享 Xovi preload 必须指向该功能托管的共享库。")
+        for strict_path in feature.strict_metadata_paths:
+            if strict_path not in feature_paths:
+                raise RuntimeError("共享 Xovi 严格元数据校验必须指向该功能托管的文件。")
+        if feature.legacy_resource_path:
+            if (
+                feature.legacy_resource_path not in feature_paths
+                or not feature.legacy_resource_path.endswith(".rcc")
+            ):
+                raise RuntimeError("历史共享 Xovi 资源包必须指向该功能托管的 RCC 文件。")
+            previous = resource_owners.get("QT_RESOURCE_REBUILDER_PATH")
+            if previous is not None:
+                raise RuntimeError(
+                    "共享 Xovi 功能不能同时设置多个 Qt 资源包："
+                    f"{previous}, {feature.feature_id}"
+                )
+            resource_owners["QT_RESOURCE_REBUILDER_PATH"] = feature.feature_id
+        for sidecar in feature.sidecars:
+            path = PurePosixPath(sidecar.remote_path)
+            unit_path = PurePosixPath(sidecar.unit_runtime_path)
+            if (
+                not path.is_absolute()
+                or not str(path).startswith("/home/root/.local/share/rmtool/")
+                or ".." in path.parts
+                or sidecar.mode != 0o755
+                or sidecar.size <= 0
+                or not re.fullmatch(r"[0-9a-f]{64}", sidecar.sha256)
+                or bool(sidecar.unit_name) != bool(sidecar.unit_runtime_path)
+                or (
+                    sidecar.unit_name
+                    and (
+                        not re.fullmatch(r"[A-Za-z0-9_.@-]+\.service", sidecar.unit_name)
+                        or unit_path.is_absolute()
+                        or ".." in unit_path.parts
+                        or sidecar.unit_runtime_path not in feature_paths
+                        or unit_path.name != sidecar.unit_name
+                    )
+                )
+            ):
+                raise RuntimeError("共享 Xovi 伴随进程定义不安全。")
+            previous = sidecar_owners.get(sidecar.remote_path)
+            if previous is not None:
+                raise RuntimeError(
+                    f"共享 Xovi 伴随进程路径冲突：{sidecar.remote_path}"
+                )
+            sidecar_owners[sidecar.remote_path] = feature.feature_id
 
 
 def shared_launcher(
@@ -248,6 +329,15 @@ def shared_launcher(
         checks.append(
             f'[ "$(file_sha {shlex.quote(remote)})" = "{item.sha256}" ] || stock'
         )
+    for feature in enabled:
+        files = {item.runtime_path: item for item in feature.files}
+        for path in feature.strict_metadata_paths:
+            item = files[path]
+            remote = posixpath.join(layout.remote_base, path)
+            checks.append(
+                f'[ "$(stat -c \'%a:%u:%g:%s\' {shlex.quote(remote)} 2>/dev/null)" = '
+                f"'{item.mode:o}:0:0:{item.size}' ] || stock"
+            )
     checks_text = "\n".join(checks)
     qmd_names = tuple(
         posixpath.basename(item.runtime_path)
@@ -279,6 +369,75 @@ for extension in "$BASE"/extensions.d/*.so; do
     extension_count=$((extension_count + 1))
 done
 [ "$extension_count" -eq {len(extension_paths)} ] || stock"""
+    preload_paths = tuple(
+        path for feature in enabled for path in feature.preload_paths
+    )
+    preload_value = ":".join(
+        ("$BASE/xovi.so", *(f"$BASE/{path}" for path in preload_paths))
+    )
+    resource_paths = tuple(
+        feature.legacy_resource_path
+        for feature in enabled
+        if feature.legacy_resource_path
+    )
+    resource_export = (
+        f'export QT_RESOURCE_REBUILDER_PATH="$BASE/{resource_paths[0]}"\n'
+        if resource_paths
+        else ""
+    )
+    stock_unset = (
+        " QT_RESOURCE_REBUILDER_PATH" if resource_paths else ""
+    )
+    sidecars = tuple(sidecar for feature in enabled for sidecar in feature.sidecars)
+    legacy_sidecars = tuple(item for item in sidecars if not item.unit_name)
+    service_sidecars = tuple(item for item in sidecars if item.unit_name)
+    sidecar_checks = "\n".join(
+        (
+            f'[ "$(file_sha {shlex.quote(item.remote_path)})" = "{item.sha256}" ] || stock\n'
+            f'[ "$(stat -c \'%a:%u:%g:%s\' {shlex.quote(item.remote_path)} 2>/dev/null)" = '
+            f"'{item.mode:o}:0:0:{item.size}' ] || stock"
+        )
+        for item in legacy_sidecars
+    )
+    sidecar_start = ""
+    stock_cleanup = ""
+    if legacy_sidecars:
+        starts = []
+        for item in legacy_sidecars:
+            starts.extend((
+                f"{shlex.quote(item.remote_path)} >/tmp/rmtool-{hashlib.sha256(item.remote_path.encode()).hexdigest()[:12]}.log 2>&1 &",
+                'SIDECAR_PIDS="$SIDECAR_PIDS $!"',
+            ))
+        sidecar_start = (
+            "SIDECAR_PIDS=\"\"\n"
+            + "\n".join(starts)
+            + "\nsleep 1\n"
+            + "for sidecar_pid in $SIDECAR_PIDS; do\n"
+            + "    kill -0 \"$sidecar_pid\" 2>/dev/null || stock\n"
+            + "done"
+        )
+        stock_cleanup = (
+            "\n    for sidecar_pid in $SIDECAR_PIDS; do\n"
+            "        kill \"$sidecar_pid\" 2>/dev/null || true\n"
+            "    done"
+        )
+    service_start = ""
+    if service_sidecars:
+        links = "\n".join(
+            f"systemctl link --runtime --force $BASE/{shlex.quote(item.unit_runtime_path)} "
+            f">/dev/null 2>&1 || stock"
+            for item in service_sidecars
+        )
+        starts = "\n".join(
+            f"systemctl start --no-block {shlex.quote(item.unit_name)} "
+            f">/dev/null 2>&1 || stock"
+            for item in service_sidecars
+        )
+        service_start = (
+            links
+            + "\nsystemctl daemon-reload >/dev/null 2>&1 || stock\n"
+            + starts
+        )
     if recovery_sentinel and layout == LEGACY_SHARED_LAYOUT:
         recovery_check = f"[ ! -e {LEGACY_RECOVERY_SENTINEL} ] || stock"
     elif recovery_sentinel:
@@ -300,7 +459,7 @@ done
         else ""
     )
     preflight_checks = checks_text
-    for check in (recovery_check, startup_check):
+    for check in (recovery_check, startup_check, sidecar_checks):
         if check:
             preflight_checks += "\n" + check
     pending_variable = (
@@ -344,13 +503,16 @@ clear_guard_when_stable() {{
         if startup_guard
         else ""
     )
+    startup_sequence = "\n".join(
+        item for item in (sidecar_start, service_start, startup_arm) if item
+    )
     return f"""#!/bin/sh
 BASE={shlex.quote(layout.remote_base)}
 {pending_variable}
 
 stock() {{
-    logger -t {shlex.quote(layout.log_tag)} "preflight failed; starting stock xochitl" 2>/dev/null || true
-    unset LD_PRELOAD XOVI_ROOT QML_DISABLE_DISK_CACHE QML_XHR_ALLOW_FILE_WRITE QML_XHR_ALLOW_FILE_READ
+    logger -t {shlex.quote(layout.log_tag)} "preflight failed; starting stock xochitl" 2>/dev/null || true{stock_cleanup}
+    unset LD_PRELOAD XOVI_ROOT QML_DISABLE_DISK_CACHE QML_XHR_ALLOW_FILE_WRITE QML_XHR_ALLOW_FILE_READ{stock_unset}
     exec /usr/bin/xochitl --system
 }}
 
@@ -390,12 +552,12 @@ for qmd in "$BASE"/{SHARED_QRR_HOME}/*.qmd; do
 done
 [ "$qmd_count" -eq {len(qmd_names)} ] || stock
 
-{startup_arm}
+{startup_sequence}
 export XOVI_ROOT="$BASE"
 export QML_DISABLE_DISK_CACHE=1
 export QML_XHR_ALLOW_FILE_WRITE=1
 export QML_XHR_ALLOW_FILE_READ=1
-export LD_PRELOAD="$BASE/xovi.so"
+{resource_export}export LD_PRELOAD="{preload_value}"
 exec /usr/bin/xochitl --system
 """
 
@@ -720,6 +882,63 @@ def inspect_shared(
         check_lower=check_lower,
         expected_dropin=None,
     )
+
+
+def inspect_shared_revisions(
+    ssh_client,
+    runtime: SharedRuntimeSpec,
+    trusted: Mapping[str, SharedFeatureSpec],
+    revisions: Mapping[str, Iterable[tuple[str, SharedFeatureSpec]]],
+    *,
+    check_lower: bool = False,
+) -> tuple[SharedInspection, dict[str, SharedFeatureSpec], dict[str, str]]:
+    """Inspect one exact combination of current and explicitly trusted revisions."""
+    choices = []
+    for feature_id, predecessors in revisions.items():
+        if feature_id not in trusted:
+            raise RuntimeError("共享 Xovi 前代功能不在当前信任清单中。")
+        current = trusted[feature_id]
+        options = [("", current)]
+        seen = {current}
+        for reason, predecessor in predecessors:
+            if (
+                not reason
+                or predecessor in seen
+                or predecessor.feature_id != feature_id
+                or predecessor.package_id != current.package_id
+                or predecessor.runtime_path != current.runtime_path
+            ):
+                raise RuntimeError("共享 Xovi 前代功能规格无效。")
+            seen.add(predecessor)
+            options.append((reason, predecessor))
+        choices.append((feature_id, tuple(options)))
+
+    current_error: Optional[RuntimeError] = None
+    combinations = product(*(options for _feature_id, options in choices))
+    for combination in combinations:
+        candidate = dict(trusted)
+        selected = {}
+        for (feature_id, _options), (reason, spec) in zip(
+            choices, combination, strict=True
+        ):
+            candidate[feature_id] = spec
+            if reason:
+                selected[feature_id] = reason
+        try:
+            inspection = inspect_shared(
+                ssh_client,
+                runtime,
+                candidate,
+                check_lower=check_lower,
+            )
+        except RuntimeError as exc:
+            if current_error is None:
+                current_error = exc
+            continue
+        return inspection, candidate, selected
+    if current_error is not None:
+        raise current_error
+    return inspect_shared(ssh_client, runtime, trusted, check_lower=check_lower), dict(trusted), {}
 
 
 def assert_startup_guard_not_latched(inspection: SharedInspection) -> None:
@@ -1547,9 +1766,12 @@ def _enable_shared_locked(
     trusted: Mapping[str, SharedFeatureSpec],
     legacy_specs: Iterable[LegacyStandaloneSpec],
 ) -> SharedInspection:
-    if set(trusted) - {"tap-page-turn", "fast-mono-reading", "native-chinese"}:
+    if set(trusted) - {"tap-page-turn", "fast-mono-reading", "native-chinese", "pinyin-input"}:
         raise RuntimeError("共享 Xovi 包含不受支持的功能。")
     assert_feature_layout(runtime, trusted.values())
+    target_trusted = dict(trusted)
+    target_trusted[feature.feature_id] = feature
+    assert_feature_layout(runtime, target_trusted.values())
     legacy_specs = tuple(legacy_specs)
     _assert_managed_dropins(
         ssh_client,
@@ -1567,9 +1789,18 @@ def _enable_shared_locked(
         raise RuntimeError("检测到共享与旧版独立 Xovi 混合布局，拒绝修改。")
     if len(present_legacy) > 1:
         raise RuntimeError("检测到两套旧版独立 Xovi 布局，拒绝自动合并。")
+    installed_state = inspection.states.get(feature.feature_id)
+    if installed_state is not None and installed_state.spec != feature:
+        if (
+            installed_state.spec.feature_id != feature.feature_id
+            or installed_state.spec.package_id != feature.package_id
+            or installed_state.spec.runtime_path != feature.runtime_path
+        ):
+            raise RuntimeError("共享 Xovi 旧版功能替换规则无效。")
     if (
-        feature.feature_id in inspection.states
-        and inspection.states[feature.feature_id].enabled
+        installed_state is not None
+        and installed_state.enabled
+        and installed_state.spec == feature
         and inspection.layout == SHARED_LAYOUT
     ):
         return inspection
@@ -1632,7 +1863,7 @@ def _enable_shared_locked(
             ssh_client.exec_checked(f"rm -f {shlex.quote(remote_script)}")
         except Exception:
             logging.exception("Could not remove shared Xovi transaction script")
-    return inspect_shared(ssh_client, runtime, trusted)
+    return inspect_shared(ssh_client, runtime, target_trusted)
 
 
 def disable_shared(

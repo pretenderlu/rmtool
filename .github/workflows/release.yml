@@ -76,6 +76,7 @@ jobs:
             --add-data "$root/tap-page-turn/manifest.json:tap-page-turn" \
             --add-data "$root/fast-mono-reading/manifest.json:fast-mono-reading" \
             --add-data "$root/native-chinese/manifest.json:native-chinese" \
+            --add-data "$root/pinyin-input/manifest.json:pinyin-input" \
             --distpath dist \
             --workpath build/macos \
             --specpath build \

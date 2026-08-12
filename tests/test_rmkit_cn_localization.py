@@ -315,7 +315,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         )
         self.assertEqual(
             _rmkit_cn.LOCALIZED_QM_SHA256,
-            "47ba9d8a6f38b3763d013ecc489d44e8742704404b50a5de102b42e33dfebbfb",
+            "7f9eefadc342b665e407feb6184fabab7629694d950da93a92991a3705f019bb",
         )
         self.assertEqual(
             _rmkit_cn.BUNDLED_FONT_SHA256,
@@ -2528,7 +2528,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(tatsu.channel, package.channel)
         self.assertEqual(tatsu.platform, "tatsu")
         self.assertEqual(tatsu.asset, package.asset)
-        self.assertEqual(tatsu.size, 175_519)
+        self.assertEqual(tatsu.size, 175_578)
         self.assertEqual(tatsu.localized_qm_sha256, package.localized_qm_sha256)
         self.assertEqual(
             tatsu.stock_french_sha256,
@@ -2545,10 +2545,10 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(rm2.asset, legacy_qm_path.name)
         self.assertEqual(rm1.size, len(legacy_bytes))
         self.assertEqual(rm2.size, len(legacy_bytes))
-        self.assertEqual(rm1.size, 188_407)
+        self.assertEqual(rm1.size, 188_466)
         self.assertEqual(
             hashlib.sha256(legacy_bytes).hexdigest(),
-            "517e70cdf4d862b8ceec57d3238ece72b3799aecdf075c0183668acfc2137c64",
+            "f29f6bd02cc98f8d357bd286bff6f354d3ba4219c2bf7d7bf339a61f01b7dc2e",
         )
         self.assertEqual(
             rm1.localized_qm_sha256,
@@ -2592,10 +2592,10 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(beta.platform, "chiappa")
         self.assertEqual(beta.asset, beta_qm_path.name)
         self.assertEqual(beta.size, len(beta_bytes))
-        self.assertEqual(beta.size, 178_170)
+        self.assertEqual(beta.size, 178_229)
         self.assertEqual(
             hashlib.sha256(beta_bytes).hexdigest(),
-            "4f0fa45abdb944f42a44a356ae25d88f283ec2b193a211f59a7030be0342028e",
+            "496dc225fc6b50180ebaa44917717b3b7ad27ee79295a92ea5548384eace10b2",
         )
         self.assertEqual(
             beta.localized_qm_sha256,
@@ -2663,10 +2663,10 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(beta_166.platform, "ferrari")
         self.assertEqual(beta_166.asset, beta_166_path.name)
         self.assertEqual(beta_166.size, len(beta_166_data))
-        self.assertEqual(beta_166.size, 196_567)
+        self.assertEqual(beta_166.size, 196_626)
         self.assertEqual(
             beta_166.localized_qm_sha256,
-            "6bdca18626173b9fadbd350347afebcab0cae3639f8d206d86b9723cd3dda127",
+            "49cf09fc23ef3fcacb956d426915e3f80b85a02fa7e597a8b5fc8013a2bdb931",
         )
         self.assertEqual(
             hashlib.sha256(beta_166_data).hexdigest(),
@@ -2704,6 +2704,12 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         )
         self.assertIn(
             "native-chinese/manifest.json:native-chinese", release_workflow
+        )
+        self.assertIn(
+            "pinyin-input\\manifest.json');pinyin-input", build_script
+        )
+        self.assertIn(
+            "pinyin-input/manifest.json:pinyin-input", release_workflow
         )
         self.assertNotIn("translations:translations", release_workflow)
         self.assertNotIn(".qm", release_workflow)

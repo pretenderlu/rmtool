@@ -10,7 +10,7 @@ A desktop GUI management tool for reMarkable devices
 
 </div>
 
-rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, and reMarkable 2 devices over local root SSH. It provides multi-device connections, a dashboard, wallpaper and document management, KOReader library management, font upload, time management, device controls, native Chinese UI localization, firmware-gated tap-to-turn support, and exact-build fast monochrome reading for color devices. Device operations do not depend on reMarkable cloud services. Release builds include baseline trusted manifests for localization, tap-to-turn, and fast monochrome reading, enabling offline support discovery and verified cache reuse. Firmware-specific payloads are not bundled and still require a network download or an existing validated cache.
+rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, and reMarkable 2 devices over local root SSH. It provides multi-device connections, a dashboard, wallpaper and document management, KOReader library management, font upload, time management, device controls, native Chinese UI localization, offline Pinyin input, firmware-gated tap-to-turn support, and exact-build fast monochrome reading for color devices. Device operations do not depend on reMarkable cloud services. Release builds include baseline trusted manifests for these firmware-specific features, enabling offline support discovery and verified cache reuse. Payloads are not bundled and still require a network download or an existing validated cache.
 
 > [!WARNING]
 > rmtool directly modifies files on the device. Sync or back up important content first, and make sure you accept the data and warranty risks associated with Developer Mode, root SSH, and third-party modifications. This project is not official reMarkable software.
@@ -72,6 +72,7 @@ All firmware-specific resources managed by rmtool use two fixed sources. The cli
 | --- | --- | --- |
 | Chinese localization | [COS root](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/) | [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/tag/localization-assets) |
 | Native Simplified Chinese | [`native-chinese/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/) | [`native-chinese-assets`](https://github.com/pretenderlu/rmtool/releases/tag/native-chinese-assets) |
+| Pinyin input | [`pinyin-input/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input/) | [`pinyin-input-assets`](https://github.com/pretenderlu/rmtool/releases/tag/pinyin-input-assets) |
 | Tap to turn pages | [`tap-page-turn/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/tap-page-turn/) | [`tap-page-turn-assets`](https://github.com/pretenderlu/rmtool/releases/tag/tap-page-turn-assets) |
 | Fast monochrome reading | [`fast-mono-reading/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/fast-mono-reading/) | [`fast-mono-reading-assets`](https://github.com/pretenderlu/rmtool/releases/tag/fast-mono-reading-assets) |
 
@@ -110,6 +111,7 @@ The main files are:
 - `cache/localization/`: validated localization manifests and firmware-package cache.
 - `cache/tap-page-turn/`: validated tap-to-turn manifests and package cache.
 - `cache/fast-mono-reading/`: validated fast-monochrome manifest and package cache.
+- `cache/pinyin-input/`: validated offline Pinyin package cache.
 
 > [!CAUTION]
 > When "Remember password" is selected, the root password is stored in **plain text** in `devices.json` under the state directory above; it is not stored in the operating system credential manager. Do not share, upload, or sync the entire state directory to an untrusted location, and do not attach it to an issue. Use "Forget password" in the sidebar to remove a saved password.
@@ -125,6 +127,7 @@ The main files are:
 - **Device control**: Restart the device, enable Wi-Fi SSH, and increase frontlight brightness on devices with the `rm_frontlight` interface while installing a persistence service.
 - **Tap to turn pages**: On exactly supported firmware, enable persistent left/right tap regions in PDF and EPUB reading views while retaining native swipe navigation and document links.
 - **Fast monochrome reading**: On exact supported Paper Pro and Paper Pro Move 3.27/3.28 builds, add a session-scoped `快速黑白` switch and stock cleanup-refresh selector to the PDF/EPUB More menu. Cleanup defaults to every 10 real page turns, with 5/20/30/never choices. Packages are labelled separately as device verified or offline verified.
+- **Offline Pinyin input**: Adds an on-device Pinyin candidate bar for the system soft keyboard and physical keyboard. Prediction stays local and shares rmtool's existing Xovi runtime with other plugins.
 - **Theme and logs**: Light and dark themes are persisted. The bottom log panel supports level filtering, pause, automatic scrolling, clearing, and opening the log file.
 - **Third-party application links**: The toolbox links to Vellum install/uninstall documentation, xovi, rm-appload, and KOReader. rmtool plugins do not install through Vellum.
 
@@ -172,6 +175,12 @@ The Move stable package has passed real-device installation, language switching,
 
 The independent plugin and French-slot localization cannot be active together. To migrate safely, first restore French-slot localization and manually reboot. Then reconnect, enable the independent plugin, and reboot manually again before selecting Simplified Chinese. rmtool deliberately keeps this as two explicit stages so a failed second stage leaves the device on the stock language path.
 
+### Offline Pinyin input
+
+Exact packages cover Paper Pro and Paper Pro Move `3.27.1.0`, `3.27.3.0`, `3.28.0.162`, `3.28.0.163`, and `3.28.0.164`, plus Paper Pro `3.28.0.166`. Move `3.28.0.166` is intentionally absent until an official image and exact hashes are available. Every package is gated by hardware, architecture, internal firmware, and xochitl SHA-256. Paper Pro `3.28.0.166` is device verified; the other ten targets are offline verified against official firmware.
+
+The GPL-3.0 components ported from [boangs/rmkit](https://github.com/boangs/rmkit) comprise a QMLDiff candidate bar, a small input hook, the `zh_CN` keyboard-layout resource, and a local `rime-frost` dictionary server. The hook and validated keyboard resource join the rmtool shared-Xovi runtime only while Pinyin is enabled. Every exact native-Chinese catalog resolves the stock `LanguageAndKeyboard / Chinese` label as `中文`; keyboard-label ownership stays out of all QMDs. The dictionary server is kept under `/home/root/.local/share/rmtool/pinyin-input`, and installation preserves every peer feature without restarting xochitl or the device. Only the previously installed Paper Pro `3.28.0.166` revisions are accepted for bounded repair; newly supported targets do not inherit those predecessor rules.
+
 ### Tap to turn pages
 
 Tap-to-turn is available for the exact builds below. rmtool requires a match for the hardware platform, CPU architecture, internal firmware version, and `/usr/bin/xochitl` SHA-256. Other devices and firmware versions are rejected rather than guessed.
@@ -207,7 +216,7 @@ The .163 and .164 beta releases expose the same 14-digit internal version. Tap-t
 
 After installation and a manual device restart, open a PDF or EPUB and use `More > 快速黑白`. While enabled, `强制刷新` can run the stock cleanup after every 5, 10, 20, or 30 actual page changes, or never; the session default is 10. Both taps and swipes count, and cleanup waits 500 ms for the page to render. Turning fast monochrome off immediately restores stock screen-mode selection and resets the counter.
 
-Tap-to-turn, fast monochrome, and native Simplified Chinese share one rmtool-owned Xovi/QRR runtime while retaining separate feature state. Vellum/AppLoader and unmanaged Xovi layouts block installation to prevent mixed runtimes. Feature manifests and payloads are fetched from Tencent COS first and the fixed GitHub release second, with exact size, SHA-256 verification, and validated-cache fallback. Installation and removal never restart xochitl; wait for rmtool to close SSH, then restart from the device menu. See [fast-mono-reading](fast-mono-reading/README.md) for exact package and build details.
+Tap-to-turn, fast monochrome, native Simplified Chinese, and Pinyin input share one rmtool-owned Xovi/QRR runtime while retaining separate feature state. Vellum/AppLoader and unmanaged Xovi layouts block installation to prevent mixed runtimes. Feature manifests and payloads are fetched from Tencent COS first and the fixed GitHub release second, with exact size, SHA-256 verification, and validated-cache fallback. Installation and removal never restart xochitl; wait for rmtool to close SSH, then restart from the device menu. See [fast-mono-reading](fast-mono-reading/README.md) for exact package and build details.
 
 ## Usage recommendations
 
@@ -258,7 +267,7 @@ On Windows, after installing dependencies, you can also double-click `rmtool.bat
 ## Development and release checks
 
 ```bash
-python -m compileall -q rmtool.py _dialogs.py _fast_mono_reading.py _log_viewer.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tests
+python -m compileall -q rmtool.py _dialogs.py _fast_mono_reading.py _log_viewer.py _pinyin_input.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tests
 python -m unittest discover -s tests -v
 git diff --check
 actionlint .github/workflows/release.yml .github/workflows/sync-localization-assets.yml .github/workflows/sync-feature-assets.yml
