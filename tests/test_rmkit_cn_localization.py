@@ -2717,31 +2717,16 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertIn('"--onefile"', build_script)
         self.assertIn("rmtool-windows-x64-onefile.exe", build_script)
 
-    def test_cos_sync_workflow_keeps_publication_guardrails(self):
+    def test_localization_workflow_is_validation_only(self):
         workflow = Path(
             ".github/workflows/sync-localization-assets.yml"
         ).read_text(encoding="utf-8")
 
-        self.assertEqual(workflow.count("client.put_object("), 2)
-        self.assertNotIn("client.delete_", workflow)
-        self.assertNotIn("client.get_", workflow)
-        self.assertNotIn("client.list_", workflow)
-        self.assertNotIn("client.head_", workflow)
-        self.assertIn("document.get(\"schema\") != 1", workflow)
-        self.assertIn("size > max_payload_bytes", workflow)
-        self.assertIn("sha256_re.fullmatch(digest)", workflow)
-        self.assertLess(
-            workflow.index('Key=name,'),
-            workflow.index('Key="manifest.json",'),
-        )
-        self.assertIn(
-            "TENCENT_CLOUD_SECRET_ID: ${{ secrets.TENCENT_CLOUD_SECRET_ID }}",
-            workflow,
-        )
-        self.assertIn(
-            "TENCENT_CLOUD_SECRET_KEY: ${{ secrets.TENCENT_CLOUD_SECRET_KEY }}",
-            workflow,
-        )
+        self.assertIn("tools/publish_resources.py verify", workflow)
+        self.assertIn("--resource localization", workflow)
+        self.assertNotIn("TENCENT_CLOUD", workflow)
+        self.assertNotIn("qcloud", workflow.casefold())
+        self.assertNotIn("put_object", workflow)
 
     def test_cloud_manifest_refresh_is_cached_for_offline_use(self):
         manifest = Path("translations/manifest.json").read_bytes()

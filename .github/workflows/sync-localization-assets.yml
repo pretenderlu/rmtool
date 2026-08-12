@@ -1,4 +1,4 @@
-name: Sync Localization Assets
+name: Verify Localization Assets
 
 on:
   workflow_dispatch:
@@ -7,23 +7,22 @@ on:
       - main
     paths:
       - translations/manifest.json
+      - tools/publish_resources.py
+      - .github/workflows/sync-localization-assets.yml
 
 permissions:
   contents: read
 
 concurrency:
-  group: localization-assets-cos
+  group: localization-assets-verification
   cancel-in-progress: true
 
 env:
   ASSET_RELEASE_TAG: localization-assets
-  COS_BUCKET: rmtool-localization-1254761827
-  COS_REGION: ap-shanghai
-  COS_PUBLIC_BASE_URL: https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com
 
 jobs:
-  sync:
-    name: Verify and sync to Tencent COS
+  verify:
+    name: Verify fixed localization release
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
@@ -37,228 +36,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p "$RUNNER_TEMP/localization-release"
+          mkdir -p "$RUNNER_TEMP/releases/localization"
           gh release download "$ASSET_RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --dir "$RUNNER_TEMP/localization-release" \
-            --pattern manifest.json \
-            --pattern "*.qm"
+            --dir "$RUNNER_TEMP/releases/localization"
 
       - name: Verify release manifest and payloads
-        env:
-          ASSET_LIST_PATH: ${{ runner.temp }}/localization-assets.json
-          RELEASE_DIR: ${{ runner.temp }}/localization-release
         run: |
-          python - <<'PY'
-          import hashlib
-          import json
-          import os
-          import re
-          from pathlib import Path
-
-          repository_manifest = Path("translations/manifest.json").read_bytes()
-          release_dir = Path(os.environ["RELEASE_DIR"])
-          release_manifest = (release_dir / "manifest.json").read_bytes()
-          if release_manifest != repository_manifest:
-              raise SystemExit(
-                  "The localization-assets release manifest does not match "
-                  "translations/manifest.json byte-for-byte."
-              )
-
-          document = json.loads(repository_manifest.decode("utf-8"))
-          firmwares = document.get("firmwares")
-          if (
-              not isinstance(document, dict)
-              or document.get("schema") != 1
-              or not isinstance(firmwares, dict)
-              or not firmwares
-          ):
-              raise SystemExit("The localization manifest has no firmware entries.")
-
-          firmware_re = re.compile(r"^[0-9]{14}$")
-          sha256_re = re.compile(r"^[0-9a-f]{64}$")
-          asset_re = re.compile(r"^[A-Za-z0-9._-]+\.qm$")
-          release_re = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
-          platform_re = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
-          max_payload_bytes = 16 * 1024 * 1024
-          assets = {}
-          for firmware_version, firmware in firmwares.items():
-              if (
-                  not isinstance(firmware_version, str)
-                  or not firmware_re.fullmatch(firmware_version)
-                  or not isinstance(firmware, dict)
-              ):
-                  raise SystemExit("Invalid firmware entry in localization manifest.")
-              variants = firmware.get("variants", [])
-              if not isinstance(variants, list):
-                  raise SystemExit("Invalid hardware variants in localization manifest.")
-              packages = [(firmware, False), *((item, True) for item in variants)]
-              platform_releases = []
-              stock_digests = []
-              localized_digests = set()
-              for package, require_platform in packages:
-                  if not isinstance(package, dict):
-                      raise SystemExit("Invalid package entry in localization manifest.")
-                  name = package.get("asset")
-                  size = package.get("size")
-                  digest = package.get("sha256")
-                  stock_digest = package.get("stock_french_sha256")
-                  release_version = package.get("release_version")
-                  channel = package.get("channel")
-                  platform = package.get("platform", "")
-                  if (
-                      not isinstance(name, str)
-                      or not asset_re.fullmatch(name)
-                      or type(size) is not int
-                      or size <= 0
-                      or size > max_payload_bytes
-                      or not isinstance(digest, str)
-                      or not sha256_re.fullmatch(digest)
-                      or not isinstance(stock_digest, str)
-                      or not sha256_re.fullmatch(stock_digest)
-                      or not isinstance(release_version, str)
-                      or not release_re.fullmatch(release_version)
-                      or channel not in ("stable", "beta")
-                      or not isinstance(platform, str)
-                      or (platform and not platform_re.fullmatch(platform))
-                      or (require_platform and not platform)
-                  ):
-                      raise SystemExit(f"Invalid localization asset metadata: {name!r}")
-                  metadata = (size, digest)
-                  if name in assets and assets[name] != metadata:
-                      raise SystemExit(
-                          f"Conflicting size or SHA-256 metadata for {name}."
-                      )
-                  assets[name] = metadata
-                  platform_releases.append((platform.casefold(), release_version))
-                  stock_digests.append(stock_digest)
-                  localized_digests.add(digest)
-              if variants and not firmware.get("platform"):
-                  raise SystemExit("A variant manifest requires a base platform.")
-              if len(platform_releases) != len(set(platform_releases)):
-                  raise SystemExit(
-                      "Duplicate hardware platform and release in firmware entry."
-                  )
-              if len(stock_digests) != len(set(stock_digests)):
-                  raise SystemExit("Duplicate stock carrier digest in firmware entry.")
-              if any(item in localized_digests for item in stock_digests):
-                  raise SystemExit("Stock and localized digests conflict.")
-
-          for name, (expected_size, expected_digest) in sorted(assets.items()):
-              path = release_dir / name
-              payload = path.read_bytes()
-              actual_digest = hashlib.sha256(payload).hexdigest()
-              if len(payload) != expected_size or actual_digest != expected_digest:
-                  raise SystemExit(f"Release asset validation failed for {name}.")
-
-          Path(os.environ["ASSET_LIST_PATH"]).write_text(
-              json.dumps(sorted(assets), ensure_ascii=True),
-              encoding="utf-8",
-          )
-          print(f"Validated {len(assets)} unique localization payloads.")
-          PY
-
-      - name: Install Tencent COS SDK
-        run: |
-          python -m pip --isolated install \
-            --disable-pip-version-check \
-            --no-input \
-            "cos-python-sdk-v5==1.9.44"
-
-      - name: Upload payloads, then manifest
-        env:
-          ASSET_LIST_PATH: ${{ runner.temp }}/localization-assets.json
-          RELEASE_DIR: ${{ runner.temp }}/localization-release
-          TENCENT_CLOUD_SECRET_ID: ${{ secrets.TENCENT_CLOUD_SECRET_ID }}
-          TENCENT_CLOUD_SECRET_KEY: ${{ secrets.TENCENT_CLOUD_SECRET_KEY }}
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          from qcloud_cos import CosConfig, CosS3Client
-
-          secret_id = os.environ.get("TENCENT_CLOUD_SECRET_ID")
-          secret_key = os.environ.get("TENCENT_CLOUD_SECRET_KEY")
-          if not secret_id or not secret_key:
-              raise SystemExit("Tencent Cloud GitHub Secrets are not configured.")
-
-          release_dir = Path(os.environ["RELEASE_DIR"])
-          assets = json.loads(Path(os.environ["ASSET_LIST_PATH"]).read_text())
-          client = CosS3Client(
-              CosConfig(
-                  Region=os.environ["COS_REGION"],
-                  SecretId=secret_id,
-                  SecretKey=secret_key,
-                  Scheme="https",
-              )
-          )
-
-          for name in assets:
-              client.put_object(
-                  Bucket=os.environ["COS_BUCKET"],
-                  Key=name,
-                  Body=(release_dir / name).read_bytes(),
-                  ContentType="application/octet-stream",
-              )
-              print(f"Uploaded payload: {name}")
-
-          client.put_object(
-              Bucket=os.environ["COS_BUCKET"],
-              Key="manifest.json",
-              Body=(release_dir / "manifest.json").read_bytes(),
-              ContentType="application/json",
-          )
-          print("Uploaded manifest.json last.")
-          PY
-
-      - name: Verify public COS objects
-        env:
-          ASSET_LIST_PATH: ${{ runner.temp }}/localization-assets.json
-          RELEASE_DIR: ${{ runner.temp }}/localization-release
-        run: |
-          python - <<'PY'
-          import hashlib
-          import json
-          import os
-          import time
-          import urllib.parse
-          import urllib.request
-          from pathlib import Path
-
-          release_dir = Path(os.environ["RELEASE_DIR"])
-          names = json.loads(Path(os.environ["ASSET_LIST_PATH"]).read_text())
-          names.append("manifest.json")
-          cache_buster = (
-              f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
-          )
-
-          for name in names:
-              expected = (release_dir / name).read_bytes()
-              expected_digest = hashlib.sha256(expected).hexdigest()
-              url = (
-                  f"{os.environ['COS_PUBLIC_BASE_URL']}/"
-                  f"{urllib.parse.quote(name, safe='')}?verify={cache_buster}"
-              )
-              last_error = None
-              for attempt in range(5):
-                  try:
-                      with urllib.request.urlopen(url, timeout=30) as response:
-                          actual = response.read()
-                      if (
-                          len(actual) == len(expected)
-                          and hashlib.sha256(actual).hexdigest() == expected_digest
-                      ):
-                          print(f"Verified public object: {name}")
-                          break
-                      last_error = RuntimeError("size or SHA-256 mismatch")
-                  except Exception as exc:
-                      last_error = exc
-                  if attempt < 4:
-                      time.sleep(2)
-              else:
-                  raise SystemExit(
-                      f"Public COS verification failed for {name}: {last_error}"
-                  )
-          PY
+          python tools/publish_resources.py verify \
+            --release-root "$RUNNER_TEMP/releases" \
+            --resource localization
