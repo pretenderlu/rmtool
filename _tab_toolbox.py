@@ -52,7 +52,7 @@ class FontTab(QtWidgets.QWidget):
         self._connected: Optional[bool] = None
         self._worker_generation = 0
         self._connection_generation = 0
-        self._pending_refresh: Optional[tuple[str, str]] = None
+        self._pending_refresh: Optional[tuple[str, str, str]] = None
         self._selected_font_path: Optional[str] = None
         self._selected_font_family: Optional[str] = None
         self._preview_font_id = -1
@@ -199,11 +199,14 @@ class FontTab(QtWidgets.QWidget):
             return
         file_path = self._selected_font_path
         new_name = self._target_font_name()
+        upload_target = posixpath.join(
+            posixpath.normpath(self._font_dir()), new_name
+        )
         active_target = next(
             (
                 font
                 for font in self._fonts
-                if font.filename == new_name and font.active
+                if font.remote_path == upload_target and font.active
             ),
             None,
         )
@@ -222,6 +225,7 @@ class FontTab(QtWidgets.QWidget):
             new_name,
             pending="正在上传字体并刷新缓存…",
             on_success=lambda font: self._refresh_fonts(
+                select_remote_path=font.remote_path,
                 select_filename=font.filename,
                 success="字体已上传。上传不会切换系统字体，请按需点击“设为系统字体”。",
             ),
@@ -361,7 +365,9 @@ class FontTab(QtWidgets.QWidget):
             self._update_action_buttons()
             if pending_refresh is not None and self.ssh_client.is_connected():
                 self._refresh_fonts(
-                    select_filename=pending_refresh[0], success=pending_refresh[1]
+                    select_remote_path=pending_refresh[0],
+                    select_filename=pending_refresh[1],
+                    success=pending_refresh[2],
                 )
 
         def on_finished(result):
@@ -385,7 +391,9 @@ class FontTab(QtWidgets.QWidget):
                 and self.ssh_client.is_connected()
             ):
                 self._refresh_fonts(
-                    select_filename=pending_refresh[0], success=pending_refresh[1]
+                    select_remote_path=pending_refresh[0],
+                    select_filename=pending_refresh[1],
+                    success=pending_refresh[2],
                 )
 
         def on_error(exc: Exception):
@@ -412,7 +420,9 @@ class FontTab(QtWidgets.QWidget):
                 and self.ssh_client.is_connected()
             ):
                 self._refresh_fonts(
-                    select_filename=pending_refresh[0], success=pending_refresh[1]
+                    select_remote_path=pending_refresh[0],
+                    select_filename=pending_refresh[1],
+                    success=pending_refresh[2],
                 )
 
         worker.signals.finished.connect(on_finished)
@@ -420,9 +430,15 @@ class FontTab(QtWidgets.QWidget):
         self.thread_pool.start(worker)
 
     @require_connection
-    def _refresh_fonts(self, *, select_filename: str = "", success: str = ""):
+    def _refresh_fonts(
+        self,
+        *,
+        select_remote_path: str = "",
+        select_filename: str = "",
+        success: str = "",
+    ):
         if self._busy:
-            self._pending_refresh = (select_filename, success)
+            self._pending_refresh = (select_remote_path, select_filename, success)
             return
         self._pending_refresh = None
         self._start_font_worker(
@@ -434,6 +450,7 @@ class FontTab(QtWidgets.QWidget):
                 inventory[0],
                 verification=inventory[1],
                 migration=inventory[2],
+                select_remote_path=select_remote_path,
                 select_filename=select_filename,
                 success=success,
             ),
@@ -442,10 +459,33 @@ class FontTab(QtWidgets.QWidget):
 
     @staticmethod
     def _load_font_inventory(ssh_client, remote_dir: str):
+        font_dirs = [remote_dir]
+        migration_dir = remote_dir
+        if posixpath.normpath(remote_dir) == posixpath.normpath(
+            _rmtool.DEFAULT_FONT_DIR
+        ):
+            font_dirs.append(_rmtool.LEGACY_DEFAULT_FONT_DIR)
+            migration_dir = _rmtool.LEGACY_DEFAULT_FONT_DIR
+        fonts = {
+            font.remote_path: font
+            for font_dir in font_dirs
+            for font in _rmkit_cn.list_user_fonts(ssh_client, font_dir)
+        }
         return (
-            _rmkit_cn.list_user_fonts(ssh_client, remote_dir),
+            tuple(
+                sorted(
+                    fonts.values(),
+                    key=lambda font: (
+                        font.filename.casefold(),
+                        font.filename,
+                        font.remote_path,
+                    ),
+                )
+            ),
             _rmkit_cn.get_font_mirror_verification(ssh_client),
-            _rmkit_cn.get_legacy_system_font_migration(ssh_client, remote_dir),
+            _rmkit_cn.get_legacy_system_font_migration(
+                ssh_client, migration_dir
+            ),
         )
 
     def _apply_font_inventory(
@@ -454,13 +494,17 @@ class FontTab(QtWidgets.QWidget):
         *,
         verification: Optional[_rmkit_cn.FontMirrorVerification] = None,
         migration: Optional[_rmkit_cn.LegacySystemFontMigration] = None,
+        select_remote_path: str = "",
         select_filename: str = "",
         success: str = "",
     ):
-        previous = select_filename
-        if not previous:
+        previous_path = select_remote_path
+        previous_filename = select_filename
+        if not previous_path and not previous_filename:
             selected = self._selected_device_font()
-            previous = selected.filename if selected else ""
+            if selected:
+                previous_path = selected.remote_path
+                previous_filename = selected.filename
         self._fonts = tuple(fonts)
         self._font_verification = verification
         self._legacy_font_migration = migration
@@ -470,7 +514,13 @@ class FontTab(QtWidgets.QWidget):
             values = (font.filename, font.family, "当前系统字体" if font.active else "已上传")
             for column, value in enumerate(values):
                 self.font_table.setItem(row, column, QtWidgets.QTableWidgetItem(value))
-            if font.filename == previous:
+            if (
+                previous_path and font.remote_path == previous_path
+            ) or (
+                not previous_path
+                and font.filename == previous_filename
+                and selected_row < 0
+            ):
                 selected_row = row
         if selected_row >= 0:
             self.font_table.selectRow(selected_row)
@@ -528,7 +578,7 @@ class FontTab(QtWidgets.QWidget):
         queued by the user meanwhile runs after this one finishes.
         """
         if self._busy:
-            self._pending_refresh = ("", "")
+            self._pending_refresh = ("", "", "")
             on_done()
             return
         if not self.ssh_client.is_connected():
@@ -546,7 +596,9 @@ class FontTab(QtWidgets.QWidget):
             self._pending_refresh = None
             if pending_refresh is not None and self.ssh_client.is_connected():
                 self._refresh_fonts(
-                    select_filename=pending_refresh[0], success=pending_refresh[1]
+                    select_remote_path=pending_refresh[0],
+                    select_filename=pending_refresh[1],
+                    success=pending_refresh[2],
                 )
 
         def on_finished(inventory):
@@ -612,9 +664,15 @@ class FontTab(QtWidgets.QWidget):
         self._start_font_worker(
             _rmkit_cn.migrate_legacy_system_font,
             self.ssh_client,
-            self._font_dir(),
+            (
+                _rmtool.LEGACY_DEFAULT_FONT_DIR
+                if posixpath.normpath(self._font_dir())
+                == posixpath.normpath(_rmtool.DEFAULT_FONT_DIR)
+                else self._font_dir()
+            ),
             pending="正在迁移并验证旧版字体设置…",
             on_success=lambda font: self._refresh_fonts(
+                select_remote_path=font.remote_path,
                 select_filename=font.filename,
                 success="旧版字体设置已迁移。请在准备好后点击“重启生效”。",
             ),
@@ -644,10 +702,11 @@ class FontTab(QtWidgets.QWidget):
         self._start_font_worker(
             _rmkit_cn.set_active_user_font,
             self.ssh_client,
-            self._font_dir(),
+            posixpath.dirname(selected.remote_path),
             selected.filename,
             pending="正在设置并验证系统字体…",
             on_success=lambda font: self._refresh_fonts(
+                select_remote_path=font.remote_path,
                 select_filename=font.filename,
                 success="系统字体配置已更新。请在准备好后点击“重启生效”。",
             ),
@@ -673,7 +732,7 @@ class FontTab(QtWidgets.QWidget):
         self._start_font_worker(
             _rmkit_cn.delete_user_font,
             self.ssh_client,
-            self._font_dir(),
+            posixpath.dirname(selected.remote_path),
             selected.filename,
             pending="正在删除字体并刷新缓存…",
             on_success=lambda _: self._refresh_fonts(success="所选字体已删除。"),

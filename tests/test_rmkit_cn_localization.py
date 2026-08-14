@@ -1216,6 +1216,103 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(ssh.files[_rmkit_cn.FONTCONFIG_FILE], config)
         self.assertFalse(uploaded.active)
 
+    def test_fresh_device_first_font_stays_outside_fontconfig_until_selected(self):
+        font_dir = _rmkit_cn.USER_FONT_REPOSITORY
+        target = f"{font_dir}/first-cjk.ttf"
+        ssh = FakeSSH(cjk_available=False)
+
+        def expose_uploaded_font(*_paths):
+            ssh.active_font = target
+
+        with patch.object(
+            _rmkit_cn, "refresh_font_cache", side_effect=expose_uploaded_font
+        ) as refresh:
+            uploaded = _rmkit_cn.upload_user_font(
+                ssh,
+                self.make_font(b"first cjk font", "first-cjk.ttf"),
+                font_dir,
+                "first-cjk.ttf",
+            )
+
+        refresh.assert_not_called()
+        self.assertEqual(ssh.files[target], b"first cjk font")
+        self.assertFalse(uploaded.active)
+        self.assertNotIn(_rmkit_cn.FONTCONFIG_FILE, ssh.files)
+
+    def test_repository_second_upload_preserves_explicit_active_font(self):
+        font_dir = _rmkit_cn.USER_FONT_REPOSITORY
+        first = f"{font_dir}/first.ttf"
+        second = f"{font_dir}/second.otf"
+        ssh = FakeSSH({first: b"first font"})
+        _rmkit_cn.set_active_user_font(ssh, font_dir, "first.ttf")
+        active_before = _rmkit_cn._ui_font_match_paths(ssh)
+        config_before = ssh.files[_rmkit_cn.FONTCONFIG_FILE]
+
+        with patch.object(_rmkit_cn, "refresh_font_cache") as refresh:
+            uploaded = _rmkit_cn.upload_user_font(
+                ssh,
+                self.make_font(b"second font", "second.otf"),
+                font_dir,
+                "second.otf",
+            )
+
+        refresh.assert_not_called()
+        self.assertEqual(_rmkit_cn._ui_font_match_paths(ssh), active_before)
+        self.assertEqual(ssh.files[_rmkit_cn.FONTCONFIG_FILE], config_before)
+        self.assertEqual(ssh.files[second], b"second font")
+        self.assertFalse(uploaded.active)
+
+    def test_repository_font_activation_adds_scan_dir_and_data_mirror(self):
+        font_dir = _rmkit_cn.USER_FONT_REPOSITORY
+        source = f"{font_dir}/selected.ttf"
+        ssh = FakeSSH({source: b"selected font"})
+
+        selected = _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
+
+        self.assertTrue(selected.active)
+        self.assertEqual(
+            ssh.files[_rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]], b"selected font"
+        )
+        user_config = ssh.files[_rmkit_cn.FONTCONFIG_FILE].decode("utf-8")
+        self.assertIn(f"<dir>{font_dir}</dir>", user_config)
+        self.assertIn(f"<string>{source}</string>", user_config)
+        root = ET.fromstring(user_config)
+        self.assertEqual(
+            root.findtext("./selectfont/rejectfont/glob"), f"{font_dir}/*"
+        )
+        self.assertEqual(
+            root.findtext(
+                "./selectfont/acceptfont/pattern/patelt[@name='file']/string"
+            ),
+            source,
+        )
+
+    def test_custom_unscanned_font_directory_allows_only_selected_file(self):
+        font_dir = "/home/root/my-font-library"
+        source = f"{font_dir}/selected.otf"
+        other = f"{font_dir}/inactive.ttf"
+        ssh = FakeSSH({source: b"selected font", other: b"inactive font"})
+
+        selected = _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.otf")
+
+        self.assertTrue(selected.active)
+        self.assertEqual(
+            ssh.files[_rmkit_cn.SYSTEM_FONT_PATHS[".otf"]], b"selected font"
+        )
+        root = ET.fromstring(
+            ssh.files[_rmkit_cn.FONTCONFIG_FILE].decode("utf-8")
+        )
+        self.assertEqual(root.findtext("./dir"), font_dir)
+        self.assertEqual(
+            root.findtext("./selectfont/rejectfont/glob"), f"{font_dir}/*"
+        )
+        self.assertEqual(
+            root.findtext(
+                "./selectfont/acceptfont/pattern/patelt[@name='file']/string"
+            ),
+            source,
+        )
+
     def test_upload_user_font_refuses_to_replace_any_active_filename(self):
         font_dir = "/home/root/.local/share/fonts"
         target = f"{font_dir}/zwzt.ttf"
