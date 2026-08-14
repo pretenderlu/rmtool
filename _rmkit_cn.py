@@ -74,6 +74,8 @@ FONT_MARKER_PATH = f"{BACKUP_DIR}/managed-font.json"
 FONTCONFIG_DIR = "/home/root/.config/fontconfig"
 FONTCONFIG_FILE = f"{FONTCONFIG_DIR}/fonts.conf"
 FONTCONFIG_BACKUP_PATH = f"{BACKUP_DIR}/fonts.conf.before-localization"
+USER_FONT_REPOSITORY = "/home/root/.local/share/rmtool/fonts"
+DEFAULT_FONTCONFIG_USER_DIR = "/home/root/.local/share/fonts"
 SYSTEM_FONT_DIR = "/data/rmtool/fonts"
 SYSTEM_FONT_PATHS = {
     ".otf": f"{SYSTEM_FONT_DIR}/active-ui-font.otf",
@@ -650,6 +652,24 @@ def fontconfig_override(font_family: str, remote_path: str) -> str:
         raise RuntimeError("字体上传路径必须是设备上的绝对路径。")
     private_family = escape(f"rmtool UI Font ({family})")
     escaped_path = escape(normalized_path)
+    selected_dir = posixpath.dirname(normalized_path)
+    needs_explicit_user_dir = (
+        normalized_path.startswith("/home/root/")
+        and selected_dir != DEFAULT_FONTCONFIG_USER_DIR
+        and not selected_dir.startswith(f"{DEFAULT_FONTCONFIG_USER_DIR}/")
+    )
+    user_dir = ""
+    if needs_explicit_user_dir:
+        user_dir = f"""  <dir>{escape(selected_dir)}</dir>
+  <selectfont>
+    <rejectfont><glob>{escape(selected_dir + "/*")}</glob></rejectfont>
+    <acceptfont>
+      <pattern>
+        <patelt name="file"><string>{escaped_path}</string></patelt>
+      </pattern>
+    </acceptfont>
+  </selectfont>
+"""
     data_dir = (
         f"  <dir>{escape(SYSTEM_FONT_DIR)}</dir>\n"
         if normalized_path in SYSTEM_FONT_PATHS.values()
@@ -658,7 +678,7 @@ def fontconfig_override(font_family: str, remote_path: str) -> str:
     return f"""<?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
 <fontconfig>
-{data_dir}  <!-- ponytail: user-level UI font override; restore the prior file to undo. -->
+{user_dir}{data_dir}  <!-- ponytail: user-level UI font override; restore the prior file to undo. -->
   <match target="scan">
     <test name="file" compare="eq">
       <string>{escaped_path}</string>
@@ -1644,6 +1664,7 @@ def upload_user_font(
     had_font = False
     replaced = False
     backup_created = False
+    refresh_cache = directory != USER_FONT_REPOSITORY
     active_before = _ui_font_match_paths(ssh_client)
     if remote_path in active_before:
         raise RuntimeError(
@@ -1676,7 +1697,8 @@ def upload_user_font(
                 _lstat_regular_file(sftp, temp_path)
                 sftp.rename(temp_path, remote_path)
                 replaced = True
-            refresh_font_cache(ssh_client, directory)
+            if refresh_cache:
+                refresh_font_cache(ssh_client, directory)
             family = _scan_font_family(ssh_client, remote_path)
             if _ui_font_match_paths(ssh_client) != active_before:
                 raise RuntimeError(
@@ -1704,7 +1726,7 @@ def upload_user_font(
                     _remove_sftp_path_if_present(sftp, temp_path)
             except Exception as rollback_exc:
                 rollback_errors.append(f"临时文件清理失败：{rollback_exc}")
-            if replaced or had_font:
+            if refresh_cache and (replaced or had_font):
                 try:
                     refresh_font_cache(ssh_client, directory)
                 except Exception as rollback_exc:
@@ -1797,6 +1819,7 @@ def delete_user_font(ssh_client, remote_dir: str, filename: str) -> None:
         raise RuntimeError("当前系统字体不能删除，请先切换到其他字体。")
     backup_path = f"{remote_path}.rmtool-delete-{os.urandom(6).hex()}.bak"
     moved = False
+    refresh_cache = directory != USER_FONT_REPOSITORY
     with remount_rw(ssh_client):
         try:
             with ssh_client.sftp_session() as sftp:
@@ -1805,7 +1828,8 @@ def delete_user_font(ssh_client, remote_dir: str, filename: str) -> None:
                     raise RuntimeError("当前系统字体不能删除，请先切换到其他字体。")
                 sftp.rename(remote_path, backup_path)
                 moved = True
-            refresh_font_cache(ssh_client, directory)
+            if refresh_cache:
+                refresh_font_cache(ssh_client, directory)
             if _ui_font_match_paths(ssh_client) != active_before:
                 raise RuntimeError(
                     "删除导致系统字体匹配发生变化，已恢复所选字体。"
@@ -1821,10 +1845,11 @@ def delete_user_font(ssh_client, remote_dir: str, filename: str) -> None:
                         sftp.rename(backup_path, remote_path)
                 except Exception as rollback_exc:
                     rollback_errors.append(f"字体文件恢复失败：{rollback_exc}")
-                try:
-                    refresh_font_cache(ssh_client, directory)
-                except Exception as rollback_exc:
-                    rollback_errors.append(f"字体缓存恢复失败：{rollback_exc}")
+                if refresh_cache:
+                    try:
+                        refresh_font_cache(ssh_client, directory)
+                    except Exception as rollback_exc:
+                        rollback_errors.append(f"字体缓存恢复失败：{rollback_exc}")
             if rollback_errors:
                 raise RuntimeError(
                     f"{exc} 自动回滚未完整完成：{'；'.join(rollback_errors)}"

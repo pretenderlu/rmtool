@@ -2,6 +2,7 @@ import copy
 import hashlib
 import json
 import os
+import posixpath
 import re
 import shlex
 import stat
@@ -3681,6 +3682,53 @@ class FontUiTests(unittest.TestCase):
         self.assertEqual(widget.set_active_button.text(), "设为系统字体")
         self.assertTrue(widget.delete_button.isEnabled())
 
+    def test_default_font_inventory_keeps_repository_and_legacy_fonts(self):
+        client = FakeConnectionClient(connected=True)
+        repository_font = _rmkit_cn.UserFont(
+            "new.ttf",
+            "New Family",
+            f"{rmtool.DEFAULT_FONT_DIR}new.ttf",
+            False,
+        )
+        legacy_font = _rmkit_cn.UserFont(
+            "old.ttf",
+            "Old Family",
+            f"{rmtool.LEGACY_DEFAULT_FONT_DIR}old.ttf",
+            True,
+        )
+        verification = _rmkit_cn.FontMirrorVerification(
+            "verified", "已实机验证", "测试"
+        )
+        migration = _rmkit_cn.LegacySystemFontMigration("none", "无需迁移")
+
+        def list_fonts(_client, remote_dir):
+            if remote_dir == rmtool.DEFAULT_FONT_DIR:
+                return (repository_font,)
+            if remote_dir == rmtool.LEGACY_DEFAULT_FONT_DIR:
+                return (legacy_font,)
+            self.fail(f"unexpected font directory: {remote_dir}")
+
+        with mock.patch.object(
+            _rmkit_cn, "list_user_fonts", side_effect=list_fonts
+        ) as list_user_fonts, mock.patch.object(
+            _rmkit_cn, "get_font_mirror_verification", return_value=verification
+        ), mock.patch.object(
+            _rmkit_cn, "get_legacy_system_font_migration", return_value=migration
+        ) as get_migration:
+            inventory = _tab_toolbox.FontTab._load_font_inventory(
+                client, rmtool.DEFAULT_FONT_DIR
+            )
+
+        self.assertEqual(inventory, ((repository_font, legacy_font), verification, migration))
+        self.assertEqual(
+            list_user_fonts.call_args_list,
+            [
+                mock.call(client, rmtool.DEFAULT_FONT_DIR),
+                mock.call(client, rmtool.LEGACY_DEFAULT_FONT_DIR),
+            ],
+        )
+        get_migration.assert_called_once_with(client, rmtool.LEGACY_DEFAULT_FONT_DIR)
+
     def test_font_inventory_displays_device_verification_level(self):
         widget = rmtool.FontTab(
             FakeConnectionClient(connected=True), rmtool._default_config()
@@ -3750,7 +3798,8 @@ class FontUiTests(unittest.TestCase):
             start_worker.call_args.args[0], _rmkit_cn.migrate_legacy_system_font
         )
         self.assertEqual(
-            start_worker.call_args.args[1:3], (client, rmtool.DEFAULT_FONT_DIR)
+            start_worker.call_args.args[1:3],
+            (client, rmtool.LEGACY_DEFAULT_FONT_DIR),
         )
         self.assertIn("不会自动重启", confirm.call_args.args[2])
 
@@ -3932,6 +3981,7 @@ class FontUiTests(unittest.TestCase):
             worker_instance.signals.finished.connect.call_args.args[0](uploaded)
 
         refresh.assert_called_once_with(
+            select_remote_path=f"{rmtool.DEFAULT_FONT_DIR}new.ttf",
             select_filename="new.ttf",
             success="字体已上传。上传不会切换系统字体，请按需点击“设为系统字体”。",
         )
@@ -3994,7 +4044,35 @@ class FontUiTests(unittest.TestCase):
         self.assertIs(start_worker.call_args.args[0], _rmkit_cn.set_active_user_font)
         self.assertEqual(
             start_worker.call_args.args[1:4],
-            (client, rmtool.DEFAULT_FONT_DIR, "active.ttf"),
+            (client, posixpath.normpath(rmtool.DEFAULT_FONT_DIR), "active.ttf"),
+        )
+
+    def test_legacy_font_action_uses_its_exact_remote_directory(self):
+        client = FakeConnectionClient(connected=True)
+        widget = rmtool.FontTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        legacy = _rmkit_cn.UserFont(
+            "legacy.ttf",
+            "Legacy Family",
+            f"{rmtool.LEGACY_DEFAULT_FONT_DIR}legacy.ttf",
+            False,
+        )
+        widget._apply_font_inventory(
+            (legacy,), select_remote_path=legacy.remote_path
+        )
+
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=True
+        ), mock.patch.object(widget, "_start_font_worker") as start_worker:
+            widget._set_selected_active()
+
+        self.assertEqual(
+            start_worker.call_args.args[1:4],
+            (
+                client,
+                posixpath.normpath(rmtool.LEGACY_DEFAULT_FONT_DIR),
+                "legacy.ttf",
+            ),
         )
 
     def test_inactive_font_keeps_set_active_confirmation_wording(self):
@@ -4804,6 +4882,40 @@ class ConfigPersistenceTests(unittest.TestCase):
 
         self.assertEqual(loaded["devices"], [])
         self.assertEqual(saved, loaded)
+
+    def test_load_migrates_only_the_old_builtin_font_directory(self):
+        with tempfile.TemporaryDirectory() as temp_root:
+            app_state = Path(temp_root) / ".rmtool"
+            app_state.mkdir()
+            path = app_state / "devices.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "devices": [],
+                        "paths": {"font": rmtool.LEGACY_DEFAULT_FONT_DIR},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state):
+                loaded = rmtool.load_config()
+
+        self.assertEqual(loaded["paths"]["font"], rmtool.DEFAULT_FONT_DIR)
+
+    def test_load_preserves_custom_font_directory(self):
+        custom_dir = "/home/root/my-font-library/"
+        with tempfile.TemporaryDirectory() as temp_root:
+            app_state = Path(temp_root) / ".rmtool"
+            app_state.mkdir()
+            path = app_state / "devices.json"
+            path.write_text(
+                json.dumps({"devices": [], "paths": {"font": custom_dir}}),
+                encoding="utf-8",
+            )
+            with mock.patch.object(rmtool, "app_state_dir", return_value=app_state):
+                loaded = rmtool.load_config()
+
+        self.assertEqual(loaded["paths"]["font"], custom_dir)
 
     def test_multiple_devices_and_optional_password_round_trip(self):
         password = "  secret\nwith tabs\t  "

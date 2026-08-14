@@ -347,7 +347,7 @@ class FontsRefreshQuietTests(unittest.TestCase):
             tab.refresh_fonts_quiet(lambda: done.append(True))
 
         self.assertEqual(done, [True])
-        self.assertEqual(tab._pending_refresh, ("", ""))
+        self.assertEqual(tab._pending_refresh, ("", "", ""))
         start_worker.assert_not_called()
 
     def test_success_applies_inventory_without_modal_progress(self):
