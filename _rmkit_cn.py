@@ -660,16 +660,7 @@ def fontconfig_override(font_family: str, remote_path: str) -> str:
     )
     user_dir = ""
     if needs_explicit_user_dir:
-        user_dir = f"""  <dir>{escape(selected_dir)}</dir>
-  <selectfont>
-    <rejectfont><glob>{escape(selected_dir + "/*")}</glob></rejectfont>
-    <acceptfont>
-      <pattern>
-        <patelt name="file"><string>{escaped_path}</string></patelt>
-      </pattern>
-    </acceptfont>
-  </selectfont>
-"""
+        user_dir = f"  <dir>{escape(selected_dir)}</dir>\n"
     data_dir = (
         f"  <dir>{escape(SYSTEM_FONT_DIR)}</dir>\n"
         if normalized_path in SYSTEM_FONT_PATHS.values()

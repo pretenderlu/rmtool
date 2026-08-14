@@ -1277,17 +1277,14 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertIn(f"<dir>{font_dir}</dir>", user_config)
         self.assertIn(f"<string>{source}</string>", user_config)
         root = ET.fromstring(user_config)
+        self.assertIsNone(root.find("./selectfont"))
+        self.assertIsNone(root.find(".//rejectfont"))
+        self.assertIsNone(root.find(".//acceptfont"))
         self.assertEqual(
-            root.findtext("./selectfont/rejectfont/glob"), f"{font_dir}/*"
-        )
-        self.assertEqual(
-            root.findtext(
-                "./selectfont/acceptfont/pattern/patelt[@name='file']/string"
-            ),
-            source,
+            root.findtext("./match/test[@name='file']/string"), source
         )
 
-    def test_custom_unscanned_font_directory_allows_only_selected_file(self):
+    def test_custom_unscanned_font_directory_matches_exact_selected_file(self):
         font_dir = "/home/root/my-font-library"
         source = f"{font_dir}/selected.otf"
         other = f"{font_dir}/inactive.ttf"
@@ -1303,14 +1300,19 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             ssh.files[_rmkit_cn.FONTCONFIG_FILE].decode("utf-8")
         )
         self.assertEqual(root.findtext("./dir"), font_dir)
+        self.assertIsNone(root.find("./selectfont"))
+        self.assertIsNone(root.find(".//rejectfont"))
+        self.assertIsNone(root.find(".//acceptfont"))
         self.assertEqual(
-            root.findtext("./selectfont/rejectfont/glob"), f"{font_dir}/*"
+            root.findtext("./match/test[@name='file']/string"), source
         )
+        self.assertNotIn(other, tuple(root.itertext()))
         self.assertEqual(
-            root.findtext(
-                "./selectfont/acceptfont/pattern/patelt[@name='file']/string"
-            ),
-            source,
+            {
+                node.text
+                for node in root.findall("./alias/prefer/family")
+            },
+            {f"rmtool UI Font ({selected.family})"},
         )
 
     def test_upload_user_font_refuses_to_replace_any_active_filename(self):
