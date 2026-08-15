@@ -33,6 +33,16 @@ Each asset archive includes the corresponding license texts. Source code and
 installation information are available from the linked upstream repositories;
 rmtool's QMLDiff source is maintained under `tap-page-turn/qmd-src/`.
 
+## Optional AppLoad and KOReader downloads
+
+The optional installer downloads unmodified release archives directly from
+[asivery/rm-appload](https://github.com/asivery/rm-appload), licensed under the
+GNU General Public License v3.0, and
+[koreader/koreader](https://github.com/koreader/koreader), licensed under the
+GNU Affero General Public License v3.0. These application archives are verified
+on the user's computer and are not redistributed by the rmtool repository,
+release builds, or Tencent COS.
+
 ## Offline Pinyin input
 
 Firmware-specific Pinyin input archives redistribute `ime_hook.so`,

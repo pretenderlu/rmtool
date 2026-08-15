@@ -3,6 +3,7 @@ import os
 import posixpath
 import shlex
 import stat
+import tarfile
 import tempfile
 import unittest
 from contextlib import contextmanager
@@ -15,6 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5 import QtWidgets
 
 import rmtool  # must load before tab modules (see test_rmtool_behaviors.py)
+import _appload
 import _koreader
 import _tab_koreader
 
@@ -213,6 +215,130 @@ class DetectionTests(unittest.TestCase):
         self.assertEqual(
             _koreader.detect_installation(ssh), _koreader.APPLOAD_INSTALL_DIR
         )
+
+    def test_managed_status_recognizes_legacy_user_data(self):
+        ssh = FakeSSH()
+        ssh.add_file(
+            posixpath.join(_koreader.APPLOAD_INSTALL_DIR, "settings.reader.lua")
+        )
+        identity = SimpleNamespace(
+            firmware="20260612085811",
+            platform="chiappa",
+            architecture="aarch64",
+            xochitl_sha256="a" * 64,
+        )
+        asset = SimpleNamespace(version="v1")
+        with mock.patch.object(
+            _koreader.tap, "get_device_identity", return_value=identity
+        ), mock.patch.object(
+            _koreader._appload, "koreader_asset", return_value=asset
+        ):
+            status = _koreader.get_managed_status(ssh)
+        self.assertEqual(status.state, _koreader.ManagedState.LEGACY_DATA)
+
+    def test_managed_status_keeps_full_external_install_separate(self):
+        ssh = FakeSSH()
+        ssh.add_file(
+            posixpath.join(_koreader.APPLOAD_INSTALL_DIR, "koreader.sh")
+        )
+        identity = SimpleNamespace(
+            firmware="20260612085811",
+            platform="chiappa",
+            architecture="aarch64",
+            xochitl_sha256="a" * 64,
+        )
+        asset = SimpleNamespace(version="v1")
+        with mock.patch.object(
+            _koreader.tap, "get_device_identity", return_value=identity
+        ), mock.patch.object(
+            _koreader._appload, "koreader_asset", return_value=asset
+        ):
+            status = _koreader.get_managed_status(ssh)
+        self.assertEqual(status.state, _koreader.ManagedState.EXTERNAL)
+
+    def test_install_requires_explicit_external_migration(self):
+        ssh = FakeSSH()
+        identity = SimpleNamespace(architecture="aarch64")
+        asset = SimpleNamespace(version="v1")
+        app_status = SimpleNamespace(state=_appload.AppLoadState.ENABLED)
+        managed = _koreader.ManagedStatus(
+            _koreader.ManagedState.LEGACY_DATA, identity, asset
+        )
+        with mock.patch.object(
+            _koreader.tap, "get_device_identity", return_value=identity
+        ), mock.patch.object(
+            _koreader._appload, "koreader_asset", return_value=asset
+        ), mock.patch.object(
+            _koreader._appload, "get_status", return_value=app_status
+        ), mock.patch.object(
+            _koreader, "get_managed_status", return_value=managed
+        ):
+            with self.assertRaisesRegex(RuntimeError, "明确选择迁移"):
+                _koreader.install_managed(ssh, "unused.zip", "unused")
+
+    def test_purge_legacy_install_uses_only_fixed_target(self):
+        identity = SimpleNamespace(architecture="aarch64")
+        asset = SimpleNamespace(version="v1")
+        legacy = _koreader.ManagedStatus(
+            _koreader.ManagedState.LEGACY_DATA, identity, asset
+        )
+        removed = _koreader.ManagedStatus(
+            _koreader.ManagedState.NOT_INSTALLED, identity, asset
+        )
+        ssh = mock.Mock()
+        with mock.patch.object(
+            _koreader,
+            "get_managed_status",
+            side_effect=(legacy, removed),
+        ), mock.patch.object(
+            _koreader, "_koreader_running", return_value=False
+        ):
+            result = _koreader.purge_legacy_install(ssh)
+        self.assertEqual(result.state, _koreader.ManagedState.NOT_INSTALLED)
+        command = ssh.exec_checked.call_args.args[0]
+        self.assertIn("[ ! -L", command)
+        self.assertIn(f"rm -rf {_koreader.APPLOAD_INSTALL_DIR}", command)
+        self.assertNotIn(_koreader.LEGACY_BACKUP_DIR, command)
+
+    def test_purge_refuses_managed_install(self):
+        status = _koreader.ManagedStatus(
+            _koreader.ManagedState.INSTALLED,
+            SimpleNamespace(),
+            version="v1",
+        )
+        ssh = mock.Mock()
+        with mock.patch.object(
+            _koreader, "get_managed_status", return_value=status
+        ):
+            with self.assertRaisesRegex(RuntimeError, "没有可由 rmtool 清理"):
+                _koreader.purge_legacy_install(ssh)
+        ssh.exec_checked.assert_not_called()
+
+    def test_payload_archive_restores_official_unix_modes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary, "koreader")
+            root.mkdir()
+            script = root / "koreader.sh"
+            data = root / "reader.lua"
+            script.write_bytes(b"#!/bin/sh\n")
+            data.write_bytes(b"return true\n")
+            archive = Path(temporary, "payload.tar.gz")
+            _koreader._make_payload_archive(
+                root,
+                archive,
+                {
+                    "koreader/koreader.sh": 0o755,
+                    "koreader/reader.lua": 0o644,
+                },
+            )
+            with tarfile.open(archive) as bundle:
+                self.assertEqual(
+                    bundle.getmember("koreader/koreader.sh").mode, 0o755
+                )
+                self.assertEqual(
+                    bundle.getmember("koreader/reader.lua").mode, 0o644
+                )
+                self.assertEqual(bundle.getmember("koreader").mode, 0o755)
 
     def test_toltec_wins_over_official(self):
         ssh = FakeSSH()
@@ -669,6 +795,103 @@ class TabStateTests(TabTestBase):
         self.assertFalse(self.tab.delete_button.isEnabled())
         # Offscreen: the tab itself is never shown, so check the hidden flag.
         self.assertFalse(self.tab.empty_state_label.isHidden())
+
+    def test_management_actions_follow_verified_status(self):
+        package = next(
+            item
+            for item in _appload.tap._trusted_catalog()
+            if item.channel == "stable"
+        )
+        identity = _appload.tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        app = _appload.AppLoadStatus(
+            _appload.AppLoadState.ENABLED,
+            identity,
+            _appload.APPLOAD_ASSETS[identity.architecture],
+        )
+        managed = _koreader.ManagedStatus(
+            _koreader.ManagedState.NOT_INSTALLED,
+            identity,
+            _appload.KOREADER_ASSETS[identity.architecture],
+        )
+        self.tab.set_connection_state(True)
+        self.tab._apply_management_status((app, managed))
+        self.assertFalse(self.tab.install_appload_button.isEnabled())
+        self.assertTrue(self.tab.install_koreader_button.isEnabled())
+        self.assertTrue(self.tab.load_official_button.isEnabled())
+        self.assertFalse(self.tab.uninstall_koreader_button.isEnabled())
+        self.assertTrue(self.tab.uninstall_appload_button.isEnabled())
+        self.assertIn("GitHub 官方发布", self.tab.management_status_label.text())
+
+    def test_legacy_data_offers_migration_install(self):
+        package = next(
+            item
+            for item in _appload.tap._trusted_catalog()
+            if item.channel == "stable"
+        )
+        identity = _appload.tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        app = _appload.AppLoadStatus(
+            _appload.AppLoadState.ENABLED,
+            identity,
+            _appload.APPLOAD_ASSETS[identity.architecture],
+        )
+        managed = _koreader.ManagedStatus(
+            _koreader.ManagedState.LEGACY_DATA,
+            identity,
+            _appload.KOREADER_ASSETS[identity.architecture],
+        )
+        self.tab.set_connection_state(True)
+        self.tab._apply_management_status((app, managed))
+        self.assertTrue(self.tab.install_koreader_button.isEnabled())
+        self.assertEqual(
+            self.tab.install_koreader_button.text(), "迁移并安装 KOReader"
+        )
+        self.assertTrue(self.tab.purge_legacy_button.isEnabled())
+
+    def test_repairable_install_offers_repair(self):
+        package = next(
+            item
+            for item in _appload.tap._trusted_catalog()
+            if item.channel == "stable"
+        )
+        identity = _appload.tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        app = _appload.AppLoadStatus(
+            _appload.AppLoadState.ENABLED,
+            identity,
+            _appload.APPLOAD_ASSETS[identity.architecture],
+        )
+        managed = _koreader.ManagedStatus(
+            _koreader.ManagedState.REPAIRABLE,
+            identity,
+            _appload.KOREADER_ASSETS[identity.architecture],
+            version=_appload.KOREADER_VERSION,
+        )
+        self.tab.set_connection_state(True)
+        self.tab._apply_management_status((app, managed))
+        self.assertTrue(self.tab.install_koreader_button.isEnabled())
+        self.assertEqual(self.tab.install_koreader_button.text(), "修复 KOReader")
+
+    def test_purge_legacy_cancel_starts_no_worker(self):
+        self.tab.set_connection_state(True)
+        with mock.patch.object(
+            _tab_koreader, "ask_confirmation", return_value=False
+        ), mock.patch.object(self.tab.thread_pool, "start") as start:
+            self.tab._purge_legacy_install()
+        start.assert_not_called()
 
     def test_not_installed_shows_notice_and_blocks_writes(self):
         self.load(install_dir=None, directory="")

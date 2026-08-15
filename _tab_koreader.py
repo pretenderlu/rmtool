@@ -11,6 +11,7 @@ from PyQt5 import QtCore, QtWidgets, sip
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
 from _ssh import SSHClientWrapper, require_connection
 import _koreader
+import _appload
 import rmtool as _rmtool  # late-bound access to avoid circular import
 
 
@@ -38,6 +39,75 @@ class KOReaderTab(QtWidgets.QWidget):
         self._connected = False
         self._loading = False
         self._loaded_once = False
+        self._management_loading = False
+        self._appload_status: Optional[_appload.AppLoadStatus] = None
+        self._managed_status: Optional[_koreader.ManagedStatus] = None
+
+        # --- AppLoad / KOReader installation management ---
+        self.management_panel = QtWidgets.QFrame()
+        self.management_panel.setObjectName("documentsListPanel")
+        self.management_panel.setAttribute(QtCore.Qt.WA_StyledBackground, True)
+        management_layout = QtWidgets.QVBoxLayout(self.management_panel)
+        management_layout.setContentsMargins(
+            _rmtool.PANEL_PADDING,
+            _rmtool.PANEL_PADDING,
+            _rmtool.PANEL_PADDING,
+            _rmtool.PANEL_PADDING,
+        )
+        management_layout.setSpacing(_rmtool.SUBSECTION_GAP)
+
+        management_title = QtWidgets.QLabel("AppLoad 与 KOReader")
+        management_title.setObjectName("sectionTitle")
+        self.management_status_label = QtWidgets.QLabel(
+            "连接设备后检测安装状态。"
+        )
+        self.management_status_label.setWordWrap(True)
+        self.detect_management_button = QtWidgets.QPushButton("检测状态")
+        self.install_appload_button = QtWidgets.QPushButton("安装 AppLoad")
+        self.install_koreader_button = QtWidgets.QPushButton("安装 KOReader")
+        self.install_koreader_button.setProperty("btnRole", "primary")
+        self.load_official_button = QtWidgets.QPushButton("加载本地官方包…")
+        self.purge_legacy_button = QtWidgets.QPushButton("彻底清理旧版残留")
+        self.purge_legacy_button.setProperty("btnRole", "danger")
+        self.uninstall_koreader_button = QtWidgets.QPushButton("卸载 KOReader")
+        self.uninstall_koreader_button.setProperty("btnRole", "danger")
+        self.uninstall_appload_button = QtWidgets.QPushButton("停用 AppLoad")
+        self.uninstall_appload_button.setProperty("btnRole", "danger")
+
+        install_actions = QtWidgets.QHBoxLayout()
+        install_actions.setContentsMargins(0, 0, 0, 0)
+        for button in (
+            self.detect_management_button,
+            self.install_appload_button,
+            self.install_koreader_button,
+            self.load_official_button,
+        ):
+            install_actions.addWidget(button)
+        install_actions.addStretch()
+
+        cleanup_actions = QtWidgets.QHBoxLayout()
+        cleanup_actions.setContentsMargins(0, 0, 0, 0)
+        for button in (
+            self.purge_legacy_button,
+            self.uninstall_koreader_button,
+            self.uninstall_appload_button,
+        ):
+            cleanup_actions.addWidget(button)
+        cleanup_actions.addStretch()
+
+        official_links = QtWidgets.QLabel(
+            '<a href="https://github.com/asivery/rm-appload/releases">'
+            "AppLoad 官方发布</a>  ·  "
+            '<a href="https://github.com/koreader/koreader/releases">'
+            "KOReader 官方发布</a>"
+        )
+        official_links.setOpenExternalLinks(True)
+        official_links.setWordWrap(True)
+        management_layout.addWidget(management_title)
+        management_layout.addWidget(self.management_status_label)
+        management_layout.addLayout(install_actions)
+        management_layout.addLayout(cleanup_actions)
+        management_layout.addWidget(official_links)
 
         # --- Toolbar ---
         self.refresh_button = QtWidgets.QPushButton("刷新列表")
@@ -120,14 +190,15 @@ class KOReaderTab(QtWidgets.QWidget):
         panel_layout.addWidget(self.table)
         panel_layout.addWidget(self.empty_state_label)
 
-        layout = QtWidgets.QHBoxLayout()
+        layout = QtWidgets.QVBoxLayout()
         layout.setContentsMargins(
             _rmtool.TAB_PAGE_MARGIN,
             _rmtool.TAB_PAGE_MARGIN,
             _rmtool.TAB_PAGE_MARGIN,
             _rmtool.TAB_PAGE_MARGIN,
         )
-        layout.setSpacing(0)
+        layout.setSpacing(_rmtool.PANEL_GAP)
+        layout.addWidget(self.management_panel)
         layout.addWidget(self.list_panel)
         self.setLayout(layout)
 
@@ -141,6 +212,13 @@ class KOReaderTab(QtWidgets.QWidget):
         self.search_edit.textChanged.connect(self._apply_filter)
         self.table.doubleClicked.connect(self._on_row_double_clicked)
         self.table.selectionModel().selectionChanged.connect(self._update_action_state)
+        self.detect_management_button.clicked.connect(self.refresh_management)
+        self.install_appload_button.clicked.connect(self._install_appload)
+        self.install_koreader_button.clicked.connect(self._install_koreader)
+        self.load_official_button.clicked.connect(self._load_official_package)
+        self.purge_legacy_button.clicked.connect(self._purge_legacy_install)
+        self.uninstall_koreader_button.clicked.connect(self._uninstall_koreader)
+        self.uninstall_appload_button.clicked.connect(self._uninstall_appload)
         self.set_connection_state(False)
         self._update_results_summary()
         self._update_action_state()
@@ -178,12 +256,367 @@ class KOReaderTab(QtWidgets.QWidget):
             self._entries_by_path = {}
             self.table.setRowCount(0)
             self.path_edit.clear()
+            self._appload_status = None
+            self._managed_status = None
+            self.management_status_label.setText("连接设备后检测安装状态。")
             self._update_results_summary()
+        self._update_management_actions()
         self._update_action_state()
         self._update_empty_state()
 
+    # -- AppLoad / KOReader management ---------------------------------------
+    def _update_management_actions(self) -> None:
+        app = self._appload_status
+        managed = self._managed_status
+        ready = self._connected and not self._management_loading and not self._loading
+        self.detect_management_button.setEnabled(ready)
+        if not ready or app is None or managed is None:
+            for button in (
+                self.install_appload_button,
+                self.install_koreader_button,
+                self.load_official_button,
+                self.purge_legacy_button,
+                self.uninstall_koreader_button,
+                self.uninstall_appload_button,
+            ):
+                button.setEnabled(False)
+            return
+        app_installable = app.state in (
+            _appload.AppLoadState.NOT_INSTALLED,
+            _appload.AppLoadState.INSTALLED_DISABLED,
+            _appload.AppLoadState.DISABLE_PENDING_REBOOT,
+        )
+        app_available = app.state in (
+            _appload.AppLoadState.ENABLED,
+            _appload.AppLoadState.ENABLE_PENDING_REBOOT,
+        )
+        managed_installable = managed.state in (
+            _koreader.ManagedState.NOT_INSTALLED,
+            _koreader.ManagedState.INSTALLED,
+            _koreader.ManagedState.REPAIRABLE,
+            _koreader.ManagedState.LEGACY_DATA,
+            _koreader.ManagedState.EXTERNAL,
+        )
+        self.install_appload_button.setEnabled(app_installable)
+        self.install_koreader_button.setEnabled(
+            app_available and managed_installable
+        )
+        self.install_koreader_button.setText(
+            "重新安装 KOReader"
+            if managed.state == _koreader.ManagedState.INSTALLED
+            else (
+                "修复 KOReader"
+                if managed.state == _koreader.ManagedState.REPAIRABLE
+                else (
+                "迁移并安装 KOReader"
+                if managed.state
+                in (
+                    _koreader.ManagedState.LEGACY_DATA,
+                    _koreader.ManagedState.EXTERNAL,
+                )
+                else "安装 KOReader"
+                )
+            )
+        )
+        self.load_official_button.setEnabled(
+            app_installable or (app_available and managed_installable)
+        )
+        self.purge_legacy_button.setEnabled(
+            managed.state
+            in (
+                _koreader.ManagedState.LEGACY_DATA,
+                _koreader.ManagedState.EXTERNAL,
+            )
+        )
+        self.uninstall_koreader_button.setEnabled(
+            managed.state == _koreader.ManagedState.INSTALLED
+        )
+        self.uninstall_appload_button.setEnabled(
+            app.state
+            not in (
+                _appload.AppLoadState.INCOMPATIBLE,
+                _appload.AppLoadState.NOT_INSTALLED,
+                _appload.AppLoadState.BROKEN,
+            )
+            and managed.state == _koreader.ManagedState.NOT_INSTALLED
+        )
+
+    @staticmethod
+    def _app_status_text(status: _appload.AppLoadStatus) -> str:
+        labels = {
+            _appload.AppLoadState.INCOMPATIBLE: "不兼容",
+            _appload.AppLoadState.NOT_INSTALLED: "未安装",
+            _appload.AppLoadState.ENABLE_PENDING_REBOOT: "已安装，等待手动重启",
+            _appload.AppLoadState.ENABLED: "已启用",
+            _appload.AppLoadState.INSTALLED_DISABLED: "已停用",
+            _appload.AppLoadState.DISABLE_PENDING_REBOOT: "等待手动重启后停用",
+            _appload.AppLoadState.BROKEN: "状态异常",
+        }
+        text = labels[status.state]
+        return f"{text}（{status.detail}）" if status.detail else text
+
+    @staticmethod
+    def _managed_status_text(status: _koreader.ManagedStatus) -> str:
+        labels = {
+            _koreader.ManagedState.INCOMPATIBLE: "不兼容",
+            _koreader.ManagedState.NOT_INSTALLED: "未安装",
+            _koreader.ManagedState.INSTALLED: f"已安装 {status.version}",
+            _koreader.ManagedState.REPAIRABLE: "需要修复",
+            _koreader.ManagedState.LEGACY_DATA: "发现旧版用户数据",
+            _koreader.ManagedState.EXTERNAL: "外部安装",
+            _koreader.ManagedState.BROKEN: "状态异常",
+        }
+        text = labels[status.state]
+        return f"{text}（{status.detail}）" if status.detail else text
+
+    def _apply_management_status(self, result) -> None:
+        self._appload_status, self._managed_status = result
+        self.management_status_label.setText(
+            f"AppLoad：{self._app_status_text(self._appload_status)}\n"
+            f"KOReader：{self._managed_status_text(self._managed_status)}\n"
+            "资源均直接来自各自 GitHub 官方发布；操作不会自动重启设备。"
+        )
+        self._update_management_actions()
+
+    def _read_management_status(self):
+        return (
+            _appload.get_status(self.ssh_client),
+            _koreader.get_managed_status(self.ssh_client),
+        )
+
+    def refresh_management(self) -> None:
+        if not self._connected or self._management_loading or self._loading:
+            return
+        self._management_loading = True
+        self.management_status_label.setText("正在检测 AppLoad 与 KOReader…")
+        self._update_management_actions()
+        self._update_action_state()
+        worker = _rmtool.Worker(self._read_management_status)
+
+        def on_finished(result):
+            if sip.isdeleted(self):
+                return
+            self._management_loading = False
+            self._apply_management_status(result)
+            self._update_action_state()
+
+        def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                logging.error(
+                    "KOReader management refresh failed after tab close: %s", exc
+                )
+                return
+            self._management_loading = False
+            self.management_status_label.setText(f"检测失败：{exc}")
+            self._update_management_actions()
+            self._update_action_state()
+            self._on_error(exc)
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self.thread_pool.start(worker)
+
+    def _run_management_operation(self, title: str, pending: str, operation) -> None:
+        if self._management_loading or self._loading:
+            return
+        self._management_loading = True
+        self._update_management_actions()
+        self._update_action_state()
+        worker = _rmtool.Worker(operation)
+
+        def on_finished(_result):
+            if sip.isdeleted(self):
+                return
+            self._management_loading = False
+            self._close_progress_dialog()
+            show_info(
+                self,
+                _rmtool.APP_NAME,
+                "操作完成。请等待 SSH 操作完全结束后，从设备菜单手动重启。",
+            )
+            self.refresh_management()
+            self._update_action_state()
+
+        def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                logging.error(
+                    "KOReader management operation failed after tab close: %s", exc
+                )
+                return
+            self._management_loading = False
+            self._close_progress_dialog()
+            self._update_management_actions()
+            self._update_action_state()
+            self._on_error(exc)
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self._show_progress_dialog(title, pending)
+        self.thread_pool.start(worker)
+
+    @require_connection
+    def _install_appload(self) -> None:
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "将从 AppLoad 官方 GitHub Release 下载固定校验版本，并接入 "
+            "rmtool 共享 Xovi。操作不会自动重启设备，是否继续？",
+            confirm_text="安装",
+            cancel_text="取消",
+        ):
+            return
+        self._run_management_operation(
+            "安装 AppLoad",
+            "正在下载、校验并安装 AppLoad 官方资源…",
+            lambda: _appload.enable_cloud(
+                self.ssh_client, str(_rmtool.app_state_dir())
+            ),
+        )
+
+    @require_connection
+    def _install_koreader(self) -> None:
+        migrate = self._managed_status is not None and self._managed_status.state in (
+            _koreader.ManagedState.LEGACY_DATA,
+            _koreader.ManagedState.EXTERNAL,
+        )
+        message = (
+            "检测到旧版 KOReader。rmtool 会完整备份原目录，只迁移设置、"
+            "历史、统计、截图等用户数据，并从官方包全新安装程序主体。"
+            "备份不会自动删除。是否继续？"
+            if migrate
+            else (
+                "将从 KOReader 官方 GitHub Release 下载与设备架构匹配的版本。"
+                "重新安装会保留现有用户文件，操作不会自动重启设备，是否继续？"
+            )
+        )
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            message,
+            confirm_text="安装",
+            cancel_text="取消",
+        ):
+            return
+        self._run_management_operation(
+            "安装 KOReader",
+            "正在下载、校验并安装 KOReader 官方资源…",
+            lambda: _koreader.install_managed_cloud(
+                self.ssh_client,
+                str(_rmtool.app_state_dir()),
+                migrate_existing=migrate,
+            ),
+        )
+
+    @require_connection
+    def _load_official_package(self) -> None:
+        app = self._appload_status
+        managed = self._managed_status
+        if app is None or managed is None:
+            show_warning(self, _rmtool.APP_NAME, "请先检测安装状态。")
+            return
+        path, _selected = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "选择 AppLoad 或 KOReader 官方 ZIP",
+            "",
+            "官方 ZIP (*.zip);;所有文件 (*)",
+        )
+        if not path:
+            return
+        filename = os.path.basename(path)
+        if app.asset is not None and filename == app.asset.name:
+            operation = lambda: _appload.enable(
+                self.ssh_client, path, str(_rmtool.app_state_dir())
+            )
+            title = "安装 AppLoad"
+            pending = "正在校验并安装本地 AppLoad 官方包…"
+        elif managed.asset is not None and filename == managed.asset.name:
+            migrate = managed.state in (
+                _koreader.ManagedState.LEGACY_DATA,
+                _koreader.ManagedState.EXTERNAL,
+            )
+            operation = lambda: _koreader.install_managed(
+                self.ssh_client,
+                path,
+                str(_rmtool.app_state_dir()),
+                migrate_existing=migrate,
+            )
+            title = "安装 KOReader"
+            pending = "正在校验并安装本地 KOReader 官方包…"
+        else:
+            expected = [
+                item.name
+                for item in (app.asset, managed.asset)
+                if item is not None
+            ]
+            show_warning(
+                self,
+                _rmtool.APP_NAME,
+                "文件名与当前设备所需的官方包不匹配。\n应为："
+                + " 或 ".join(expected),
+            )
+            return
+        self._run_management_operation(title, pending, operation)
+
+    @require_connection
+    def _uninstall_koreader(self) -> None:
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "将移除 KOReader 启动入口，并把完整安装目录迁移到 rmtool "
+            "保留区，以便下次安装恢复设置。操作不会自动重启设备，是否继续？",
+            confirm_text="卸载",
+            cancel_text="取消",
+            danger=True,
+        ):
+            return
+        self._run_management_operation(
+            "卸载 KOReader",
+            "正在卸载 KOReader 并保留用户数据…",
+            lambda: _koreader.uninstall_managed(self.ssh_client),
+        )
+
+    @require_connection
+    def _purge_legacy_install(self) -> None:
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "这会永久删除旧版 KOReader 目录及其中的全部内容，包括设置、"
+            "历史、统计、截图，以及可能直接放在该目录内的书籍，不会创建"
+            "备份。设备其他位置的书库、rmtool 共享插件和其他应用不会被"
+            "删除。此操作不可撤销，是否继续？",
+            confirm_text="彻底清理",
+            cancel_text="取消",
+            danger=True,
+        ):
+            return
+        self._run_management_operation(
+            "清理旧版 KOReader",
+            "正在彻底清理旧版 KOReader 残留…",
+            lambda: _koreader.purge_legacy_install(self.ssh_client),
+        )
+
+    @require_connection
+    def _uninstall_appload(self) -> None:
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "将从 rmtool 共享 Xovi 中停用 AppLoad；其他 rmtool 插件会保留。"
+            "操作不会自动重启设备，是否继续？",
+            confirm_text="停用",
+            cancel_text="取消",
+            danger=True,
+        ):
+            return
+        self._run_management_operation(
+            "停用 AppLoad",
+            "正在安全停用 AppLoad…",
+            lambda: _appload.disable(self.ssh_client),
+        )
+
     def _update_action_state(self) -> None:
-        ready = self._connected and self._install_dir is not None
+        available = self._connected and not self._management_loading
+        self.refresh_button.setEnabled(available and not self._loading)
+        ready = available and self._install_dir is not None
         selected = self._selected_entries()
         has_selection = bool(selected)
         has_file = any(not entry.is_dir for entry in selected)
@@ -288,9 +721,11 @@ class KOReaderTab(QtWidgets.QWidget):
 
     # -- Refresh / navigation ----------------------------------------------------
     def refresh(self):
-        if self._loading:
+        if self._loading or self._management_loading:
             return
         self._loading = True
+        self._update_management_actions()
+        self._update_action_state()
         worker = _rmtool.Worker(self._detect_and_load, self._current_dir)
 
         def on_finished(result):
@@ -298,6 +733,8 @@ class KOReaderTab(QtWidgets.QWidget):
                 return
             self._loading = False
             self._on_listing_loaded(result)
+            self._update_management_actions()
+            self._update_action_state()
 
         def on_error(exc: Exception):
             if sip.isdeleted(self):
@@ -305,6 +742,8 @@ class KOReaderTab(QtWidgets.QWidget):
                 return
             self._loading = False
             self._loaded_once = True
+            self._update_management_actions()
+            self._update_action_state()
             self._on_error(exc)
 
         worker.signals.finished.connect(on_finished)

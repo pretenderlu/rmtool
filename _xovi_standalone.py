@@ -782,8 +782,14 @@ def read_shared_identity(ssh_client) -> tuple[str, str, str, str]:
     if (
         not isinstance(firmware, str)
         or not re.fullmatch(r"[0-9]{14}", firmware)
-        or platform not in {"ferrari", "chiappa"}
-        or architecture != "aarch64"
+        or (platform, architecture)
+        not in {
+            ("ferrari", "aarch64"),
+            ("chiappa", "aarch64"),
+            ("tatsu", "aarch64"),
+            ("rm1", "armv7l"),
+            ("rm2", "armv7l"),
+        }
         or not isinstance(xochitl_sha256, str)
         or not re.fullmatch(r"[0-9a-f]{64}", xochitl_sha256)
     ):
@@ -1738,7 +1744,11 @@ def _stage_shared(
     ):
         if _remote_sha256(ssh_client, f"{stage}/{path}") != digest:
             raise RuntimeError(f"设备端共享 Xovi 文件 {path} 上传校验失败。")
-    if enabled:
+    if any(
+        item.runtime_path.endswith(".qmd")
+        for feature in enabled
+        for item in feature.files
+    ):
         ssh_client.exec_checked(_qmd_check_command(stage, enabled))
     ssh_client.exec_checked(f"rm -rf {shlex.quote(stage + '/check')}")
     return launcher_sha, dropin_sha
@@ -1766,7 +1776,14 @@ def _enable_shared_locked(
     trusted: Mapping[str, SharedFeatureSpec],
     legacy_specs: Iterable[LegacyStandaloneSpec],
 ) -> SharedInspection:
-    if set(trusted) - {"tap-page-turn", "fast-mono-reading", "native-chinese", "pinyin-input"}:
+    if set(trusted) - {
+        "tap-page-turn",
+        "fast-mono-reading",
+        "native-chinese",
+        "pinyin-input",
+        "appload",
+        "koreader",
+    }:
         raise RuntimeError("共享 Xovi 包含不受支持的功能。")
     assert_feature_layout(runtime, trusted.values())
     target_trusted = dict(trusted)
@@ -1969,7 +1986,11 @@ def _disable_shared_locked(
                     ssh_client, f"{stage}/{item.runtime_path}"
                 ) != item.sha256:
                     raise RuntimeError(f"共享 Xovi 未能完整保留 {peer.feature_id}。")
-        if enabled:
+        if any(
+            item.runtime_path.endswith(".qmd")
+            for feature in enabled
+            for item in feature.files
+        ):
             ssh_client.exec_checked(_qmd_check_command(stage, enabled))
         ssh_client.exec_checked(f"rm -rf {shlex.quote(stage + '/check')}")
         migrated_layouts = (
