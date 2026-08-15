@@ -687,8 +687,11 @@ from _tab_toolbox import (
 class MainWindow(QtWidgets.QMainWindow):
     DEFAULT_WIDTH = 1760
     DEFAULT_HEIGHT = 1100
-    MIN_WIDTH = 1280
-    MIN_HEIGHT = 900
+    DEFAULT_MIN_WIDTH = 1280
+    DEFAULT_MIN_HEIGHT = 720
+    MIN_WIDTH = 1024
+    MIN_HEIGHT = 640
+    NAV_BUTTON_MIN_HEIGHT = 38
 
     def __init__(self, log_bridge=None):
         super().__init__()
@@ -710,10 +713,23 @@ class MainWindow(QtWidgets.QMainWindow):
         sidebar.setFixedWidth(272)
         sidebar_layout = QtWidgets.QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
-        sidebar_layout.addWidget(self.connection_widget)
+        self.sidebar_scroll = QtWidgets.QScrollArea()
+        self.sidebar_scroll.setObjectName("sidebarScroll")
+        self.sidebar_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.sidebar_scroll.setWidgetResizable(True)
+        self.sidebar_scroll.setHorizontalScrollBarPolicy(
+            QtCore.Qt.ScrollBarAlwaysOff
+        )
+        self.sidebar_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+        self.sidebar_scroll.viewport().setAutoFillBackground(False)
+        self.sidebar_scroll.setWidget(self.connection_widget)
+        sidebar_layout.addWidget(self.sidebar_scroll)
 
         # -- Pages --
         self.pages = QtWidgets.QStackedWidget()
+        self.pages.setSizePolicy(
+            QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored
+        )
         self.dashboard_tab = DashboardTab()
         self.wallpaper_tab = WallpaperTab(self.ssh_client, self.config)
         self.documents_tab = DocumentsTab(self.ssh_client)
@@ -753,6 +769,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for idx, title in enumerate(("仪表盘", "壁纸管理", "文档中心", "KOReader", "字体管理", "设备工具")):
             button = QtWidgets.QPushButton(title)
             button.setCheckable(True)
+            button.setMinimumHeight(self.NAV_BUTTON_MIN_HEIGHT)
             self.nav_button_group.addButton(button, idx)
             nav_buttons_layout.addWidget(button)
             self.nav_buttons.append(button)
@@ -854,8 +871,16 @@ class MainWindow(QtWidgets.QMainWindow):
         if screen is None:
             return QtCore.QSize(self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT)
         available = screen.availableGeometry()
-        width = max(self.MIN_WIDTH, min(self.DEFAULT_WIDTH, int(available.width() * 0.8)))
-        height = max(self.MIN_HEIGHT, min(self.DEFAULT_HEIGHT, int(available.height() * 0.85)))
+        preferred_width = max(
+            self.DEFAULT_MIN_WIDTH,
+            min(self.DEFAULT_WIDTH, int(available.width() * 0.8)),
+        )
+        preferred_height = max(
+            self.DEFAULT_MIN_HEIGHT,
+            min(self.DEFAULT_HEIGHT, int(available.height() * 0.85)),
+        )
+        width = max(self.MIN_WIDTH, min(available.width(), preferred_width))
+        height = max(self.MIN_HEIGHT, min(available.height(), preferred_height))
         return QtCore.QSize(width, height)
 
     def _update_tabs_enabled(self, enabled: bool):

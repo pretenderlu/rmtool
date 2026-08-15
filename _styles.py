@@ -436,6 +436,13 @@ QStatusBar#appStatusBar[level="error"] {
 #sidebarConnection {
     background: transparent;
 }
+#sidebarScroll {
+    background: transparent;
+    border: none;
+}
+#sidebarScroll > QWidget > QWidget {
+    background: transparent;
+}
 #sidebarSectionLabel {
     color: {text_faded};
     font-size: {font_md};
