@@ -693,6 +693,19 @@ def _trusted_shared_context(identity: DeviceIdentity):
             trusted[peer_feature.feature_id] = peer_feature
     except ImportError:
         pass
+    try:
+        import _appload as appload
+
+        peer_runtime, peer_features = appload.trusted_specs(identity)
+        if peer_runtime is not None:
+            if runtime is not None and peer_runtime != runtime:
+                raise RuntimeError(
+                    "点击翻页与 AppLoad 的内置运行资源不一致。"
+                )
+            runtime = runtime or peer_runtime
+            trusted.update(peer_features)
+    except ImportError:
+        pass
     if runtime is None:
         raise RuntimeError("内置点击翻页清单没有当前设备的精确包。")
     _xovi_standalone.assert_feature_layout(runtime, trusted.values())

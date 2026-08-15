@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import _fast_mono_reading as fast
+import _appload as appload
 import _native_chinese as native
 import _pinyin_input as pinyin
 import _tap_page_turn as tap
@@ -236,6 +237,8 @@ class SharedXoviTests(unittest.TestCase):
                         expected_features.add("native-chinese")
                     if pinyin.select_package(pinyin._trusted_catalog(), identity):
                         expected_features.add("pinyin-input")
+                    if appload.app_asset(identity):
+                        expected_features.update(("appload", "koreader"))
                     self.assertEqual(
                         set(trusted), expected_features
                     )
@@ -776,6 +779,8 @@ class SharedXoviTests(unittest.TestCase):
                 "fast-mono-reading",
                 "native-chinese",
                 "pinyin-input",
+                "appload",
+                "koreader",
             },
         )
 
