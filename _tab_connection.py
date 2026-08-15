@@ -57,10 +57,10 @@ class ConnectionWidget(QtWidgets.QWidget):
         summary_card.setObjectName("deviceCard")
         summary_layout = QtWidgets.QVBoxLayout(summary_card)
         summary_layout.setContentsMargins(
-            _rmtool.SUBSECTION_GAP,
-            _rmtool.SUBSECTION_GAP,
-            _rmtool.SUBSECTION_GAP,
-            _rmtool.SUBSECTION_GAP,
+            8,
+            8,
+            8,
+            8,
         )
         summary_layout.setSpacing(4)
         summary_layout.addLayout(status_row)
@@ -122,11 +122,11 @@ class ConnectionWidget(QtWidgets.QWidget):
         # -- Sidebar vertical layout --
         layout = QtWidgets.QVBoxLayout()
         layout.setSizeConstraint(QtWidgets.QLayout.SetMinimumSize)
-        layout.setContentsMargins(16, 8, 16, 8)
+        layout.setContentsMargins(16, 4, 16, 4)
         layout.setSpacing(6)
 
         layout.addWidget(summary_card)
-        layout.addSpacing(6)
+        layout.addSpacing(2)
 
         section_label = QtWidgets.QLabel("设备")
         section_label.setObjectName("sidebarSectionLabel")
@@ -137,10 +137,10 @@ class ConnectionWidget(QtWidgets.QWidget):
         device_selector_row.addWidget(self.device_combo, 1)
         layout.addLayout(device_selector_row)
         layout.addLayout(device_btn_row)
-        layout.addSpacing(6)
+        layout.addSpacing(2)
 
         layout.addLayout(credential_status_row)
-        layout.addSpacing(6)
+        layout.addSpacing(2)
 
         layout.addLayout(button_layout)
 

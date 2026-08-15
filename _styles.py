@@ -455,7 +455,7 @@ QStatusBar#appStatusBar[level="error"] {
     color: {text_brand};
     font-size: {font_xs};
     letter-spacing: 0.04em;
-    padding: 12px 0;
+    padding: 4px 0;
 }
 
 /* ===== Sidebar navigation ===== */
