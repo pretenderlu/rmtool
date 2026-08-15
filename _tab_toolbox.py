@@ -3041,32 +3041,6 @@ class ToolboxTab(QtWidgets.QWidget):
         tap_page_turn_layout.addWidget(self.legacy_vellum_cleanup_section)
         tap_page_turn_group.setLayout(tap_page_turn_layout)
 
-        koreader_group = QtWidgets.QGroupBox("KOReader / 第三方应用")
-        koreader_info = QtWidgets.QLabel(
-            "安装 KOReader 等第三方应用仍可使用 Vellum；rmtool 自带插件已改用独立的共享 Xovi，"
-            "不会代装或卸载 Vellum。请参考以下项目文档：\n"
-        )
-        koreader_info.setWordWrap(True)
-
-        koreader_links = QtWidgets.QLabel(
-            '<a href="https://github.com/vellum-dev/vellum-cli#usage">'
-            "Vellum（安装与官方卸载）</a>"
-            '  |  <a href="https://github.com/asivery/rm-xovi-extensions">'
-            "xovi (扩展框架)</a>"
-            '  |  <a href="https://github.com/asivery/rm-appload">'
-            "rm-appload (应用加载器)</a>"
-            '  |  <a href="https://github.com/koreader/koreader/wiki/'
-            'Installation-on-Remarkable">KOReader 安装指南</a>'
-        )
-        koreader_links.setOpenExternalLinks(True)
-        koreader_links.setWordWrap(True)
-
-        koreader_layout = QtWidgets.QVBoxLayout()
-        koreader_layout.setContentsMargins(0, _rmtool.SUBSECTION_GAP, 0, 0)
-        koreader_layout.addWidget(koreader_info)
-        koreader_layout.addWidget(koreader_links)
-        koreader_group.setLayout(koreader_layout)
-
         self.content_widget = QtWidgets.QWidget()
         content_layout = QtWidgets.QVBoxLayout(self.content_widget)
         content_layout.setContentsMargins(
@@ -3081,7 +3055,6 @@ class ToolboxTab(QtWidgets.QWidget):
         content_layout.addWidget(rmkit_cn_group)
         content_layout.addWidget(pinyin_group)
         content_layout.addWidget(tap_page_turn_group)
-        content_layout.addWidget(koreader_group)
         content_layout.addStretch()
 
         scroll = QtWidgets.QScrollArea()

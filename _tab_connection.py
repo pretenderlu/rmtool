@@ -43,6 +43,7 @@ class ConnectionWidget(QtWidgets.QWidget):
         self.device_title_label = QtWidgets.QLabel()
         self.device_title_label.setObjectName("deviceCardTitle")
         self.device_title_label.setWordWrap(True)
+        status_row.addWidget(self.device_title_label)
         self.device_meta_label = QtWidgets.QLabel()
         self.device_meta_label.setObjectName("deviceCardMeta")
         self.device_meta_label.setWordWrap(True)
@@ -56,13 +57,13 @@ class ConnectionWidget(QtWidgets.QWidget):
         summary_card.setObjectName("deviceCard")
         summary_layout = QtWidgets.QVBoxLayout(summary_card)
         summary_layout.setContentsMargins(
-            _rmtool.PANEL_PADDING,
-            _rmtool.PANEL_PADDING,
-            _rmtool.PANEL_PADDING,
-            _rmtool.PANEL_PADDING,
+            _rmtool.SUBSECTION_GAP,
+            _rmtool.SUBSECTION_GAP,
+            _rmtool.SUBSECTION_GAP,
+            _rmtool.SUBSECTION_GAP,
         )
-        summary_layout.setSpacing(6)
-        summary_layout.addWidget(self.device_title_label)
+        summary_layout.setSpacing(4)
+        summary_layout.addLayout(status_row)
         summary_layout.addWidget(self.device_meta_label)
         summary_layout.addWidget(self.device_host_label)
 
@@ -107,38 +108,39 @@ class ConnectionWidget(QtWidgets.QWidget):
         credential_status_row.addWidget(self.credential_status_label, 1)
         credential_status_row.addWidget(self.forget_password_button)
 
-        # -- Buttons (stacked so both keep their full text at sidebar width) --
+        # -- Primary actions --
         self.connect_button = QtWidgets.QPushButton("连接设备")
         self.disconnect_button = QtWidgets.QPushButton("断开连接")
         self.connect_button.setProperty("btnRole", "primary")
         self.disconnect_button.setProperty("btnRole", "danger")
-        button_layout = QtWidgets.QVBoxLayout()
+        button_layout = QtWidgets.QHBoxLayout()
         button_layout.setContentsMargins(0, 0, 0, 0)
         button_layout.setSpacing(8)
-        button_layout.addWidget(self.connect_button)
-        button_layout.addWidget(self.disconnect_button)
+        button_layout.addWidget(self.connect_button, 1)
+        button_layout.addWidget(self.disconnect_button, 1)
 
         # -- Sidebar vertical layout --
         layout = QtWidgets.QVBoxLayout()
-        layout.setContentsMargins(16, 20, 16, 16)
+        layout.setSizeConstraint(QtWidgets.QLayout.SetMinimumSize)
+        layout.setContentsMargins(16, 8, 16, 8)
         layout.setSpacing(6)
 
-        layout.addLayout(status_row)
         layout.addWidget(summary_card)
-        layout.addSpacing(12)
+        layout.addSpacing(6)
 
         section_label = QtWidgets.QLabel("设备")
         section_label.setObjectName("sidebarSectionLabel")
-        layout.addWidget(section_label)
-        layout.addWidget(self.device_combo)
+        device_selector_row = QtWidgets.QHBoxLayout()
+        device_selector_row.setContentsMargins(0, 0, 0, 0)
+        device_selector_row.setSpacing(8)
+        device_selector_row.addWidget(section_label)
+        device_selector_row.addWidget(self.device_combo, 1)
+        layout.addLayout(device_selector_row)
         layout.addLayout(device_btn_row)
-        layout.addSpacing(8)
+        layout.addSpacing(6)
 
-        credential_label = QtWidgets.QLabel("凭证")
-        credential_label.setObjectName("sidebarSectionLabel")
-        layout.addWidget(credential_label)
         layout.addLayout(credential_status_row)
-        layout.addSpacing(8)
+        layout.addSpacing(6)
 
         layout.addLayout(button_layout)
 

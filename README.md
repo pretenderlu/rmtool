@@ -130,7 +130,6 @@ The main files are:
 - **Fast monochrome reading**: On exact supported Paper Pro and Paper Pro Move 3.27/3.28 builds, add a session-scoped `快速黑白` switch and stock cleanup-refresh selector to the PDF/EPUB More menu. Cleanup defaults to every 10 real page turns, with 5/20/30/never choices. Packages are labelled separately as device verified or offline verified.
 - **Offline Pinyin input**: Adds an on-device Pinyin candidate bar for the system soft keyboard and physical keyboard. Prediction stays local and shares rmtool's existing Xovi runtime with other plugins.
 - **Theme and logs**: Light and dark themes are persisted. The bottom log panel supports level filtering, pause, automatic scrolling, clearing, and opening the log file.
-- **Third-party application links**: The toolbox retains official documentation links for Vellum, xovi, rm-appload, and KOReader. rmtool plugins and the AppLoad/KOReader installer do not install through Vellum.
 
 ### AppLoad and KOReader installation
 

@@ -1321,7 +1321,6 @@ class WallpaperUiTests(unittest.TestCase):
                 "系统汉化",
                 "输入法",
                 "阅读优化与手势",
-                "KOReader / 第三方应用",
                 "字体管理",
             },
         )
@@ -4137,6 +4136,32 @@ class MainWindowConstructionTests(unittest.TestCase):
         self.assertGreaterEqual(window.size().width(), 1280)
         self.assertLess(window.size().width(), 1760)
         self.assertLessEqual(window.size().height(), 900)
+
+    def test_main_window_fits_1280_by_720_available_screen(self):
+        app = QtWidgets.QApplication.instance()
+        original_stylesheet = app.styleSheet()
+        self.addCleanup(app.setStyleSheet, original_stylesheet)
+        app.setStyleSheet(rmtool._resolve_stylesheet(rmtool._LIGHT_STYLESHEET))
+        window = self._make_window_with_screen(1280, 720)
+
+        window.show()
+        QtWidgets.QApplication.processEvents()
+
+        self.assertEqual(window.minimumSize(), QtCore.QSize(1024, 640))
+        self.assertLessEqual(window.width(), 1280)
+        self.assertLessEqual(window.height(), 720)
+        self.assertEqual(window.sidebar_scroll.verticalScrollBar().maximum(), 0)
+
+        previous_bottom = -1
+        for button in window.nav_buttons:
+            top = button.mapTo(window.connection_widget, button.rect().topLeft()).y()
+            self.assertGreaterEqual(button.height(), window.NAV_BUTTON_MIN_HEIGHT)
+            self.assertGreater(top, previous_bottom)
+            previous_bottom = top + button.height() - 1
+
+        window.resize(1024, 640)
+        QtWidgets.QApplication.processEvents()
+        self.assertGreater(window.sidebar_scroll.verticalScrollBar().maximum(), 0)
 
 
 class DashboardTabTests(unittest.TestCase):
