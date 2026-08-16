@@ -646,19 +646,27 @@ def _remote_sha256(ssh_client, path: str) -> str:
     return digest
 
 
+def _parent_directories(paths: Iterable[str]) -> set[str]:
+    directories = set()
+    for path in paths:
+        parent = PurePosixPath(path).parent
+        while str(parent) != ".":
+            directories.add(str(parent))
+            parent = parent.parent
+    return directories
+
+
 def _validate_owned_tree(
     ssh_client,
     base: str,
     expected_files: Mapping[str, SharedFileSpec],
     label: str,
+    allowed_empty_dirs: Iterable[str] = (),
 ) -> None:
-    expected_dirs = set()
-    for path in expected_files:
-        parent = PurePosixPath(path).parent
-        while str(parent) != ".":
-            expected_dirs.add(str(parent))
-            parent = parent.parent
-    expected_paths = set(expected_files) | expected_dirs
+    expected_dirs = _parent_directories(expected_files)
+    required_paths = set(expected_files) | expected_dirs
+    allowed_empty_dirs = set(allowed_empty_dirs) - set(expected_files)
+    allowed_paths = required_paths | allowed_empty_dirs
     command = (
         f"stat -c '%f|%u|%g|%s|%n' {shlex.quote(base)}; "
         f"find {shlex.quote(base)} -mindepth 1 -exec stat -c '%f|%u|%g|%s|%n' {{}} \\;"
@@ -689,7 +697,7 @@ def _validate_owned_tree(
         permissions = raw_mode & 0o7777
         if uid != 0 or gid != 0:
             raise RuntimeError(f"{label}路径 {relative or '.'} 不是 root 所有。")
-        if relative == "" or relative in expected_dirs:
+        if relative == "" or relative in expected_dirs or relative in allowed_empty_dirs:
             if file_type != 0o040000 or permissions != 0o755:
                 raise RuntimeError(f"{label}目录 {relative or '.'} 类型或权限已变化。")
         elif relative in expected_files:
@@ -707,7 +715,7 @@ def _validate_owned_tree(
         if relative in seen:
             raise RuntimeError(f"{label}目录包含重复路径。")
         seen.add(relative)
-    if seen != expected_paths | {""}:
+    if not required_paths | {""} <= seen or not seen <= allowed_paths | {""}:
         raise RuntimeError(f"{label}目录包含缺失或未托管路径。")
 
 
@@ -1159,7 +1167,19 @@ def _inspect_shared(
         expected_files["startup.pending"] = SharedFileSpec(
             "startup.pending", _EMPTY_SHA256, 0, 0o600
         )
-    _validate_owned_tree(ssh_client, layout.remote_base, expected_files, "共享 Xovi")
+    disabled_dirs = _parent_directories(
+        item.runtime_path
+        for state in states.values()
+        if not state.enabled
+        for item in state.spec.files
+    )
+    _validate_owned_tree(
+        ssh_client,
+        layout.remote_base,
+        expected_files,
+        "共享 Xovi",
+        disabled_dirs,
+    )
     dropin_present = ssh_client.file_exists(SHARED_LAYOUT.dropin_path)
     dropin_required = bool(enabled) if expected_dropin is None else expected_dropin
     if dropin_present != dropin_required:
@@ -1954,6 +1974,22 @@ def _disable_shared_locked(
                 ssh_client.exec_checked(
                     f"test ! -e {shlex.quote(stage + '/' + item.runtime_path)}"
                 )
+            remaining_dirs = _parent_directories(
+                item.path for item in runtime.files
+            ) | _parent_directories(
+                item.runtime_path for peer in enabled for item in peer.files
+            )
+            obsolete_dirs = _parent_directories(
+                item.runtime_path for item in state.spec.files
+            ) - remaining_dirs
+            for directory in sorted(
+                obsolete_dirs,
+                key=lambda value: (value.count("/"), value),
+                reverse=True,
+            ):
+                remote = shlex.quote(f"{stage}/{directory}")
+                ssh_client.exec_checked(f"rmdir {remote}")
+                ssh_client.exec_checked(f"test ! -e {remote}")
             _upload_bytes(
                 ssh_client, launcher_text.encode(), f"{stage}/launcher.sh", 0o755
             )
