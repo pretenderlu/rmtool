@@ -73,6 +73,7 @@ class SharedXoviTests(unittest.TestCase):
         visible_dropins=(),
         lower_dropins=(),
         feature_ids=None,
+        disabled_feature_ids=(),
         feature_overrides=None,
         legacy_launcher=False,
         layout=None,
@@ -91,11 +92,15 @@ class SharedXoviTests(unittest.TestCase):
         installed = dict(trusted)
         installed.update(feature_overrides or {})
         states = {
-            feature_id: shared.SharedFeatureState(spec, True, self.TOKEN)
+            feature_id: shared.SharedFeatureState(
+                spec,
+                feature_id not in disabled_feature_ids,
+                self.TOKEN,
+            )
             for feature_id, spec in installed.items()
             if feature_ids is None or feature_id in feature_ids
         }
-        enabled = tuple(state.spec for state in states.values())
+        enabled = tuple(state.spec for state in states.values() if state.enabled)
         launcher = shared.shared_launcher(
             runtime,
             enabled,
@@ -121,6 +126,7 @@ class SharedXoviTests(unittest.TestCase):
                 item.mode,
             )
             for state in states.values()
+            if state.enabled
             for item in state.spec.files
         })
         expected.update(
@@ -145,6 +151,12 @@ class SharedXoviTests(unittest.TestCase):
             while parent:
                 dirs.add(parent)
                 parent = posixpath.dirname(parent)
+        dirs.update(shared._parent_directories(
+            item.runtime_path
+            for state in states.values()
+            if not state.enabled
+            for item in state.spec.files
+        ))
         if startup_pending:
             expected["startup.pending"] = shared.SharedFileSpec(
                 "startup.pending",
@@ -690,6 +702,68 @@ class SharedXoviTests(unittest.TestCase):
 
         ssh.exec_checked.side_effect = execute
         shared._validate_owned_tree(ssh, "/base", expected, "测试")
+
+    def test_owned_tree_accepts_only_empty_dirs_from_disabled_features(self):
+        expected = {
+            "payload.bin": shared.SharedFileSpec(
+                "payload.bin", "1" * 64, 4, 0o644
+            )
+        }
+
+        def validate(listing):
+            ssh = Mock()
+            ssh.exec_checked.side_effect = lambda command: (
+                listing
+                if command.startswith("stat -c")
+                else "1" * 64 + "  /base/payload.bin\n"
+            )
+            shared._validate_owned_tree(
+                ssh,
+                "/base",
+                expected,
+                "测试",
+                {"native-chinese"},
+            )
+
+        validate(
+            "41ed|0|0|0|/base\n"
+            "41ed|0|0|0|/base/native-chinese\n"
+            "81a4|0|0|4|/base/payload.bin"
+        )
+        with self.assertRaisesRegex(RuntimeError, "未托管"):
+            validate(
+                "41ed|0|0|0|/base\n"
+                "41ed|0|0|0|/base/native-chinese\n"
+                "81a4|0|0|1|/base/native-chinese/leftover\n"
+                "81a4|0|0|4|/base/payload.bin"
+            )
+
+    def test_shared_inspection_accepts_empty_disabled_feature_directory(self):
+        tap_package, fast_package = next(
+            (tap_package, fast_package)
+            for tap_package, fast_package in self.contexts()
+            if {
+                native.FEATURE_ID,
+                pinyin.FEATURE_ID,
+            } <= set(tap._trusted_shared_context(tap.DeviceIdentity(
+                tap_package.firmware,
+                tap_package.platform,
+                tap_package.architecture,
+                tap_package.xochitl_sha256,
+            ))[1])
+        )
+        ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+            tap_package,
+            fast_package,
+            feature_ids=(native.FEATURE_ID, pinyin.FEATURE_ID),
+            disabled_feature_ids=(native.FEATURE_ID,),
+            visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+        )
+
+        inspection = shared.inspect_shared(ssh, runtime, trusted)
+
+        self.assertFalse(inspection.states[native.FEATURE_ID].enabled)
+        self.assertTrue(inspection.states[pinyin.FEATURE_ID].enabled)
 
     def test_active_legacy_trees_validate_against_local_manifests(self):
         tap_package, fast_package = next(iter(self.contexts()))
@@ -1493,6 +1567,11 @@ class SharedXoviTests(unittest.TestCase):
                 commands,
             )
             self.assertIn(item.runtime_path, commands)
+        self.assertIn(
+            f"rmdir {shared.SHARED_LAYOUT.remote_base}.staging-",
+            commands,
+        )
+        self.assertIn("/native-chinese", commands)
         self.assertNotIn(
             f"rm -f {shared.SHARED_LAYOUT.remote_base}.staging-" + tap_feature.runtime_path,
             commands,
