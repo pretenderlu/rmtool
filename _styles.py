@@ -678,6 +678,59 @@ QStatusBar#appStatusBar[level="error"] {
     font-size: {font_md};
     font-weight: 600;
 }
+#toolboxBrowserSidebar,
+#toolboxDetailPanel {
+    background: {bg_panel};
+    border: 1px solid {border_panel};
+    border-radius: {radius_panel};
+}
+#toolboxBrowserTitle,
+#toolboxDetailTitle,
+#toolboxEmptyTitle {
+    color: {text_primary};
+    font-size: {font_lg};
+    font-weight: 700;
+}
+#toolboxBrowserHint,
+#toolboxDetailCategory {
+    color: {text_faded};
+    font-size: {font_sm};
+}
+#toolboxDetailCategory {
+    font-weight: 600;
+}
+#toolboxBrowserList {
+    background: transparent;
+    alternate-background-color: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+}
+#toolboxBrowserList::item {
+    padding: 8px 10px;
+}
+#toolboxBrowserList::item:selected {
+    background: {table_item_selected};
+}
+#toolboxBrowserList QHeaderView::section {
+    background: transparent;
+    padding: 8px 10px;
+}
+#toolboxDetailScroll,
+#toolboxDetailContent {
+    background: transparent;
+    border: none;
+}
+#toolboxDetailDivider {
+    color: {border_subtle};
+}
+#toolboxDetailPanel QPushButton {
+    padding-left: 12px;
+    padding-right: 12px;
+}
+#toolboxBrowserSplitter::handle {
+    background: transparent;
+}
 
 /* ===== Log viewer panel ===== */
 #logViewerPanel {
