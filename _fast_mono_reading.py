@@ -100,6 +100,12 @@ ALLOWED_TARGETS = {
         "aarch64",
         "8726b4fce55a9154a5014956e5204401ce881d752c1ff3813adb622a68aac2f9",
     ): ("3.28.0.166", "beta", True, False),
+    (
+        "chiappa",
+        "20260806095513",
+        "aarch64",
+        "5748eed3bb804c8d3000e833ba472750428b6a82bc09b2bc7b5cf01847336bc7",
+    ): ("3.28.0.166", "beta", True, False),
 }
 
 REMOTE_BASE = "/home/root/.local/share/rmtool/fast-mono-reading"

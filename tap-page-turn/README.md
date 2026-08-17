@@ -29,7 +29,7 @@ the manifest are resolved below the same COS prefix or fixed GitHub release.
 | Device | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Paper Pro | `ferrari` | Offline verified | Offline verified | **Device verified** | Offline verified | Offline verified | Offline verified |
-| Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Waiting for firmware |
+| Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
 | Paper Pure | `tatsu` | - | Offline verified | - | - | - | - |
 | reMarkable 1 | `rm1` | - | Offline verified | - | - | - | - |
 | reMarkable 2 | `rm2` | - | Offline verified | - | - | - | - |
