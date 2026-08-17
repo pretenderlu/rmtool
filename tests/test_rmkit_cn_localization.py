@@ -1765,51 +1765,212 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         )
         self.assertFalse(any(".rmtool-" in path for path in ssh.files))
 
-    def test_set_active_user_font_rejects_low_data_space_before_mutation(self):
+    def test_system_mirror_rejects_insufficient_final_capacity_before_mutation(self):
         font_dir = "/home/root/.local/share/fonts"
         target = f"{font_dir}/selected.ttf"
+        old_target = _rmkit_cn.SYSTEM_FONT_PATHS[".otf"]
+        old_font = b"o" * (2 * 1024 * 1024)
+        new_font = b"n" * (4 * 1024 * 1024)
         previous = b"existing user fontconfig"
         ssh = FakeSSH(
-            {target: b"font", _rmkit_cn.FONTCONFIG_FILE: previous},
-            root_free_bytes=_rmkit_cn.SYSTEM_FONT_FREE_RESERVE,
+            {
+                target: new_font,
+                old_target: old_font,
+                _rmkit_cn.FONTCONFIG_FILE: previous,
+            },
+            root_free_bytes=_rmkit_cn.SYSTEM_FONT_FREE_RESERVE + 1024 * 1024,
         )
         before = dict(ssh.files)
 
-        with self.assertRaisesRegex(RuntimeError, "/data 分区空间不足"):
+        with self.assertRaisesRegex(
+            RuntimeError,
+            rf"/data 分区空间不足.*至少需保留 "
+            rf"{_rmkit_cn.SYSTEM_FONT_FREE_RESERVE // (1024 * 1024)} MiB",
+        ):
             _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
 
         self.assertEqual(ssh.files, before)
         self.assertFalse(any(kind == "transfer" for kind, _ in ssh.events))
 
-    def test_system_mirror_space_check_only_needs_new_atomic_stage(self):
+    def test_tight_system_mirror_backs_up_before_removal_and_succeeds(self):
         font_dir = "/home/root/.local/share/fonts"
         target = f"{font_dir}/selected.ttf"
         old_system_font = _rmkit_cn.SYSTEM_FONT_PATHS[".otf"]
         old_font_data = b"larger previous system font"
-        new_font_data = b"new font"
-        ssh = FakeSSH(
-            {target: new_font_data, old_system_font: old_font_data},
-            root_free_bytes=(
-                _rmkit_cn.SYSTEM_FONT_FREE_RESERVE + len(new_font_data) + 1024
-            ),
-        )
-        _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
+        new_font_data = b"complete new font"
+        available = _rmkit_cn.SYSTEM_FONT_FREE_RESERVE + len(new_font_data) - 1
+        ssh = FakeSSH({target: new_font_data, old_system_font: old_font_data})
+
+        with patch.object(
+            _rmkit_cn,
+            "_data_free_bytes",
+            side_effect=(available, available + len(old_font_data)),
+        ):
+            _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
 
         self.assertEqual(
             ssh.files[_rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]], new_font_data
         )
         self.assertNotIn(old_system_font, ssh.files)
+        commands = [value for kind, value in ssh.events if kind == "exec"]
+        backup_index = next(
+            index
+            for index, command in enumerate(commands)
+            if command.startswith(f"cp -p {old_system_font} ")
+            and "/.font-data-swap-" in command
+        )
+        remove_index = commands.index(
+            "rm -f " + " ".join(_rmkit_cn.SYSTEM_FONT_PATHS.values())
+        )
+        target_path = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        install_index = next(
+            index
+            for index, command in enumerate(commands)
+            if command.startswith("mv -f ") and command.endswith(f" {target_path}")
+        )
+        root_commit_index = next(
+            index
+            for index, command in enumerate(commands)
+            if command.startswith("/bin/sh ")
+        )
+        self.assertLess(backup_index, remove_index)
+        self.assertEqual(commands[remove_index + 1], "sync")
+        self.assertLess(remove_index, install_index)
+        self.assertLess(install_index, root_commit_index)
+        self.assertNotIn("restart xochitl", "\n".join(commands))
+        self.assertNotIn("reboot", "\n".join(commands))
+        self.assertFalse(any("/.font-data-swap-" in path for path in ssh.files))
 
-    def test_selected_system_font_rejects_more_than_24_mib(self):
+    def test_tight_system_mirror_cleanup_failure_keeps_committed_state(self):
+        font_dir = "/home/root/.local/share/fonts"
+        source = f"{font_dir}/selected.ttf"
+        old_target = _rmkit_cn.SYSTEM_FONT_PATHS[".otf"]
+        old_font = b"previous mirror"
+        new_font = b"complete replacement"
+        available = _rmkit_cn.SYSTEM_FONT_FREE_RESERVE + len(new_font) - 1
+        token_bytes = b"\x01" * 6
+        token = token_bytes.hex()
+        swap_dir = f"{_rmkit_cn.BACKUP_DIR}/.font-data-swap-{token}"
+        ssh = FakeSSH(
+            {source: new_font, old_target: old_font},
+            fail_exec_commands=(f"rm -rf {swap_dir}",),
+        )
+
+        with patch.object(
+            _rmkit_cn,
+            "_data_free_bytes",
+            side_effect=(available, available + len(old_font)),
+        ), patch.object(
+            _rmkit_cn.os, "urandom", return_value=token_bytes
+        ), self.assertLogs(level="WARNING") as logs:
+            selected = _rmkit_cn.set_active_user_font(
+                ssh, font_dir, "selected.ttf"
+            )
+
+        new_target = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        self.assertTrue(selected.active)
+        self.assertEqual(ssh.files[new_target], new_font)
+        self.assertNotIn(old_target, ssh.files)
+        self.assertIn(
+            f"<string>{new_target}</string>",
+            ssh.files[_rmkit_cn.SYSTEM_FONTCONFIG_FILE].decode("utf-8"),
+        )
+        self.assertEqual(ssh.files[f"{swap_dir}/file-0"], old_font)
+        self.assertTrue(
+            any(
+                "Could not clean committed font swap backup" in log
+                and swap_dir in log
+                for log in logs.output
+            )
+        )
+
+    def test_tight_system_mirror_backup_failure_does_not_rewrite_data(self):
+        old_target = _rmkit_cn.SYSTEM_FONT_PATHS[".otf"]
+        old_font = b"previous mirror"
+        previous = {path: None for path in _rmkit_cn.SYSTEM_FONT_STATE_PATHS}
+        previous[old_target] = old_font
+        plan = _rmkit_cn._SystemFontMirrorPlan(
+            font_data=b"new mirror",
+            extension=".ttf",
+            previous_files=previous,
+            reclaim_before_write=True,
+        )
+        ssh = FakeSSH({old_target: old_font})
+        real_remote_sha256 = _rmkit_cn._remote_sha256
+
+        def corrupt_backup_hash(client, path):
+            if "/.font-data-swap-" in path:
+                return "0" * 64
+            return real_remote_sha256(client, path)
+
+        with patch.object(
+            _rmkit_cn, "_remote_sha256", side_effect=corrupt_backup_hash
+        ), self.assertRaisesRegex(RuntimeError, "交换备份哈希不一致"):
+            _rmkit_cn._install_system_font_mirror(
+                plan=plan, ssh_client=ssh, font_family="New"
+            )
+
+        self.assertEqual(ssh.files, {old_target: old_font})
+        self.assertEqual(ssh.transfer_count, 0)
+        data_removal = "rm -f " + " ".join(_rmkit_cn.SYSTEM_FONT_PATHS.values())
+        self.assertNotIn(
+            data_removal,
+            [value for kind, value in ssh.events if kind == "exec"],
+        )
+
+    def test_system_mirror_uses_normal_path_at_coexistence_boundary(self):
+        old_target = _rmkit_cn.SYSTEM_FONT_PATHS[".otf"]
+        new_font = b"complete replacement"
+        ssh = FakeSSH({old_target: b"previous mirror"})
+
+        with patch.object(
+            _rmkit_cn,
+            "_data_free_bytes",
+            return_value=_rmkit_cn.SYSTEM_FONT_FREE_RESERVE + len(new_font),
+        ):
+            plan = _rmkit_cn._prepare_system_font_mirror(ssh, new_font, ".ttf")
+
+        self.assertFalse(plan.reclaim_before_write)
+
+    def test_large_system_font_is_allowed_with_sufficient_final_capacity(self):
         font_dir = "/home/root/.local/share/fonts"
         target = f"{font_dir}/selected.ttf"
-        font_data = b"x" * (_rmkit_cn.SYSTEM_FONT_MAX_BYTES + 1)
+        font_data = b"x" * (24 * 1024 * 1024 + 1)
         ssh = FakeSSH({target: font_data})
 
-        with self.assertRaisesRegex(RuntimeError, "超过 24 MiB"):
+        _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
+
+        self.assertEqual(ssh.files[_rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]], font_data)
+
+    def test_tight_system_mirror_failure_restores_previous_mirror(self):
+        font_dir = "/home/root/.local/share/fonts"
+        source = f"{font_dir}/selected.ttf"
+        old_target = _rmkit_cn.SYSTEM_FONT_PATHS[".otf"]
+        old_config = b"<fontconfig>exact previous root config</fontconfig>\r\n"
+        old_user_config = b"<fontconfig>exact previous user config</fontconfig>\r\n"
+        old_font = b"exact previous mirror"
+        new_font = b"complete replacement"
+        available = _rmkit_cn.SYSTEM_FONT_FREE_RESERVE + len(new_font) - 1
+        ssh = FakeSSH(
+            {
+                source: new_font,
+                old_target: old_font,
+                _rmkit_cn.SYSTEM_FONTCONFIG_FILE: old_config,
+                _rmkit_cn.FONTCONFIG_FILE: old_user_config,
+            },
+            fail_transfer_at=2,
+        )
+        before = dict(ssh.files)
+
+        with patch.object(
+            _rmkit_cn,
+            "_data_free_bytes",
+            side_effect=(available, available + len(old_font)),
+        ), self.assertRaisesRegex(IOError, "simulated upload failure"):
             _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
 
-        self.assertFalse(any(kind == "transfer" for kind, _ in ssh.events))
+        self.assertEqual(ssh.files, before)
+        self.assertFalse(any("/.font-data-swap-" in path for path in ssh.files))
 
     def test_font_mirror_verification_labels_are_exact(self):
         cases = (
