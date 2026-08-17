@@ -110,8 +110,7 @@ LEGACY_SYSTEM_FONT_BACKUP_PATHS = {
     remote_path: SYSTEM_FONT_BACKUP_PATHS[remote_path]
     for remote_path in (*LEGACY_SYSTEM_FONT_PATHS.values(), SYSTEM_FONTCONFIG_FILE)
 }
-SYSTEM_FONT_FREE_RESERVE = 32 * 1024 * 1024
-SYSTEM_FONT_MAX_BYTES = 24 * 1024 * 1024
+SYSTEM_FONT_FREE_RESERVE = 24 * 1024 * 1024
 SYSTEM_FONT_FREE_COMMAND = "df -Pk /data | awk 'END {print $4}'"
 SYSTEM_FONT_VALIDATION_ARTIFACTS = (
     f"{SYSTEM_FONT_DIR}/99-rmtool-ui-font.conf",
@@ -157,6 +156,7 @@ class _SystemFontMirrorPlan:
     font_data: bytes
     extension: str
     previous_files: dict[str, Optional[bytes]]
+    reclaim_before_write: bool
 
 
 @dataclass(frozen=True)
@@ -829,22 +829,29 @@ def _prepare_system_font_mirror(
     normalized_extension = extension.lower()
     if normalized_extension not in SYSTEM_FONT_PATHS or not font_data:
         raise RuntimeError("锁屏字体镜像仅支持非空的 TTF/OTF 字体文件。")
-    if len(font_data) > SYSTEM_FONT_MAX_BYTES:
-        raise RuntimeError("所选系统字体超过 24 MiB，无法复制到设备 /data 分区。")
     previous_files = _system_font_snapshot(ssh_client)
-    required = len(font_data) + SYSTEM_FONT_FREE_RESERVE
     available = _data_free_bytes(ssh_client)
-    if available < required:
-        required_mib = (required + 1024 * 1024 - 1) // (1024 * 1024)
-        available_mib = available // (1024 * 1024)
+    reclaimable = sum(
+        len(previous_files[path])
+        for path in SYSTEM_FONT_PATHS.values()
+        if previous_files[path] is not None
+    )
+    if available + reclaimable - len(font_data) < SYSTEM_FONT_FREE_RESERVE:
+        final_mib = max(available + reclaimable - len(font_data), 0) // (
+            1024 * 1024
+        )
         raise RuntimeError(
             "设备 /data 分区空间不足，无法保存当前系统字体："
-            f"至少需要 {required_mib} MiB，当前约 {available_mib} MiB。"
+            f"替换后约剩余 {final_mib} MiB，至少需保留 "
+            f"{SYSTEM_FONT_FREE_RESERVE // (1024 * 1024)} MiB。"
         )
     return _SystemFontMirrorPlan(
         font_data=font_data,
         extension=normalized_extension,
         previous_files=previous_files,
+        reclaim_before_write=(
+            available - len(font_data) < SYSTEM_FONT_FREE_RESERVE
+        ),
     )
 
 
@@ -1082,11 +1089,13 @@ def _restore_data_font_files(
     ssh_client, files: dict[str, Optional[bytes]], token: str
 ) -> None:
     ssh_client.exec_checked(f"mkdir -p {shlex.quote(SYSTEM_FONT_DIR)}")
+    ssh_client.exec_checked(
+        "rm -f "
+        + " ".join(shlex.quote(path) for path in SYSTEM_FONT_PATHS.values())
+    )
     for index, path in enumerate(SYSTEM_FONT_PATHS.values()):
         data = files.get(path)
-        if data is None:
-            ssh_client.exec_checked(f"rm -f {shlex.quote(path)}")
-        else:
+        if data is not None:
             _write_remote_bytes_unique(
                 ssh_client, path, data, f"{token}-data-{index}"
             )
@@ -1127,8 +1136,41 @@ def _install_system_font_mirror(
         f"<!-- rmtool system UI font; owner: {owner} -->",
     )
     config = config_text.encode("utf-8")
+    swap_dir: Optional[str] = None
+    mirror_mutated = False
     try:
         ssh_client.exec_checked(f"mkdir -p {shlex.quote(SYSTEM_FONT_DIR)}")
+        if plan.reclaim_before_write:
+            swap_dir = f"{BACKUP_DIR}/.font-data-swap-{token}"
+            ssh_client.exec_checked(f"mkdir -p {shlex.quote(swap_dir)}")
+            for index, path in enumerate(SYSTEM_FONT_PATHS.values()):
+                previous = plan.previous_files[path]
+                if previous is None:
+                    continue
+                backup_path = f"{swap_dir}/file-{index}"
+                ssh_client.exec_checked(
+                    f"cp -p {shlex.quote(path)} {shlex.quote(backup_path)}"
+                )
+                if _remote_sha256(ssh_client, backup_path) != hashlib.sha256(
+                    previous
+                ).hexdigest():
+                    raise RuntimeError("锁屏字体交换备份哈希不一致。")
+            mirror_mutated = True
+            ssh_client.exec_checked(
+                "rm -f "
+                + " ".join(
+                    shlex.quote(path) for path in SYSTEM_FONT_PATHS.values()
+                )
+            )
+            ssh_client.exec_checked("sync")
+            required = len(plan.font_data) + SYSTEM_FONT_FREE_RESERVE
+            if _data_free_bytes(ssh_client) < required:
+                raise RuntimeError(
+                    "回收旧锁屏字体后 /data 分区空间仍不足，"
+                    "已停止设置系统字体。"
+                )
+        else:
+            mirror_mutated = True
         _write_remote_bytes_unique(ssh_client, target, plan.font_data, token)
         if (
             _remote_file_size(ssh_client, target) != len(plan.font_data)
@@ -1154,16 +1196,48 @@ def _install_system_font_mirror(
             )
         except Exception:
             logging.warning("Could not clean obsolete /data font validation files")
+        if swap_dir:
+            try:
+                ssh_client.exec_checked(f"rm -rf {shlex.quote(swap_dir)}")
+            except Exception:
+                logging.warning(
+                    "Could not clean committed font swap backup at %s; "
+                    "recovery copy retained",
+                    swap_dir,
+                    exc_info=True,
+                )
     except Exception as exc:
         rollback_errors = []
-        try:
-            _restore_system_font_mirror(ssh_client, plan.previous_files, token)
-        except Exception as rollback_exc:
-            rollback_errors.append(f"锁屏字体镜像恢复失败：{rollback_exc}")
-            logging.exception("Could not restore the previous system font mirror")
+        rollback_failed = False
+        if mirror_mutated:
+            try:
+                _restore_system_font_mirror(ssh_client, plan.previous_files, token)
+            except Exception as rollback_exc:
+                rollback_failed = True
+                rollback_errors.append(f"锁屏字体镜像恢复失败：{rollback_exc}")
+                logging.exception("Could not restore the previous system font mirror")
+        if swap_dir and not rollback_failed:
+            try:
+                ssh_client.exec_checked(f"rm -rf {shlex.quote(swap_dir)}")
+            except Exception as cleanup_exc:
+                rollback_errors.append(
+                    f"锁屏字体交换备份清理失败：{cleanup_exc}；"
+                    f"恢复目录保留在 {swap_dir}"
+                )
         if rollback_errors:
+            recovery = (
+                f"；恢复目录保留在 {swap_dir}"
+                if swap_dir and rollback_failed
+                else ""
+            )
+            failure_label = (
+                "自动回滚未完整完成"
+                if mirror_mutated
+                else "交换准备清理未完整完成"
+            )
             raise RuntimeError(
-                f"{exc} 自动回滚未完整完成：{'；'.join(rollback_errors)}"
+                f"{exc} {failure_label}："
+                f"{'；'.join(rollback_errors)}{recovery}"
             ) from exc
         raise
 
