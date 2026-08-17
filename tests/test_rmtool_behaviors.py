@@ -1239,8 +1239,7 @@ class WallpaperUiTests(unittest.TestCase):
             expected,
         )
 
-        toolbox_content = toolbox.findChild(QtWidgets.QScrollArea).widget()
-        toolbox_margins = toolbox_content.layout().contentsMargins()
+        toolbox_margins = toolbox.layout().contentsMargins()
         self.assertEqual(
             (
                 toolbox_margins.left(),
@@ -1250,7 +1249,6 @@ class WallpaperUiTests(unittest.TestCase):
             ),
             expected,
         )
-        self.assertEqual(toolbox_content.layout().spacing(), rmtool.PANEL_GAP)
 
         font_content = font_page.findChild(QtWidgets.QScrollArea).widget()
         font_margins = font_content.layout().contentsMargins()
@@ -1265,38 +1263,137 @@ class WallpaperUiTests(unittest.TestCase):
         )
         self.assertEqual(font_content.layout().spacing(), rmtool.PANEL_GAP)
 
-    def test_toolbox_group_boxes_leave_consistent_space_below_titles(self):
+    def test_toolbox_browser_lists_tools_and_opens_selected_detail(self):
         toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
         self.addCleanup(toolbox.deleteLater)
 
-        time_group = toolbox.time_section.parentWidget()
-        control_group = toolbox.control_section.parentWidget()
-        rmkit_group = toolbox.rmkit_cn_section.parentWidget()
-        tap_page_turn_group = toolbox.tap_page_turn_section.parentWidget()
-
-        self.assertIsInstance(time_group, QtWidgets.QGroupBox)
-        self.assertIsInstance(control_group, QtWidgets.QGroupBox)
-        self.assertIsInstance(rmkit_group, QtWidgets.QGroupBox)
-        self.assertIsInstance(tap_page_turn_group, QtWidgets.QGroupBox)
-        self.assertEqual(rmkit_group.title(), "系统汉化")
-        self.assertEqual(tap_page_turn_group.title(), "阅读优化与手势")
-        self.assertIs(toolbox.native_chinese_section.parentWidget(), rmkit_group)
-        self.assertIs(
-            toolbox.fast_mono_reading_section.parentWidget(),
-            tap_page_turn_group,
+        self.assertEqual(toolbox.tool_table.rowCount(), 7)
+        self.assertEqual(
+            [
+                toolbox.tool_table.item(row, 0).text()
+                for row in range(toolbox.tool_table.rowCount())
+            ],
+            [
+                "原生简体中文",
+                "拼音输入法",
+                "点击翻页",
+                "快速黑白阅读",
+                "时间管理",
+                "设备控制",
+                "旧版插件清理",
+            ],
+        )
+        toolbox.tool_table.setCurrentCell(2, 0)
+        self.assertTrue(
+            toolbox.detail_stack.currentWidget().isAncestorOf(
+                toolbox.tap_page_turn_section
+            )
         )
 
-        for group in (time_group, control_group, rmkit_group, tap_page_turn_group):
-            margins = group.layout().contentsMargins()
-            self.assertEqual(
-                (
-                    margins.left(),
-                    margins.top(),
-                    margins.right(),
-                    margins.bottom(),
-                ),
-                (0, rmtool.SUBSECTION_GAP, 0, 0),
+    def test_toolbox_browser_filters_and_reselects_visible_tool(self):
+        toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
+        self.addCleanup(toolbox.deleteLater)
+
+        toolbox.search_input.setText("拼音")
+        self.assertEqual(
+            [
+                row
+                for row in range(toolbox.tool_table.rowCount())
+                if not toolbox.tool_table.isRowHidden(row)
+            ],
+            [1],
+        )
+        self.assertEqual(toolbox.tool_table.currentRow(), 1)
+
+        toolbox.search_input.clear()
+        toolbox.category_combo.setCurrentText("阅读增强")
+        self.assertEqual(
+            [
+                row
+                for row in range(toolbox.tool_table.rowCount())
+                if not toolbox.tool_table.isRowHidden(row)
+            ],
+            [2, 3],
+        )
+        self.assertEqual(toolbox.tool_table.currentRow(), 2)
+
+        toolbox.search_input.setText("不存在的插件")
+        self.assertEqual(toolbox.tool_table.currentRow(), -1)
+        self.assertIs(toolbox.detail_stack.currentWidget(), toolbox.empty_detail_page)
+
+    def test_toolbox_browser_summarizes_live_plugin_status(self):
+        toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
+        self.addCleanup(toolbox.deleteLater)
+
+        toolbox.native_chinese_section.status_label.setText("原生中文已加载")
+        self.assertEqual(toolbox.tool_table.item(0, 1).text(), "已启用")
+        toolbox.native_chinese_section.status_label.setText("检测到不完整安装")
+        self.assertEqual(toolbox.tool_table.item(0, 1).text(), "需处理")
+
+    def test_toolbox_detect_all_runs_supported_plugins_sequentially(self):
+        toolbox = rmtool.ToolboxTab(
+            FakeConnectionClient(connected=True), rmtool._default_config()
+        )
+        self.addCleanup(toolbox.deleteLater)
+        calls = []
+        pending = []
+
+        for name, section in (
+            ("native", toolbox.native_chinese_section),
+            ("pinyin", toolbox.pinyin_input_section),
+            ("tap", toolbox.tap_page_turn_section),
+            ("mono", toolbox.fast_mono_reading_section),
+        ):
+            def start(*, on_done, show_errors, current_name=name):
+                calls.append((current_name, show_errors))
+                pending.append(on_done)
+
+            patcher = mock.patch.object(
+                section, "_start_status_detection", side_effect=start
             )
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+        toolbox.detect_all_button.click()
+        self.assertEqual(calls, [("native", False)])
+        self.assertEqual(toolbox.detect_all_button.text(), "正在检测 1/4")
+        self.assertFalse(toolbox.detect_all_button.isEnabled())
+
+        for expected in ("pinyin", "tap", "mono"):
+            pending.pop(0)()
+            self.assertEqual(calls[-1], (expected, False))
+
+        pending.pop(0)()
+        self.assertEqual(
+            calls,
+            [
+                ("native", False),
+                ("pinyin", False),
+                ("tap", False),
+                ("mono", False),
+            ],
+        )
+        self.assertEqual(toolbox.detect_all_button.text(), "检测全部插件")
+        self.assertTrue(toolbox.detect_all_button.isEnabled())
+
+    def test_toolbox_detect_all_requires_connection(self):
+        toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
+        self.addCleanup(toolbox.deleteLater)
+
+        self.assertFalse(toolbox.detect_all_button.isEnabled())
+
+    def test_toolbox_browser_stacks_vertically_in_narrow_windows(self):
+        toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
+        self.addCleanup(toolbox.deleteLater)
+        toolbox.show()
+
+        toolbox.resize(740, 600)
+        QtWidgets.QApplication.processEvents()
+        self.assertEqual(toolbox.browser_splitter.orientation(), QtCore.Qt.Vertical)
+
+        toolbox.resize(1000, 600)
+        QtWidgets.QApplication.processEvents()
+        self.assertEqual(toolbox.browser_splitter.orientation(), QtCore.Qt.Horizontal)
 
     def test_all_group_boxes_use_named_parent_titles(self):
         dashboard = rmtool.DashboardTab()
@@ -1316,11 +1413,6 @@ class WallpaperUiTests(unittest.TestCase):
             {
                 "当前设备",
                 "文档概览",
-                "时间管理",
-                "设备控制",
-                "系统汉化",
-                "输入法",
-                "阅读优化与手势",
                 "字体管理",
             },
         )
