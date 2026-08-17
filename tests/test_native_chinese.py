@@ -27,7 +27,7 @@ class NativeChineseTests(unittest.TestCase):
 
     def test_manifest_is_complete_dual_source_three_file_feature(self):
         packages = native.parse_manifest(native.BUNDLED_MANIFEST.read_bytes())
-        self.assertEqual(len(packages), 11)
+        self.assertEqual(len(packages), 12)
         self.assertEqual(
             {
                 (item.platform, item.release_version)
@@ -39,6 +39,7 @@ class NativeChineseTests(unittest.TestCase):
                 ("chiappa", "3.28.0.162"),
                 ("chiappa", "3.28.0.163"),
                 ("chiappa", "3.28.0.164"),
+                ("chiappa", "3.28.0.166"),
                 ("ferrari", "3.27.1.0"),
                 ("ferrari", "3.27.3.0"),
                 ("ferrari", "3.28.0.162"),
@@ -169,11 +170,16 @@ class NativeChineseTests(unittest.TestCase):
             if other is package:
                 continue
             predecessors = native._known_shared_predecessor_specs(other)
+            expected = native.CATALOG_LABEL_PREDECESSORS.get(
+                (other.firmware, other.platform, other.architecture, other.xochitl_sha256)
+            )
+            if expected is None:
+                # Brand-new targets such as Chiappa 3.28.0.166 never had a
+                # published predecessor revision to recognize or repair.
+                self.assertEqual(len(predecessors), 0)
+                continue
             self.assertEqual(len(predecessors), 1)
             self.assertEqual(predecessors[0].reason, "keyboard_label_catalog_missing")
-            expected = native.CATALOG_LABEL_PREDECESSORS[
-                (other.firmware, other.platform, other.architecture, other.xochitl_sha256)
-            ]
             self.assertEqual(predecessors[0].archive_sha256, expected[0])
             catalog = next(
                 item for item in predecessors[0].feature.extra_files

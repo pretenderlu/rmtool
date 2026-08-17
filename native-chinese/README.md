@@ -6,7 +6,7 @@ recorded in `manifest.json`.
 | Device | 3.27.1.0 stable | 3.27.3.0 stable | 3.28.0.162 beta | 3.28.0.163 beta | 3.28.0.164 beta | 3.28.0.166 beta |
 | --- | --- | --- | --- | --- | --- | --- |
 | Paper Pro (`ferrari`) | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | **Device verified** |
-| Paper Pro Move (`chiappa`) | Offline verified | **Device verified** | Offline verified | Offline verified | Offline verified | Waiting for firmware |
+| Paper Pro Move (`chiappa`) | Offline verified | **Device verified** | Offline verified | Offline verified | Offline verified | Offline verified |
 
 It preserves the existing French-slot localization feature. Before enabling
 this plugin, fully restore any managed French-slot localization, including one
@@ -19,8 +19,8 @@ The bold identities have passed real-device language switching and reboot
 checks; Ferrari 3.28.0.166 also passed Chinese input, the `中文` keyboard label,
 passcode cold boot, unlock, emergency fail-open, and normal reboot checks. Every
 other package passed exact firmware, archive, QMD/hashtab, and shared-runtime
-checks offline. Move 3.28.0.166 is not inferred from Paper Pro and will be
-added only after an official image or exact device baseline becomes available.
+checks offline, including Move 3.28.0.166 against the official 3.28.0.166
+firmware image.
 Because stable Chiappa firmware has no stock CJK font, rmtool refuses
 deployment until the active sans-serif font has Simplified Chinese coverage.
 The selected system font can be supplied through rmtool's

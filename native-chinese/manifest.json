@@ -124,6 +124,67 @@
       ]
     },
     {
+      "firmware": "20260806095513",
+      "release_version": "3.28.0.166",
+      "channel": "beta",
+      "platform": "chiappa",
+      "architecture": "aarch64",
+      "xochitl_sha256": "5748eed3bb804c8d3000e833ba472750428b6a82bc09b2bc7b5cf01847336bc7",
+      "offline_verified": true,
+      "device_verified": false,
+      "asset": "rmtool-native-chinese-chiappa-20260806095513-3.28.0.166.tar.gz",
+      "sha256": "27e7f73f9fded3bca9f2014232effded3fbe29dcffece2da4bcd09d5dad654ee",
+      "size": 3890953,
+      "urls": [
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-chiappa-20260806095513-3.28.0.166.tar.gz",
+        "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-chiappa-20260806095513-3.28.0.166.tar.gz"
+      ],
+      "files": [
+        {
+          "path": "extensions.d/native-chinese-translator.so",
+          "sha256": "4408c4ecf1e2774cbbc10374aae544e3d600525663eba8893cdceb83374b8734",
+          "size": 3976,
+          "mode": 420
+        },
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "size": 9496456,
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "sha256": "8a104b5b9c4be82b04609c3c28b7fb131a8ea82f02c76438472a94dcde8ec159",
+          "size": 618898,
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/native-chinese.qmd",
+          "sha256": "38800be2f6954fb95c9dfbbf3f6e29a84dde6183d1d385ff757e37c92e5c9e75",
+          "size": 1569,
+          "mode": 420
+        },
+        {
+          "path": "native-chinese/reMarkable_zh_CN.qm",
+          "sha256": "2e501a66c30addbecada68b6af262ea506440547b478b4e02e7d2a56889446a1",
+          "size": 192400,
+          "mode": 420
+        },
+        {
+          "path": "qmd-tool",
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "size": 1966264,
+          "mode": 493
+        },
+        {
+          "path": "xovi.so",
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "size": 103008,
+          "mode": 420
+        }
+      ]
+    },
+    {
       "firmware": "20260506100933",
       "release_version": "3.27.1.0",
       "channel": "stable",

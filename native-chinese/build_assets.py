@@ -48,6 +48,7 @@ CATALOG_PATHS = {
     ("chiappa", "3.28.0.164"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.164-chiappa.qm",
     ("ferrari", "3.28.0.164"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.164-ferrari.qm",
     ("ferrari", "3.28.0.166"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.166-ferrari.qm",
+    ("chiappa", "3.28.0.166"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.166-chiappa.qm",
 }
 DEFAULT_CACHE_ROOTS = (
     REPO_ROOT / "build/tap-page-turn-166",
