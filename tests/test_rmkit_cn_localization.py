@@ -2969,6 +2969,12 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             "pinyin-input\\manifest.json');pinyin-input", build_script
         )
         self.assertIn(
+            "reading-enhancements\\manifest.json');reading-enhancements", build_script
+        )
+        self.assertIn(
+            "reading-enhancements/manifest.json:reading-enhancements", release_workflow
+        )
+        self.assertIn(
             "pinyin-input/manifest.json:pinyin-input", release_workflow
         )
         self.assertNotIn("translations:translations", release_workflow)

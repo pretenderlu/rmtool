@@ -1846,6 +1846,118 @@ def _stage_shared(
     return launcher_sha, dropin_sha
 
 
+def replace_shared_features(
+    ssh_client,
+    current_runtime: SharedRuntimeSpec,
+    current_trusted: Mapping[str, SharedFeatureSpec],
+    target_runtime: SharedRuntimeSpec,
+    target_trusted: Mapping[str, SharedFeatureSpec],
+    target_states: Mapping[str, SharedFeatureState],
+    incoming_roots: Mapping[str, str | Path],
+    *,
+    legacy_layouts: Iterable[StandaloneLayout] = (),
+) -> SharedInspection:
+    """Atomically replace a verified shared feature set.
+
+    The caller supplies the complete target marker state.  Existing enabled
+    files are copied only after the current tree has passed the trusted
+    inspection, so an unknown or mixed installation is rejected before any
+    live path is changed.  This is deliberately a lower-level transaction;
+    feature-specific modules remain responsible for package selection and
+    migration policy.
+    """
+    with _operation_lock(ssh_client):
+        if not set(current_trusted) <= MIGRATABLE_FEATURE_IDS:
+            raise RuntimeError("共享 Xovi 包含不受支持的功能。")
+        if not set(target_trusted) <= MIGRATABLE_FEATURE_IDS:
+            raise RuntimeError("共享 Xovi 包含不受支持的功能。")
+        if current_runtime != target_runtime:
+            raise RuntimeError("共享 Xovi 运行资源身份不一致，拒绝替换。")
+        assert_feature_layout(current_runtime, current_trusted.values())
+        assert_feature_layout(target_runtime, target_trusted.values())
+        if set(target_states) - set(target_trusted):
+            raise RuntimeError("目标共享 Xovi 状态包含未知功能。")
+        for feature_id, state in target_states.items():
+            if state.spec != target_trusted[feature_id]:
+                raise RuntimeError("目标共享 Xovi 状态与信任清单不一致。")
+
+        legacy_layouts = tuple(legacy_layouts)
+        _assert_managed_dropins(
+            ssh_client,
+            (SHARED_LAYOUT.dropin_path, *(item.dropin_path for item in legacy_layouts)),
+        )
+        shared_exists = has_shared_artifacts(ssh_client)
+        inspection = (
+            inspect_shared(
+                ssh_client, current_runtime, current_trusted, check_lower=True
+            )
+            if shared_exists
+            else SharedInspection({}, False, False)
+        )
+        if not shared_exists and inspection.states:
+            raise RuntimeError("共享 Xovi 初始状态无效。")
+        if inspection.layout != SHARED_LAYOUT and shared_exists:
+            # The legacy layout is accepted only as a fully inspected source;
+            # the transaction will move it to the current /data layout.
+            legacy_layouts = tuple(dict.fromkeys((*legacy_layouts, inspection.layout)))
+
+        previous_sources = {
+            item.runtime_path: f"{inspection.layout.remote_base}/{item.runtime_path}"
+            for state in inspection.states.values()
+            if state.enabled
+            for item in state.spec.files
+        }
+        previous_sources.update({
+            state.spec.feature_id: f"{inspection.layout.remote_base}/{state.spec.runtime_path}"
+            for state in inspection.states.values()
+            if state.enabled
+        })
+        enabled = tuple(state.spec for state in target_states.values() if state.enabled)
+        if enabled and not incoming_roots and not previous_sources:
+            raise RuntimeError("目标共享 Xovi 缺少可验证的资源来源。")
+        for state in target_states.values():
+            if not state.enabled:
+                continue
+            if state.spec.feature_id not in incoming_roots and not any(
+                item.runtime_path in previous_sources for item in state.spec.files
+            ):
+                raise RuntimeError(f"无法从已验证安装中保留 {state.spec.feature_id}。")
+
+        token = uuid.uuid4().hex
+        stage = f"{SHARED_LAYOUT.remote_base}.staging-{token}"
+        remote_script = f"/tmp/rmtool-xovi-replace-{token}.sh"
+        ssh_client.exec_checked(f"rm -rf {shlex.quote(stage)}")
+        try:
+            _stage_shared(
+                ssh_client,
+                target_runtime,
+                target_states,
+                {feature_id: Path(root) for feature_id, root in incoming_roots.items()},
+                previous_sources,
+                stage,
+            )
+            script = shared_transaction_script(
+                stage,
+                token,
+                legacy_layouts,
+                enable_dropin=bool(enabled),
+            )
+            _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
+            ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
+        except Exception:
+            try:
+                ssh_client.exec_checked(f"rm -rf {shlex.quote(stage)}")
+            except Exception:
+                logging.exception("Could not clean shared Xovi replacement staging directory")
+            raise
+        finally:
+            try:
+                ssh_client.exec_checked(f"rm -f {shlex.quote(remote_script)}")
+            except Exception:
+                logging.exception("Could not remove shared Xovi replacement script")
+        return inspect_shared(ssh_client, target_runtime, target_trusted)
+
+
 def enable_shared(
     ssh_client,
     runtime: SharedRuntimeSpec,
@@ -1875,6 +1987,7 @@ def _enable_shared_locked(
         "pinyin-input",
         "appload",
         "koreader",
+        "reading-enhancements",
     }:
         raise RuntimeError("共享 Xovi 包含不受支持的功能。")
     assert_feature_layout(runtime, trusted.values())
@@ -2178,11 +2291,18 @@ def remove_shared_firmware_residue(
     return SharedInspection({}, False, False)
 
 
-# The migration driver can fetch and stage these features end to end. Any
-# other enabled residue feature (for example AppLoad) blocks migration and
-# must be handled through its own page first.
+# The migration driver can fetch and stage these features end to end. Feature
+# modules still decide which exact package revisions are trusted.
 MIGRATABLE_FEATURE_IDS = frozenset(
-    {"tap-page-turn", "fast-mono-reading", "native-chinese", "pinyin-input"}
+    {
+        "tap-page-turn",
+        "fast-mono-reading",
+        "native-chinese",
+        "pinyin-input",
+        "appload",
+        "koreader",
+        "reading-enhancements",
+    }
 )
 
 

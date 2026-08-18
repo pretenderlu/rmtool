@@ -33,6 +33,7 @@ import _legacy_vellum
 import _native_chinese
 import _residue_migration
 import _pinyin_input
+import _reading_enhancements
 import _rmkit_cn
 import _ssh
 import _tap_page_turn
@@ -1268,7 +1269,7 @@ class WallpaperUiTests(unittest.TestCase):
         toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
         self.addCleanup(toolbox.deleteLater)
 
-        self.assertEqual(toolbox.tool_table.rowCount(), 7)
+        self.assertEqual(toolbox.tool_table.rowCount(), 6)
         self.assertEqual(
             [
                 toolbox.tool_table.item(row, 0).text()
@@ -1277,8 +1278,7 @@ class WallpaperUiTests(unittest.TestCase):
             [
                 "原生简体中文",
                 "拼音输入法",
-                "点击翻页",
-                "快速黑白阅读",
+                "阅读增强",
                 "时间管理",
                 "设备控制",
                 "旧版插件迁移/清理",
@@ -1287,7 +1287,7 @@ class WallpaperUiTests(unittest.TestCase):
         toolbox.tool_table.setCurrentCell(2, 0)
         self.assertTrue(
             toolbox.detail_stack.currentWidget().isAncestorOf(
-                toolbox.tap_page_turn_section
+                toolbox.reading_enhancements_section
             )
         )
 
@@ -1314,7 +1314,7 @@ class WallpaperUiTests(unittest.TestCase):
                 for row in range(toolbox.tool_table.rowCount())
                 if not toolbox.tool_table.isRowHidden(row)
             ],
-            [2, 3],
+            [2],
         )
         self.assertEqual(toolbox.tool_table.currentRow(), 2)
 
@@ -1330,6 +1330,30 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertEqual(toolbox.tool_table.item(0, 1).text(), "已启用")
         toolbox.native_chinese_section.status_label.setText("检测到不完整安装")
         self.assertEqual(toolbox.tool_table.item(0, 1).text(), "需处理")
+        toolbox.reading_enhancements_section.status_label.setText(
+            "检测到旧版阅读功能，可迁移"
+        )
+        self.assertEqual(toolbox.tool_table.item(2, 1).text(), "可迁移")
+
+    def test_reading_enhancements_exposes_user_facing_explanation(self):
+        section = _tab_toolbox.ReadingEnhancementsSection(
+            FakeConnectionClient(connected=True, host="10.11.99.1")
+        )
+        self.addCleanup(section.deleteLater)
+        package = self.reading_enhancements_packages()[0]
+        identity = _reading_enhancements.DeviceIdentity(
+            package.firmware, package.platform, package.architecture, package.xochitl_sha256
+        )
+        section._apply_status(
+            _reading_enhancements.ReadingEnhancementsStatus(
+                _reading_enhancements.ReadingEnhancementsState.ENABLED,
+                identity, package, (package,), recovery_available=True
+            )
+        )
+        with mock.patch.object(_tab_toolbox, "show_info") as show_info:
+            section.explain_button.click()
+        self.assertIn("PDF 和 EPUB", show_info.call_args.args[2])
+        self.assertIn("设置 > 阅读增强", show_info.call_args.args[2])
 
     def test_toolbox_detect_all_runs_supported_plugins_sequentially(self):
         toolbox = rmtool.ToolboxTab(
@@ -1342,8 +1366,7 @@ class WallpaperUiTests(unittest.TestCase):
         for name, section in (
             ("native", toolbox.native_chinese_section),
             ("pinyin", toolbox.pinyin_input_section),
-            ("tap", toolbox.tap_page_turn_section),
-            ("mono", toolbox.fast_mono_reading_section),
+            ("reading", toolbox.reading_enhancements_section),
         ):
             def start(*, on_done, show_errors, current_name=name):
                 calls.append((current_name, show_errors))
@@ -1357,10 +1380,10 @@ class WallpaperUiTests(unittest.TestCase):
 
         toolbox.detect_all_button.click()
         self.assertEqual(calls, [("native", False)])
-        self.assertEqual(toolbox.detect_all_button.text(), "正在检测 1/4")
+        self.assertEqual(toolbox.detect_all_button.text(), "正在检测 1/3")
         self.assertFalse(toolbox.detect_all_button.isEnabled())
 
-        for expected in ("pinyin", "tap", "mono"):
+        for expected in ("pinyin", "reading"):
             pending.pop(0)()
             self.assertEqual(calls[-1], (expected, False))
 
@@ -1370,8 +1393,7 @@ class WallpaperUiTests(unittest.TestCase):
             [
                 ("native", False),
                 ("pinyin", False),
-                ("tap", False),
-                ("mono", False),
+                ("reading", False),
             ],
         )
         self.assertEqual(toolbox.detect_all_button.text(), "检测全部插件")
@@ -1421,7 +1443,8 @@ class WallpaperUiTests(unittest.TestCase):
     def test_toolbox_feature_titles_share_one_semantic_selector(self):
         sections = (
             (_tab_toolbox.RmkitCnSection, "原生界面中文"),
-                (_tab_toolbox.NativeChineseSection, "原生简体中文"),
+            (_tab_toolbox.NativeChineseSection, "原生简体中文"),
+            (_tab_toolbox.ReadingEnhancementsSection, "阅读增强"),
             (_tab_toolbox.TapPageTurnSection, "点击翻页"),
             (_tab_toolbox.FastMonoReadingSection, "快速黑白阅读"),
         )
@@ -1731,6 +1754,193 @@ class WallpaperUiTests(unittest.TestCase):
         )
         self.assertTrue(section.other_packages_button.isHidden())
         self.assertTrue(section.other_packages_label.isHidden())
+
+    @staticmethod
+    def reading_enhancements_packages():
+        return _reading_enhancements.parse_manifest(
+            Path("reading-enhancements/manifest.json").read_bytes(),
+            require_local_match=False,
+        )
+
+    def test_reading_enhancements_section_lists_exact_package_and_collapses_versions(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.ReadingEnhancementsSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.reading_enhancements_packages()[0]
+        other_same_hardware = replace(
+            package,
+            firmware="20260806095514",
+            release_version="3.28.0.170",
+            xochitl_sha256="a" * 64,
+        )
+        other_hardware = self.reading_enhancements_packages()[1]
+        identity = _reading_enhancements.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        section._apply_status(
+            _reading_enhancements.ReadingEnhancementsStatus(
+                _reading_enhancements.ReadingEnhancementsState.NOT_INSTALLED,
+                identity,
+                package,
+                (other_same_hardware, package, other_hardware),
+            )
+        )
+        self.assertEqual(
+            section.findChild(QtWidgets.QLabel, "toolboxFeatureTitle").text(),
+            "阅读增强",
+        )
+        self.assertIn(package.release_version, section.catalog_label.text())
+        self.assertIn({"stable": "正式版", "beta": "测试版"}[package.channel], section.catalog_label.text())
+        self.assertNotIn(other_same_hardware.firmware, section.catalog_label.text())
+        self.assertEqual(section.other_packages_button.text(), "其他固件版本（1） ›")
+        section.other_packages_button.click()
+        self.assertIn(other_same_hardware.firmware, section.other_packages_label.text())
+        self.assertNotIn(other_hardware.firmware, section.other_packages_label.text())
+
+    def test_reading_enhancements_status_and_button_states(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.ReadingEnhancementsSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.reading_enhancements_packages()[0]
+        identity = _reading_enhancements.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+
+        def apply(state, recovery=False):
+            section._apply_status(
+                _reading_enhancements.ReadingEnhancementsStatus(
+                    state, identity, package, (package,), recovery_available=recovery
+                )
+            )
+
+        apply(_reading_enhancements.ReadingEnhancementsState.NOT_INSTALLED)
+        self.assertTrue(section.install_button.isEnabled())
+        self.assertEqual(section.install_button.text(), "安装阅读增强")
+        apply(_reading_enhancements.ReadingEnhancementsState.MIGRATION_AVAILABLE)
+        self.assertTrue(section.install_button.isEnabled())
+        self.assertEqual(section.install_button.text(), "迁移到阅读增强")
+        self.assertIn("可迁移", section.status_label.text())
+        apply(_reading_enhancements.ReadingEnhancementsState.REPAIR_AVAILABLE, recovery=True)
+        self.assertTrue(section.install_button.isEnabled())
+        self.assertTrue(section.disable_button.isEnabled())
+        self.assertEqual(section.install_button.text(), "修复阅读增强")
+        self.assertIn("可安全修复", section.status_label.text())
+        apply(_reading_enhancements.ReadingEnhancementsState.INSTALLED_DISABLED)
+        self.assertTrue(section.install_button.isEnabled())
+        self.assertEqual(section.install_button.text(), "重新启用")
+        apply(_reading_enhancements.ReadingEnhancementsState.ENABLED, recovery=True)
+        self.assertFalse(section.install_button.isEnabled())
+        self.assertTrue(section.disable_button.isEnabled())
+        apply(_reading_enhancements.ReadingEnhancementsState.INCOMPATIBLE)
+        self.assertFalse(section.install_button.isEnabled())
+        self.assertFalse(section.disable_button.isEnabled())
+
+    def test_reading_enhancements_clean_install_closes_ssh_and_requires_manual_restart(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.ReadingEnhancementsSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.reading_enhancements_packages()[0]
+        identity = _reading_enhancements.DeviceIdentity(
+            package.firmware, package.platform, package.architecture, package.xochitl_sha256
+        )
+        section._apply_status(
+            _reading_enhancements.ReadingEnhancementsStatus(
+                _reading_enhancements.ReadingEnhancementsState.NOT_INSTALLED,
+                identity, package, (package,)
+            )
+        )
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+        result = _reading_enhancements.ReadingEnhancementsStatus(
+            _reading_enhancements.ReadingEnhancementsState.ENABLE_PENDING_REBOOT,
+            identity, package, (package,), recovery_available=True
+        )
+        with mock.patch.object(_tab_toolbox, "ask_confirmation", return_value=True) as ask, mock.patch.object(
+            rmtool, "app_state_dir", return_value=Path("state")
+        ), mock.patch.object(rmtool, "Worker", return_value=worker) as worker_cls, mock.patch.object(
+            section.thread_pool, "start"
+        ), mock.patch.object(_tab_toolbox, "show_info") as show_info:
+            section._install()
+            worker.signals.finished.connect.call_args.args[0](result)
+        worker_cls.assert_called_once_with(
+            _tab_toolbox._install_reading_enhancements, client, package, "state", False
+        )
+        self.assertEqual(client.close_calls, 1)
+        self.assertIn("设置 > 阅读增强", ask.call_args.args[2])
+        self.assertIn("手动重启", ask.call_args.args[2])
+        message = show_info.call_args.args[2]
+        self.assertIn("手动重启", message)
+        self.assertIn("设置 > 阅读增强", message)
+        self.assertNotIn("自动重启", message)
+
+    def test_reading_enhancements_migration_uses_safe_default_copy(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.ReadingEnhancementsSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.reading_enhancements_packages()[0]
+        identity = _reading_enhancements.DeviceIdentity(
+            package.firmware, package.platform, package.architecture, package.xochitl_sha256
+        )
+        section._apply_status(
+            _reading_enhancements.ReadingEnhancementsStatus(
+                _reading_enhancements.ReadingEnhancementsState.MIGRATION_AVAILABLE,
+                identity, package, (package,)
+            )
+        )
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+        result = _reading_enhancements.ReadingEnhancementsStatus(
+            _reading_enhancements.ReadingEnhancementsState.ENABLE_PENDING_REBOOT,
+            identity, package, (package,), recovery_available=True
+        )
+        with mock.patch.object(_tab_toolbox, "ask_confirmation", return_value=True) as ask, mock.patch.object(
+            rmtool, "Worker", return_value=worker
+        ) as worker_cls, mock.patch.object(section.thread_pool, "start"), mock.patch.object(
+            _tab_toolbox, "show_info"
+        ):
+            section._install()
+            worker.signals.finished.connect.call_args.args[0](result)
+        self.assertIn("迁移不会沿用旧版开关状态", ask.call_args.args[2])
+        self.assertEqual(worker_cls.call_args.args[-1], True)
+        self.assertEqual(client.close_calls, 1)
+
+    def test_reading_enhancements_disable_uses_backend_and_closes_ssh(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.ReadingEnhancementsSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.reading_enhancements_packages()[0]
+        identity = _reading_enhancements.DeviceIdentity(
+            package.firmware, package.platform, package.architecture, package.xochitl_sha256
+        )
+        section._apply_status(
+            _reading_enhancements.ReadingEnhancementsStatus(
+                _reading_enhancements.ReadingEnhancementsState.ENABLED,
+                identity, package, (package,), recovery_available=True
+            )
+        )
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+        with mock.patch.object(_tab_toolbox, "ask_confirmation", return_value=True), mock.patch.object(
+            rmtool, "Worker", return_value=worker
+        ) as worker_cls, mock.patch.object(section.thread_pool, "start"), mock.patch.object(
+            _tab_toolbox, "show_info"
+        ) as show_info:
+            section._disable()
+            worker.signals.finished.connect.call_args.args[0](
+                _reading_enhancements.ReadingEnhancementsStatus(
+                    _reading_enhancements.ReadingEnhancementsState.DISABLE_PENDING_REBOOT,
+                    identity, package, (package,), recovery_available=True
+                )
+            )
+        worker_cls.assert_called_once_with(_reading_enhancements.disable, client, (package,))
+        self.assertEqual(client.close_calls, 1)
+        self.assertIn("手动重启", show_info.call_args.args[2])
 
     def test_tap_page_turn_section_collapses_other_same_hardware_versions(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")
