@@ -55,12 +55,26 @@ CHIAPPA_166_IDENTITY = (
     "aarch64",
     "5748eed3bb804c8d3000e833ba472750428b6a82bc09b2bc7b5cf01847336bc7",
 )
+FERRARI_169_IDENTITY = (
+    "20260806095513",
+    "ferrari",
+    "aarch64",
+    "43a9d5d0acc5b998264c16586e11b848f3b83d2d63b5fd322b09c0977d94d3d4",
+)
+CHIAPPA_169_IDENTITY = (
+    "20260806095513",
+    "chiappa",
+    "aarch64",
+    "6361610111c381ce730a8bfcc889bd933ef5fef173563a9156e435233714e7ee",
+)
 # Kept for callers/tests that use the first exact target as a fixture.
 SUPPORTED_IDENTITY = FERRARI_166_IDENTITY
 ALLOWED_TARGETS = {
     FERRARI_166_IDENTITY: ("3.28.0.166", "beta", True, True),
     CHIAPPA_3273_IDENTITY: ("3.27.3.0", "stable", True, True),
     CHIAPPA_166_IDENTITY: ("3.28.0.166", "beta", True, False),
+    FERRARI_169_IDENTITY: ("3.28.0.169", "beta", True, False),
+    CHIAPPA_169_IDENTITY: ("3.28.0.169", "beta", True, False),
     (
         "20260506100933",
         "chiappa",

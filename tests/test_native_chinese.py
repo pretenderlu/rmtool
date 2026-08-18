@@ -27,7 +27,7 @@ class NativeChineseTests(unittest.TestCase):
 
     def test_manifest_is_complete_dual_source_three_file_feature(self):
         packages = native.parse_manifest(native.BUNDLED_MANIFEST.read_bytes())
-        self.assertEqual(len(packages), 12)
+        self.assertEqual(len(packages), 14)
         self.assertEqual(
             {
                 (item.platform, item.release_version)
@@ -40,12 +40,14 @@ class NativeChineseTests(unittest.TestCase):
                 ("chiappa", "3.28.0.163"),
                 ("chiappa", "3.28.0.164"),
                 ("chiappa", "3.28.0.166"),
+                ("chiappa", "3.28.0.169"),
                 ("ferrari", "3.27.1.0"),
                 ("ferrari", "3.27.3.0"),
                 ("ferrari", "3.28.0.162"),
                 ("ferrari", "3.28.0.163"),
                 ("ferrari", "3.28.0.164"),
                 ("ferrari", "3.28.0.166"),
+                ("ferrari", "3.28.0.169"),
             },
         )
         self.assertTrue(all(item.offline_verified for item in packages))
