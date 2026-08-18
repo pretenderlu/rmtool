@@ -49,6 +49,10 @@ CATALOG_PATHS = {
     ("ferrari", "3.28.0.164"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.164-ferrari.qm",
     ("ferrari", "3.28.0.166"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.166-ferrari.qm",
     ("chiappa", "3.28.0.166"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.166-chiappa.qm",
+    # 3.28.0.169 ships byte-identical stock catalogs on both platforms, so the
+    # exact 3.28.0.166 Chinese catalogs apply unchanged.
+    ("ferrari", "3.28.0.169"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.166-ferrari.qm",
+    ("chiappa", "3.28.0.169"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.166-chiappa.qm",
 }
 DEFAULT_CACHE_ROOTS = (
     REPO_ROOT / "build/tap-page-turn-166",
@@ -114,8 +118,13 @@ def _catalog_bytes(
     records: dict[tuple[str, str, str], tuple[int, str]],
 ) -> bytes:
     path = CATALOG_PATHS.get((package.platform, package.release_version))
+    # 3.28.0.169 keeps the exact 3.28.0.166 stock carrier bytes, so its catalog
+    # is gated by the 3.28.0.166 localization record.
+    release = package.release_version
+    if release == "3.28.0.169":
+        release = "3.28.0.166"
     expected = records.get(
-        (package.platform, package.release_version, package.firmware)
+        (package.platform, release, package.firmware)
     )
     if path is None or expected is None:
         raise RuntimeError(

@@ -78,6 +78,8 @@ ALLOWED_TARGETS = {
     ("20260702125656", "ferrari", "aarch64", "113bf7ea62ad171ea03c77c1f90e0666bcff163242a22ebca84372533b270c1c"): ("3.28.0.164", "beta", True, False),
     (SUPPORTED_IDENTITY.firmware, SUPPORTED_IDENTITY.platform, SUPPORTED_IDENTITY.architecture, SUPPORTED_IDENTITY.xochitl_sha256): ("3.28.0.166", "beta", True, True),
     ("20260806095513", "chiappa", "aarch64", "5748eed3bb804c8d3000e833ba472750428b6a82bc09b2bc7b5cf01847336bc7"): ("3.28.0.166", "beta", True, False),
+    ("20260806095513", "ferrari", "aarch64", "43a9d5d0acc5b998264c16586e11b848f3b83d2d63b5fd322b09c0977d94d3d4"): ("3.28.0.169", "beta", True, False),
+    ("20260806095513", "chiappa", "aarch64", "6361610111c381ce730a8bfcc889bd933ef5fef173563a9156e435233714e7ee"): ("3.28.0.169", "beta", True, False),
 }
 EXPECTED_ASSETS = {
     identity: f"rmtool-pinyin-input-{identity[1]}-{identity[0]}-{policy[0]}.tar.gz"

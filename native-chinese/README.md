@@ -3,10 +3,10 @@
 Packages are gated to the exact firmware identity and stock xochitl SHA-256
 recorded in `manifest.json`.
 
-| Device | 3.27.1.0 stable | 3.27.3.0 stable | 3.28.0.162 beta | 3.28.0.163 beta | 3.28.0.164 beta | 3.28.0.166 beta |
-| --- | --- | --- | --- | --- | --- | --- |
-| Paper Pro (`ferrari`) | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | **Device verified** |
-| Paper Pro Move (`chiappa`) | Offline verified | **Device verified** | Offline verified | Offline verified | Offline verified | Offline verified |
+| Device | 3.27.1.0 stable | 3.27.3.0 stable | 3.28.0.162 beta | 3.28.0.163 beta | 3.28.0.164 beta | 3.28.0.166 beta | 3.28.0.169 beta |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Paper Pro (`ferrari`) | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | **Device verified** | Offline verified |
+| Paper Pro Move (`chiappa`) | Offline verified | **Device verified** | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
 
 It preserves the existing French-slot localization feature. Before enabling
 this plugin, fully restore any managed French-slot localization, including one

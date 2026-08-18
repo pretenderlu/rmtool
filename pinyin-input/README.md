@@ -3,8 +3,8 @@
 This package ports the offline Pinyin input components from
 [boangs/rmkit](https://github.com/boangs/rmkit) into rmtool's shared Xovi
 runtime. The exact matrix covers Paper Pro and Move from 3.27.1.0 through
-3.28.0.166. Paper Pro 3.28.0.166 is device verified; the other eleven targets
-are verified offline against official firmware.
+3.28.0.169. Paper Pro 3.28.0.166 is device verified; the other thirteen
+targets are verified offline against official firmware.
 
 The package includes rmkit's `pinyin_interceptor.qmd`, `ime_hook.so`,
 `zh_CN.rcc`, and `ime-server` with the upstream GPL-3.0 license and notice.

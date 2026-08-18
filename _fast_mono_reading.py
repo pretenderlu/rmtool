@@ -106,6 +106,18 @@ ALLOWED_TARGETS = {
         "aarch64",
         "5748eed3bb804c8d3000e833ba472750428b6a82bc09b2bc7b5cf01847336bc7",
     ): ("3.28.0.166", "beta", True, False),
+    (
+        "ferrari",
+        "20260806095513",
+        "aarch64",
+        "43a9d5d0acc5b998264c16586e11b848f3b83d2d63b5fd322b09c0977d94d3d4",
+    ): ("3.28.0.169", "beta", True, False),
+    (
+        "chiappa",
+        "20260806095513",
+        "aarch64",
+        "6361610111c381ce730a8bfcc889bd933ef5fef173563a9156e435233714e7ee",
+    ): ("3.28.0.169", "beta", True, False),
 }
 
 REMOTE_BASE = "/home/root/.local/share/rmtool/fast-mono-reading"

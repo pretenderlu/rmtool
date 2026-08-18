@@ -108,6 +108,11 @@ byte-identical to `3.28.0.164`:
 The Ferrari catalog compiles 2015 finished messages; the Chiappa catalog
 compiles 1982 finished messages. Neither contains unfinished or empty entries.
 
+Beta `3.28.0.169` keeps the internal version `20260806095513` and ships
+byte-identical English, French, German, and Spanish catalogs on both
+platforms, so the exact `3.28.0.166` assets and carrier hashes above apply
+unchanged and no separate localization entry is registered.
+
 Paper Pro (Ferrari) enable and restore were validated on a real device.
 Paper Pro Move (Chiappa), Paper Pure (Tatsu), RM1, and RM2 `3.27.3.0` were
 validated offline against official firmware only and remain pending

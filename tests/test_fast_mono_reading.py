@@ -152,7 +152,7 @@ class FastMonoReadingTests(unittest.TestCase):
             for package in packages
         }
         self.assertEqual(identities, fast.ALLOWED_TARGETS)
-        self.assertEqual(len(packages), 12)
+        self.assertEqual(len(packages), 14)
         self.assertTrue(all(package.offline_verified for package in packages))
         self.assertFalse(any(package.device_verified for package in packages))
         self.assertEqual({package.channel for package in packages}, {"stable", "beta"})

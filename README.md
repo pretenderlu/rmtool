@@ -154,15 +154,15 @@ The normal workflow is to click "Enable Chinese" and let rmtool download and ins
 
 The platform code is the hardware identifier used inside official firmware packages. It is separate from the 14-digit internal firmware version shown in each column.
 
-| Device model | Platform code | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| reMarkable Paper Pro | `ferrari` | Supported | Supported | Supported | Supported | Supported | Supported |
-| reMarkable Paper Pro Move | `chiappa` | Supported | Supported | Supported | Supported | Supported | Supported |
-| reMarkable Paper Pure | `tatsu` | Not available | Supported | Not available | Not available | Not available | Not available |
-| reMarkable 1 | `rm1` | Not available | Supported | Not available | Not available | Not available | Not available |
-| reMarkable 2 | `rm2` | Not available | Supported | Not available | Not available | Not available | Not available |
+| Device model | Platform code | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) | 3.28.0.169 beta (`20260806095513`) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| reMarkable Paper Pro | `ferrari` | Supported | Supported | Supported | Supported | Supported | Supported | Supported |
+| reMarkable Paper Pro Move | `chiappa` | Supported | Supported | Supported | Supported | Supported | Supported | Supported |
+| reMarkable Paper Pure | `tatsu` | Not available | Supported | Not available | Not available | Not available | Not available | Not supported |
+| reMarkable 1 | `rm1` | Not available | Supported | Not available | Not available | Not available | Not available | Not supported |
+| reMarkable 2 | `rm2` | Not available | Supported | Not available | Not available | Not available | Not available | Not supported |
 
-Enable and restore have been verified on a real Paper Pro (`ferrari`) for 3.28.0.162 and 3.28.0.163. The 3.28.0.164 packages, Paper Pro Move (`chiappa`) beta support (including 3.28.0.166), and the listed 3.27.3 packages for Paper Pro Move, Paper Pure (`tatsu`), reMarkable 1 (`rm1`), and reMarkable 2 (`rm2`) have been validated offline against official firmware but not yet deployed to those devices. Versions 3.28.0.163 and 3.28.0.164 share the same internal version, so rmtool distinguishes them by the exact stock French catalog hash instead of the version string alone. The cloud manifest remains the source of truth for actual availability. See the [localization documentation](translations/README.md) and [manifest format](translations/manifest.json).
+Enable and restore have been verified on a real Paper Pro (`ferrari`) for 3.28.0.162 and 3.28.0.163. The 3.28.0.164 packages, Paper Pro Move (`chiappa`) beta support (including 3.28.0.166 and 3.28.0.169), and the listed 3.27.3 packages for Paper Pro Move, Paper Pure (`tatsu`), reMarkable 1 (`rm1`), and reMarkable 2 (`rm2`) have been validated offline against official firmware but not yet deployed to those devices. Versions 3.28.0.163 and 3.28.0.164, like 3.28.0.166 and 3.28.0.169, share the same internal version, so rmtool distinguishes them by the exact stock French catalog hash instead of the version string alone; 3.28.0.169 also ships the byte-identical stock carrier, so the same localization assets apply. The cloud manifest remains the source of truth for actual availability. See the [localization documentation](translations/README.md) and [manifest format](translations/manifest.json).
 
 The established localization path reuses xochitl's built-in French language slot, so French is unavailable while Chinese is enabled. rmtool first backs up the original configuration and `reMarkable_fr.qm`, then checks whether the current primary font supports Simplified Chinese. The official reMarkable 1 and reMarkable 2 firmware images contain no CJK fonts, so this fallback is required. If the current primary font does not support Chinese, you can install the bundled Noto Sans CJK SC or select a local TTF/OTF file. The selected UI font remains managed under `/home`; one verified active copy is stored under `/data/rmtool/fonts`, while only `/etc/fonts/conf.d/99-rmtool-ui-font.conf` is persisted on the root filesystem. This keeps the same font available on the passcode screen before encrypted `/home` is unlocked without consuming root space with a full font. After enabling localization, applying or repairing fonts, or restoring the original UI, rmtool closes SSH and **does not restart the device automatically**. After enabling Chinese, restart the device manually, then open Settings > Language and select French to activate the Chinese UI. Restoring the original UI only requires the prompted restart.
 
@@ -170,10 +170,10 @@ The established localization path reuses xochitl's built-in French language slot
 
 Exact-build plugins add an independent **Simplified Chinese** language option while preserving French:
 
-| Device | 3.27.1 stable | 3.27.3 stable | 3.28.162 beta | 3.28.163 beta | 3.28.164 beta | 3.28.166 beta |
-| --- | --- | --- | --- | --- | --- | --- |
-| Paper Pro (`ferrari`) | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | **Device verified** |
-| Paper Pro Move (`chiappa`) | Offline verified | **Device verified** | Offline verified | Offline verified | Offline verified | Offline verified |
+| Device | 3.27.1 stable | 3.27.3 stable | 3.28.162 beta | 3.28.163 beta | 3.28.164 beta | 3.28.166 beta | 3.28.169 beta |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Paper Pro (`ferrari`) | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | **Device verified** | Offline verified |
+| Paper Pro Move (`chiappa`) | Offline verified | **Device verified** | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
 
 The Move stable package has passed real-device installation, language switching, reboot, and removal tests. It remains gated to the exact official xochitl hash. Its stock firmware has no CJK font, so rmtool requires a Chinese-capable active system font before deployment and refuses without writing when coverage is missing.
 
@@ -181,7 +181,7 @@ The independent plugin and French-slot localization cannot be active together. T
 
 ### Offline Pinyin input
 
-Exact packages cover Paper Pro and Paper Pro Move `3.27.1.0`, `3.27.3.0`, `3.28.0.162`, `3.28.0.163`, `3.28.0.164`, and `3.28.0.166`. Every package is gated by hardware, architecture, internal firmware, and xochitl SHA-256. Paper Pro `3.28.0.166` is device verified; the other eleven targets are offline verified against official firmware.
+Exact packages cover Paper Pro and Paper Pro Move `3.27.1.0`, `3.27.3.0`, `3.28.0.162`, `3.28.0.163`, `3.28.0.164`, `3.28.0.166`, and `3.28.0.169`. Every package is gated by hardware, architecture, internal firmware, and xochitl SHA-256. Paper Pro `3.28.0.166` is device verified; the other thirteen targets are offline verified against official firmware.
 
 The GPL-3.0 components ported from [boangs/rmkit](https://github.com/boangs/rmkit) comprise a QMLDiff candidate bar, a small input hook, the `zh_CN` keyboard-layout resource, and a local `rime-frost` dictionary server. The hook and validated keyboard resource join the rmtool shared-Xovi runtime only while Pinyin is enabled. Every exact native-Chinese catalog resolves the stock `LanguageAndKeyboard / Chinese` label as `中文`; keyboard-label ownership stays out of all QMDs. The dictionary server is kept under `/home/root/.local/share/rmtool/pinyin-input`, and installation preserves every peer feature without restarting xochitl or the device. Only the previously installed Paper Pro `3.28.0.166` revisions are accepted for bounded repair; newly supported targets do not inherit those predecessor rules.
 
@@ -189,13 +189,13 @@ The GPL-3.0 components ported from [boangs/rmkit](https://github.com/boangs/rmki
 
 Tap-to-turn is available for the exact builds below. rmtool requires a match for the hardware platform, CPU architecture, internal firmware version, and `/usr/bin/xochitl` SHA-256. Other devices and firmware versions are rejected rather than guessed.
 
-| Device model | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| reMarkable Paper Pro | `ferrari` | Offline verified | Offline verified | **Device verified** | **Device verified** | Offline verified | Offline verified |
-| reMarkable Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
-| reMarkable Paper Pure | `tatsu` | Not available | Offline verified | Not available | Not available | Not available | Not available |
-| reMarkable 1 | `rm1` | Not available | Offline verified | Not available | Not available | Not available | Not available |
-| reMarkable 2 | `rm2` | Not available | Offline verified | Not available | Not available | Not available | Not available |
+| Device model | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) | 3.28.0.169 beta (`20260806095513`) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| reMarkable Paper Pro | `ferrari` | Offline verified | Offline verified | **Device verified** | **Device verified** | Offline verified | Offline verified | Offline verified |
+| reMarkable Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
+| reMarkable Paper Pure | `tatsu` | Not available | Offline verified | Not available | Not available | Not available | Not available | Not supported |
+| reMarkable 1 | `rm1` | Not available | Offline verified | Not available | Not available | Not available | Not available | Not supported |
+| reMarkable 2 | `rm2` | Not available | Offline verified | Not available | Not available | Not available | Not available | Not supported |
 
 "Offline verified" means the package passed extraction, QMLDiff compatibility, patch replay, architecture, archive, and hash checks against the corresponding official firmware. Only Paper Pro 3.28 has completed enable, disable, rollback, and cold-boot testing on a physical device so far.
 
@@ -209,10 +209,10 @@ All new feature installations use one rmtool-owned shared Xovi/QRR runtime. rmto
 
 Fast monochrome reading is available for the exact color-device builds below. rmtool requires the platform, architecture, internal firmware version, and stock `/usr/bin/xochitl` SHA-256 to match its local allowlist; a same-version but modified xochitl is rejected.
 
-| Device model | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| reMarkable Paper Pro | `ferrari` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
-| reMarkable Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
+| Device model | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) | 3.28.0.169 beta (`20260806095513`) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| reMarkable Paper Pro | `ferrari` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
+| reMarkable Paper Pro Move | `chiappa` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
 
 "Offline verified" means the package passed qmd-tool hash checks, QMLDiff compatibility, patch replay, patched-QML assertions, archive validation, and deterministic rebuild against recovered official firmware. The earlier Move 3.27.3 fast-mono behavior passed real-device tests, but the new r3 package with periodic cleanup and a native foldout selector remains offline verified until the complete package is tested again.
 
