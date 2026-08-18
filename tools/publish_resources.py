@@ -93,6 +93,25 @@ RESOURCES = {
                 "https://github.com/pretenderlu/rmtool/releases/download/pinyin-input-assets",
             ),
         ),
+        Resource(
+            "reading-enhancements",
+            "reading-enhancements-assets",
+            ROOT / "reading-enhancements" / "manifest.json",
+            "reading-enhancements",
+            "rmtool-reading-enhancements-",
+            frozenset(
+                {
+                    "offline_verified",
+                    "device_verified",
+                    "package_revision",
+                    "urls",
+                }
+            ),
+            (
+                f"{COS_PUBLIC_BASE_URL}/reading-enhancements",
+                "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets",
+            ),
+        ),
     )
 }
 
@@ -289,16 +308,21 @@ def _validate_feature(resource: Resource, release_dir: Path) -> Bundle:
         ):
             raise RuntimeError(f"Invalid or duplicate {resource.name} package: {name!r}")
         identities.add(identity)
-        if resource.name in {"fast-mono-reading", "native-chinese", "pinyin-input"} and (
+        if resource.name in {
+            "fast-mono-reading",
+            "native-chinese",
+            "pinyin-input",
+            "reading-enhancements",
+        } and (
             type(package.get("offline_verified")) is not bool
             or type(package.get("device_verified")) is not bool
         ):
             raise RuntimeError(f"Invalid {resource.name} verification metadata.")
-        if resource.name == "fast-mono-reading" and (
+        if resource.name in {"fast-mono-reading", "reading-enhancements"} and (
             type(package.get("package_revision")) is not int
             or package["package_revision"] <= 0
         ):
-            raise RuntimeError("Invalid fast monochrome package revision.")
+            raise RuntimeError(f"Invalid {resource.name} package revision.")
         if resource.url_bases is not None and package.get("urls") != [
             f"{base}/{name}" for base in resource.url_bases
         ]:

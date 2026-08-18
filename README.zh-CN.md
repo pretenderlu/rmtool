@@ -10,7 +10,7 @@
 
 </div>
 
-rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Paper Pure、reMarkable 1 和 reMarkable 2，提供多设备连接、仪表盘、壁纸、文档、KOReader 书库管理、字体、时间、设备控制、原生界面中文、离线拼音输入、按固件精确匹配的点击翻页，以及彩色设备快速黑白阅读等功能。设备操作不依赖 reMarkable 云服务；发布包内置这些固件功能的基础可信清单，可离线识别支持情况并复用已验证缓存。固件专用载荷不会打包进应用，仍需联网下载或使用已有的有效缓存。
+rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Paper Pure、reMarkable 1 和 reMarkable 2，提供多设备连接、仪表盘、壁纸、文档、KOReader 书库管理、字体、时间、设备控制、原生界面中文、离线拼音输入，以及彩色设备按固件精确匹配的阅读增强等功能。设备操作不依赖 reMarkable 云服务；发布包内置这些固件功能的基础可信清单，可离线识别支持情况并复用已验证缓存。固件专用载荷不会打包进应用，仍需联网下载或使用已有的有效缓存。
 
 > [!WARNING]
 > rmtool 会直接修改设备文件。请先同步或备份重要内容，并确认自己能够承担开发者模式、root SSH 和第三方修改带来的数据与保修风险。本项目不是 reMarkable 官方软件。
@@ -73,8 +73,7 @@ rmtool 管理的固件专用资源均使用两个固定来源。客户端优先�
 | 原生界面汉化 | [COS 根目录](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/) | [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/tag/localization-assets) |
 | 独立简体中文 | [`native-chinese/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/) | [`native-chinese-assets`](https://github.com/pretenderlu/rmtool/releases/tag/native-chinese-assets) |
 | 拼音输入法 | [`pinyin-input/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input/) | [`pinyin-input-assets`](https://github.com/pretenderlu/rmtool/releases/tag/pinyin-input-assets) |
-| 点击翻页 | [`tap-page-turn/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/tap-page-turn/) | [`tap-page-turn-assets`](https://github.com/pretenderlu/rmtool/releases/tag/tap-page-turn-assets) |
-| 快速黑白阅读 | [`fast-mono-reading/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/fast-mono-reading/) | [`fast-mono-reading-assets`](https://github.com/pretenderlu/rmtool/releases/tag/fast-mono-reading-assets) |
+| 阅读增强 | [`reading-enhancements/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/) | [`reading-enhancements-assets`](https://github.com/pretenderlu/rmtool/releases/tag/reading-enhancements-assets) |
 
 ## 连接设备
 
@@ -109,9 +108,8 @@ rmtool 按运行平台将状态保存在以下目录：
 - `known_hosts`：按设备 ID 隔离保存的 SSH 主机信任记录。
 - `remarkable_tool.log`：滚动运行日志。
 - `cache/localization/`：已校验的汉化清单和固件包缓存。
-- `cache/tap-page-turn/`：已校验的点击翻页清单和固件包缓存。
+- `cache/reading-enhancements/`：已校验的阅读增强清单和固件包缓存。
 - `cache/pinyin-input/`：已校验的离线拼音输入法包缓存。
-- `cache/fast-mono-reading/`：已校验的快速黑白清单和固件包缓存。
 - `cache/official/`：直接从 AppLoad 与 KOReader 官方 GitHub Release 下载并校验的缓存。
 
 > [!CAUTION]
@@ -126,8 +124,7 @@ rmtool 按运行平台将状态保存在以下目录：
 - **字体管理**：预览并上传多个 TTF/OTF，可在上传时重命名为 `zwzt.ttf`；查看 `/home/root/.local/share/rmtool/fonts` 中的非活动字体，按精确文件路径切换系统界面字体，并删除未启用字体。上传字体在用户明确选择前不会进入 Fontconfig 默认扫描范围；只有当前选中的字体会原子复制到 `/data/rmtool/fonts`，供密码解锁前后的界面共同使用，根分区仅保存一个很小的 Fontconfig 配置。已有自定义字体目录继续受支持，不会被自动搬移。只有旧版根区镜像、rmtool 生成的 Fontconfig、文件元数据以及唯一 `/home` 原字体均精确匹配时，才会提供一键迁移，且无需重新上传字体。系统字体保留完整字形，并按替换完成后的实际空间判断；应用后 `/data` 至少保留 24 MiB，空间紧张时会先在 `/home` 备份并校验原镜像。界面会按精确设备与固件显示“已实机验证”“待实机验证”或“未实机验证”。上传不会自动切换字体或重启设备，重启由独立确认按钮执行。
 - **时间管理**：同步电脑时间、查看系统时间/硬件时钟/时区，或设置为 `Asia/Shanghai`。
 - **设备控制**：重启设备、开启 Wi-Fi SSH，以及为具有 `rm_frontlight` 前光接口的设备提升亮度并安装持久化服务。
-- **点击翻页**：在精确支持的固件上，为 PDF/EPUB 阅读页启用持久化的左右点击区域，同时保留原生滑动翻页和文档链接。
-- **快速黑白阅读**：在精确支持的 Paper Pro 与 Paper Pro Move 3.27/3.28 固件上，为 PDF/EPUB 的更多菜单增加会话级“快速黑白”开关和原生清屏频率选项；默认每 10 次真实翻页清屏，也可选择 5/20/30 次或从不。包会分别标注真机验证或离线验证。
+- **阅读增强**：在精确支持的 Paper Pro 与 Paper Pro Move 3.27/3.28 固件上，增加一个原生设置页，统一控制点击翻页、快速黑白、周期清屏和按章节清屏；周期清屏可设置为每 5 至 30 次真实翻页。
 - **离线拼音输入**：为系统软键盘和实体键盘增加设备端拼音候选栏，预测与词库完全留在本机，并与其他插件共享 rmtool 现有 Xovi 运行时。
 - **主题与日志**：亮色/暗色主题会持久化；底部日志面板支持级别过滤、暂停、自动滚动、清屏和打开日志文件。
 
@@ -188,42 +185,22 @@ Move 正式版包已通过实机安装、语言切换、重启和停用测试，
 
 本功能移植 [boangs/rmkit](https://github.com/boangs/rmkit) 中 GPL-3.0 的 QMLDiff 候选栏、小型输入 hook、`zh_CN` 键盘布局资源和本地 `rime-frost` 词库服务。只有启用拼音时，hook 和键盘资源才会加入 rmtool 共享 Xovi；所有精确版本的原生中文目录都负责把系统动态名称 `Chinese` 显示为“中文”，任何 QMD 都不接管键盘名称。词库服务保存在 `/home/root/.local/share/rmtool/pinyin-input`，启停会保留全部同伴插件，也不会重启 xochitl 或设备。旧包迁移严格限制在真实存在过的 Paper Pro `3.28.0.166` 版本，不会把旧版本规则错误套用到新目标。
 
-### 点击翻页
+### 阅读增强
 
-点击翻页支持下表中的精确构建。rmtool 会同时匹配硬件平台、CPU 架构、内部固件版本和 `/usr/bin/xochitl` SHA-256；其他设备或固件不会通过猜测强行安装。
-
-| 设备型号 | 平台代号 | 3.27.1.0 正式版（`20260506100933`） | 3.27.3.0 正式版（`20260612085811`） | 3.28.0.162 测试版（`20260629074044`） | 3.28.0.163 测试版（`20260702125656`） | 3.28.0.164 测试版（`20260702125656`） | 3.28.0.166 测试版（`20260806095513`） | 3.28.0.169 测试版（`20260806095513`） |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| reMarkable Paper Pro | `ferrari` | 官方固件离线验证 | 官方固件离线验证 | **真机验证** | **真机验证** | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 |
-| reMarkable Paper Pro Move | `chiappa` | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 |
-| reMarkable Paper Pure | `tatsu` | 暂不支持 | 官方固件离线验证 | 暂不支持 | 暂不支持 | 暂不支持 | 暂不支持 | 暂不支持 |
-| reMarkable 1 | `rm1` | 暂不支持 | 官方固件离线验证 | 暂不支持 | 暂不支持 | 暂不支持 | 暂不支持 | 暂不支持 |
-| reMarkable 2 | `rm2` | 暂不支持 | 官方固件离线验证 | 暂不支持 | 暂不支持 | 暂不支持 | 暂不支持 | 暂不支持 |
-
-“官方固件离线验证”表示该包已经针对对应官方固件完成资源提取、QMLDiff 兼容性与补丁回放、架构、压缩包和哈希检查。目前只有 Paper Pro 3.28 完成了真机启用、停用、回滚和冷启动验证。
-
-在 PDF 或 EPUB 阅读页，单指短按左侧中部区域进入上一页，右侧边缘和下方区域进入下一页。原生滑动、手写笔、菜单、缩放、选区和文档链接仍然可用。实现所需的固件专用 Xovi/QMLDiff 资源优先从腾讯云 COS 下载，失败后回退固定的 `tap-page-turn-assets` Release；部署前会校验压缩包、每个文件和 QML 哈希。
-
-启用或停用与重启严格分离。rmtool 只写入并校验持久化配置，随后关闭 SSH，不会自动重启 xochitl 或设备。每次启用或停用后，都应从设备菜单执行完整重启。启动器会在每次开机时校验设备身份和全部运行文件；任一项不匹配时会直接启动原生 xochitl。资源包和许可证细节见 [点击翻页说明](tap-page-turn/README.md)。
-
-所有新功能统一安装到 rmtool 自有的共享 Xovi/QRR 运行时，rmtool 不再生成或安装 Vellum APK。阅读优化工具箱还提供固件升级后的一键插件迁移（“设备工具 > 旧版插件迁移/清理”会先用旧固件受信清单逐文件验证残留，再把全部已启用功能一次性迁移到当前固件的精确包），以及“一键卸载旧版插件”：先完整验证历史上的 `rmtool-tap-page-turn` 与 `rmtool-fast-mono-reading` 包，再统一删除，不会触碰 Vellum 本体、当前共享 Xovi 功能或任何第三方包。旧包清理完成后，请按照 [Vellum CLI 官方卸载说明](https://github.com/vellum-dev/vellum-cli#usage) 移除剩余 Vellum/AppLoader 运行环境，再安装 rmtool 版本；rmtool 不会自动执行 `vellum self uninstall`，也绝不会使用 `--all`。
-
-### 快速黑白阅读
-
-快速黑白阅读支持下表中的彩色设备精确构建。rmtool 会同时匹配平台、架构、内部固件版本及原始 `/usr/bin/xochitl` SHA-256；即使版本号相同，只要 xochitl 被修改也会拒绝安装。
+阅读增强使用一个固件精确包，并在设备原生设置中提供统一页面，用于控制点击翻页、快速黑白、周期整屏清屏和按章节清屏。rmtool 会同时匹配硬件平台、CPU 架构、内部固件版本和原始 `/usr/bin/xochitl` SHA-256；其他固件或被修改的构建不会通过猜测强行安装。
 
 | 设备型号 | 平台代号 | 3.27.1.0 正式版（`20260506100933`） | 3.27.3.0 正式版（`20260612085811`） | 3.28.0.162 测试版（`20260629074044`） | 3.28.0.163 测试版（`20260702125656`） | 3.28.0.164 测试版（`20260702125656`） | 3.28.0.166 测试版（`20260806095513`） | 3.28.0.169 测试版（`20260806095513`） |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | reMarkable Paper Pro | `ferrari` | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 |
-| reMarkable Paper Pro Move | `chiappa` | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 |
+| reMarkable Paper Pro Move | `chiappa` | 官方固件离线验证 | **真机验证** | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 |
 
-“官方固件离线验证”表示该包已针对恢复出的官方固件通过 qmd-tool 哈希检查、QMLDiff 兼容性、补丁回放、修改后 QML 断言、压缩包校验和确定性重建。旧版 Move 3.27.3 快速黑白行为曾完成真机测试，但加入周期清屏和原生折叠选择器后的 r3 完整包仍保持离线验证，等待重新实机确认。
+Move 3.27.3 已完成真机安装、重启、设置页导航和功能测试；其余 13 个目标均针对对应官方固件完成 qmd-tool 哈希检查、QMLDiff 兼容性、补丁回放、修改后 QML 断言、压缩包校验和确定性重建。
 
-3.28.0.163 与 3.28.0.164、3.28.0.166 与 3.28.0.169 分别使用相同的 14 位内部版本；点击翻页和快速黑白还会强制匹配原始 xochitl SHA-256，因此不会仅凭内部版本选错安装包。
+安装并手动重启设备后，可在“设置 > 阅读增强”中直接开关功能。点击翻页会保留原生滑动、手写笔、菜单、缩放、选区和文档链接；快速黑白只作用于 PDF/EPUB 阅读，清屏可设置为每 5 至 30 次真实翻页执行，或按章节边界执行，并且不会出现在笔记中。
 
-安装并手动重启设备后，打开 PDF 或 EPUB，在“更多 > 快速黑白”中按需开启。开启后可在“强制刷新”中选择每 5、10、20、30 次真实翻页调用一次系统清屏，或选择“从不”；会话默认每 10 次，点击和滑动翻页都会计数，达到阈值后等待 500 ms 再刷新。关闭快速黑白会立即恢复原生刷新模式并重置计数。
+安装、迁移、修复或停用与重启严格分离。rmtool 只写入并校验持久化配置，随后关闭 SSH，不会自动重启 xochitl 或设备。操作后应从设备菜单执行完整重启。启动器会在每次开机时校验设备身份和全部运行文件；任一项不匹配时会直接启动原生 xochitl。
 
-点击翻页、快速黑白、原生简体中文和拼音输入统一共享 rmtool 自有 Xovi/QRR 运行时，同时各自保留独立功能状态。检测到 Vellum/AppLoader 或非托管 Xovi 时会阻止安装，避免混合运行时。功能清单和载荷优先从腾讯云 COS 获取，失败后回退固定 GitHub Release，并执行精确大小、SHA-256 校验及已验证缓存回退。安装和停用均不会重启 xochitl；请等待 rmtool 关闭 SSH 后，从设备菜单手动重启。包与构建细节见[快速黑白阅读说明](fast-mono-reading/README.md)。
+阅读增强、原生简体中文和拼音输入统一共享 rmtool 自有 Xovi/QRR 运行时，同时保留各自的功能状态。检测到 Vellum/AppLoader 或非托管 Xovi 时会阻止安装，避免混合运行时。固件资源优先从腾讯云 COS 获取，失败后回退固定的 `reading-enhancements-assets` Release，并执行精确大小、SHA-256 校验和已验证缓存回退。“旧版插件迁移/清理”可把已验证的历史点击翻页、快速黑白包替换为当前固件精确包，同时保留同伴功能。rmtool 不会自行卸载 Vellum；清理已验证旧包后，请按 [Vellum CLI 官方卸载说明](https://github.com/vellum-dev/vellum-cli#usage) 操作。
 
 ## 使用建议
 
@@ -232,7 +209,7 @@ Move 正式版包已通过实机安装、语言切换、重启和停用测试，
 3. 文档上传完成后，可按提示立即重启 xochitl；跳过时，新文档可能暂时不显示。
 4. 删除文档不可撤销；导出 PDF 只对包含 `.rm` 或 `.note` 笔迹数据的单个文档可用，结果不包含原 PDF/EPUB 底图或非笔迹内容。
 5. 字体和汉化属于设备级修改，完成后按提示重启设备。
-6. 启用或停用点击翻页、快速黑白阅读后，等待 rmtool 关闭 SSH，再从设备菜单重启；不要把部署和远程立即重启 xochitl 放在同一个操作中。
+6. 安装、迁移、修复或停用阅读增强后，等待 rmtool 关闭 SSH，再从设备菜单重启；不要把部署和远程立即重启 xochitl 放在同一个操作中。
 
 ## 常见问题
 
@@ -242,8 +219,8 @@ Move 正式版包已通过实机安装、语言切换、重启和停用测试，
 - **上传文档后设备端没显示**：回到文档中心重启 xochitl，或手动重启设备。
 - **“导出为 PDF”不可用**：只能单选包含 `.rm` 或 `.note` 笔迹资源的文档；该功能只渲染可解析笔迹，不会合并原 PDF/EPUB 页面、键入文本或其他非笔迹内容。
 - **汉化按钮不可用**：先点击“检测状态”。rmtool 可依次使用 COS、GitHub、已验证缓存或内置基础清单，但内部固件版本与设备原始 `reMarkable_fr.qm` 的 SHA-256 必须命中同一清单项。完全离线安装时，还需要已有通过校验的包缓存，或从本地导入匹配的汉化包。
-- **无法启用点击翻页**：先点击“检测状态”。设备型号、固件、架构和原始 xochitl 哈希必须精确命中上表中的一项；xochitl 或载荷被修改时会阻止部署。若检测到 Vellum，请先让 rmtool 只卸载其已验证的历史功能包，再按官方说明卸载 Vellum，重新检测后安装。
-- **停用后点击翻页仍暂时有效**：这是正常现象，rmtool 不会强制结束当前 xochitl 进程。请从设备菜单完整重启，恢复原生界面。
+- **无法安装阅读增强**：先点击“检测状态”。设备型号、固件、架构和原始 xochitl 哈希必须精确命中上表中的一项；被修改的载荷或混合 Xovi 布局会阻止部署。若检测到 Vellum，请先让 rmtool 只卸载其已验证的历史功能包，再按官方说明卸载 Vellum，重新检测后安装。
+- **停用后阅读增强仍暂时有效**：这是正常现象，rmtool 不会强制结束当前 xochitl 进程。请从设备菜单完整重启，恢复原生界面。
 - **AppLoad/KOReader 安装按钮不可用**：先在 KOReader 页面点击“检测状态”。这里只接受精确匹配的正式版固件，全部 3.28 测试版均被排除。旧版 KOReader 目录可以迁移，但 Vellum/Xovi 混合运行时或已经存在旧版完整备份时，仍会为安全起见拒绝修改。
 - **macOS 无法创建配置**：确认当前用户可以创建并写入 `~/Library/Application Support/rmtool/`。
 - **需要诊断信息**：点击左下角日志按钮，按级别筛选，或选择“打开日志文件”。分享日志前请检查其中是否含设备地址等隐私信息。

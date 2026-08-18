@@ -136,6 +136,61 @@ class PublishResourcesTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "nested file metadata"):
                 publisher._validate_feature(resource, release_dir)
 
+    def test_reading_enhancements_requires_verification_and_ordered_urls(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            resource, release_dir = self.make_feature(Path(temp_dir))
+            resource = publisher.Resource(
+                "reading-enhancements",
+                "reading-enhancements-assets",
+                resource.repository_manifest,
+                "reading-enhancements",
+                "rmtool-reading-enhancements-",
+                frozenset(
+                    {
+                        "offline_verified",
+                        "device_verified",
+                        "package_revision",
+                        "urls",
+                    }
+                ),
+                (
+                    f"{publisher.COS_PUBLIC_BASE_URL}/reading-enhancements",
+                    "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets",
+                ),
+            )
+            document = json.loads(resource.repository_manifest.read_text())
+            package = document["packages"][0]
+            package["asset"] = package["asset"].replace(
+                "rmtool-tap-page-turn-", "rmtool-reading-enhancements-"
+            )
+            package.update(
+                offline_verified=True,
+                device_verified=False,
+                package_revision=1,
+                urls=[f"{base}/{package['asset']}" for base in resource.url_bases],
+            )
+
+            def write_manifest():
+                payload = json.dumps(document, separators=(",", ":")).encode()
+                resource.repository_manifest.write_bytes(payload)
+                (release_dir / "manifest.json").write_bytes(payload)
+
+            old_asset = next(path for path in release_dir.glob("*.tar.gz"))
+            old_asset.rename(release_dir / package["asset"])
+            write_manifest()
+            publisher._validate_feature(resource, release_dir)
+
+            package["urls"].reverse()
+            write_manifest()
+            with self.assertRaisesRegex(RuntimeError, "download URLs"):
+                publisher._validate_feature(resource, release_dir)
+
+            package["urls"].reverse()
+            package["offline_verified"] = 1
+            write_manifest()
+            with self.assertRaisesRegex(RuntimeError, "verification metadata"):
+                publisher._validate_feature(resource, release_dir)
+
     def test_publisher_uploads_changed_payloads_then_all_manifests(self):
         events = []
 
@@ -298,6 +353,17 @@ class PublishResourcesTests(unittest.TestCase):
                 "fast-mono-reading",
                 "native-chinese",
                 "pinyin-input",
+                "reading-enhancements",
+            ),
+        )
+        reading = publisher.RESOURCES["reading-enhancements"]
+        self.assertEqual(reading.tag, "reading-enhancements-assets")
+        self.assertEqual(reading.object_prefix, "reading-enhancements")
+        self.assertEqual(
+            reading.url_bases,
+            (
+                f"{publisher.COS_PUBLIC_BASE_URL}/reading-enhancements",
+                "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets",
             ),
         )
         wrapper = (publisher.ROOT / "publish-cos.ps1").read_text(encoding="utf-8")

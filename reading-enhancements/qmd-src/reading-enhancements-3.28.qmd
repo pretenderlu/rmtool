@@ -1,0 +1,487 @@
+; Shared reading-enhancements source for 3.27 and 3.28.
+; The build step derives the minimum 3.27 boundary variant for MainView.
+
+AFFECT /qml/device/view/settings/Settings.qml
+    TRAVERSE ?#settingsSidebar
+        LOCATE BEFORE ALL
+        INSERT {
+            property var rmtoolSettingsRoot: parent
+
+            function rmtoolReadingSelectedPage() {
+                return ("_selectedPage" in rmtoolSettingsRoot)
+                    ? rmtoolSettingsRoot._selectedPage
+                    : rmtoolSettingsRoot._selectedIndex
+            }
+
+            function rmtoolSelectReadingPage(page) {
+                if ("_selectedPage" in rmtoolSettingsRoot) {
+                    rmtoolSettingsRoot._selectedPage = page
+                } else {
+                    rmtoolSettingsRoot._selectedIndex = page
+                }
+            }
+        }
+    END TRAVERSE
+
+    TRAVERSE ?#settingsSidebar > ColumnLayout#settingsColumn
+        LOCATE AFTER ALL
+        INSERT {
+            ArkControls.SidebarItem {
+                id: rmtoolReadingEnhancementsSidebarItem
+                objectName: "rmtoolReadingEnhancementsSidebarItem"
+                type: ArkTokens.Sidebar.primary
+                text: showLabels ? "阅读增强" : ""
+                iconSource: "qrc:/ark/icons/ebook"
+                highlighted: settingsSidebar.rmtoolReadingSelectedPage() === 1001
+                focusPolicy: Qt.StrongFocus
+                Layout.fillWidth: true
+                onTriggered: {
+                    settingsSidebar.rmtoolSelectReadingPage(1001)
+                    sidebarTimer.running = true
+                }
+            }
+        }
+    END TRAVERSE
+
+    TRAVERSE ?#payloadLoader
+        REBUILD sourceComponent
+            LOCATE AFTER STREAM /{/ 
+            INSERT STREAM /if (settingsSidebar.rmtoolReadingSelectedPage() === 1001) return rmtoolReadingEnhancements;/
+        END REBUILD
+    END TRAVERSE
+
+    TRAVERSE Item#root
+        LOCATE BEFORE Component#general
+        INSERT {
+            Component {
+                id: rmtoolReadingEnhancements
+
+                Item {
+                    id: rmtoolReadingPage
+                    objectName: "rmtoolReadingEnhancementsPage"
+
+                    readonly property string group: "RmtoolReadingEnhancements"
+                    readonly property int privatePage: 1001
+                    readonly property var intervalChoices: [5, 10, 15, 20, 25, 30]
+                    property bool tapPageTurnEnabled: false
+                    property bool fastMonoEnabled: false
+                    property bool cleanupEnabled: false
+                    property bool cleanupByChapter: false
+                    property int cleanupInterval: 10
+
+                    function readBool(key, fallback) {
+                        const value = Settings.rawValue(group, key)
+                        return value === undefined || value === null ? fallback : !!value
+                    }
+
+                    function normalizedInterval(value) {
+                        let number = Number(value)
+                        if (!Number.isFinite(number)) {
+                            return 10
+                        }
+                        number = Math.round(number / 5) * 5
+                        return Math.max(5, Math.min(30, number))
+                    }
+
+                    function readSettings() {
+                        tapPageTurnEnabled = readBool("tapPageTurnEnabled", false)
+                        fastMonoEnabled = readBool("fastMonoEnabled", false)
+                        cleanupEnabled = readBool("cleanupEnabled", false)
+                        cleanupByChapter = readBool("cleanupByChapter", false)
+                        cleanupInterval = normalizedInterval(Settings.rawValue(group, "cleanupInterval"))
+                    }
+
+                    function writeBool(key, value) {
+                        Settings.setRawValue(group, key, !!value)
+                        readSettings()
+                    }
+
+                    function writeInterval(value) {
+                        Settings.setRawValue(group, "cleanupInterval", normalizedInterval(value))
+                        readSettings()
+                    }
+
+                    function stepInterval(delta) {
+                        const index = intervalChoices.indexOf(cleanupInterval)
+                        const next = Math.max(0, Math.min(intervalChoices.length - 1, index + delta))
+                        writeInterval(intervalChoices[next])
+                    }
+
+                    Component.onCompleted: readSettings()
+
+                    ScrollArea {
+                        id: rmtoolReadingScroll
+                        anchors.fill: parent
+                        contentWidth: width
+                        contentHeight: rmtoolReadingWrapper.childrenRect.height
+                            + ArkControls.Values.platform.spacing.x2large
+                        enableScrollbar: true
+                        permanentScrollbar: true
+                        scrollbarTopMargin: rmtoolReadingHeader.y
+
+                        Item {
+                            id: rmtoolReadingWrapper
+                            implicitWidth: rmtoolReadingScroll.width
+
+                            ArkControls.PlaceholderBar {
+                                id: rmtoolReadingPlaceholder
+                                width: parent.width
+                            }
+
+                            ArkControls.Title {
+                                id: rmtoolReadingHeader
+                                type: ArkControls.Title.Large
+                                anchors {
+                                    top: rmtoolReadingPlaceholder.bottom
+                                    left: parent.left
+                                    leftMargin: ArkControls.Values.margin.horizontal.large
+                                    right: parent.right
+                                    rightMargin: ArkControls.Values.margin.horizontal.large
+                                }
+                                text: "阅读增强"
+                            }
+
+                            ColumnLayout {
+                                id: rmtoolReadingColumn
+                                anchors {
+                                    top: rmtoolReadingHeader.bottom
+                                    topMargin: ArkControls.Values.platform.spacing.x2large
+                                    left: parent.left
+                                    leftMargin: ArkControls.Values.margin.horizontal.large
+                                    right: parent.right
+                                    rightMargin: ArkControls.Values.margin.horizontal.large
+                                }
+                                spacing: ArkControls.Values.platform.spacing.x2large
+
+                                ArkControls.Panel {
+                                    Layout.fillWidth: true
+                                    label: "点击翻页"
+                                    description: "在 PDF 和 EPUB 阅读页点击屏幕区域翻页。笔记本保持原生手势。"
+                                    action: ArkToggleWrapper {
+                                        checked: rmtoolReadingPage.tapPageTurnEnabled
+                                        extendedMouseArea.onPressed: rmtoolReadingPage.writeBool(
+                                            "tapPageTurnEnabled", !rmtoolReadingPage.tapPageTurnEnabled)
+                                    }
+                                }
+
+                                ArkControls.Panel {
+                                    Layout.fillWidth: true
+                                    label: "快速黑白阅读模式"
+                                    description: "仅在彩色设备的 PDF 和 EPUB 阅读页生效；重启后默认关闭。"
+                                    action: ArkToggleWrapper {
+                                        checked: rmtoolReadingPage.fastMonoEnabled
+                                        extendedMouseArea.onPressed: rmtoolReadingPage.writeBool(
+                                            "fastMonoEnabled", !rmtoolReadingPage.fastMonoEnabled)
+                                    }
+                                }
+
+                                ArkControls.Panel {
+                                    Layout.fillWidth: true
+                                    label: "翻页清残影"
+                                    description: "翻页后使用系统整屏刷新清理残影，彩色和黑白模式均可用。"
+                                    action: ArkToggleWrapper {
+                                        checked: rmtoolReadingPage.cleanupEnabled
+                                        extendedMouseArea.onPressed: rmtoolReadingPage.writeBool(
+                                            "cleanupEnabled", !rmtoolReadingPage.cleanupEnabled)
+                                    }
+                                }
+
+                                ArkControls.Panel {
+                                    Layout.fillWidth: true
+                                    label: "按章节清残影"
+                                    description: "有目录时跨越目录边界清理；没有目录时使用固定页数。"
+                                    action: ArkToggleWrapper {
+                                        enabled: rmtoolReadingPage.cleanupEnabled
+                                        checked: rmtoolReadingPage.cleanupByChapter
+                                        extendedMouseArea.onPressed: rmtoolReadingPage.writeBool(
+                                            "cleanupByChapter", !rmtoolReadingPage.cleanupByChapter)
+                                    }
+                                }
+
+                                ArkControls.Panel {
+                                    id: rmtoolIntervalPanel
+                                    Layout.fillWidth: true
+                                    label: "固定页数间隔"
+                                    description: "每隔 %1 页清理一次残影。"
+                                        .arg(rmtoolReadingPage.cleanupInterval)
+                                    enabled: rmtoolReadingPage.cleanupEnabled
+                                        && !rmtoolReadingPage.cleanupByChapter
+                                    showAttachment: true
+                                    attachment: RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: ArkControls.Values.spacing.medium
+
+                                        ArkControls.Button {
+                                            text: "-"
+                                            type: ArkTokens.Button.secondary
+                                            enabled: rmtoolIntervalPanel.enabled
+                                                && rmtoolReadingPage.cleanupInterval > 5
+                                            onClicked: rmtoolReadingPage.stepInterval(-1)
+                                        }
+
+                                        ArkControls.Button {
+                                            text: rmtoolReadingPage.cleanupInterval.toString()
+                                            type: ArkTokens.Button.secondary
+                                            enabled: rmtoolIntervalPanel.enabled
+                                        }
+
+                                        ArkControls.Button {
+                                            text: "+"
+                                            type: ArkTokens.Button.secondary
+                                            enabled: rmtoolIntervalPanel.enabled
+                                                && rmtoolReadingPage.cleanupInterval < 30
+                                            onClicked: rmtoolReadingPage.stepInterval(1)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    END TRAVERSE
+END AFFECT
+
+AFFECT /qml/device/view/documentview/SceneViewGestures.qml
+    TRAVERSE TouchArea#touchArea
+        LOCATE BEFORE TouchAreaClickFilter#touchClick
+        INSERT {
+            function rmtoolTapPageDirection(pos) {
+                if (Settings.rawValue("RmtoolReadingEnhancements", "tapPageTurnEnabled") !== true
+                    || touchArea.gesturesBlocked
+                    || !view.clickGestureEnabled
+                    || view.zoomedIn
+                    || view.zoomedOut
+                    || view.notePage
+                    || view.textMode
+                    || view.itemSelectionMode
+                    || view.textSelectionMode
+                    || !view.document
+                    || (view.document.fileType !== Document.Pdf
+                        && view.document.fileType !== Document.Ebook)) {
+                    return 0
+                }
+
+                const normalizedX = pos.x / touchArea.width
+                const normalizedY = pos.y / touchArea.height
+
+                if (normalizedX < 0.40
+                    && normalizedY >= 0.38
+                    && normalizedY < 0.65) {
+                    return -1
+                }
+
+                if ((normalizedX >= 0.75 && normalizedY < 0.65)
+                    || normalizedY >= 0.65) {
+                    return 1
+                }
+
+                return 0
+            }
+        }
+
+        TRAVERSE TouchAreaClickFilter#touchClick
+            REBUILD onClick
+                LOCATE AFTER STREAM / { /
+                INSERT {
+                    const rmtoolDirection = touchArea.rmtoolTapPageDirection(pos)
+                    if (!linkPressed && rmtoolDirection < 0) {
+                        console.warn("RMTOOL-READING: previous")
+                        reset()
+                        view.moveBackward()
+                        return
+                    }
+                    if (!linkPressed && rmtoolDirection > 0) {
+                        console.warn("RMTOOL-READING: next")
+                        reset()
+                        view.moveForward()
+                        return
+                    }
+                }
+            END REBUILD
+        END TRAVERSE
+    END TRAVERSE
+END AFFECT
+
+AFFECT /qml/device/view/documentview/DocumentView.qml
+    TRAVERSE FocusScope#root
+        LOCATE BEFORE ALL
+        INSERT {
+            property bool rmtoolFastMonoReadingEnabled: false
+            property bool rmtoolCleanupEnabled: false
+            property bool rmtoolCleanupByChapter: false
+            property int rmtoolCleanupInterval: 10
+            property int rmtoolCleanupCount: 0
+            property int rmtoolCleanupLastPage: -1
+            property int rmtoolCleanupLastBoundary: -1
+            property string rmtoolCleanupLastDocumentId: ""
+            readonly property bool rmtoolReadingAvailable: !!document
+                && (document.fileType === Document.Pdf
+                    || document.fileType === Document.Ebook)
+            readonly property bool rmtoolFastMonoReadingAvailable: rmtoolReadingAvailable
+                && EPFramebuffer.hasCapability(EPFramebuffer.Capability.Color)
+
+            Component.onCompleted: {
+                Settings.setRawValue("RmtoolReadingEnhancements", "fastMonoEnabled", false)
+                rmtoolReadReadingSettings()
+            }
+
+            function rmtoolReadReadingSettings() {
+                const fastMonoEnabled = Settings.rawValue(
+                    "RmtoolReadingEnhancements", "fastMonoEnabled") === true
+                const cleanupEnabled = Settings.rawValue(
+                    "RmtoolReadingEnhancements", "cleanupEnabled") === true
+                const cleanupByChapter = Settings.rawValue(
+                    "RmtoolReadingEnhancements", "cleanupByChapter") === true
+                const rawInterval = Number(Settings.rawValue(
+                    "RmtoolReadingEnhancements", "cleanupInterval"))
+                const cleanupInterval = Number.isFinite(rawInterval)
+                    ? Math.max(5, Math.min(30, Math.round(rawInterval / 5) * 5)) : 10
+                const resetCleanup = cleanupEnabled !== rmtoolCleanupEnabled
+                    || cleanupByChapter !== rmtoolCleanupByChapter
+                    || cleanupInterval !== rmtoolCleanupInterval
+
+                rmtoolFastMonoReadingEnabled = fastMonoEnabled
+                rmtoolCleanupEnabled = cleanupEnabled
+                rmtoolCleanupByChapter = cleanupByChapter
+                rmtoolCleanupInterval = cleanupInterval
+                if (resetCleanup) {
+                    rmtoolResetReadingCleanup()
+                    rmtoolCleanupLastPage = currentPage
+                    rmtoolCleanupLastBoundary = rmtoolTocBoundaryForPage(currentPage)
+                }
+            }
+
+            function rmtoolResetReadingCleanup() {
+                rmtoolCleanupCount = 0
+                rmtoolCleanupLastBoundary = -1
+                rmtoolCleanupTimer.stop()
+            }
+
+            function rmtoolTocBoundaryForPage(page) {
+                if (!rmtoolCleanupByChapter || !tocModel || tocModel.length === 0) {
+                    return -1
+                }
+                let boundary = -1
+                for (let index = 0; index < tocModel.length; index++) {
+                    const item = tocModel[index]
+                    const itemPage = Number(item.page ?? item.pageNumber ?? -1)
+                    if (Number.isFinite(itemPage) && itemPage >= 0 && itemPage <= page) {
+                        boundary = itemPage
+                    }
+                }
+                return boundary
+            }
+
+            function rmtoolHasUsableToc() {
+                if (!rmtoolCleanupByChapter || !tocModel || tocModel.length === 0) {
+                    return false
+                }
+                for (let index = 0; index < tocModel.length; index++) {
+                    const item = tocModel[index]
+                    const itemPage = Number(item.page ?? item.pageNumber ?? -1)
+                    if (Number.isFinite(itemPage) && itemPage >= 0) {
+                        return true
+                    }
+                }
+                return false
+            }
+
+            function rmtoolScheduleReadingCleanup() {
+                rmtoolCleanupTimer.restart()
+            }
+
+            Timer {
+                id: rmtoolCleanupTimer
+                interval: 500
+                repeat: false
+                onTriggered: {
+                    if (root.rmtoolReadingAvailable && root.rmtoolCleanupEnabled) {
+                        root.ghostBuster.forceClearNow("rmtool reading enhancements cleanup")
+                    }
+                }
+            }
+
+            Connections {
+                target: root
+
+                function onVisibleChanged() {
+                    if (root.visible) {
+                        root.rmtoolReadReadingSettings()
+                    }
+                }
+
+                function onTocModelChanged() {
+                    root.rmtoolCleanupLastBoundary = root.rmtoolTocBoundaryForPage(
+                        root.currentPage)
+                }
+
+                function onCurrentPageChanged() {
+                    const page = root.currentPage
+                    const documentId = root.document ? root.document.id.toString() : ""
+                    if (documentId !== root.rmtoolCleanupLastDocumentId) {
+                        root.rmtoolCleanupLastDocumentId = documentId
+                        root.rmtoolResetReadingCleanup()
+                        root.rmtoolCleanupLastPage = page
+                        root.rmtoolCleanupLastBoundary = root.rmtoolTocBoundaryForPage(page)
+                        return
+                    }
+                    if (page < 0 || root.rmtoolCleanupLastPage < 0
+                        || page === root.rmtoolCleanupLastPage) {
+                        root.rmtoolCleanupLastPage = page
+                        return
+                    }
+
+                    root.rmtoolCleanupLastPage = page
+                    if (!root.rmtoolReadingAvailable || !root.rmtoolCleanupEnabled) {
+                        return
+                    }
+
+                    const boundary = root.rmtoolTocBoundaryForPage(page)
+                    if (root.rmtoolCleanupByChapter && boundary >= 0
+                        && boundary !== root.rmtoolCleanupLastBoundary) {
+                        root.rmtoolCleanupLastBoundary = boundary
+                        root.rmtoolCleanupCount = 0
+                        root.rmtoolScheduleReadingCleanup()
+                        return
+                    }
+                    if (root.rmtoolCleanupByChapter && root.rmtoolHasUsableToc()) {
+                        return
+                    }
+
+                    root.rmtoolCleanupCount += 1
+                    if (root.rmtoolCleanupCount >= root.rmtoolCleanupInterval) {
+                        root.rmtoolCleanupCount = 0
+                        root.rmtoolScheduleReadingCleanup()
+                    }
+                }
+
+                function onDocumentChanged() {
+                    root.rmtoolCleanupLastDocumentId = ""
+                    root.rmtoolResetReadingCleanup()
+                    root.rmtoolCleanupLastPage = -1
+                }
+            }
+        }
+    END TRAVERSE
+
+    TRAVERSE FocusScope#root > Item#_uiContainer > Toolbar#toolbar
+        LOCATE BEFORE ALL
+        INSERT {
+            property var rmtoolDocumentView: root
+        }
+    END TRAVERSE
+
+    TRAVERSE ?[!mode][!visible]
+        REPLACE visible WITH {
+            visible: (rmtoolFastMonoReadingAvailable && rmtoolFastMonoReadingEnabled)
+                || sceneView.globalScreenMode != undefined
+        }
+        REPLACE mode WITH {
+            mode: rmtoolFastMonoReadingAvailable && rmtoolFastMonoReadingEnabled
+                ? Epaper.ScreenModeItem.Mono
+                : (visible ? sceneView.globalScreenMode : Epaper.ScreenModeItem.UI)
+        }
+    END TRAVERSE
+END AFFECT
