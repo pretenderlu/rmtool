@@ -722,6 +722,8 @@ def _inspect_shared_firmware_residue(
     runtime: _xovi_standalone.SharedRuntimeSpec,
     trusted: dict[str, _xovi_standalone.SharedFeatureSpec],
     current_identity: tuple[str, str, str, str],
+    *,
+    tolerate_legacy_templates: bool = False,
 ):
     import _fast_mono_reading as fast
 
@@ -739,6 +741,7 @@ def _inspect_shared_firmware_residue(
             trusted,
             fast_package,
             firmware_residue_identity=current_identity,
+            tolerate_legacy_templates=tolerate_legacy_templates,
         )
         return inspection, installed_trusted
     return (
@@ -747,6 +750,7 @@ def _inspect_shared_firmware_residue(
             runtime,
             trusted,
             current_identity,
+            tolerate_legacy_templates=tolerate_legacy_templates,
         ),
         trusted,
     )
@@ -1146,25 +1150,52 @@ def get_status(
                     )
                 ):
                     raise RuntimeError("检测到共享与旧版/Vellum Xovi 混合布局。")
-                inspection, _installed_trusted = _inspect_shared_firmware_residue(
-                    ssh_client,
-                    runtime,
-                    trusted,
-                    (
-                        identity.firmware,
-                        identity.platform,
-                        identity.architecture,
-                        identity.xochitl_sha256,
-                    ),
+                try:
+                    inspection, _installed_trusted = _inspect_shared_firmware_residue(
+                        ssh_client,
+                        runtime,
+                        trusted,
+                        (
+                            identity.firmware,
+                            identity.platform,
+                            identity.architecture,
+                            identity.xochitl_sha256,
+                        ),
+                    )
+                except RuntimeError:
+                    # Development-era deployments carry an unreleased
+                    # launcher/drop-in generation; tolerate them for residue
+                    # cleanup only when every payload anchor still verifies.
+                    inspection, _installed_trusted = _inspect_shared_firmware_residue(
+                        ssh_client,
+                        runtime,
+                        trusted,
+                        (
+                            identity.firmware,
+                            identity.platform,
+                            identity.architecture,
+                            identity.xochitl_sha256,
+                        ),
+                        tolerate_legacy_templates=True,
+                    )
+                detail = (
+                    "旧共享目录与内置旧包完全一致，且上下层 drop-in 均已由固件升级移除；"
+                    "旧功能当前未载入。清理会一并移除点击翻页和快速黑白的旧共享状态，"
+                    "随后两项功能均可安装当前固件版本。"
                 )
+                if inspection.legacy_templates:
+                    detail = (
+                        "旧共享目录的内部文件与内置旧包完全一致，但启动脚本为未发布的"
+                        "开发期变体（drop-in 已由固件升级移除，旧功能当前未载入）。"
+                        "清理会一并移除点击翻页和快速黑白的旧共享状态，"
+                        "随后两项功能均可安装当前固件版本。"
+                    )
                 return TapPageTurnStatus(
                     TapPageTurnState.FIRMWARE_RESIDUE,
                     identity,
                     package,
                     available,
-                    "旧共享目录与内置旧包完全一致，且上下层 drop-in 均已由固件升级移除；"
-                    "旧功能当前未载入。清理会一并移除点击翻页和快速黑白的旧共享状态，"
-                    "随后两项功能均可安装当前固件版本。",
+                    detail,
                     True,
                 )
             except Exception as exc:
@@ -1671,6 +1702,7 @@ def disable(
                     current_identity.architecture,
                     current_identity.xochitl_sha256,
                 ),
+                tolerate_legacy_templates=True,
             )
             _xovi_standalone.remove_shared_firmware_residue(
                 ssh_client,
@@ -1682,6 +1714,7 @@ def disable(
                     current_identity.architecture,
                     current_identity.xochitl_sha256,
                 ),
+                tolerate_legacy_templates=True,
             )
         else:
             _xovi_standalone.disable_shared(

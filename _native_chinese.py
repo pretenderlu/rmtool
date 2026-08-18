@@ -556,24 +556,47 @@ def get_status(
         marker_identity = tap.DeviceIdentity(*_xovi_standalone.read_shared_identity(ssh_client))
         if marker_identity != identity:
             runtime, trusted, _legacies = _trusted_shared_context(marker_identity)
-            inspection = _xovi_standalone.inspect_shared_firmware_residue(
-                ssh_client,
-                runtime,
-                trusted,
-                (
-                    identity.firmware,
-                    identity.platform,
-                    identity.architecture,
-                    identity.xochitl_sha256,
-                ),
-            )
+            try:
+                inspection = _xovi_standalone.inspect_shared_firmware_residue(
+                    ssh_client,
+                    runtime,
+                    trusted,
+                    (
+                        identity.firmware,
+                        identity.platform,
+                        identity.architecture,
+                        identity.xochitl_sha256,
+                    ),
+                )
+            except RuntimeError:
+                # Development-era deployments carry an unreleased
+                # launcher/drop-in generation; tolerate them for residue
+                # cleanup only when every payload anchor still verifies.
+                inspection = _xovi_standalone.inspect_shared_firmware_residue(
+                    ssh_client,
+                    runtime,
+                    trusted,
+                    (
+                        identity.firmware,
+                        identity.platform,
+                        identity.architecture,
+                        identity.xochitl_sha256,
+                    ),
+                    tolerate_legacy_templates=True,
+                )
             if FEATURE_ID not in inspection.states:
                 raise RuntimeError("旧共享 Xovi 不包含原生简体中文；请在对应功能中清理。")
+            detail = "检测到固件升级后遗留的原生中文共享 Xovi 状态，可安全清理"
+            if inspection.legacy_templates:
+                detail = (
+                    "检测到固件升级后遗留的原生中文共享 Xovi 状态"
+                    "（启动脚本为未发布的开发期变体），可安全清理"
+                )
             return NativeChineseStatus(
                 NativeChineseState.FIRMWARE_RESIDUE,
                 identity,
                 package,
-                "检测到固件升级后遗留的原生中文共享 Xovi 状态，可安全清理",
+                detail,
                 True,
                 emergency,
             )
@@ -735,17 +758,33 @@ def disable(
     )
     runtime, trusted, _legacies = _trusted_shared_context(marker_identity)
     if marker_identity != identity:
-        inspection = _xovi_standalone.inspect_shared_firmware_residue(
-            ssh_client,
-            runtime,
-            trusted,
-            (
-                identity.firmware,
-                identity.platform,
-                identity.architecture,
-                identity.xochitl_sha256,
-            ),
-        )
+        try:
+            inspection = _xovi_standalone.inspect_shared_firmware_residue(
+                ssh_client,
+                runtime,
+                trusted,
+                (
+                    identity.firmware,
+                    identity.platform,
+                    identity.architecture,
+                    identity.xochitl_sha256,
+                ),
+            )
+        except RuntimeError:
+            # Development-era launcher/drop-in generation: tolerate for
+            # residue cleanup only when every payload anchor still verifies.
+            inspection = _xovi_standalone.inspect_shared_firmware_residue(
+                ssh_client,
+                runtime,
+                trusted,
+                (
+                    identity.firmware,
+                    identity.platform,
+                    identity.architecture,
+                    identity.xochitl_sha256,
+                ),
+                tolerate_legacy_templates=True,
+            )
         if FEATURE_ID not in inspection.states:
             raise RuntimeError("旧共享 Xovi 不包含原生简体中文。")
         _switch_selected_chinese_to_english(ssh_client)
@@ -759,6 +798,7 @@ def disable(
                 identity.architecture,
                 identity.xochitl_sha256,
             ),
+            tolerate_legacy_templates=True,
         )
         return get_status(ssh_client, tuple(catalog) or _trusted_catalog())
     with _xovi_standalone._operation_lock(ssh_client):

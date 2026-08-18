@@ -76,6 +76,8 @@ class SharedXoviTests(unittest.TestCase):
         disabled_feature_ids=(),
         feature_overrides=None,
         legacy_launcher=False,
+        dev_launcher=False,
+        missing_paths=(),
         layout=None,
         startup_pending=False,
         pending_mode=0o600,
@@ -108,6 +110,11 @@ class SharedXoviTests(unittest.TestCase):
             startup_guard=(not legacy_launcher and layout == shared.SHARED_LAYOUT),
             layout=layout,
         ).encode()
+        if dev_launcher:
+            # Unreleased development generation: no shipped template can
+            # reproduce these bytes, so only tolerant residue verification
+            # may accept the marker that references them.
+            launcher = launcher + b"\n# unreleased development variant\n"
         dropin = shared.shared_dropin(runtime, enabled, layout=layout).encode()
         marker = shared.shared_marker(
             runtime,
@@ -145,6 +152,8 @@ class SharedXoviTests(unittest.TestCase):
                 ),
             }
         )
+        for path in missing_paths:
+            expected.pop(path, None)
         dirs = set()
         for path in expected:
             parent = posixpath.dirname(path)
@@ -211,6 +220,15 @@ class SharedXoviTests(unittest.TestCase):
             if command.startswith("sha256sum"):
                 path = command.split("sha256sum ", 1)[1]
                 return f"{hashes[path]}  {path}\n"
+            if "rmtool-xovi-standalone.lock" in command:
+                return ""
+            if (
+                ".staging-" in command
+                or command.startswith("rm -rf")
+                or command.startswith("/bin/sh /tmp/rmtool-")
+                or command.startswith("rm -f")
+            ):
+                return ""
             if "rmtool-xovi-residue-check" in command:
                 return "\n".join(lower_dropins)
             if "rmtool-xovi-check" in command:
@@ -948,7 +966,7 @@ class SharedXoviTests(unittest.TestCase):
                 self.assertIn("上下层 drop-in", status.detail)
                 self.assertIn("两项功能均可安装", status.detail)
 
-                def remove(*_args):
+                def remove(*_args, **_kwargs):
                     present.clear()
                     return shared.SharedInspection({}, False, False)
 
@@ -1016,7 +1034,7 @@ class SharedXoviTests(unittest.TestCase):
             )
             self.assertEqual(status.state, residue_state)
 
-            def remove(*_args):
+            def remove(*_args, **_kwargs):
                 present.clear()
                 return shared.SharedInspection({}, False, False)
 
@@ -1428,7 +1446,7 @@ class SharedXoviTests(unittest.TestCase):
             self.assertTrue(target_states[tap_feature.feature_id].enabled)
             self.assertIs(target_states[pinyin.FEATURE_ID].spec, current_pinyin)
             self.assertTrue(target_states[pinyin.FEATURE_ID].enabled)
-            previous_sources = stage.call_args.args[5]
+            previous_sources = stage.call_args.args[4]
             self.assertIn(tap_feature.runtime_path, previous_sources)
             self.assertIn(predecessor.runtime_path, previous_sources)
             final_trusted = inspect.call_args_list[-1].args[2]
@@ -1486,8 +1504,7 @@ class SharedXoviTests(unittest.TestCase):
                 ssh,
                 runtime,
                 states,
-                tap_feature,
-                Path("unused"),
+                {tap_feature.feature_id: Path("unused")},
                 previous_sources,
                 "/stage",
             )
@@ -1613,7 +1630,7 @@ class SharedXoviTests(unittest.TestCase):
                     ssh, runtime, incoming, Path("unused"), trusted, all_legacies
                 )
             states = stage.call_args.args[2]
-            sources = stage.call_args.args[5]
+            sources = stage.call_args.args[4]
             self.assertEqual(set(states), set(trusted))
             self.assertTrue(all(item.enabled for item in states.values()))
             self.assertEqual(
@@ -1797,7 +1814,9 @@ class SharedXoviTests(unittest.TestCase):
             )
 
         self.assertEqual(result, shared.SharedInspection({}, False, False))
-        inspect.assert_called_once_with(ssh, runtime, trusted, current)
+        inspect.assert_called_once_with(
+            ssh, runtime, trusted, current, tolerate_legacy_templates=False
+        )
         self.assertTrue(transaction.call_args.kwargs["remove_base"])
         self.assertFalse(transaction.call_args.kwargs["enable_dropin"])
         self.assertNotIn(tap_feature.runtime_path, transaction.return_value)
@@ -1812,6 +1831,127 @@ class SharedXoviTests(unittest.TestCase):
         )
         self.assertIn('rmdir "$BASE"', script)
         self.assertLess(script.index('rmdir "$BASE"'), script.index("COMMITTED=1"))
+
+    def _ferrari_166_pair(self):
+        old_tap = next(
+            item
+            for item in tap._trusted_catalog()
+            if item.platform == "ferrari" and item.release_version == "3.28.0.166"
+        )
+        old_fast = next(
+            item
+            for item in fast._trusted_catalog()
+            if item.platform == "ferrari" and item.release_version == "3.28.0.166"
+        )
+        return old_tap, old_fast
+
+    def test_tolerant_residue_accepts_unreleased_launcher_generation(self):
+        old_tap, old_fast = self._ferrari_166_pair()
+        ssh, present, runtime, trusted, _identity = self.shared_residue_ssh(
+            old_tap,
+            old_fast,
+            dev_launcher=True,
+            missing_paths=("pinyin-input/rmtool-pinyin-input.service",),
+        )
+        current = (runtime.firmware, runtime.platform, runtime.architecture, "f" * 64)
+        with self.assertRaisesRegex(
+            RuntimeError, "共享 Xovi 标记与内置信任清单不匹配"
+        ):
+            shared.inspect_shared_firmware_residue(ssh, runtime, trusted, current)
+        inspection = shared.inspect_shared_firmware_residue(
+            ssh, runtime, trusted, current, tolerate_legacy_templates=True
+        )
+        self.assertTrue(inspection.legacy_templates)
+        self.assertEqual(set(inspection.states), set(trusted))
+        self.assertTrue(all(state.enabled for state in inspection.states.values()))
+        self.assertFalse(inspection.active)
+        self.assertFalse(inspection.dropin_present)
+
+    def test_tolerant_residue_rejects_runtime_drift_and_tampering(self):
+        old_tap, old_fast = self._ferrari_166_pair()
+
+        def current_of(runtime):
+            return (runtime.firmware, runtime.platform, runtime.architecture, "f" * 64)
+
+        # Marker runtime map that no longer matches the trusted runtime spec.
+        identity = tap.DeviceIdentity(
+            old_tap.firmware, old_tap.platform, old_tap.architecture,
+            old_tap.xochitl_sha256,
+        )
+        drift_runtime, drift_trusted, _legacy = tap._trusted_shared_context(identity)
+        marker = json.loads(
+            shared.shared_marker(
+                drift_runtime,
+                {
+                    feature_id: shared.SharedFeatureState(spec, True, self.TOKEN)
+                    for feature_id, spec in drift_trusted.items()
+                },
+                "0" * 64,
+                "0" * 64,
+            )
+        )
+        marker["runtime"]["xovi.so"] = "e" * 64
+        ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+            old_tap,
+            old_fast,
+            dev_launcher=True,
+            marker_bytes=(
+                json.dumps(marker, ensure_ascii=True, sort_keys=True) + "\n"
+            ).encode("ascii"),
+        )
+        with self.assertRaisesRegex(
+            RuntimeError, "共享 Xovi 标记与内置信任清单不匹配"
+        ):
+            shared.inspect_shared_firmware_residue(
+                ssh, runtime, trusted, current_of(runtime),
+                tolerate_legacy_templates=True,
+            )
+
+        cases = (
+            dict(modified_path="launcher.sh", message="已被修改"),
+            dict(extra_path="unmanaged.bin", message="未托管"),
+            dict(
+                missing_paths=("exthome/qt-resource-rebuilder/rmtool-tap-page-turn.qmd",),
+                message="缺失或未托管",
+            ),
+            dict(active=True, message="仍在当前 xochitl"),
+        )
+        for case in cases:
+            message = case.pop("message")
+            ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+                old_tap, old_fast, dev_launcher=True, **case
+            )
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(RuntimeError, message):
+                    shared.inspect_shared_firmware_residue(
+                        ssh, runtime, trusted, current_of(runtime),
+                        tolerate_legacy_templates=True,
+                    )
+
+    def test_tolerant_residue_cleanup_removes_entire_shared_base(self):
+        old_tap, old_fast = self._ferrari_166_pair()
+        ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+            old_tap,
+            old_fast,
+            dev_launcher=True,
+            missing_paths=("pinyin-input/rmtool-pinyin-input.service",),
+        )
+        current = (runtime.firmware, runtime.platform, runtime.architecture, "f" * 64)
+        with self.assertRaisesRegex(
+            RuntimeError, "共享 Xovi 标记与内置信任清单不匹配"
+        ):
+            shared.remove_shared_firmware_residue(ssh, runtime, trusted, current)
+        transaction = Mock(return_value="#!/bin/sh\n:")
+        with (
+            patch.object(shared, "_upload_bytes"),
+            patch.object(shared, "shared_transaction_script", transaction),
+        ):
+            result = shared.remove_shared_firmware_residue(
+                ssh, runtime, trusted, current, tolerate_legacy_templates=True
+            )
+        self.assertEqual(result, shared.SharedInspection({}, False, False))
+        self.assertTrue(transaction.call_args.kwargs["remove_base"])
+        self.assertFalse(transaction.call_args.kwargs["enable_dropin"])
 
     def test_transaction_orders_unmount_before_reload_and_never_restarts(self):
         script = shared.shared_transaction_script(
