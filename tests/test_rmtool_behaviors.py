@@ -31,6 +31,7 @@ import rmtool
 import _fast_mono_reading
 import _legacy_vellum
 import _native_chinese
+import _residue_migration
 import _pinyin_input
 import _rmkit_cn
 import _ssh
@@ -1280,7 +1281,7 @@ class WallpaperUiTests(unittest.TestCase):
                 "快速黑白阅读",
                 "时间管理",
                 "设备控制",
-                "旧版插件清理",
+                "旧版插件迁移/清理",
             ],
         )
         toolbox.tool_table.setCurrentCell(2, 0)
@@ -1533,7 +1534,7 @@ class WallpaperUiTests(unittest.TestCase):
 
     def test_legacy_vellum_cleanup_exposes_one_strict_action(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")
-        section = _tab_toolbox.LegacyVellumCleanupSection(client)
+        section = _tab_toolbox.LegacyPluginMigrationSection(client)
         self.addCleanup(section.deleteLater)
         worker = mock.Mock()
         worker.signals = mock.Mock()
@@ -1556,12 +1557,12 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertIn("全部通过后才开始删除", ask.call_args.args[2])
         self.assertIn("不会被卸载", ask.call_args.args[2])
         worker_cls.assert_called_once_with(_legacy_vellum.remove_legacy_plugins, client)
-        self.assertIn("rmtool-tap-page-turn", section.status_label.text())
+        self.assertIn("rmtool-tap-page-turn", section.cleanup_status_label.text())
         self.assertIn("本体仍保留", show_info.call_args.args[2])
 
     def test_legacy_vellum_cleanup_reports_none_found(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")
-        section = _tab_toolbox.LegacyVellumCleanupSection(client)
+        section = _tab_toolbox.LegacyPluginMigrationSection(client)
         self.addCleanup(section.deleteLater)
         worker = mock.Mock()
         worker.signals = mock.Mock()
@@ -1574,12 +1575,12 @@ class WallpaperUiTests(unittest.TestCase):
             section.cleanup_button.click()
             worker.signals.finished.connect.call_args.args[0](())
 
-        self.assertIn("未检测到", section.status_label.text())
+        self.assertIn("未检测到", section.cleanup_status_label.text())
         self.assertIn("没有需要卸载", show_info.call_args.args[2])
 
     def test_legacy_vellum_cleanup_preserves_partial_failure_detail(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")
-        section = _tab_toolbox.LegacyVellumCleanupSection(client)
+        section = _tab_toolbox.LegacyPluginMigrationSection(client)
         self.addCleanup(section.deleteLater)
         worker = mock.Mock()
         worker.signals = mock.Mock()
@@ -1595,9 +1596,104 @@ class WallpaperUiTests(unittest.TestCase):
             section.cleanup_button.click()
             worker.signals.error.connect.call_args.args[0](error)
 
-        self.assertIn("rmtool-tap-page-turn", section.status_label.text())
-        self.assertIn("卸载结果无法确认", section.status_label.text())
+        self.assertIn("rmtool-tap-page-turn", section.cleanup_status_label.text())
+        self.assertIn("卸载结果无法确认", section.cleanup_status_label.text())
         self.assertIn("rmtool-tap-page-turn", show_error.call_args.args[2])
+
+    def _migration_report(self, migratable=True):
+        old = _tap_page_turn.DeviceIdentity(
+            "20260806095513",
+            "chiappa",
+            "aarch64",
+            "5748eed3bb804c8d3000e833ba472750428b6a82bc09b2bc7b5cf01847336bc7",
+        )
+        new = _tap_page_turn.DeviceIdentity(
+            "20260806095513",
+            "chiappa",
+            "aarch64",
+            "6361610111c381ce730a8bfcc889bd933ef5fef173563a9156e435233714e7ee",
+        )
+        return _residue_migration.ResidueReport(
+            old,
+            new,
+            (
+                _residue_migration.ResidueFeatureReport(
+                    "tap-page-turn", "点击翻页", True, True
+                ),
+                _residue_migration.ResidueFeatureReport(
+                    "pinyin-input", "拼音输入", True, migratable
+                ),
+            ),
+            migratable,
+            () if migratable else ("阻断：拼音输入处于启用状态，但当前固件没有可迁移的精确包",),
+            "detail",
+        )
+
+    def test_legacy_migration_detect_shows_report_and_gates_button(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.LegacyPluginMigrationSection(client)
+        self.addCleanup(section.deleteLater)
+        self.assertFalse(section.migrate_button.isEnabled())
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+
+        with mock.patch.object(rmtool, "Worker", return_value=worker), mock.patch.object(
+            section.thread_pool, "start"
+        ):
+            section.detect_button.click()
+            worker.signals.finished.connect.call_args.args[0](
+                self._migration_report(migratable=True)
+            )
+
+        self.assertIn("可迁移", section.status_label.text())
+        self.assertIn("点击翻页", section.status_label.text())
+        self.assertTrue(section.migrate_button.isEnabled())
+
+        with mock.patch.object(rmtool, "Worker", return_value=worker), mock.patch.object(
+            section.thread_pool, "start"
+        ):
+            section.detect_button.click()
+            worker.signals.finished.connect.call_args.args[0](
+                self._migration_report(migratable=False)
+            )
+
+        self.assertIn("阻断", section.status_label.text())
+        self.assertFalse(section.migrate_button.isEnabled())
+
+    def test_legacy_migration_migrate_requires_confirmation_and_reboot(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.LegacyPluginMigrationSection(client)
+        self.addCleanup(section.deleteLater)
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+
+        with mock.patch.object(rmtool, "Worker", return_value=worker), mock.patch.object(
+            section.thread_pool, "start"
+        ):
+            section.detect_button.click()
+            worker.signals.finished.connect.call_args.args[0](
+                self._migration_report(migratable=True)
+            )
+
+        with (
+            mock.patch.object(
+                _tab_toolbox, "ask_confirmation", return_value=True
+            ) as ask,
+            mock.patch.object(rmtool, "Worker", return_value=worker) as worker_cls,
+            mock.patch.object(section.thread_pool, "start"),
+            mock.patch.object(_tab_toolbox, "show_info") as show_info,
+            mock.patch.object(rmtool, "app_state_dir", return_value=Path("state")),
+        ):
+            section.migrate_button.click()
+            self.assertIn("逐文件验证", ask.call_args.args[2])
+            self.assertIn("手动重启", ask.call_args.args[2])
+            worker_cls.assert_called_once_with(
+                _residue_migration.migrate, client, Path("state")
+            )
+            worker.signals.finished.connect.call_args.args[0](None)
+
+        self.assertIn("手动重启", section.status_label.text())
+        self.assertIn("重启", show_info.call_args.args[2])
 
     @staticmethod
     def tap_page_turn_package():

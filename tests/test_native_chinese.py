@@ -802,7 +802,7 @@ class NativeChineseTests(unittest.TestCase):
         ), patch.object(
             shared,
             "remove_shared_firmware_residue",
-            side_effect=lambda *_args: events.append("remove"),
+            side_effect=lambda *_args, **_kwargs: events.append("remove"),
         ) as remove, patch.object(shared, "_disable_shared_locked") as disable_current, patch.object(
             native, "get_status"
         ):
@@ -816,6 +816,9 @@ class NativeChineseTests(unittest.TestCase):
             current.architecture,
             current.xochitl_sha256,
         ))
+        self.assertTrue(
+            remove.call_args.kwargs["tolerate_legacy_templates"]
+        )
 
     def test_emergency_set_and_clear_use_shared_marker_helpers(self):
         ssh = Mock()

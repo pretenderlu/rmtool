@@ -154,6 +154,11 @@ class SharedInspection:
     dropin_present: bool
     startup_pending: bool = False
     layout: StandaloneLayout = SHARED_LAYOUT
+    # The on-disk launcher/drop-in pair is self-consistent with the marker but
+    # could not be reproduced from the built-in templates. Only set by the
+    # tolerant firmware-residue path, after the runtime and every payload
+    # anchor already verified byte-exact against the trusted manifests.
+    legacy_templates: bool = False
 
 
 _COMMON_ARCHIVE_PATHS = (
@@ -662,11 +667,15 @@ def _validate_owned_tree(
     expected_files: Mapping[str, SharedFileSpec],
     label: str,
     allowed_empty_dirs: Iterable[str] = (),
+    optional_files: Iterable[str] = (),
 ) -> None:
     expected_dirs = _parent_directories(expected_files)
     required_paths = set(expected_files) | expected_dirs
     allowed_empty_dirs = set(allowed_empty_dirs) - set(expected_files)
     allowed_paths = required_paths | allowed_empty_dirs
+    # Optional files stay hash-verified when present but may be absent, e.g.
+    # payload files a later package revision added to an older deployment.
+    optional_files = set(optional_files) & set(expected_files)
     command = (
         f"stat -c '%f|%u|%g|%s|%n' {shlex.quote(base)}; "
         f"find {shlex.quote(base)} -mindepth 1 -exec stat -c '%f|%u|%g|%s|%n' {{}} \\;"
@@ -715,7 +724,10 @@ def _validate_owned_tree(
         if relative in seen:
             raise RuntimeError(f"{label}目录包含重复路径。")
         seen.add(relative)
-    if not required_paths | {""} <= seen or not seen <= allowed_paths | {""}:
+    if (
+        not ((required_paths - optional_files) | {""}) <= seen
+        or not seen <= allowed_paths | {""}
+    ):
         raise RuntimeError(f"{label}目录包含缺失或未托管路径。")
 
 
@@ -1037,7 +1049,20 @@ def inspect_shared_firmware_residue(
     runtime: SharedRuntimeSpec,
     trusted: Mapping[str, SharedFeatureSpec],
     current_identity: tuple[str, str, str, str],
+    *,
+    tolerate_legacy_templates: bool = False,
 ) -> SharedInspection:
+    """Verify an inactive shared tree left behind by a firmware update.
+
+    Strict mode requires the whole marker (including launcher/drop-in hashes)
+    to reproduce from the built-in templates. Tolerant mode additionally
+    accepts an unreleased launcher/drop-in generation: identity, runtime
+    files, feature states, and runtime_present must still match the trusted
+    manifests exactly, and the on-disk launcher.sh/systemd copy must hash to
+    the values recorded in the marker itself. Every migration or cleanup
+    rebuilds those two files from the current templates, so a tolerated
+    variant never survives the operation.
+    """
     installed_identity = (
         runtime.firmware,
         runtime.platform,
@@ -1058,6 +1083,7 @@ def inspect_shared_firmware_residue(
         layout=layout,
         check_lower=True,
         expected_dropin=False,
+        tolerate_legacy_templates=tolerate_legacy_templates,
     )
     if not inspection.states:
         raise RuntimeError("未检测到可验证的共享 Xovi 固件升级残留。")
@@ -1075,6 +1101,7 @@ def _inspect_shared(
     layout: StandaloneLayout,
     check_lower: bool,
     expected_dropin: Optional[bool],
+    tolerate_legacy_templates: bool = False,
 ) -> SharedInspection:
     artifacts = has_shared_artifacts(ssh_client)
     if not artifacts:
@@ -1108,6 +1135,7 @@ def _inspect_shared(
         startup_guard=layout == SHARED_LAYOUT,
     )
     launcher_sha = hashlib.sha256(launcher_text.encode()).hexdigest()
+    legacy_templates = False
     if marker != _marker_document(runtime, states, launcher_sha, dropin_sha):
         candidates = (
             shared_launcher(
@@ -1133,29 +1161,67 @@ def _inspect_shared(
                 launcher_sha = candidate_sha
                 break
         else:
-            raise RuntimeError("共享 Xovi 标记与内置信任清单不匹配。")
+            if not tolerate_legacy_templates:
+                raise RuntimeError("共享 Xovi 标记与内置信任清单不匹配。")
+            # Unreleased launcher/drop-in generation (development deployment).
+            # Accept it only when identity, runtime, states, and the
+            # runtime_present flag still match the trusted manifests exactly;
+            # the tree walk below then pins launcher.sh and the systemd copy
+            # to the hashes recorded in this very marker.
+            if marker.get("identity") != {
+                "firmware": runtime.firmware,
+                "platform": runtime.platform,
+                "architecture": runtime.architecture,
+                "xochitl_sha256": runtime.xochitl_sha256,
+            } or marker.get("runtime") != {
+                item.path: item.sha256 for item in runtime.files
+            } or marker.get("runtime_present") is not any(
+                state.enabled for state in states.values()
+            ) or not re.fullmatch(
+                r"[0-9a-f]{64}", str(marker.get("launcher_sha256", ""))
+            ) or not re.fullmatch(
+                r"[0-9a-f]{64}", str(marker.get("dropin_sha256", ""))
+            ):
+                raise RuntimeError("共享 Xovi 标记与内置信任清单不匹配。")
+            legacy_templates = True
+            launcher_sha = marker["launcher_sha256"]
+            dropin_sha = marker["dropin_sha256"]
     marker_bytes = (
         json.dumps(marker, ensure_ascii=True, sort_keys=True) + "\n"
     ).encode("ascii")
     expected_files = {}
+    optional_files = set()
     if enabled:
         expected_files.update({item.path: item for item in runtime.files})
-        expected_files.update({
-            item.runtime_path: SharedFileSpec(
-                item.runtime_path, item.sha256, item.size, item.mode
+        for state in states.values():
+            if not state.enabled:
+                continue
+            for item in state.spec.files:
+                expected_files[item.runtime_path] = SharedFileSpec(
+                    item.runtime_path, item.sha256, item.size, item.mode
+                )
+                if legacy_templates and item.runtime_path != state.spec.runtime_path:
+                    optional_files.add(item.runtime_path)
+        if legacy_templates:
+            expected_files["launcher.sh"] = SharedFileSpec(
+                "launcher.sh", launcher_sha, -1, 0o755
             )
-            for state in states.values() if state.enabled
-            for item in state.spec.files
-        })
-        expected_files["launcher.sh"] = SharedFileSpec(
-            "launcher.sh", launcher_sha, len(launcher_text.encode()), 0o755
-        )
-        expected_files[f"systemd/{SHARED_LAYOUT.dropin_name}"] = SharedFileSpec(
-            f"systemd/{SHARED_LAYOUT.dropin_name}",
-            dropin_sha,
-            len(dropin_text.encode()),
-            0o644,
-        )
+            expected_files[f"systemd/{SHARED_LAYOUT.dropin_name}"] = SharedFileSpec(
+                f"systemd/{SHARED_LAYOUT.dropin_name}",
+                dropin_sha,
+                -1,
+                0o644,
+            )
+        else:
+            expected_files["launcher.sh"] = SharedFileSpec(
+                "launcher.sh", launcher_sha, len(launcher_text.encode()), 0o755
+            )
+            expected_files[f"systemd/{SHARED_LAYOUT.dropin_name}"] = SharedFileSpec(
+                f"systemd/{SHARED_LAYOUT.dropin_name}",
+                dropin_sha,
+                len(dropin_text.encode()),
+                0o644,
+            )
     expected_files["package.json"] = SharedFileSpec(
         "package.json", hashlib.sha256(marker_bytes).hexdigest(),
         len(marker_bytes), 0o644
@@ -1179,6 +1245,7 @@ def _inspect_shared(
         expected_files,
         "共享 Xovi",
         disabled_dirs,
+        optional_files,
     )
     dropin_present = ssh_client.file_exists(SHARED_LAYOUT.dropin_path)
     dropin_required = bool(enabled) if expected_dropin is None else expected_dropin
@@ -1199,6 +1266,7 @@ def _inspect_shared(
         dropin_present,
         startup_pending,
         layout,
+        legacy_templates,
     )
 
 
@@ -1702,8 +1770,7 @@ def _stage_shared(
     ssh_client,
     runtime: SharedRuntimeSpec,
     states: Mapping[str, SharedFeatureState],
-    incoming: SharedFeatureSpec,
-    extracted_root: Path,
+    incoming_roots: Mapping[str, Path],
     previous_sources: Mapping[str, str],
     stage: str,
 ) -> tuple[str, str]:
@@ -1727,13 +1794,18 @@ def _stage_shared(
         "mkdir -p " + " ".join(shlex.quote(path) for path in sorted(directories))
     )
     for item in runtime.files:
-        local = extracted_root.joinpath(*PurePosixPath(item.path).parts)
+        # Every feature package carries the identical common runtime files,
+        # so any staged extracted root can supply them.
+        local = next(iter(incoming_roots.values())).joinpath(
+            *PurePosixPath(item.path).parts
+        )
         _upload_path(ssh_client, local, f"{stage}/{item.path}", item.mode)
     for feature in enabled:
+        root = incoming_roots.get(feature.feature_id)
         for item in feature.files:
             remote = f"{stage}/{item.runtime_path}"
-            if feature.feature_id == incoming.feature_id:
-                local = extracted_root.joinpath(*PurePosixPath(item.archive_path).parts)
+            if root is not None:
+                local = root.joinpath(*PurePosixPath(item.archive_path).parts)
                 _upload_path(ssh_client, local, remote, item.mode)
             else:
                 source = previous_sources.get(item.runtime_path)
@@ -1879,7 +1951,12 @@ def _enable_shared_locked(
     ssh_client.exec_checked(f"rm -rf {shlex.quote(stage)}")
     try:
         _stage_shared(
-            ssh_client, runtime, states, feature, Path(extracted_root), previous_sources, stage
+            ssh_client,
+            runtime,
+            states,
+            {feature.feature_id: Path(extracted_root)},
+            previous_sources,
+            stage,
         )
         migrated_layouts = [item.layout for item in present_legacy]
         if inspection.states and inspection.layout != SHARED_LAYOUT:
@@ -2059,6 +2136,8 @@ def remove_shared_firmware_residue(
     runtime: SharedRuntimeSpec,
     trusted: Mapping[str, SharedFeatureSpec],
     current_identity: tuple[str, str, str, str],
+    *,
+    tolerate_legacy_templates: bool = False,
 ) -> SharedInspection:
     with _operation_lock(ssh_client):
         inspection = inspect_shared_firmware_residue(
@@ -2066,6 +2145,7 @@ def remove_shared_firmware_residue(
             runtime,
             trusted,
             current_identity,
+            tolerate_legacy_templates=tolerate_legacy_templates,
         )
         token = uuid.uuid4().hex
         stage = f"{SHARED_LAYOUT.remote_base}.staging-{token}"
@@ -2096,6 +2176,120 @@ def remove_shared_firmware_residue(
             except Exception:
                 logging.exception("Could not remove shared Xovi residue cleanup script")
     return SharedInspection({}, False, False)
+
+
+# The migration driver can fetch and stage these features end to end. Any
+# other enabled residue feature (for example AppLoad) blocks migration and
+# must be handled through its own page first.
+MIGRATABLE_FEATURE_IDS = frozenset(
+    {"tap-page-turn", "fast-mono-reading", "native-chinese", "pinyin-input"}
+)
+
+
+def migrate_shared(
+    ssh_client,
+    old_runtime: SharedRuntimeSpec,
+    old_trusted: Mapping[str, SharedFeatureSpec],
+    new_runtime: SharedRuntimeSpec,
+    new_features: Mapping[str, SharedFeatureSpec],
+    extracted_roots: Mapping[str, str | Path],
+    legacy_specs: Iterable[LegacyStandaloneSpec] = (),
+    *,
+    tolerate_legacy_templates: bool = False,
+) -> SharedInspection:
+    """Move a verified firmware-upgrade residue onto current-identity packages.
+
+    The residue must verify against the old identity's trusted specs and must
+    not be loaded into the running xochitl. Every enabled feature must
+    provide an exact new-identity package; the whole shared tree is then
+    rebuilt from those packages in one staged transaction that preserves each
+    feature's enabled state. With tolerate_legacy_templates the residue may
+    carry an unreleased launcher/drop-in generation (see
+    inspect_shared_firmware_residue); the rebuilt tree always uses the
+    current templates.
+    """
+    with _operation_lock(ssh_client):
+        if not set(new_features) <= MIGRATABLE_FEATURE_IDS:
+            raise RuntimeError("共享 Xovi 包含暂不支持迁移的功能。")
+        target_trusted = dict(new_features)
+        assert_feature_layout(new_runtime, target_trusted.values())
+        _assert_managed_dropins(
+            ssh_client,
+            (
+                SHARED_LAYOUT.dropin_path,
+                *(item.layout.dropin_path for item in legacy_specs),
+            ),
+        )
+        residue = inspect_shared_firmware_residue(
+            ssh_client,
+            old_runtime,
+            old_trusted,
+            (
+                new_runtime.firmware,
+                new_runtime.platform,
+                new_runtime.architecture,
+                new_runtime.xochitl_sha256,
+            ),
+            tolerate_legacy_templates=tolerate_legacy_templates,
+        )
+        if any(validate_legacy(ssh_client, item) for item in legacy_specs):
+            raise RuntimeError("检测到旧版独立 Xovi 布局，拒绝迁移。")
+        enabled_ids = sorted(
+            feature_id
+            for feature_id, state in residue.states.items()
+            if state.enabled
+        )
+        missing = [
+            feature_id for feature_id in enabled_ids
+            if feature_id not in target_trusted
+        ]
+        if missing:
+            raise RuntimeError(
+                "以下已启用功能在当前固件没有精确匹配的包，无法迁移："
+                + "、".join(missing)
+                + "。请先停用对应功能后重试。"
+            )
+        roots = {feature_id: Path(root) for feature_id, root in extracted_roots.items()}
+        if set(roots) != set(enabled_ids):
+            raise RuntimeError("迁移功能与已验证解包目录不一致。")
+        current = _process_token(ssh_client)
+        states = {}
+        for feature_id, state in residue.states.items():
+            if feature_id not in target_trusted:
+                # Marker-only disabled residue for a feature without a new
+                # package has no files on disk; dropping it is lossless.
+                continue
+            states[feature_id] = SharedFeatureState(
+                target_trusted[feature_id],
+                state.enabled,
+                current if state.enabled else state.process_token,
+            )
+        token = uuid.uuid4().hex
+        stage = f"{SHARED_LAYOUT.remote_base}.staging-{token}"
+        remote_script = f"/tmp/rmtool-xovi-migrate-{token}.sh"
+        ssh_client.exec_checked(f"rm -rf {shlex.quote(stage)}")
+        try:
+            _stage_shared(ssh_client, new_runtime, states, roots, {}, stage)
+            migrated_layouts = (
+                (residue.layout,) if residue.layout != SHARED_LAYOUT else ()
+            )
+            script = shared_transaction_script(
+                stage, token, migrated_layouts, enable_dropin=True
+            )
+            _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
+            ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
+        except Exception:
+            try:
+                ssh_client.exec_checked(f"rm -rf {shlex.quote(stage)}")
+            except Exception:
+                logging.exception("Could not clean shared Xovi migration staging directory")
+            raise
+        finally:
+            try:
+                ssh_client.exec_checked(f"rm -f {shlex.quote(remote_script)}")
+            except Exception:
+                logging.exception("Could not remove shared Xovi migration script")
+        return inspect_shared(ssh_client, new_runtime, target_trusted)
 
 
 def remove_verified_legacy(

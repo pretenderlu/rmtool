@@ -212,7 +212,7 @@ In a PDF or EPUB reading view, a short one-finger tap in the left-middle region 
 
 Enabling and disabling are intentionally separated from activation. rmtool writes and validates the persistent configuration, closes SSH, and never restarts xochitl or reboots the device automatically. Use the device menu to perform a full restart after either operation. The launcher checks the device and every runtime file on each boot and falls back to stock xochitl if any check fails. See [tap-page-turn](tap-page-turn/README.md) for the package and license details.
 
-All new feature installations use one rmtool-owned shared Xovi/QRR runtime. rmtool no longer creates or installs Vellum APKs. The reading-optimization toolbox provides one-click cleanup that validates both historical `rmtool-tap-page-turn` and `rmtool-fast-mono-reading` packages before removing either one, without touching Vellum, current shared-Xovi features, or third-party packages. After those packages are removed, uninstall the remaining Vellum/AppLoader runtime through the [official Vellum CLI instructions](https://github.com/vellum-dev/vellum-cli#usage) before installing the rmtool version; rmtool never runs `vellum self uninstall` or `--all` automatically.
+All new feature installations use one rmtool-owned shared Xovi/QRR runtime. rmtool no longer creates or installs Vellum APKs. The reading-optimization toolbox first offers one-click firmware-residue migration (Device Tools > Legacy plugin migration/cleanup): rmtool verifies the residue file by file against the old firmware's trusted manifest and then moves every enabled feature onto the current firmware's exact packages in one transaction, requiring only a manual reboot. It also provides one-click cleanup that validates both historical `rmtool-tap-page-turn` and `rmtool-fast-mono-reading` packages before removing either one, without touching Vellum, current shared-Xovi features, or third-party packages. After those packages are removed, uninstall the remaining Vellum/AppLoader runtime through the [official Vellum CLI instructions](https://github.com/vellum-dev/vellum-cli#usage) before installing the rmtool version; rmtool never runs `vellum self uninstall` or `--all` automatically.
 
 ### Fast monochrome reading
 
@@ -281,7 +281,7 @@ On Windows, after installing dependencies, you can also double-click `rmtool.bat
 ## Development and release checks
 
 ```bash
-python -m compileall -q rmtool.py _dialogs.py _fast_mono_reading.py _log_viewer.py _pinyin_input.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tools tests
+python -m compileall -q rmtool.py _dialogs.py _fast_mono_reading.py _log_viewer.py _pinyin_input.py _residue_migration.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tools tests
 python -m unittest discover -s tests -v
 git diff --check
 actionlint .github/workflows/release.yml .github/workflows/sync-localization-assets.yml .github/workflows/sync-feature-assets.yml

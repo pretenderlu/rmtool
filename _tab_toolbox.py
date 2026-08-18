@@ -14,6 +14,7 @@ import _fast_mono_reading
 import _legacy_vellum
 import _native_chinese
 import _pinyin_input
+import _residue_migration
 import _tap_page_turn
 from _ssh import SSHClientWrapper, remount_rw, require_connection
 import rmtool as _rmtool  # late-bound access to avoid circular import
@@ -2961,32 +2962,182 @@ class FastMonoReadingSection(QtWidgets.QWidget):
         )
 
 
-class LegacyVellumCleanupSection(QtWidgets.QWidget):
+_LEGACY_PLATFORM_LABELS = {
+    "ferrari": "Paper Pro",
+    "chiappa": "Paper Pro Move",
+    "tatsu": "Paper Pure",
+    "rm1": "reMarkable 1",
+    "rm2": "reMarkable 2",
+}
+
+
+class LegacyPluginMigrationSection(QtWidgets.QWidget):
+    """Firmware-residue migration plus historical Vellum package cleanup."""
+
     def __init__(self, ssh_client: SSHClientWrapper, parent=None):
         super().__init__(parent)
         self.ssh_client = ssh_client
         self.thread_pool = QtCore.QThreadPool.globalInstance()
         self._busy = False
+        self._report = None
 
+        migration_title = QtWidgets.QLabel("固件升级插件迁移")
+        migration_title.setObjectName("toolboxFeatureTitle")
         self.status_label = ToolboxStatusLabel(
+            "固件升级后，已安装的 rmtool 插件会因固件身份变化而停用。"
+            "在这里可以先用旧固件清单逐文件验证残留，再把全部已启用功能"
+            "一次性迁移到当前固件的精确包；迁移完成后需手动重启设备。"
+        )
+        self.status_label.setWordWrap(True)
+        self.detect_button = QtWidgets.QPushButton("检测迁移状态")
+        self.detect_button.clicked.connect(self._detect)
+        self.migrate_button = QtWidgets.QPushButton("迁移到当前固件")
+        self.migrate_button.clicked.connect(self._migrate)
+
+        vellum_title = QtWidgets.QLabel("旧版 Vellum 插件清理")
+        vellum_title.setObjectName("toolboxFeatureTitle")
+        self.cleanup_status_label = ToolboxStatusLabel(
             "仅清理 rmtool 历史安装的点击翻页和快速黑白 Vellum 包；"
             "不会卸载 Vellum、AppLoader、Xovi 或其他插件。"
         )
-        self.status_label.setWordWrap(True)
+        self.cleanup_status_label.setWordWrap(True)
         self.cleanup_button = QtWidgets.QPushButton("一键卸载旧版插件")
         self.cleanup_button.clicked.connect(self._cleanup)
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(_rmtool.SUBSECTION_GAP)
+        layout.addWidget(migration_title)
         layout.addWidget(self.status_label)
+        detect_row = QtWidgets.QHBoxLayout()
+        detect_row.setSpacing(_rmtool.SUBSECTION_GAP)
+        detect_row.addWidget(self.detect_button)
+        detect_row.addWidget(self.migrate_button)
+        detect_row.addStretch(1)
+        layout.addLayout(detect_row)
+        layout.addWidget(vellum_title)
+        layout.addWidget(self.cleanup_status_label)
         layout.addWidget(self.cleanup_button, 0, QtCore.Qt.AlignLeft)
 
         self.ssh_client.connection_changed.connect(self._on_connection_changed)
         self._on_connection_changed(self.ssh_client.is_connected())
 
     def _on_connection_changed(self, connected: bool):
-        self.cleanup_button.setEnabled(connected and not self._busy)
+        active = connected and not self._busy
+        self.detect_button.setEnabled(active)
+        self.cleanup_button.setEnabled(active)
+        self.migrate_button.setEnabled(
+            active and self._report is not None and self._report.migratable
+        )
+
+    def _report_text(self, report) -> str:
+        if report is None:
+            return "未检测到固件升级残留；如需清理历史 Vellum 包请使用下方按钮。"
+        lines = [
+            "残留固件：{}（{}）".format(
+                report.old_identity.firmware,
+                _LEGACY_PLATFORM_LABELS.get(
+                    report.old_identity.platform, report.old_identity.platform
+                ),
+            ),
+            "当前固件：{}（{}）".format(
+                report.new_identity.firmware,
+                _LEGACY_PLATFORM_LABELS.get(
+                    report.new_identity.platform, report.new_identity.platform
+                ),
+            ),
+        ]
+        for item in report.features:
+            state = "已启用" if item.enabled else "未启用"
+            target = "可迁移" if item.target_available else "当前固件无精确包"
+            lines.append(f"{item.label}：{state}，{target}")
+        for blocker in report.blockers:
+            lines.append(f"阻断：{blocker}")
+        lines.append(report.detail)
+        return "\n".join(lines)
+
+    @require_connection
+    def _detect(self):
+        self._busy = True
+        self._on_connection_changed(True)
+        self.status_label.setText("正在验证共享 Xovi 固件残留…")
+        worker = _rmtool.Worker(_residue_migration.inspect_residue, self.ssh_client)
+
+        def on_finished(report):
+            if sip.isdeleted(self):
+                return
+            self._busy = False
+            self._report = report
+            self._on_connection_changed(self.ssh_client.is_connected())
+            self.status_label.setText(self._report_text(report))
+
+        def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                logging.error("Residue detection failed after tab close: %s", exc)
+                return
+            self._busy = False
+            self._on_connection_changed(self.ssh_client.is_connected())
+            self.status_label.setText(f"检测迁移状态失败：{exc}")
+            logging.error("Residue detection failed: %s", exc)
+            show_error(self, _rmtool.APP_NAME, f"检测失败：{exc}")
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self.thread_pool.start(worker)
+
+    @require_connection
+    def _migrate(self):
+        if self._report is None or not self._report.migratable:
+            return
+        features = "、".join(
+            item.label for item in self._report.features if item.enabled
+        )
+        if not ask_confirmation(
+            self,
+            "迁移到当前固件",
+            "rmtool 会先用旧固件的受信清单逐文件验证共享 Xovi 残留，"
+            f"再把已启用功能（{features}）一次性替换为当前固件的精确包，"
+            "并保持各功能的启用状态。任一验证失败都不会写入。"
+            "迁移完成后请从设备菜单手动重启设备。是否继续？",
+            confirm_text="迁移插件",
+            cancel_text="取消",
+        ):
+            return
+
+        self._busy = True
+        self._on_connection_changed(True)
+        self.status_label.setText("正在验证并迁移共享 Xovi 插件…")
+        worker = _rmtool.Worker(
+            _residue_migration.migrate, self.ssh_client, _rmtool.app_state_dir()
+        )
+
+        def on_finished(report):
+            if sip.isdeleted(self):
+                return
+            self._busy = False
+            self._report = None
+            self._on_connection_changed(self.ssh_client.is_connected())
+            self.status_label.setText("迁移完成。请从设备菜单手动重启设备。")
+            show_info(
+                self,
+                _rmtool.APP_NAME,
+                "已把全部已启用插件迁移到当前固件的精确包。"
+                "请从设备菜单手动重启设备后生效。",
+            )
+
+        def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                logging.error("Residue migration failed after tab close: %s", exc)
+                return
+            self._busy = False
+            self._on_connection_changed(self.ssh_client.is_connected())
+            self.status_label.setText(f"插件迁移失败：{exc}")
+            logging.error("Residue migration failed: %s", exc)
+            show_error(self, _rmtool.APP_NAME, f"迁移失败：{exc}")
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self.thread_pool.start(worker)
 
     @require_connection
     def _cleanup(self):
@@ -3005,7 +3156,7 @@ class LegacyVellumCleanupSection(QtWidgets.QWidget):
 
         self._busy = True
         self._on_connection_changed(True)
-        self.status_label.setText("正在验证并卸载 rmtool 历史 Vellum 功能包…")
+        self.cleanup_status_label.setText("正在验证并卸载 rmtool 历史 Vellum 功能包…")
         worker = _rmtool.Worker(_legacy_vellum.remove_legacy_plugins, self.ssh_client)
 
         def on_finished(removed: tuple[str, ...]):
@@ -3015,14 +3166,14 @@ class LegacyVellumCleanupSection(QtWidgets.QWidget):
             self._on_connection_changed(self.ssh_client.is_connected())
             if removed:
                 names = "、".join(removed)
-                self.status_label.setText(f"已卸载：{names}")
+                self.cleanup_status_label.setText(f"已卸载：{names}")
                 show_info(
                     self,
                     _rmtool.APP_NAME,
                     "已卸载通过验证的 rmtool 旧版插件。Vellum/AppLoader/Xovi 本体仍保留。",
                 )
             else:
-                self.status_label.setText("未检测到 rmtool 安装的旧版 Vellum 插件")
+                self.cleanup_status_label.setText("未检测到 rmtool 安装的旧版 Vellum 插件")
                 show_info(self, _rmtool.APP_NAME, "没有需要卸载的 rmtool 旧版插件。")
 
         def on_error(exc: Exception):
@@ -3031,7 +3182,7 @@ class LegacyVellumCleanupSection(QtWidgets.QWidget):
                 return
             self._busy = False
             self._on_connection_changed(self.ssh_client.is_connected())
-            self.status_label.setText(f"旧版插件清理失败：{exc}")
+            self.cleanup_status_label.setText(f"旧版插件清理失败：{exc}")
             logging.error("Legacy Vellum cleanup failed: %s", exc)
             show_error(self, _rmtool.APP_NAME, f"操作失败：{exc}")
 
@@ -3057,7 +3208,7 @@ class ToolboxTab(QtWidgets.QWidget):
         self.pinyin_input_section = PinyinInputSection(ssh_client)
         self.tap_page_turn_section = TapPageTurnSection(ssh_client)
         self.fast_mono_reading_section = FastMonoReadingSection(ssh_client)
-        self.legacy_vellum_cleanup_section = LegacyVellumCleanupSection(ssh_client)
+        self.legacy_plugin_section = LegacyPluginMigrationSection(ssh_client)
         self._detectable_sections = (
             self.native_chinese_section,
             self.pinyin_input_section,
@@ -3109,10 +3260,10 @@ class ToolboxTab(QtWidgets.QWidget):
                 "status": None,
             },
             {
-                "title": "旧版插件清理",
+                "title": "旧版插件迁移/清理",
                 "category": "设备维护",
-                "keywords": "Vellum AppLoader Xovi 卸载 残留",
-                "section": self.legacy_vellum_cleanup_section,
+                "keywords": "Vellum AppLoader Xovi 卸载 残留 迁移 固件升级",
+                "section": self.legacy_plugin_section,
                 "status": None,
             },
         )

@@ -584,6 +584,7 @@ def _inspect_shared_revision(
     *,
     check_lower: bool = False,
     firmware_residue_identity: Optional[tuple[str, str, str, str]] = None,
+    tolerate_legacy_templates: bool = False,
 ):
     def inspect(candidate):
         if firmware_residue_identity is not None:
@@ -592,6 +593,7 @@ def _inspect_shared_revision(
                 runtime,
                 candidate,
                 firmware_residue_identity,
+                tolerate_legacy_templates=tolerate_legacy_templates,
             )
         return _xovi_standalone.inspect_shared(
             ssh_client,
@@ -923,28 +925,54 @@ def get_status(
                     )
                 ):
                     raise RuntimeError("检测到共享与旧版/Vellum Xovi 混合布局。")
-                inspection, _installed_trusted, _outdated = (
-                    _inspect_shared_revision(
-                        ssh_client,
-                        runtime,
-                        trusted,
-                        marker_package,
-                        firmware_residue_identity=(
-                            identity.firmware,
-                            identity.platform,
-                            identity.architecture,
-                            identity.xochitl_sha256,
-                        ),
-                    )
+                residue_identity = (
+                    identity.firmware,
+                    identity.platform,
+                    identity.architecture,
+                    identity.xochitl_sha256,
                 )
+                try:
+                    inspection, _installed_trusted, _outdated = (
+                        _inspect_shared_revision(
+                            ssh_client,
+                            runtime,
+                            trusted,
+                            marker_package,
+                            firmware_residue_identity=residue_identity,
+                        )
+                    )
+                except RuntimeError:
+                    # Development-era deployments carry an unreleased
+                    # launcher/drop-in generation; tolerate them for residue
+                    # cleanup only when every payload anchor still verifies.
+                    inspection, _installed_trusted, _outdated = (
+                        _inspect_shared_revision(
+                            ssh_client,
+                            runtime,
+                            trusted,
+                            marker_package,
+                            firmware_residue_identity=residue_identity,
+                            tolerate_legacy_templates=True,
+                        )
+                    )
+                detail = (
+                    "旧共享目录与内置旧包完全一致，且上下层 drop-in 均已由固件升级移除；"
+                    "旧功能当前未载入。清理会一并移除点击翻页和快速黑白的旧共享状态，"
+                    "随后两项功能均可安装当前固件版本。"
+                )
+                if inspection.legacy_templates:
+                    detail = (
+                        "旧共享目录的内部文件与内置旧包完全一致，但启动脚本为未发布的"
+                        "开发期变体（drop-in 已由固件升级移除，旧功能当前未载入）。"
+                        "清理会一并移除点击翻页和快速黑白的旧共享状态，"
+                        "随后两项功能均可安装当前固件版本。"
+                    )
                 return FastMonoReadingStatus(
                     FastMonoReadingState.FIRMWARE_RESIDUE,
                     identity,
                     package,
                     available,
-                    "旧共享目录与内置旧包完全一致，且上下层 drop-in 均已由固件升级移除；"
-                    "旧功能当前未载入。清理会一并移除点击翻页和快速黑白的旧共享状态，"
-                    "随后两项功能均可安装当前固件版本。",
+                    detail,
                     True,
                 )
             except Exception as exc:
@@ -1342,19 +1370,40 @@ def disable(
         package = select_package(_trusted_catalog(), identity)
         if package is None:
             raise RuntimeError("内置快速黑白清单无法验证该共享安装。")
-        _inspection, installed_trusted, outdated = _inspect_shared_revision(
-            ssh_client,
-            runtime,
-            trusted,
-            package,
-            check_lower=True,
-            firmware_residue_identity=(
-                current_identity.firmware,
-                current_identity.platform,
-                current_identity.architecture,
-                current_identity.xochitl_sha256,
-            ) if identity != current_identity else None,
-        )
+        residue = identity != current_identity
+        try:
+            _inspection, installed_trusted, outdated = _inspect_shared_revision(
+                ssh_client,
+                runtime,
+                trusted,
+                package,
+                check_lower=True,
+                firmware_residue_identity=(
+                    current_identity.firmware,
+                    current_identity.platform,
+                    current_identity.architecture,
+                    current_identity.xochitl_sha256,
+                ) if residue else None,
+            )
+        except RuntimeError:
+            if not residue:
+                raise
+            # Development-era launcher/drop-in generation: tolerate for
+            # residue cleanup only when every payload anchor still verifies.
+            _inspection, installed_trusted, outdated = _inspect_shared_revision(
+                ssh_client,
+                runtime,
+                trusted,
+                package,
+                check_lower=True,
+                firmware_residue_identity=(
+                    current_identity.firmware,
+                    current_identity.platform,
+                    current_identity.architecture,
+                    current_identity.xochitl_sha256,
+                ),
+                tolerate_legacy_templates=True,
+            )
         if identity != current_identity:
             _xovi_standalone.remove_shared_firmware_residue(
                 ssh_client,
@@ -1366,6 +1415,7 @@ def disable(
                     current_identity.architecture,
                     current_identity.xochitl_sha256,
                 ),
+                tolerate_legacy_templates=True,
             )
         else:
             _xovi_standalone.disable_shared(

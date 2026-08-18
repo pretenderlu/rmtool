@@ -206,7 +206,7 @@ Move 正式版包已通过实机安装、语言切换、重启和停用测试，
 
 启用或停用与重启严格分离。rmtool 只写入并校验持久化配置，随后关闭 SSH，不会自动重启 xochitl 或设备。每次启用或停用后，都应从设备菜单执行完整重启。启动器会在每次开机时校验设备身份和全部运行文件；任一项不匹配时会直接启动原生 xochitl。资源包和许可证细节见 [点击翻页说明](tap-page-turn/README.md)。
 
-所有新功能统一安装到 rmtool 自有的共享 Xovi/QRR 运行时，rmtool 不再生成或安装 Vellum APK。阅读优化工具箱提供“一键卸载旧版插件”：先完整验证历史上的 `rmtool-tap-page-turn` 与 `rmtool-fast-mono-reading` 包，再统一删除，不会触碰 Vellum 本体、当前共享 Xovi 功能或任何第三方包。旧包清理完成后，请按照 [Vellum CLI 官方卸载说明](https://github.com/vellum-dev/vellum-cli#usage) 移除剩余 Vellum/AppLoader 运行环境，再安装 rmtool 版本；rmtool 不会自动执行 `vellum self uninstall`，也绝不会使用 `--all`。
+所有新功能统一安装到 rmtool 自有的共享 Xovi/QRR 运行时，rmtool 不再生成或安装 Vellum APK。阅读优化工具箱还提供固件升级后的一键插件迁移（“设备工具 > 旧版插件迁移/清理”会先用旧固件受信清单逐文件验证残留，再把全部已启用功能一次性迁移到当前固件的精确包），以及“一键卸载旧版插件”：先完整验证历史上的 `rmtool-tap-page-turn` 与 `rmtool-fast-mono-reading` 包，再统一删除，不会触碰 Vellum 本体、当前共享 Xovi 功能或任何第三方包。旧包清理完成后，请按照 [Vellum CLI 官方卸载说明](https://github.com/vellum-dev/vellum-cli#usage) 移除剩余 Vellum/AppLoader 运行环境，再安装 rmtool 版本；rmtool 不会自动执行 `vellum self uninstall`，也绝不会使用 `--all`。
 
 ### 快速黑白阅读
 
@@ -275,7 +275,7 @@ Windows 也可在依赖安装完成后双击 `rmtool.bat`，通过 `pythonw.exe`
 ## 开发与发布检查
 
 ```bash
-python -m compileall -q rmtool.py _dialogs.py _fast_mono_reading.py _log_viewer.py _pinyin_input.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tools tests
+python -m compileall -q rmtool.py _dialogs.py _fast_mono_reading.py _log_viewer.py _pinyin_input.py _residue_migration.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tools tests
 python -m unittest discover -s tests -v
 git diff --check
 actionlint .github/workflows/release.yml .github/workflows/sync-localization-assets.yml .github/workflows/sync-feature-assets.yml
