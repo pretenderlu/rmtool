@@ -1,5 +1,11 @@
 # reMarkable Chinese translation
 
+> **Maintenance freeze**: the French-slot deployment path described here is
+> frozen at the firmware list in `manifest.json`; no newer firmware will be
+> added. This directory remains the editing home for the Chinese `.ts`
+> sources and the catalogs embedded into the native Simplified Chinese
+> plugin, which is the only localization path for newer firmware.
+
 This directory contains the editable Qt Linguist source, the compiled catalog,
 and the cloud release manifest:
 

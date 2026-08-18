@@ -141,6 +141,15 @@ Before each upload, the target file is copied to `.backup` in the same directory
 
 ### Native Chinese UI localization
 
+> [!IMPORTANT]
+> This feature (the French-slot replacement method) is **frozen**: the matrix
+> below is the final support list and no newer firmware will be added to it.
+> Localization for newer firmware (`3.28.0.166` betas and future stable
+> releases) is provided exclusively by the [Independent Simplified Chinese
+> plugin](#independent-simplified-chinese-plugin), which uses a genuine
+> `zh_CN` slot and keeps French fully usable. This feature remains available
+> on the firmware listed below.
+
 Release packages do not embed firmware-specific `.qm` files. After you choose "Device Toolbox > System Localization > Check Status", rmtool:
 
 1. Retrieves the manifest from the [Tencent COS mainland mirror](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/manifest.json) first, then the fixed GitHub `localization-assets` release. If both are unavailable or invalid, it uses a previously validated cache and finally the baseline manifest bundled with the application.
