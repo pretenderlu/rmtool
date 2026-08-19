@@ -203,3 +203,28 @@ def migrate(ssh_client, state_dir: str) -> ResidueReport:
             tolerate_legacy_templates=report.legacy_templates,
         )
     return report
+
+
+def cleanup(ssh_client) -> ResidueReport:
+    """Remove a byte-verified firmware residue without rebuilding features."""
+    report = inspect_residue(ssh_client)
+    if report is None:
+        raise RuntimeError("未检测到固件升级残留，无需清理。")
+    if not report.features:
+        raise RuntimeError(report.detail or "固件升级残留无法验证，拒绝自动清理。")
+    old_runtime, old_trusted, _legacy = tap._trusted_shared_context(
+        report.old_identity
+    )
+    _xovi_standalone.remove_shared_firmware_residue(
+        ssh_client,
+        old_runtime,
+        old_trusted,
+        (
+            report.new_identity.firmware,
+            report.new_identity.platform,
+            report.new_identity.architecture,
+            report.new_identity.xochitl_sha256,
+        ),
+        tolerate_legacy_templates=report.legacy_templates,
+    )
+    return report

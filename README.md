@@ -193,7 +193,7 @@ The GPL-3.0 components ported from [boangs/rmkit](https://github.com/boangs/rmki
 
 ### Reading enhancements
 
-Reading enhancements use one exact-firmware package and one native device Settings page for tap-to-turn, fast monochrome reading, periodic full refresh, and chapter-boundary refresh. rmtool requires the hardware platform, CPU architecture, internal firmware version, and stock `/usr/bin/xochitl` SHA-256 to match; other or modified builds are rejected rather than guessed.
+Reading enhancements are one current rmtool plugin: it uses one exact-firmware package and one native device Settings page for tap-to-turn, fast monochrome reading, periodic full refresh, and chapter-boundary refresh. rmtool requires the hardware platform, CPU architecture, internal firmware version, and stock `/usr/bin/xochitl` SHA-256 to match; other or modified builds are rejected rather than guessed. The older tap-to-turn and fast-monochrome packages remain private compatibility inputs for safe migration and cleanup only.
 
 | Device model | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) | 3.28.0.169 beta (`20260806095513`) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |

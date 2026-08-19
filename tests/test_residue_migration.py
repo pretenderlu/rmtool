@@ -326,6 +326,67 @@ class ResidueMigrationTests(unittest.TestCase):
 
         self.assertTrue(migrate_shared.call_args.kwargs["tolerate_legacy_templates"])
 
+    def test_cleanup_removes_verified_residue_and_preserves_template_tolerance(self):
+        ssh = mock.Mock()
+        report = _residue_migration.ResidueReport(
+            self.old_identity,
+            self.new_identity,
+            (
+                _residue_migration.ResidueFeatureReport(
+                    "tap-page-turn", "点击翻页", True, False
+                ),
+            ),
+            False,
+            ("当前固件没有精确包",),
+            "残留已验证，但不能迁移。",
+            True,
+        )
+        with (
+            mock.patch.object(
+                _residue_migration, "inspect_residue", return_value=report
+            ),
+            mock.patch.object(
+                tap, "_trusted_shared_context", return_value=self.old_context
+            ),
+            mock.patch.object(
+                shared, "remove_shared_firmware_residue"
+            ) as remove,
+        ):
+            self.assertIs(_residue_migration.cleanup(ssh), report)
+
+        remove.assert_called_once_with(
+            ssh,
+            self.old_context[0],
+            self.old_context[1],
+            (
+                self.new_identity.firmware,
+                self.new_identity.platform,
+                self.new_identity.architecture,
+                self.new_identity.xochitl_sha256,
+            ),
+            tolerate_legacy_templates=True,
+        )
+
+    def test_cleanup_rejects_unverified_residue_before_mutation(self):
+        report = _residue_migration.ResidueReport(
+            self.old_identity,
+            self.new_identity,
+            (),
+            False,
+            ("无法验证",),
+            "残留无法验证，不能自动清理。",
+        )
+        remove = mock.Mock()
+        with (
+            mock.patch.object(
+                _residue_migration, "inspect_residue", return_value=report
+            ),
+            mock.patch.object(shared, "remove_shared_firmware_residue", remove),
+            self.assertRaisesRegex(RuntimeError, "不能自动清理"),
+        ):
+            _residue_migration.cleanup(mock.Mock())
+        remove.assert_not_called()
+
 
 class MigrateSharedTests(unittest.TestCase):
     TOKEN = "n" * 32
