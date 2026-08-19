@@ -5,6 +5,9 @@ import _tap_page_turn as tap
 import _xovi_standalone
 
 
+VELLUM_UNINSTALL_URL = tap.VELLUM_UNINSTALL_URL
+
+
 def remove_legacy_plugins(ssh_client) -> tuple[str, ...]:
     if not ssh_client.file_exists(tap.VELLUM_BIN):
         return ()

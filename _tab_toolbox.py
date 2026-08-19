@@ -10,13 +10,11 @@ from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
 import _rmkit_cn
-import _fast_mono_reading
 import _legacy_vellum
 import _native_chinese
 import _pinyin_input
 import _reading_enhancements
 import _residue_migration
-import _tap_page_turn
 from _ssh import SSHClientWrapper, remount_rw, require_connection
 import rmtool as _rmtool  # late-bound access to avoid circular import
 
@@ -2442,911 +2440,6 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         )
 
 
-class TapPageTurnSection(QtWidgets.QWidget):
-    def __init__(self, ssh_client: SSHClientWrapper, parent=None):
-        super().__init__(parent)
-        self.ssh_client = ssh_client
-        self.thread_pool = QtCore.QThreadPool.globalInstance()
-        self._status: Optional[_tap_page_turn.TapPageTurnStatus] = None
-        self._busy = False
-        self._other_packages_count = 0
-
-        title = QtWidgets.QLabel("点击翻页")
-        title.setObjectName("toolboxFeatureTitle")
-
-        detail = QtWidgets.QLabel(
-            "在 PDF 和 EPUB 阅读页使用屏幕分区点击上一页或下一页，滑动翻页保持可用。"
-            "功能按硬件、内部固件版本和 xochitl 哈希精确匹配，并在冷启动后持续生效。"
-        )
-        detail.setWordWrap(True)
-
-        self.catalog_label = QtWidgets.QLabel("云端点击翻页包：检测后显示")
-        self.catalog_label.setObjectName("tapPageTurnCatalog")
-        self.catalog_label.setWordWrap(True)
-        self.catalog_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
-
-        self.other_packages_button = QtWidgets.QPushButton("其他固件版本")
-        self.other_packages_button.setCheckable(True)
-        self.other_packages_button.setSizePolicy(
-            QtWidgets.QSizePolicy.Maximum,
-            QtWidgets.QSizePolicy.Preferred,
-        )
-        self.other_packages_button.hide()
-
-        self.other_packages_label = QtWidgets.QLabel()
-        self.other_packages_label.setObjectName("tapPageTurnOtherCatalog")
-        self.other_packages_label.setWordWrap(True)
-        self.other_packages_label.setTextInteractionFlags(
-            QtCore.Qt.TextSelectableByMouse
-        )
-        self.other_packages_label.hide()
-
-        self.status_label = ToolboxStatusLabel("设备已连接，尚未检测")
-        self.status_label.setObjectName("tapPageTurnDeviceStatus")
-        self.status_label.setWordWrap(True)
-
-        self.detect_button = QtWidgets.QPushButton("检测状态")
-        self.enable_button = QtWidgets.QPushButton("启用点击翻页")
-        self.disable_button = QtWidgets.QPushButton("停用")
-        self.vellum_help_button = QtWidgets.QPushButton("Vellum 官方卸载")
-        self.vellum_help_button.hide()
-        self.project_button = QtWidgets.QPushButton("查看说明")
-
-        buttons = QtWidgets.QHBoxLayout()
-        buttons.setContentsMargins(0, 0, 0, 0)
-        buttons.setSpacing(_rmtool.SUBSECTION_GAP)
-        buttons.addWidget(self.detect_button)
-        buttons.addWidget(self.enable_button)
-        buttons.addWidget(self.disable_button)
-        buttons.addWidget(self.vellum_help_button)
-        buttons.addWidget(self.project_button)
-        buttons.addStretch()
-
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(_rmtool.SUBSECTION_GAP)
-        layout.addWidget(title)
-        layout.addWidget(detail)
-        layout.addWidget(self.catalog_label)
-        layout.addWidget(
-            self.other_packages_button,
-            alignment=QtCore.Qt.AlignLeft,
-        )
-        layout.addWidget(self.other_packages_label)
-        layout.addWidget(self.status_label)
-        layout.addLayout(buttons)
-
-        self.other_packages_button.toggled.connect(
-            self._toggle_other_packages
-        )
-        self.detect_button.clicked.connect(self._detect_status)
-        self.enable_button.clicked.connect(self._enable)
-        self.disable_button.clicked.connect(self._disable)
-        self.vellum_help_button.clicked.connect(
-            lambda: QtGui.QDesktopServices.openUrl(
-                QtCore.QUrl(_tap_page_turn.VELLUM_UNINSTALL_URL)
-            )
-        )
-        self.project_button.clicked.connect(
-            lambda: QtGui.QDesktopServices.openUrl(
-                QtCore.QUrl(f"{_tap_page_turn.REPO_URL}/tree/main/tap-page-turn")
-            )
-        )
-        self.ssh_client.connection_changed.connect(self._on_connection_changed)
-        self._on_connection_changed(self.ssh_client.is_connected())
-
-    def _on_connection_changed(self, connected: bool):
-        if not connected:
-            self._status = None
-            self.catalog_label.setText("云端点击翻页包：检测后显示")
-            self.other_packages_button.setChecked(False)
-            self._other_packages_count = 0
-            self.other_packages_button.setText("其他固件版本")
-            self.other_packages_label.clear()
-            self.other_packages_button.hide()
-            self.other_packages_label.hide()
-            self.status_label.setText("设备未连接")
-        elif self._status is None:
-            self.status_label.setText("设备已连接，尚未检测")
-        self.detect_button.setEnabled(connected and not self._busy)
-        self._update_buttons()
-
-    @staticmethod
-    def _package_display_text(package: _tap_page_turn.TapPageTurnPackage) -> str:
-        channel_names = {"stable": "正式版", "beta": "测试版"}
-        return (
-            f"{package.release_version} | {channel_names[package.channel]} | "
-            f"硬件 {package.platform.title()} | 内部版本 {package.firmware}"
-        )
-
-    def _toggle_other_packages(self, expanded: bool):
-        self.other_packages_button.setText(
-            f"其他固件版本（{self._other_packages_count}） "
-            + ("⌄" if expanded else "›")
-        )
-        self.other_packages_label.setVisible(
-            expanded and not self.other_packages_button.isHidden()
-        )
-
-    def _update_buttons(self):
-        connected = self.ssh_client.is_connected() and not self._busy
-        state = self._status.state if self._status else None
-        if state == _tap_page_turn.TapPageTurnState.FIRMWARE_RESIDUE:
-            self.disable_button.setText("清理残留")
-        elif state in (
-            _tap_page_turn.TapPageTurnState.OUTDATED,
-            _tap_page_turn.TapPageTurnState.LEGACY_VELLUM,
-        ):
-            self.disable_button.setText("卸载旧版")
-        else:
-            self.disable_button.setText("停用")
-        self.enable_button.setEnabled(
-            connected
-            and self._status is not None
-            and self._status.package is not None
-            and state
-            in (
-                _tap_page_turn.TapPageTurnState.NOT_INSTALLED,
-                _tap_page_turn.TapPageTurnState.INSTALLED_DISABLED,
-            )
-        )
-        self.disable_button.setEnabled(
-            connected
-            and self._status is not None
-            and self._status.dropin_present
-            and state
-            not in (
-                _tap_page_turn.TapPageTurnState.NOT_INSTALLED,
-                _tap_page_turn.TapPageTurnState.INSTALLED_DISABLED,
-            )
-        )
-        self.vellum_help_button.setVisible(
-            state == _tap_page_turn.TapPageTurnState.VELLUM_RUNTIME
-        )
-
-    def _set_busy(self, busy: bool, message: str = ""):
-        self._busy = busy
-        self.detect_button.setEnabled(
-            self.ssh_client.is_connected() and not busy
-        )
-        if message:
-            self.status_label.setText(message)
-        self._update_buttons()
-
-    def _apply_status(self, status: _tap_page_turn.TapPageTurnStatus):
-        self._status = status
-        if status.package is not None:
-            self.catalog_label.setText(
-                "当前固件点击翻页包：\n"
-                + self._package_display_text(status.package)
-            )
-        else:
-            self.catalog_label.setText(
-                "当前固件点击翻页包：没有精确匹配版本"
-            )
-
-        other_packages = tuple(
-            package
-            for package in status.available_packages
-            if package != status.package
-            and package.platform == status.identity.platform
-        )
-        self.other_packages_button.setChecked(False)
-        if other_packages:
-            self._other_packages_count = len(other_packages)
-            self.other_packages_button.setText(
-                f"其他固件版本（{self._other_packages_count}） ›"
-            )
-            self.other_packages_label.setText(
-                "\n".join(
-                    self._package_display_text(package)
-                    for package in other_packages
-                )
-            )
-            self.other_packages_button.show()
-        else:
-            self._other_packages_count = 0
-            self.other_packages_button.setText("其他固件版本")
-            self.other_packages_label.clear()
-            self.other_packages_button.hide()
-        self.other_packages_label.hide()
-
-        messages = {
-            _tap_page_turn.TapPageTurnState.INCOMPATIBLE: (
-                "没有与当前设备、固件和 xochitl 哈希精确匹配的点击翻页包"
-            ),
-            _tap_page_turn.TapPageTurnState.NOT_INSTALLED: "尚未安装点击翻页",
-            _tap_page_turn.TapPageTurnState.INSTALLED_DISABLED: (
-                "点击翻页资源已缓存，持久化当前未启用"
-            ),
-            _tap_page_turn.TapPageTurnState.ENABLE_PENDING_REBOOT: (
-                "持久化已部署，等待冷启动生效"
-            ),
-            _tap_page_turn.TapPageTurnState.ENABLED: "点击翻页已启用并正在运行",
-            _tap_page_turn.TapPageTurnState.DISABLE_PENDING_REBOOT: (
-                "持久化已停用，当前进程将在冷启动后恢复原生"
-            ),
-            _tap_page_turn.TapPageTurnState.OUTDATED: (
-                "检测到旧固件的 rmtool 点击翻页，请先卸载旧版"
-            ),
-            _tap_page_turn.TapPageTurnState.LEGACY_VELLUM: (
-                "检测到 rmtool 安装的旧版 Vellum 点击翻页包，请先卸载"
-            ),
-            _tap_page_turn.TapPageTurnState.VELLUM_RUNTIME: (
-                "Vellum/AppLoader Xovi 仍在设备中，rmtool 插件安装已暂停"
-            ),
-            _tap_page_turn.TapPageTurnState.FIRMWARE_RESIDUE: (
-                "检测到固件升级后遗留的旧共享 Xovi 状态，可安全清理"
-            ),
-            _tap_page_turn.TapPageTurnState.BROKEN: (
-                "检测到不完整或被修改的点击翻页安装，请先停用"
-            ),
-        }
-        message = messages[status.state]
-        if status.detail:
-            message = f"{message}：{status.detail}"
-        identity = status.identity
-        message += (
-            f"\n设备：{identity.platform or '未知'} | "
-            f"内部版本 {identity.firmware or '未知'}"
-        )
-        self.status_label.setText(message)
-        self._update_buttons()
-
-    def _start_worker(
-        self,
-        fn,
-        *args,
-        pending: str,
-        success: str = "",
-        close_connection: bool = False,
-        on_done=None,
-        show_errors: bool = True,
-    ):
-        self._set_busy(True, pending)
-        worker = _rmtool.Worker(fn, *args)
-
-        def on_finished(status: _tap_page_turn.TapPageTurnStatus):
-            if sip.isdeleted(self):
-                # Worker outlived the tab; nothing safe left to update.
-                return
-            self._set_busy(False)
-            self._apply_status(status)
-            if close_connection:
-                self.ssh_client.close()
-            if success:
-                show_info(self, _rmtool.APP_NAME, success)
-            if on_done is not None:
-                on_done()
-
-        def on_error(exc: Exception):
-            if sip.isdeleted(self):
-                # Worker outlived the tab; only log, touching widgets would
-                # raise RuntimeError (and abort the process on macOS).
-                logging.error("Tap-to-turn operation failed after tab close: %s", exc)
-                return
-            self._set_busy(False)
-            self.status_label.setText("操作失败，未自动重启设备")
-            logging.error("Tap-to-turn operation failed: %s", exc)
-            if show_errors:
-                show_error(
-                    self,
-                    _rmtool.APP_NAME,
-                    f"操作失败：{exc}\n设备不会被自动重启，请检查日志后重试。",
-                )
-            if on_done is not None:
-                on_done()
-
-        worker.signals.finished.connect(on_finished)
-        worker.signals.error.connect(on_error)
-        self.thread_pool.start(worker)
-
-    @require_connection
-    def _detect_status(self):
-        self._start_status_detection()
-
-    def _start_status_detection(self, *, on_done=None, show_errors: bool = True):
-        self._start_worker(
-            _tap_page_turn.get_cloud_status,
-            self.ssh_client,
-            str(_rmtool.app_state_dir()),
-            pending="正在获取云端清单并核对设备、固件与 xochitl 哈希…",
-            on_done=on_done,
-            show_errors=show_errors,
-        )
-
-    @require_connection
-    def _enable(self):
-        if not self._status or not self._status.package:
-            return
-        if not ask_confirmation(
-            self,
-            _rmtool.APP_NAME,
-            "将下载并校验固件专用资源，并安装到 rmtool 管理的共享 Xovi；"
-            "点击翻页可与快速黑白和原生简体中文共用同一运行时。"
-            "若检测到 Vellum/AppLoader Xovi，安装会在上传前停止。"
-            "本次操作不会重启界面或设备；完成后 SSH 会话会关闭，请从设备菜单手动冷启动。"
-            "是否继续？",
-            confirm_text="部署持久化",
-            cancel_text="取消",
-        ):
-            return
-        self._start_worker(
-            _tap_page_turn.enable_cloud,
-            self.ssh_client,
-            self._status.package,
-            str(_rmtool.app_state_dir()),
-            pending="正在下载、逐文件校验并部署点击翻页资源…",
-            success=(
-                "点击翻页持久化已部署并通过校验，SSH 会话已关闭。\n"
-                "请从设备菜单手动重新启动；不要通过 rmtool 立即重启。"
-            ),
-            close_connection=True,
-        )
-
-    @require_connection
-    def _disable(self):
-        if not self._status or not self._status.dropin_present:
-            return
-        outdated = self._status.state == _tap_page_turn.TapPageTurnState.OUTDATED
-        legacy_vellum = (
-            self._status.state
-            == _tap_page_turn.TapPageTurnState.LEGACY_VELLUM
-        )
-        residue = (
-            self._status.state
-            == _tap_page_turn.TapPageTurnState.FIRMWARE_RESIDUE
-        )
-        if residue:
-            title = "清理旧固件共享残留"
-            confirmation = (
-                "固件升级已移除上下层启动配置，旧点击翻页和旧快速黑白均未载入。"
-                "将删除经内置清单逐文件验证的整套旧共享状态；不会在当前固件重建旧组件，"
-                "也不会重启设备。清理后可分别安装两项功能的当前版本。是否继续？"
-            )
-            confirm_text = "清理残留"
-            pending = "正在验证并清理旧固件共享 Xovi 残留…"
-            success = (
-                "旧固件共享 Xovi 残留已完整清理，SSH 会话已关闭。\n"
-                "重新连接并检测后，可安装当前固件的点击翻页和快速黑白。"
-            )
-        elif legacy_vellum:
-            title = "卸载旧版 Vellum 点击翻页"
-            confirmation = (
-                "将通过 Vellum 仅卸载已精确验证的 rmtool-tap-page-turn 包。"
-                "不会卸载 Vellum、AppLoader、Xovi 或任何第三方包。"
-                "完成后请按界面中的官方链接自行卸载 Vellum 运行环境，"
-                "再重新检测并安装 rmtool 共享 Xovi 版本。是否继续？"
-            )
-            confirm_text = "卸载旧版"
-            pending = "正在验证并卸载 rmtool 的旧版 Vellum 点击翻页包…"
-            success = (
-                "旧版 Vellum 点击翻页包已卸载，SSH 会话已关闭。\n"
-                "请重新连接，按 Vellum 官方说明卸载其运行环境后，再安装 rmtool 版本。"
-            )
-        elif outdated:
-            title = "卸载旧版点击翻页"
-            confirmation = (
-                "将卸载经精确验证的旧固件点击翻页。若快速黑白仍存在，"
-                "其 QMD 和所需共享 Xovi 组件会保留。操作不会重启设备；"
-                "完成后请手动重启，再重新检测并安装当前版本。是否继续？"
-            )
-            confirm_text = "卸载旧版"
-            pending = "正在卸载旧固件点击翻页并保留可验证的同伴功能…"
-            success = (
-                "点击翻页持久化已移除，SSH 会话已关闭。\n"
-                "请从设备菜单手动重新启动；若快速黑白仍启用，相关共享 Xovi 组件会继续保留。"
-            )
-        else:
-            title = _rmtool.APP_NAME
-            confirmation = (
-                "将停用 rmtool 共享 Xovi 中的点击翻页配置；"
-                "其他 rmtool 功能及其共享运行时会按需保留。"
-                "资源缓存会保留，本次操作不会重启界面或设备；完成后请手动冷启动。"
-                "是否继续？"
-            )
-            confirm_text = "停用点击翻页"
-            pending = "正在移除点击翻页持久化配置…"
-            success = (
-                "点击翻页持久化已移除，SSH 会话已关闭。\n"
-                "请从设备菜单手动重新启动；若快速黑白仍启用，相关共享 Xovi 组件会继续保留。"
-            )
-        if not ask_confirmation(
-            self,
-            title,
-            confirmation,
-            confirm_text=confirm_text,
-            cancel_text="取消",
-        ):
-            return
-        self._start_worker(
-            _tap_page_turn.disable,
-            self.ssh_client,
-            self._status.available_packages,
-            pending=pending,
-            success=success,
-            close_connection=True,
-        )
-
-
-class FastMonoReadingSection(QtWidgets.QWidget):
-    def __init__(self, ssh_client: SSHClientWrapper, parent=None):
-        super().__init__(parent)
-        self.ssh_client = ssh_client
-        self.thread_pool = QtCore.QThreadPool.globalInstance()
-        self._status: Optional[_fast_mono_reading.FastMonoReadingStatus] = None
-        self._busy = False
-        self._other_packages_count = 0
-
-        title = QtWidgets.QLabel("快速黑白阅读")
-        title.setObjectName("toolboxFeatureTitle")
-        detail = QtWidgets.QLabel(
-            "为精确支持的彩色 reMarkable 固件安装 PDF/EPUB 阅读菜单中的“快速黑白”开关。"
-            "开启后黑白文字翻页更利落，但暂时不显示彩色并可能增加残影；关闭即恢复原生刷新模式。"
-            "可选择每 5、10、20、30 次真实翻页调用系统清屏，或从不；默认每 10 次。"
-            "包会标明实机或离线验证级别；开关仅在当前 xochitl 会话有效，每次重启后默认关闭。"
-        )
-        detail.setWordWrap(True)
-
-        self.catalog_label = QtWidgets.QLabel("快速黑白包：检测后显示")
-        self.catalog_label.setObjectName("fastMonoReadingCatalog")
-        self.catalog_label.setWordWrap(True)
-        self.catalog_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
-
-        self.other_packages_button = QtWidgets.QPushButton("其他固件版本")
-        self.other_packages_button.setCheckable(True)
-        self.other_packages_button.setSizePolicy(
-            QtWidgets.QSizePolicy.Maximum,
-            QtWidgets.QSizePolicy.Preferred,
-        )
-        self.other_packages_button.hide()
-
-        self.other_packages_label = QtWidgets.QLabel()
-        self.other_packages_label.setObjectName("fastMonoReadingOtherCatalog")
-        self.other_packages_label.setWordWrap(True)
-        self.other_packages_label.setTextInteractionFlags(
-            QtCore.Qt.TextSelectableByMouse
-        )
-        self.other_packages_label.hide()
-        self.status_label = ToolboxStatusLabel("设备已连接，尚未检测")
-        self.status_label.setObjectName("fastMonoReadingDeviceStatus")
-        self.status_label.setWordWrap(True)
-
-        self.detect_button = QtWidgets.QPushButton("检测状态")
-        self.enable_button = QtWidgets.QPushButton("安装并启用")
-        self.disable_button = QtWidgets.QPushButton("停用")
-        self.clear_button = QtWidgets.QPushButton("清除状态")
-        self.vellum_help_button = QtWidgets.QPushButton("Vellum 官方卸载")
-        self.vellum_help_button.hide()
-        self.project_button = QtWidgets.QPushButton("查看说明")
-
-        buttons = QtWidgets.QHBoxLayout()
-        buttons.setContentsMargins(0, 0, 0, 0)
-        buttons.setSpacing(_rmtool.SUBSECTION_GAP)
-        for button in (
-            self.detect_button,
-            self.enable_button,
-            self.disable_button,
-            self.clear_button,
-            self.vellum_help_button,
-            self.project_button,
-        ):
-            buttons.addWidget(button)
-        buttons.addStretch()
-
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(_rmtool.SUBSECTION_GAP)
-        layout.addWidget(title)
-        layout.addWidget(detail)
-        layout.addWidget(self.catalog_label)
-        layout.addWidget(
-            self.other_packages_button,
-            alignment=QtCore.Qt.AlignLeft,
-        )
-        layout.addWidget(self.other_packages_label)
-        layout.addWidget(self.status_label)
-        layout.addLayout(buttons)
-
-        self.other_packages_button.toggled.connect(
-            self._toggle_other_packages
-        )
-        self.detect_button.clicked.connect(self._detect_status)
-        self.enable_button.clicked.connect(self._enable)
-        self.disable_button.clicked.connect(self._disable)
-        self.clear_button.clicked.connect(self._clear_status)
-        self.vellum_help_button.clicked.connect(
-            lambda: QtGui.QDesktopServices.openUrl(
-                QtCore.QUrl(_tap_page_turn.VELLUM_UNINSTALL_URL)
-            )
-        )
-        self.project_button.clicked.connect(
-            lambda: QtGui.QDesktopServices.openUrl(
-                QtCore.QUrl(
-                    f"{_fast_mono_reading.REPO_URL}/tree/main/fast-mono-reading"
-                )
-            )
-        )
-        self.ssh_client.connection_changed.connect(self._on_connection_changed)
-        self._on_connection_changed(self.ssh_client.is_connected())
-
-    def _on_connection_changed(self, connected: bool):
-        if not connected:
-            self._status = None
-            self.catalog_label.setText("快速黑白包：检测后显示")
-            self.other_packages_button.setChecked(False)
-            self._other_packages_count = 0
-            self.other_packages_button.setText("其他固件版本")
-            self.other_packages_label.clear()
-            self.other_packages_button.hide()
-            self.other_packages_label.hide()
-            self.status_label.setText("设备未连接")
-        elif self._status is None:
-            self.status_label.setText("设备已连接，尚未检测")
-        self.detect_button.setEnabled(connected and not self._busy)
-        self._update_buttons()
-
-    @staticmethod
-    def _package_display_text(
-        package: _fast_mono_reading.FastMonoReadingPackage,
-    ) -> str:
-        channel_names = {"stable": "正式版", "beta": "测试版"}
-        verification = (
-            "实机验证" if package.device_verified else "离线验证，尚待实机"
-        )
-        return (
-            f"{package.release_version} | {channel_names[package.channel]} | "
-            f"硬件 {package.platform.title()} | 内部版本 {package.firmware} | {verification}"
-        )
-
-    def _toggle_other_packages(self, expanded: bool):
-        self.other_packages_button.setText(
-            f"其他固件版本（{self._other_packages_count}） "
-            + ("⌄" if expanded else "›")
-        )
-        self.other_packages_label.setVisible(
-            expanded and not self.other_packages_button.isHidden()
-        )
-
-    def _update_buttons(self):
-        connected = self.ssh_client.is_connected() and not self._busy
-        state = self._status.state if self._status else None
-        if state == _fast_mono_reading.FastMonoReadingState.FIRMWARE_RESIDUE:
-            self.disable_button.setText("清理残留")
-        elif state in (
-            _fast_mono_reading.FastMonoReadingState.OUTDATED,
-            _fast_mono_reading.FastMonoReadingState.LEGACY_VELLUM,
-        ):
-            self.disable_button.setText("卸载旧版")
-        else:
-            self.disable_button.setText("停用")
-        self.enable_button.setEnabled(
-            connected
-            and self._status is not None
-            and self._status.package is not None
-            and state
-            in (
-                _fast_mono_reading.FastMonoReadingState.NOT_INSTALLED,
-                _fast_mono_reading.FastMonoReadingState.INSTALLED_DISABLED,
-            )
-        )
-        self.disable_button.setEnabled(
-            connected
-            and self._status is not None
-            and self._status.recovery_available
-            and state
-            not in (
-                _fast_mono_reading.FastMonoReadingState.NOT_INSTALLED,
-                _fast_mono_reading.FastMonoReadingState.INSTALLED_DISABLED,
-            )
-        )
-        self.clear_button.setEnabled(connected and self._status is not None)
-        self.vellum_help_button.setVisible(
-            state == _fast_mono_reading.FastMonoReadingState.VELLUM_RUNTIME
-        )
-
-    def _set_busy(self, busy: bool, message: str = ""):
-        self._busy = busy
-        self.detect_button.setEnabled(self.ssh_client.is_connected() and not busy)
-        if message:
-            self.status_label.setText(message)
-        self._update_buttons()
-
-    def _apply_status(self, status: _fast_mono_reading.FastMonoReadingStatus):
-        self._status = status
-        if status.package is not None:
-            self.catalog_label.setText(
-                "当前固件快速黑白包：\n"
-                + self._package_display_text(status.package)
-            )
-        else:
-            self.catalog_label.setText(
-                "当前固件快速黑白包：没有精确匹配版本"
-            )
-
-        other_packages = tuple(
-            package
-            for package in status.available_packages
-            if package != status.package
-            and package.platform == status.identity.platform
-        )
-        self.other_packages_button.setChecked(False)
-        if other_packages:
-            self._other_packages_count = len(other_packages)
-            self.other_packages_button.setText(
-                f"其他固件版本（{self._other_packages_count}） ›"
-            )
-            self.other_packages_label.setText(
-                "\n".join(
-                    self._package_display_text(package)
-                    for package in other_packages
-                )
-            )
-            self.other_packages_button.show()
-        else:
-            self._other_packages_count = 0
-            self.other_packages_button.setText("其他固件版本")
-            self.other_packages_label.clear()
-            self.other_packages_button.hide()
-        self.other_packages_label.hide()
-        messages = {
-            _fast_mono_reading.FastMonoReadingState.INCOMPATIBLE: (
-                "当前设备的硬件、固件、架构或 xochitl 哈希没有精确匹配包"
-            ),
-            _fast_mono_reading.FastMonoReadingState.NOT_INSTALLED: "尚未安装快速黑白阅读",
-            _fast_mono_reading.FastMonoReadingState.INSTALLED_DISABLED: (
-                "快速黑白资源已保留，持久化当前未启用"
-            ),
-            _fast_mono_reading.FastMonoReadingState.ENABLE_PENDING_REBOOT: (
-                "持久化已部署，等待手动重启设备生效"
-            ),
-            _fast_mono_reading.FastMonoReadingState.ENABLED: (
-                "快速黑白阅读扩展已加载；PDF/EPUB 菜单开关默认关闭"
-            ),
-            _fast_mono_reading.FastMonoReadingState.DISABLE_PENDING_REBOOT: (
-                "持久化已停用，当前进程将在手动重启后恢复原生"
-            ),
-            _fast_mono_reading.FastMonoReadingState.OUTDATED: (
-                "检测到 rmtool 安装的旧版快速黑白，请先卸载旧版"
-            ),
-            _fast_mono_reading.FastMonoReadingState.LEGACY_VELLUM: (
-                "检测到 rmtool 安装的旧版 Vellum 快速黑白包，请先卸载"
-            ),
-            _fast_mono_reading.FastMonoReadingState.VELLUM_RUNTIME: (
-                "Vellum/AppLoader Xovi 仍在设备中，rmtool 插件安装已暂停"
-            ),
-            _fast_mono_reading.FastMonoReadingState.FIRMWARE_RESIDUE: (
-                "检测到固件升级后遗留的旧共享 Xovi 状态，可安全清理"
-            ),
-            _fast_mono_reading.FastMonoReadingState.BROKEN: (
-                "检测到不完整或被修改的快速黑白安装，请先停用"
-            ),
-        }
-        message = messages[status.state]
-        if status.detail:
-            message = f"{message}：{status.detail}"
-        identity = status.identity
-        message += (
-            f"\n设备：{identity.platform or '未知'} | "
-            f"内部版本 {identity.firmware or '未知'}"
-        )
-        self.status_label.setText(message)
-        self._update_buttons()
-
-    def _clear_status(self):
-        if self._busy:
-            return
-        self._status = None
-        self.catalog_label.setText("快速黑白包：检测后显示")
-        self.other_packages_button.setChecked(False)
-        self._other_packages_count = 0
-        self.other_packages_button.setText("其他固件版本")
-        self.other_packages_label.clear()
-        self.other_packages_button.hide()
-        self.other_packages_label.hide()
-        self.status_label.setText(
-            "设备已连接，尚未检测"
-            if self.ssh_client.is_connected()
-            else "设备未连接"
-        )
-        self._update_buttons()
-
-    def _start_worker(
-        self,
-        fn,
-        *args,
-        pending: str,
-        success: str = "",
-        close_connection: bool = False,
-        on_done=None,
-        show_errors: bool = True,
-    ):
-        self._set_busy(True, pending)
-        worker = _rmtool.Worker(fn, *args)
-
-        def on_finished(status: _fast_mono_reading.FastMonoReadingStatus):
-            if sip.isdeleted(self):
-                if close_connection:
-                    self.ssh_client.close()
-                return
-            self._set_busy(False)
-            self._apply_status(status)
-            if close_connection:
-                self.ssh_client.close()
-            if success:
-                show_info(self, _rmtool.APP_NAME, success)
-            if on_done is not None:
-                on_done()
-
-        def on_error(exc: Exception):
-            if close_connection:
-                self.ssh_client.close()
-            if sip.isdeleted(self):
-                logging.error("Fast-mono operation failed after tab close: %s", exc)
-                return
-            self._set_busy(False)
-            self._status = None
-            self._update_buttons()
-            self.status_label.setText("操作失败，未自动重启设备；请重新连接并检测状态")
-            logging.error("Fast-mono operation failed: %s", exc)
-            if show_errors:
-                show_error(
-                    self,
-                    _rmtool.APP_NAME,
-                    f"操作失败：{exc}\n设备不会被自动重启，请检查日志后重试。",
-                )
-            if on_done is not None:
-                on_done()
-
-        worker.signals.finished.connect(on_finished)
-        worker.signals.error.connect(on_error)
-        self.thread_pool.start(worker)
-
-    @require_connection
-    def _detect_status(self):
-        self._start_status_detection()
-
-    def _start_status_detection(self, *, on_done=None, show_errors: bool = True):
-        self._start_worker(
-            _fast_mono_reading.get_cloud_status,
-            self.ssh_client,
-            str(_rmtool.app_state_dir()),
-            pending="正在核对彩色设备、固件、架构与 xochitl 哈希…",
-            on_done=on_done,
-            show_errors=show_errors,
-        )
-
-    @require_connection
-    def _enable(self):
-        if not self._status or not self._status.package:
-            return
-        package = self._status.package
-        if package.device_verified:
-            verification_notice = "该精确包已完成对应真机验证。"
-        else:
-            verification_notice = (
-                "该包仅完成官方固件离线兼容性与回放验证，尚未在对应真机验证。"
-                "安装仍有界面无法启动或需要恢复的风险；确认承担风险后再继续。"
-            )
-        if not ask_confirmation(
-            self,
-            _rmtool.APP_NAME,
-            f"将安装 {package.platform.title()} {package.release_version} "
-            f"（内部版本 {package.firmware}）快速黑白阅读扩展。"
-            f"{verification_notice}"
-            "扩展将安装到 rmtool 管理的共享 Xovi，并与点击翻页和原生简体中文共用同一运行时。"
-            "若检测到非托管 Xovi，将在上传前拒绝操作。"
-            "本次不会重启 xochitl 或设备；完成后 SSH 会话会关闭，请手动重启设备。"
-            "重启后请在 PDF/EPUB 阅读页的更多菜单中按需开启“快速黑白”，每次重启默认关闭。"
-            "是否继续？",
-            confirm_text="安装并启用",
-            cancel_text="取消",
-        ):
-            return
-        self._start_worker(
-            _fast_mono_reading.enable_cloud,
-            self.ssh_client,
-            self._status.package,
-            str(_rmtool.app_state_dir()),
-            pending="正在下载、逐文件校验并部署快速黑白阅读资源…",
-            success=(
-                "快速黑白阅读扩展已部署并通过校验，SSH 会话已关闭。\n"
-                "请手动重启设备；随后在 PDF/EPUB 阅读页的更多菜单中开启“快速黑白”。\n"
-                "该阅读开关每次 xochitl 启动后默认关闭。"
-            ),
-            close_connection=True,
-        )
-
-    @require_connection
-    def _disable(self):
-        if not self._status or not self._status.recovery_available:
-            return
-        outdated = (
-            self._status.state
-            == _fast_mono_reading.FastMonoReadingState.OUTDATED
-        )
-        legacy_vellum = (
-            self._status.state
-            == _fast_mono_reading.FastMonoReadingState.LEGACY_VELLUM
-        )
-        residue = (
-            self._status.state
-            == _fast_mono_reading.FastMonoReadingState.FIRMWARE_RESIDUE
-        )
-        if residue:
-            dialog_title = "清理旧固件共享残留"
-            confirmation = (
-                "固件升级已移除上下层启动配置，旧点击翻页和旧快速黑白均未载入。"
-                "将删除经内置清单逐文件验证的整套旧共享状态；不会在当前固件重建旧组件，"
-                "也不会重启设备。清理后可分别安装两项功能的当前版本。是否继续？"
-            )
-            confirm_text = "清理残留"
-            pending = "正在验证并清理旧固件共享 Xovi 残留…"
-            success = (
-                "旧固件共享 Xovi 残留已完整清理，SSH 会话已关闭。\n"
-                "重新连接并检测后，可安装当前固件的点击翻页和快速黑白。"
-            )
-        elif legacy_vellum:
-            dialog_title = "卸载旧版 Vellum 快速黑白"
-            confirmation = (
-                "将通过 Vellum 仅卸载已精确验证的 rmtool-fast-mono-reading 包。"
-                "不会卸载 Vellum、AppLoader、Xovi、点击翻页或任何第三方包。"
-                "完成后请按界面中的官方链接自行卸载 Vellum 运行环境，"
-                "再重新检测并安装 rmtool 共享 Xovi 版本。是否继续？"
-            )
-            confirm_text = "卸载旧版"
-            pending = "正在验证并卸载 rmtool 的旧版 Vellum 快速黑白包…"
-            success = (
-                "旧版 Vellum 快速黑白包已卸载，SSH 会话已关闭。\n"
-                "请重新连接，按 Vellum 官方说明卸载其运行环境后，再安装 rmtool 版本。"
-            )
-        elif outdated:
-            dialog_title = "卸载旧版快速黑白"
-            confirmation = (
-                "将卸载 rmtool 安装的旧版快速黑白阅读。"
-                "只移除旧版快速黑白；点击翻页及其所需的共享 Xovi 组件会完整保留。"
-                "操作不会重启设备；完成后请手动重启，再重新检测并安装新版。"
-                "是否卸载旧版？"
-            )
-            confirm_text = "卸载旧版"
-            pending = "正在卸载旧版快速黑白并保留点击翻页所需的共享 Xovi 组件…"
-            success = (
-                "旧版快速黑白已卸载，点击翻页所需的共享 Xovi 组件已保留，"
-                "SSH 会话已关闭。\n"
-                "请手动重启设备，然后重新检测并安装新版快速黑白。"
-            )
-        else:
-            dialog_title = _rmtool.APP_NAME
-            confirmation = (
-                "将停用 rmtool 共享 Xovi 中的快速黑白阅读配置。"
-                "点击翻页、原生简体中文及共享运行时会按需保留。"
-                "操作不会重启设备；完成后请手动重启。"
-                "是否继续？"
-            )
-            confirm_text = "停用快速黑白"
-            pending = "正在移除快速黑白阅读持久化配置…"
-            success = (
-                "快速黑白阅读持久化已移除，SSH 会话已关闭。\n"
-                "请手动重启设备；若点击翻页仍启用，相关共享 Xovi 组件会继续保留。"
-            )
-        if not ask_confirmation(
-            self,
-            dialog_title,
-            confirmation,
-            confirm_text=confirm_text,
-            cancel_text="取消",
-        ):
-            return
-        self._start_worker(
-            _fast_mono_reading.disable,
-            self.ssh_client,
-            self._status.available_packages,
-            pending=pending,
-            success=success,
-            close_connection=True,
-        )
-
-
 _LEGACY_PLATFORM_LABELS = {
     "ferrari": "Paper Pro",
     "chiappa": "Paper Pro Move",
@@ -3357,7 +2450,7 @@ _LEGACY_PLATFORM_LABELS = {
 
 
 class LegacyPluginMigrationSection(QtWidgets.QWidget):
-    """Firmware-residue migration plus historical Vellum package cleanup."""
+    """Firmware-residue migration/cleanup plus historical Vellum cleanup."""
 
     def __init__(self, ssh_client: SSHClientWrapper, parent=None):
         super().__init__(parent)
@@ -3371,13 +2464,17 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         self.status_label = ToolboxStatusLabel(
             "固件升级后，已安装的 rmtool 插件会因固件身份变化而停用。"
             "在这里可以先用旧固件清单逐文件验证残留，再把全部已启用功能"
-            "一次性迁移到当前固件的精确包；迁移完成后需手动重启设备。"
+            "一次性迁移到当前固件的精确包，或只清理已验证残留；"
+            "迁移完成后需手动重启设备。"
         )
         self.status_label.setWordWrap(True)
         self.detect_button = QtWidgets.QPushButton("检测迁移状态")
         self.detect_button.clicked.connect(self._detect)
         self.migrate_button = QtWidgets.QPushButton("迁移到当前固件")
         self.migrate_button.clicked.connect(self._migrate)
+        self.cleanup_residue_button = QtWidgets.QPushButton("清理固件残留")
+        self.cleanup_residue_button.setProperty("btnRole", "danger")
+        self.cleanup_residue_button.clicked.connect(self._cleanup_residue)
 
         vellum_title = QtWidgets.QLabel("旧版 Vellum 插件清理")
         vellum_title.setObjectName("toolboxFeatureTitle")
@@ -3388,6 +2485,12 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         self.cleanup_status_label.setWordWrap(True)
         self.cleanup_button = QtWidgets.QPushButton("一键卸载旧版插件")
         self.cleanup_button.clicked.connect(self._cleanup)
+        self.vellum_help_button = QtWidgets.QPushButton("查看 Vellum 官方卸载说明")
+        self.vellum_help_button.clicked.connect(
+            lambda: QtGui.QDesktopServices.openUrl(
+                QtCore.QUrl(_legacy_vellum.VELLUM_UNINSTALL_URL)
+            )
+        )
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -3398,11 +2501,17 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         detect_row.setSpacing(_rmtool.SUBSECTION_GAP)
         detect_row.addWidget(self.detect_button)
         detect_row.addWidget(self.migrate_button)
+        detect_row.addWidget(self.cleanup_residue_button)
         detect_row.addStretch(1)
         layout.addLayout(detect_row)
         layout.addWidget(vellum_title)
         layout.addWidget(self.cleanup_status_label)
-        layout.addWidget(self.cleanup_button, 0, QtCore.Qt.AlignLeft)
+        cleanup_row = QtWidgets.QHBoxLayout()
+        cleanup_row.setSpacing(_rmtool.SUBSECTION_GAP)
+        cleanup_row.addWidget(self.cleanup_button)
+        cleanup_row.addWidget(self.vellum_help_button)
+        cleanup_row.addStretch(1)
+        layout.addLayout(cleanup_row)
 
         self.ssh_client.connection_changed.connect(self._on_connection_changed)
         self._on_connection_changed(self.ssh_client.is_connected())
@@ -3413,6 +2522,9 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         self.cleanup_button.setEnabled(active)
         self.migrate_button.setEnabled(
             active and self._report is not None and self._report.migratable
+        )
+        self.cleanup_residue_button.setEnabled(
+            active and self._report is not None and bool(self._report.features)
         )
 
     def _report_text(self, report) -> str:
@@ -3519,6 +2631,58 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             self.status_label.setText(f"插件迁移失败：{exc}")
             logging.error("Residue migration failed: %s", exc)
             show_error(self, _rmtool.APP_NAME, f"迁移失败：{exc}")
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self.thread_pool.start(worker)
+
+    @require_connection
+    def _cleanup_residue(self):
+        if self._report is None or not self._report.features:
+            return
+        features = "、".join(item.label for item in self._report.features)
+        if not ask_confirmation(
+            self,
+            "清理固件升级残留",
+            "rmtool 会再次使用旧固件的受信清单逐文件验证残留，然后删除整套旧共享 "
+            f"Xovi 状态（{features}）。不会在当前固件重建功能，也不会自动重启设备。"
+            "任一验证失败都不会清理。是否继续？",
+            confirm_text="清理残留",
+            cancel_text="取消",
+            danger=True,
+        ):
+            return
+
+        self._busy = True
+        self._on_connection_changed(True)
+        self.status_label.setText("正在重新验证并清理共享 Xovi 固件残留…")
+        worker = _rmtool.Worker(_residue_migration.cleanup, self.ssh_client)
+
+        def on_finished(_report):
+            if sip.isdeleted(self):
+                self.ssh_client.close()
+                return
+            self._busy = False
+            self._report = None
+            self._on_connection_changed(self.ssh_client.is_connected())
+            self.status_label.setText("固件升级残留已清理。")
+            show_info(
+                self,
+                _rmtool.APP_NAME,
+                "已清理通过旧固件清单验证的共享 Xovi 残留。SSH 会话已关闭；"
+                "重新连接后可安装当前固件支持的功能。",
+            )
+            self.ssh_client.close()
+
+        def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                logging.error("Firmware residue cleanup failed after tab close: %s", exc)
+                return
+            self._busy = False
+            self._on_connection_changed(self.ssh_client.is_connected())
+            self.status_label.setText(f"固件残留清理失败：{exc}")
+            logging.error("Firmware residue cleanup failed: %s", exc)
+            show_error(self, _rmtool.APP_NAME, f"清理失败：{exc}")
 
         worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
