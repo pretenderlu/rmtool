@@ -443,27 +443,69 @@ class NativeChineseTests(unittest.TestCase):
         self.assertEqual(package.platform, identity.platform)
         self.assertEqual(package.xochitl_sha256, "")
 
-    def test_french_slot_rejects_wrong_recorded_xochitl_hash(self):
-        identity = tap.DeviceIdentity(*native.CHIAPPA_3273_IDENTITY)
-        package = native._bundled_french_slot_package(identity)
-        changed = replace(package, xochitl_sha256="f" * 64)
+    def test_french_slot_selects_163_164_and_169_on_both_platforms(self):
+        expected_release = {
+            "3.28.0.163": "3.28.0.163",
+            "3.28.0.164": "3.28.0.164",
+            "3.28.0.169": "3.28.0.166",
+        }
+        for raw_identity, policy in native.ALLOWED_TARGETS.items():
+            release = policy[0]
+            if release not in expected_release:
+                continue
+            identity = tap.DeviceIdentity(*raw_identity)
+            with self.subTest(release=release, platform=identity.platform):
+                package = native._bundled_french_slot_package(identity)
+                self.assertEqual(package.platform, identity.platform)
+                self.assertEqual(package.release_version, expected_release[release])
+
+    def test_french_slot_prefers_exact_xochitl_over_hashless_record(self):
+        identity = self.identity()
+        exact = native._bundled_french_slot_package(identity)
+        hashless = replace(exact, xochitl_sha256="")
         with patch.object(
             _rmkit_cn,
             "parse_translation_manifest",
-            return_value={identity.firmware: changed},
-        ), self.assertRaisesRegex(RuntimeError, "无法唯一验证"):
-            native._bundled_french_slot_package(identity)
+            return_value={identity.firmware: replace(exact, variants=(hashless,))},
+        ):
+            selected = native._bundled_french_slot_package(identity)
+        self.assertEqual(selected.xochitl_sha256, identity.xochitl_sha256)
+        self.assertEqual(selected.asset, exact.asset)
 
-    def test_french_slot_check_fails_closed_without_unique_bundled_166(self):
+    def test_french_slot_check_fails_closed_without_unique_candidate(self):
         identity = self.identity()
         package = native._bundled_french_slot_package(identity)
-        ambiguous = replace(package, variants=(package,))
-        for catalog in ({}, {identity.firmware: ambiguous}):
+        chiappa_163 = next(
+            tap.DeviceIdentity(*raw_identity)
+            for raw_identity, policy in native.ALLOWED_TARGETS.items()
+            if policy[0] == "3.28.0.163" and raw_identity[1] == "chiappa"
+        )
+        hashless = native._bundled_french_slot_package(chiappa_163)
+        ferrari_169 = tap.DeviceIdentity(*native.FERRARI_169_IDENTITY)
+        fallback = native._bundled_french_slot_package(ferrari_169)
+        cases = (
+            (identity, {}),
+            (identity, {identity.firmware: replace(package, variants=(package,))}),
+            (
+                chiappa_163,
+                {chiappa_163.firmware: replace(hashless, variants=(hashless,))},
+            ),
+            (
+                ferrari_169,
+                {
+                    ferrari_169.firmware: replace(
+                        fallback,
+                        variants=(replace(fallback, xochitl_sha256="f" * 64),),
+                    )
+                },
+            ),
+        )
+        for current_identity, catalog in cases:
             with self.subTest(catalog=catalog), patch.object(
                 _rmkit_cn, "parse_translation_manifest", return_value=catalog
             ), patch.object(_rmkit_cn, "get_localization_status") as get_status:
                 with self.assertRaisesRegex(RuntimeError, "无法唯一验证"):
-                    native._reject_active_french_slot(Mock(), identity)
+                    native._reject_active_french_slot(Mock(), current_identity)
             get_status.assert_not_called()
 
     def test_enable_checks_cjk_before_preflight_and_french_slot_inspection(self):
