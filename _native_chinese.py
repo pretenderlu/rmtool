@@ -658,16 +658,45 @@ def _bundled_french_slot_package(
     )
     root = catalog.get(identity.firmware)
     candidates = (root, *root.variants) if root is not None else ()
-    matches = tuple(
+    platform_matches = tuple(
         package
         for package in candidates
         if package.platform.casefold() == identity.platform.casefold()
-        and (
-            not package.xochitl_sha256
-            or package.xochitl_sha256 == identity.xochitl_sha256
+    )
+
+    exact_matches = tuple(
+        package
+        for package in platform_matches
+        if package.xochitl_sha256 == identity.xochitl_sha256
+    )
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+    if exact_matches:
+        raise RuntimeError(
+            "内置汉化清单无法唯一验证当前设备的法语槽位，拒绝部署原生中文。"
+        )
+
+    policy = ALLOWED_TARGETS.get(
+        (
+            identity.firmware,
+            identity.platform,
+            identity.architecture,
+            identity.xochitl_sha256,
         )
     )
-    if len(matches) != 1:
+    release_matches = tuple(
+        package
+        for package in platform_matches
+        if policy is not None and package.release_version == policy[0]
+    )
+    # 3.28.0.163 and .164 share an internal build ID and use hashless records.
+    matches = release_matches or platform_matches
+    hashless_matches = tuple(
+        package for package in matches if not package.xochitl_sha256
+    )
+    if len(hashless_matches) == 1:
+        return hashless_matches[0]
+    if hashless_matches or len(matches) != 1:
         raise RuntimeError(
             "内置汉化清单无法唯一验证当前设备的法语槽位，拒绝部署原生中文。"
         )
