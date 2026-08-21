@@ -1,1 +1,2 @@
 *.qmd binary
+reading-enhancements/qmd-src/*.qmd -binary text diff

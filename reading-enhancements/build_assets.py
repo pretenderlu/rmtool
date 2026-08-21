@@ -29,6 +29,7 @@ QREX_FILES = (
     "qml/device/view/settings/Settings.qml",
     "qml/device/view/documentview/SceneViewGestures.qml",
     "qml/device/view/documentview/DocumentView.qml",
+    "qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml",
 )
 
 
@@ -185,14 +186,30 @@ def _compile_and_validate(*, qmd_tool: Path, qmldiff: Path, source: Path, target
     settings = (replay / QREX_FILES[0]).read_text(encoding="utf-8")
     gestures = (replay / QREX_FILES[1]).read_text(encoding="utf-8")
     document = (replay / QREX_FILES[2]).read_text(encoding="utf-8")
+    menu = (replay / QREX_FILES[3]).read_text(encoding="utf-8")
     for text, markers in (
         (settings, ("rmtoolReadingEnhancementsPage", "RmtoolReadingEnhancements")),
         (gestures, ("rmtoolTapPageDirection",)),
-        (document, ("rmtoolHasUsableToc", "forceClearNow")),
+        (
+            document,
+            (
+                "rmtoolHasUsableToc",
+                "forceClearNow",
+                "onRmtoolReadingDocumentIdChanged",
+            ),
+        ),
+        (menu, ("rmtoolTapPageTurnToggle", "rmtoolFastMonoToggle", "rmtoolCleanupSelector")),
     ):
         for marker in markers:
             if marker not in text:
                 raise RuntimeError(f"structure assertion {target['id']} missing {marker}")
+    if not re.search(
+        r"readonly property\s+bool\s+rmtoolReadingAvailable:\s*!!document\s*&&\s*!notePage",
+        document,
+    ):
+        raise RuntimeError(
+            f"structure assertion {target['id']} did not exclude note pages"
+        )
     if re.search(r"Component\s*\{\s*Component\s*\{", settings):
         raise RuntimeError(f"structure assertion {target['id']} nested a Component in Component")
     if _component_indent(settings, "general") != _component_indent(

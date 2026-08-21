@@ -29,7 +29,7 @@ BUNDLED_MANIFEST = Path(__file__).with_name("reading-enhancements") / "manifest.
 
 QMD_PAYLOAD_PATH = "exthome/qt-resource-rebuilder/reading-enhancements.qmd"
 FEATURE_ID = "reading-enhancements"
-PACKAGE_REVISION = 1
+PACKAGE_REVISION = 3
 MAX_MANIFEST_BYTES = tap.MAX_MANIFEST_BYTES
 MAX_PACKAGE_BYTES = tap.MAX_PACKAGE_BYTES
 MAX_UNPACKED_BYTES = tap.MAX_UNPACKED_BYTES
@@ -42,6 +42,43 @@ _PAYLOAD_PATHS = _REQUIRED_PATHS | {
     "LICENSE.qmd-tool",
     "LICENSE.rm-xovi-extensions",
     "LICENSE.xovi",
+}
+
+# Revision 1 was published in v1.12.1. Keep its exact QMD bytes as a
+# read-only predecessor so upgrades preserve the shared runtime and settings.
+_REVISION_1_QMD = {
+    "3.27": (
+        "7c3a384e1cd4f2be7b94aadce82b30c31ca81a49ed482a300e63bf83fce67fe7",
+        28715,
+    ),
+    "3.28": (
+        "e6d6ef9260c4bc6cfffc375d4485e3ec33eea36fd6725790c7e2483da16c74ec",
+        27761,
+    ),
+}
+
+# Revision 2 was used by the first per-book test build. Its DocumentView
+# called a settings-page helper outside that helper's QML scope.
+_REVISION_2_QMD = {
+    "3.27": (
+        "9f965de55f94e767cd64d9c57aab6c3ed5b2322054d7441f1e25c258ea343d97",
+        47040,
+    ),
+    "3.28": (
+        "9ffbc98e5241a1f4e893408d41c8b6680ecb86c0d1cc06aafe5c56fad9488906",
+        46086,
+    ),
+}
+
+# Exact Paper Pro 3.28.0.169 canary installed before the revisioned package
+# existed. Its local package ID differs, so keep this one-off trust record in
+# the reading feature instead of weakening the shared predecessor validator.
+_VERIFIED_DEVICE_TRIALS = {
+    ("ferrari", "20260806095513"): (
+        "local-ferrari-20260806095513-reading-enhancements",
+        "6e24a580961b1283d16009bcf22a94dfa397b0af1ec0062b06d41169ae4d367b",
+        26193,
+    ),
 }
 
 ALLOWED_TARGETS = {
@@ -240,6 +277,7 @@ class ReadingEnhancementsStatus:
     available_packages: tuple[ReadingEnhancementsPackage, ...] = ()
     detail: str = ""
     recovery_available: bool = False
+    cleanup_available: bool = False
 
 
 def _required(entry: dict, key: str, pattern: re.Pattern[str]) -> str:
@@ -458,6 +496,34 @@ def _known_navigation_defective_feature(package, current):
     return replace(current, sha256=defect[0], size=defect[1])
 
 
+def _known_revision_one_feature(package, current):
+    variant = "3.27" if package.release_version.startswith("3.27.") else "3.28"
+    predecessor = _REVISION_1_QMD.get(variant)
+    if predecessor is None:
+        return None
+    return replace(current, sha256=predecessor[0], size=predecessor[1])
+
+
+def _known_revision_two_feature(package, current):
+    variant = "3.27" if package.release_version.startswith("3.27.") else "3.28"
+    predecessor = _REVISION_2_QMD.get(variant)
+    if predecessor is None:
+        return None
+    return replace(current, sha256=predecessor[0], size=predecessor[1])
+
+
+def _known_device_trial_feature(package, current):
+    predecessor = _VERIFIED_DEVICE_TRIALS.get((package.platform, package.firmware))
+    if predecessor is None:
+        return None
+    return replace(
+        current,
+        package_id=predecessor[0],
+        sha256=predecessor[1],
+        size=predecessor[2],
+    )
+
+
 def _trusted_context(identity: DeviceIdentity, package: ReadingEnhancementsPackage):
     runtime, peers, legacies = tap._trusted_shared_context(identity)
     peer_runtime, feature = _shared_specs(package)
@@ -471,8 +537,12 @@ def _trusted_context(identity: DeviceIdentity, package: ReadingEnhancementsPacka
 
 def _validated_legacy_standalone(ssh_client, legacies):
     """Return every exact old standalone tree, refusing partial or modified ones."""
-    present = []
+    grouped = {}
     for legacy in legacies:
+        grouped.setdefault(legacy.layout.remote_base, []).append(legacy)
+    present = []
+    for candidates in grouped.values():
+        legacy = candidates[0]
         paths = (
             legacy.layout.remote_base,
             legacy.marker_path,
@@ -480,18 +550,62 @@ def _validated_legacy_standalone(ssh_client, legacies):
         )
         if not any(ssh_client.file_exists(path) for path in paths):
             continue
-        try:
-            valid = shared.validate_legacy(ssh_client, legacy)
-        except Exception as exc:
+        last_error = None
+        matched = None
+        for candidate in candidates:
+            try:
+                if shared.validate_legacy(ssh_client, candidate):
+                    matched = candidate
+                    break
+            except Exception as exc:
+                last_error = exc
+        if matched is not None:
+            present.append(matched)
+            continue
+        if last_error is not None:
             raise RuntimeError(
                 f"检测到无法验证的 {legacy.feature.feature_id} 旧版独立安装，已拒绝修改。"
-            ) from exc
-        if not valid:
-            raise RuntimeError(
-                f"检测到不完整的 {legacy.feature.feature_id} 旧版独立安装，已拒绝修改。"
-            )
-        present.append(legacy)
+            ) from last_error
+        raise RuntimeError(
+            f"检测到不完整的 {legacy.feature.feature_id} 旧版独立安装，已拒绝修改。"
+        )
     return tuple(present)
+
+
+def _legacy_specs_for_identity(identity, current=()):
+    """Return current and every exact supported old standalone specification."""
+    result = list(current)
+    # A supported reading target always supplies the current tap/fast legacy
+    # specs through _trusted_context. Keeping an empty injected context empty
+    # also makes the helper useful for callers that deliberately model a
+    # reading-only shared tree without standalone peers.
+    if not result:
+        return ()
+    seen = {(item.feature.feature_id, item.layout.remote_base, str(item.marker)) for item in result}
+    modules = (tap,)
+    try:
+        import _fast_mono_reading as fast
+
+        modules += (fast,)
+    except ImportError:
+        pass
+    for module in modules:
+        legacy_builder = getattr(module, "_legacy_spec", None)
+        catalog_builder = getattr(module, "_trusted_catalog", None)
+        if legacy_builder is None or catalog_builder is None:
+            continue
+        for package in catalog_builder():
+            if (
+                package.platform != identity.platform
+                or package.architecture != identity.architecture
+            ):
+                continue
+            legacy = legacy_builder(package)
+            key = (legacy.feature.feature_id, legacy.layout.remote_base, str(legacy.marker))
+            if key not in seen:
+                result.append(legacy)
+                seen.add(key)
+    return tuple(result)
 
 
 def _inspection_for_migration(ssh_client, runtime, trusted, package):
@@ -501,20 +615,70 @@ def _inspection_for_migration(ssh_client, runtime, trusted, package):
         package, trusted[FEATURE_ID]
     )
     predecessors = []
+    revision_map = {}
     if defective is not None:
         predecessors.append(("settings-component-defect", defective))
     if navigation_defective is not None:
         predecessors.append(("settings-navigation-defect", navigation_defective))
+    revision_one = _known_revision_one_feature(package, trusted[FEATURE_ID])
+    if revision_one is not None and revision_one != trusted[FEATURE_ID]:
+        predecessors.append(("package-revision-1", revision_one))
+    revision_two = _known_revision_two_feature(package, trusted[FEATURE_ID])
+    if revision_two is not None and revision_two != trusted[FEATURE_ID]:
+        predecessors.append(("package-revision-2", revision_two))
+    try:
+        import _fast_mono_reading as fast
+
+        fast_package = fast.select_package(fast._trusted_catalog(), DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        ))
+        if fast_package is not None and "fast-mono-reading" in trusted:
+            predecessors_for_fast = fast._known_shared_predecessor_specs(fast_package)
+            revisions = {
+                f"fast-mono-reading-revision-{revision}": predecessor
+                for revision, predecessor in predecessors_for_fast
+            }
+        else:
+            revisions = {}
+        if revisions:
+            revision_map["fast-mono-reading"] = tuple(revisions.items())
+    except Exception:
+        # Fast-reading predecessor trust is optional for targets where its
+        # catalog has no historical revision record; current reading trust
+        # remains fail-closed below.
+        pass
     try:
         inspection, installed, selected = shared.inspect_shared_revisions(
             ssh_client,
             runtime,
             trusted,
-            {FEATURE_ID: tuple(predecessors)} if predecessors else {},
+            {
+                **({FEATURE_ID: tuple(predecessors)} if predecessors else {}),
+                **revision_map,
+            },
             check_lower=True,
         )
         return inspection, installed, selected
     except RuntimeError as current_error:
+        device_trial = _known_device_trial_feature(package, trusted[FEATURE_ID])
+        if device_trial is not None:
+            trial_trusted = dict(trusted)
+            trial_trusted[FEATURE_ID] = device_trial
+            try:
+                inspection = shared.inspect_shared(
+                    ssh_client,
+                    runtime,
+                    trial_trusted,
+                    check_lower=True,
+                )
+                return inspection, trial_trusted, {
+                    FEATURE_ID: "verified-device-trial"
+                }
+            except RuntimeError:
+                pass
         try:
             import _fast_mono_reading as fast
 
@@ -569,8 +733,22 @@ def get_status(
         )
     try:
         runtime, trusted, legacies, feature = _trusted_context(identity, package)
-        present_legacies = _validated_legacy_standalone(ssh_client, legacies)
+        present_legacies = _validated_legacy_standalone(
+            ssh_client, _legacy_specs_for_identity(identity, legacies)
+        )
         shared_exists = shared.has_shared_artifacts(ssh_client)
+        if tap._vellum_runtime_present(ssh_client):
+            return ReadingEnhancementsStatus(
+                ReadingEnhancementsState.BROKEN,
+                identity,
+                package,
+                available,
+                "检测到 Vellum/AppLoader Xovi 运行环境，或它与 rmtool 历史布局混合；"
+                "为避免所有权冲突，已阻止阅读增强的安装、迁移、修复和清理。"
+                "请先按 Vellum 官方说明移除运行环境，再使用 rmtool 管理插件。",
+                False,
+                False,
+            )
         if present_legacies and shared_exists:
             raise RuntimeError(
                 "检测到共享 Xovi 与旧版独立安装混合布局，拒绝修改。"
@@ -582,6 +760,7 @@ def get_status(
                 package,
                 available,
                 "检测到已验证的旧版独立阅读功能；迁移只替换软件包，完成后请在设备设置的“阅读增强”中重新开启需要的开关。",
+                True,
                 True,
             )
         if not shared_exists:
@@ -596,12 +775,33 @@ def get_status(
         )
         record = inspection.states.get(FEATURE_ID)
         if FEATURE_ID in selected_predecessors:
+            predecessor = selected_predecessors[FEATURE_ID]
+            if predecessor in {
+                "package-revision-1",
+                "package-revision-2",
+                "verified-device-trial",
+            }:
+                detail = (
+                    "检测到旧版阅读增强，可安全更新到当前版本；"
+                    "其他共享功能和阅读设置会保留。"
+                )
+            elif predecessor in (
+                "settings-component-defect",
+                "settings-navigation-defect",
+            ):
+                detail = (
+                    "检测到已知的设置页缺陷包，可原子替换为修复版；"
+                    "其他共享功能会保留。"
+                )
+            else:
+                raise RuntimeError("阅读增强旧版识别结果无效。")
             return ReadingEnhancementsStatus(
                 ReadingEnhancementsState.REPAIR_AVAILABLE,
                 identity,
                 package,
                 available,
-                "检测到已知的设置页缺陷包，可原子替换为修复版；其他共享功能会保留。",
+                detail,
+                True,
                 True,
             )
         if record is None:
@@ -614,6 +814,7 @@ def get_status(
                     available,
                     "检测到已验证的旧版阅读功能；迁移只替换软件包，完成后请在设备设置的“阅读增强”中重新开启需要的开关。",
                     True,
+                    True,
                 )
             return ReadingEnhancementsStatus(
                 ReadingEnhancementsState.NOT_INSTALLED,
@@ -621,6 +822,17 @@ def get_status(
                 package,
                 available,
                 "共享 Xovi 正由其他已验证功能使用。",
+                True,
+            )
+        old_shared = {"tap-page-turn", "fast-mono-reading"} & set(inspection.states)
+        if old_shared:
+            return ReadingEnhancementsStatus(
+                ReadingEnhancementsState.MIGRATION_AVAILABLE,
+                identity,
+                package,
+                available,
+                "检测到旧版点击翻页或快速黑白共享功能，可迁移或清理；其他已验证功能会保留。",
+                True,
                 True,
             )
         current = tap._xochitl_process_token(ssh_client)
@@ -658,7 +870,9 @@ def install(
         raise RuntimeError("阅读增强包与内置信任清单不一致，拒绝部署。")
     tap._preflight_device(ssh_client)
     runtime, trusted, legacies, feature = _trusted_context(identity, package)
-    present_legacies = _validated_legacy_standalone(ssh_client, legacies)
+    present_legacies = _validated_legacy_standalone(
+        ssh_client, _legacy_specs_for_identity(identity, legacies)
+    )
     shared_exists = shared.has_shared_artifacts(ssh_client)
     if present_legacies and shared_exists:
         raise RuntimeError("检测到共享 Xovi 与旧版独立安装混合布局，拒绝修改。")
@@ -721,6 +935,59 @@ def disable(ssh_client, catalog: Iterable[ReadingEnhancementsPackage]) -> Readin
         replacement_spec=feature if installed != feature else None,
     )
     return get_status(ssh_client, (package,))
+
+
+def cleanup_legacy(
+    ssh_client,
+    catalog: Iterable[ReadingEnhancementsPackage],
+) -> ReadingEnhancementsStatus:
+    """Remove only exact legacy reading states, then report fresh-install state."""
+    packages = tuple(catalog)
+    status = get_status(ssh_client, packages)
+    if status.state in (
+        ReadingEnhancementsState.INCOMPATIBLE,
+        ReadingEnhancementsState.BROKEN,
+    ):
+        raise RuntimeError(status.detail or "当前阅读增强状态无法验证，拒绝清理。")
+    if status.state not in (
+        ReadingEnhancementsState.MIGRATION_AVAILABLE,
+        ReadingEnhancementsState.REPAIR_AVAILABLE,
+    ) or not status.cleanup_available:
+        raise RuntimeError("当前没有可验证的旧版阅读增强可清理。")
+    package = status.package
+    if package is None:
+        raise RuntimeError("当前设备没有精确匹配的阅读增强包。")
+    identity = status.identity
+    runtime, trusted, legacies, _feature = _trusted_context(identity, package)
+    present_legacies = _validated_legacy_standalone(
+        ssh_client, _legacy_specs_for_identity(identity, legacies)
+    )
+    shared_exists = shared.has_shared_artifacts(ssh_client)
+    if present_legacies and shared_exists:
+        raise RuntimeError("检测到共享 Xovi 与旧版独立安装混合布局，拒绝清理。")
+    if present_legacies:
+        shared.remove_verified_legacy_batch(ssh_client, present_legacies)
+        return get_status(ssh_client, packages)
+    if not shared_exists:
+        raise RuntimeError("旧版阅读增强状态已消失，未执行清理。")
+
+    inspection, installed_trusted, selected = _inspection_for_migration(
+        ssh_client, runtime, trusted, package
+    )
+    remove_ids = {
+        "tap-page-turn", "fast-mono-reading"
+    } & set(inspection.states)
+    if selected.get(FEATURE_ID) is not None:
+        remove_ids.add(FEATURE_ID)
+    if not remove_ids:
+        raise RuntimeError("未找到可验证的旧版阅读增强共享功能，拒绝清理。")
+    shared.remove_shared_features(
+        ssh_client,
+        runtime,
+        installed_trusted,
+        remove_ids,
+    )
+    return get_status(ssh_client, packages)
 
 
 def migrate(

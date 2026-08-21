@@ -63,6 +63,7 @@ AFFECT /qml/device/view/settings/Settings.qml
                     readonly property string group: "RmtoolReadingEnhancements"
                     readonly property int privatePage: 1001
                     readonly property var intervalChoices: [5, 10, 15, 20, 25, 30]
+                    property bool masterEnabled: true
                     property bool tapPageTurnEnabled: false
                     property bool fastMonoEnabled: false
                     property bool cleanupEnabled: false
@@ -84,6 +85,7 @@ AFFECT /qml/device/view/settings/Settings.qml
                     }
 
                     function readSettings() {
+                        masterEnabled = readBool("masterEnabled", true)
                         tapPageTurnEnabled = readBool("tapPageTurnEnabled", false)
                         fastMonoEnabled = readBool("fastMonoEnabled", false)
                         cleanupEnabled = readBool("cleanupEnabled", false)
@@ -155,8 +157,20 @@ AFFECT /qml/device/view/settings/Settings.qml
 
                                 ArkControls.Panel {
                                     Layout.fillWidth: true
+                                    label: "启用阅读增强"
+                                    description: "关闭后暂时停用所有阅读增强功能，已保存的设置会保留。"
+                                    action: ArkToggleWrapper {
+                                        checked: rmtoolReadingPage.masterEnabled
+                                        extendedMouseArea.onPressed: rmtoolReadingPage.writeBool(
+                                            "masterEnabled", !rmtoolReadingPage.masterEnabled)
+                                    }
+                                }
+
+                                ArkControls.Panel {
+                                    Layout.fillWidth: true
                                     label: "点击翻页"
                                     description: "在 PDF 和 EPUB 阅读页点击屏幕区域翻页。笔记本保持原生手势。"
+                                    enabled: rmtoolReadingPage.masterEnabled
                                     action: ArkToggleWrapper {
                                         checked: rmtoolReadingPage.tapPageTurnEnabled
                                         extendedMouseArea.onPressed: rmtoolReadingPage.writeBool(
@@ -167,7 +181,8 @@ AFFECT /qml/device/view/settings/Settings.qml
                                 ArkControls.Panel {
                                     Layout.fillWidth: true
                                     label: "快速黑白阅读模式"
-                                    description: "仅在彩色设备的 PDF 和 EPUB 阅读页生效；重启后默认关闭。"
+                                    description: "作为全局授权；开启后可在每本 PDF/EPUB 的阅读菜单中独立开关。"
+                                    enabled: rmtoolReadingPage.masterEnabled
                                     action: ArkToggleWrapper {
                                         checked: rmtoolReadingPage.fastMonoEnabled
                                         extendedMouseArea.onPressed: rmtoolReadingPage.writeBool(
@@ -179,6 +194,7 @@ AFFECT /qml/device/view/settings/Settings.qml
                                     Layout.fillWidth: true
                                     label: "翻页清残影"
                                     description: "翻页后使用系统整屏刷新清理残影，彩色和黑白模式均可用。"
+                                    enabled: rmtoolReadingPage.masterEnabled
                                     action: ArkToggleWrapper {
                                         checked: rmtoolReadingPage.cleanupEnabled
                                         extendedMouseArea.onPressed: rmtoolReadingPage.writeBool(
@@ -191,7 +207,8 @@ AFFECT /qml/device/view/settings/Settings.qml
                                     label: "按章节清残影"
                                     description: "有目录时跨越目录边界清理；没有目录时使用固定页数。"
                                     action: ArkToggleWrapper {
-                                        enabled: rmtoolReadingPage.cleanupEnabled
+                                        enabled: rmtoolReadingPage.masterEnabled
+                                            && rmtoolReadingPage.cleanupEnabled
                                         checked: rmtoolReadingPage.cleanupByChapter
                                         extendedMouseArea.onPressed: rmtoolReadingPage.writeBool(
                                             "cleanupByChapter", !rmtoolReadingPage.cleanupByChapter)
@@ -204,7 +221,8 @@ AFFECT /qml/device/view/settings/Settings.qml
                                     label: "固定页数间隔"
                                     description: "每隔 %1 页清理一次残影。"
                                         .arg(rmtoolReadingPage.cleanupInterval)
-                                    enabled: rmtoolReadingPage.cleanupEnabled
+                                    enabled: rmtoolReadingPage.masterEnabled
+                                        && rmtoolReadingPage.cleanupEnabled
                                         && !rmtoolReadingPage.cleanupByChapter
                                     showAttachment: true
                                     attachment: RowLayout {
@@ -243,12 +261,191 @@ AFFECT /qml/device/view/settings/Settings.qml
     END TRAVERSE
 END AFFECT
 
+AFFECT /qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml
+    TRAVERSE ToolbarTool#root > Component#settingsComponent > ColumnLayout#content
+        LOCATE BEFORE ALL
+        INSERT {
+            ArkControls.FoldoutToggle {
+                id: rmtoolTapPageTurnToggle
+                objectName: "rmtoolTapPageTurnToggle"
+                label: "点击翻页"
+                visible: (root.toolbar.rmtoolDocumentView?.rmtoolReadingAvailable ?? false)
+                    && (root.toolbar.rmtoolDocumentView?.rmtoolMasterEnabled ?? false)
+                    && (root.toolbar.rmtoolDocumentView?.rmtoolGlobalTapPageTurnEnabled ?? false)
+                checked: root.toolbar.rmtoolDocumentView?.rmtoolTapPageTurnEnabled ?? false
+                Layout.fillWidth: true
+                onClicked: {
+                    const view = root.toolbar.rmtoolDocumentView
+                    view.rmtoolSetTapPageTurnEnabled(!view.rmtoolDocumentTapPageTurnEnabled)
+                    view.showNotification({
+                        message: view.rmtoolDocumentTapPageTurnEnabled
+                            ? "点击翻页已开启" : "点击翻页已关闭"
+                    })
+                }
+            }
+
+            ArkControls.FoldoutToggle {
+                id: rmtoolFastMonoToggle
+                objectName: "rmtoolFastMonoToggle"
+                label: "快速黑白"
+                visible: (root.toolbar.rmtoolDocumentView?.rmtoolFastMonoReadingAvailable ?? false)
+                    && (root.toolbar.rmtoolDocumentView?.rmtoolMasterEnabled ?? false)
+                    && (root.toolbar.rmtoolDocumentView?.rmtoolGlobalFastMonoEnabled ?? false)
+                checked: root.toolbar.rmtoolDocumentView?.rmtoolFastMonoReadingEnabled ?? false
+                Layout.fillWidth: true
+                onClicked: {
+                    const view = root.toolbar.rmtoolDocumentView
+                    view.rmtoolSetFastMonoEnabled(!view.rmtoolDocumentFastMonoEnabled)
+                    view.showNotification({
+                        message: view.rmtoolDocumentFastMonoEnabled
+                            ? "快速黑白已开启" : "快速黑白已关闭"
+                    })
+                }
+            }
+
+            ArkControls.FoldoutToggle {
+                id: rmtoolCleanupToggle
+                objectName: "rmtoolCleanupToggle"
+                label: "强制刷新"
+                visible: (root.toolbar.rmtoolDocumentView?.rmtoolReadingAvailable ?? false)
+                    && (root.toolbar.rmtoolDocumentView?.rmtoolMasterEnabled ?? false)
+                    && (root.toolbar.rmtoolDocumentView?.rmtoolGlobalCleanupEnabled ?? false)
+                checked: root.toolbar.rmtoolDocumentView?.rmtoolCleanupEnabled ?? false
+                Layout.fillWidth: true
+                onClicked: {
+                    const view = root.toolbar.rmtoolDocumentView
+                    view.rmtoolSetCleanupEnabled(!view.rmtoolDocumentCleanupEnabled)
+                    view.showNotification({
+                        message: view.rmtoolDocumentCleanupEnabled
+                            ? "强制刷新已开启" : "强制刷新已关闭"
+                    })
+                }
+            }
+
+            Component {
+                id: rmtoolCleanupOptions
+
+                ColumnLayout {
+                    spacing: 0
+
+                    ArkControls.FoldoutItem {
+                        label: "每 5 次翻页"
+                        selected: root.toolbar.rmtoolDocumentView?.rmtoolCleanupByChapter === false
+                            && root.toolbar.rmtoolDocumentView?.rmtoolCleanupInterval === 5
+                        Layout.fillWidth: true
+                        onClicked: {
+                            const view = root.toolbar.rmtoolDocumentView
+                            view.rmtoolSetCleanupByChapter(false)
+                            view.rmtoolSetCleanupInterval(5)
+                            stackView.popCurrentItem()
+                        }
+                    }
+
+                    ArkControls.FoldoutItem {
+                        label: "每 10 次翻页"
+                        selected: root.toolbar.rmtoolDocumentView?.rmtoolCleanupByChapter === false
+                            && root.toolbar.rmtoolDocumentView?.rmtoolCleanupInterval === 10
+                        Layout.fillWidth: true
+                        onClicked: {
+                            const view = root.toolbar.rmtoolDocumentView
+                            view.rmtoolSetCleanupByChapter(false)
+                            view.rmtoolSetCleanupInterval(10)
+                            stackView.popCurrentItem()
+                        }
+                    }
+
+                    ArkControls.FoldoutItem {
+                        label: "每 15 次翻页"
+                        selected: root.toolbar.rmtoolDocumentView?.rmtoolCleanupByChapter === false
+                            && root.toolbar.rmtoolDocumentView?.rmtoolCleanupInterval === 15
+                        Layout.fillWidth: true
+                        onClicked: {
+                            const view = root.toolbar.rmtoolDocumentView
+                            view.rmtoolSetCleanupByChapter(false)
+                            view.rmtoolSetCleanupInterval(15)
+                            stackView.popCurrentItem()
+                        }
+                    }
+
+                    ArkControls.FoldoutItem {
+                        label: "每 20 次翻页"
+                        selected: root.toolbar.rmtoolDocumentView?.rmtoolCleanupByChapter === false
+                            && root.toolbar.rmtoolDocumentView?.rmtoolCleanupInterval === 20
+                        Layout.fillWidth: true
+                        onClicked: {
+                            const view = root.toolbar.rmtoolDocumentView
+                            view.rmtoolSetCleanupByChapter(false)
+                            view.rmtoolSetCleanupInterval(20)
+                            stackView.popCurrentItem()
+                        }
+                    }
+
+                    ArkControls.FoldoutItem {
+                        label: "每 25 次翻页"
+                        selected: root.toolbar.rmtoolDocumentView?.rmtoolCleanupByChapter === false
+                            && root.toolbar.rmtoolDocumentView?.rmtoolCleanupInterval === 25
+                        Layout.fillWidth: true
+                        onClicked: {
+                            const view = root.toolbar.rmtoolDocumentView
+                            view.rmtoolSetCleanupByChapter(false)
+                            view.rmtoolSetCleanupInterval(25)
+                            stackView.popCurrentItem()
+                        }
+                    }
+
+                    ArkControls.FoldoutItem {
+                        label: "每 30 次翻页"
+                        selected: root.toolbar.rmtoolDocumentView?.rmtoolCleanupByChapter === false
+                            && root.toolbar.rmtoolDocumentView?.rmtoolCleanupInterval === 30
+                        Layout.fillWidth: true
+                        onClicked: {
+                            const view = root.toolbar.rmtoolDocumentView
+                            view.rmtoolSetCleanupByChapter(false)
+                            view.rmtoolSetCleanupInterval(30)
+                            stackView.popCurrentItem()
+                        }
+                    }
+
+                    ArkControls.FoldoutItem {
+                        label: "按章节"
+                        selected: root.toolbar.rmtoolDocumentView?.rmtoolCleanupByChapter ?? false
+                        Layout.fillWidth: true
+                        onClicked: {
+                            root.toolbar.rmtoolDocumentView.rmtoolSetCleanupByChapter(true)
+                            stackView.popCurrentItem()
+                        }
+                    }
+                }
+            }
+
+            ArkControls.FoldoutItem {
+                id: rmtoolCleanupSelector
+                objectName: "rmtoolCleanupSelector"
+                visible: (root.toolbar.rmtoolDocumentView?.rmtoolReadingAvailable ?? false)
+                    && (root.toolbar.rmtoolDocumentView?.rmtoolMasterEnabled ?? false)
+                    && (root.toolbar.rmtoolDocumentView?.rmtoolGlobalCleanupEnabled ?? false)
+                    && (root.toolbar.rmtoolDocumentView?.rmtoolCleanupEnabled ?? false)
+                Layout.fillWidth: true
+                label: "刷新方式"
+                description: {
+                    const view = root.toolbar.rmtoolDocumentView
+                    if (view?.rmtoolCleanupByChapter) {
+                        return "按章节"
+                    }
+                    return "每 " + (view?.rmtoolCleanupInterval ?? 10) + " 次翻页"
+                }
+                onClicked: stackView.push(rmtoolCleanupOptions)
+            }
+        }
+    END TRAVERSE
+END AFFECT
+
 AFFECT /qml/device/view/documentview/SceneViewGestures.qml
     TRAVERSE TouchArea#touchArea
         LOCATE BEFORE TouchAreaClickFilter#touchClick
         INSERT {
             function rmtoolTapPageDirection(pos) {
-                if (Settings.rawValue("RmtoolReadingEnhancements", "tapPageTurnEnabled") !== true
+                if (view.rmtoolDocumentView?.rmtoolTapPageTurnEnabled !== true
                     || touchArea.gesturesBlocked
                     || !view.clickGestureEnabled
                     || view.zoomedIn
@@ -308,6 +505,17 @@ AFFECT /qml/device/view/documentview/DocumentView.qml
     TRAVERSE FocusScope#root
         LOCATE BEFORE ALL
         INSERT {
+            property bool rmtoolMasterEnabled: true
+            property bool rmtoolGlobalTapPageTurnEnabled: false
+            property bool rmtoolGlobalFastMonoEnabled: false
+            property bool rmtoolGlobalCleanupEnabled: false
+            property bool rmtoolGlobalCleanupByChapter: false
+            property int rmtoolGlobalCleanupInterval: 10
+            property bool rmtoolDocumentTapPageTurnEnabled: true
+            property bool rmtoolDocumentFastMonoEnabled: true
+            property bool rmtoolDocumentCleanupEnabled: true
+            property bool rmtoolDocumentCleanupByChapter: true
+            property int rmtoolDocumentCleanupInterval: 10
             property bool rmtoolFastMonoReadingEnabled: false
             property bool rmtoolCleanupEnabled: false
             property bool rmtoolCleanupByChapter: false
@@ -317,40 +525,146 @@ AFFECT /qml/device/view/documentview/DocumentView.qml
             property int rmtoolCleanupLastBoundary: -1
             property string rmtoolCleanupLastDocumentId: ""
             readonly property bool rmtoolReadingAvailable: !!document
+                && !notePage
                 && (document.fileType === Document.Pdf
                     || document.fileType === Document.Ebook)
             readonly property bool rmtoolFastMonoReadingAvailable: rmtoolReadingAvailable
                 && EPFramebuffer.hasCapability(EPFramebuffer.Capability.Color)
 
-            Component.onCompleted: {
-                Settings.setRawValue("RmtoolReadingEnhancements", "fastMonoEnabled", false)
-                rmtoolReadReadingSettings()
+            readonly property string rmtoolReadingDocumentId: document && document.id !== undefined
+                && document.id !== null ? document.id.toString() : ""
+            readonly property bool rmtoolTapPageTurnEnabled: rmtoolMasterEnabled
+                && rmtoolGlobalTapPageTurnEnabled && rmtoolDocumentTapPageTurnEnabled
+                && rmtoolReadingAvailable
+            readonly property bool rmtoolCleanupEffective: rmtoolMasterEnabled
+                && rmtoolGlobalCleanupEnabled && rmtoolDocumentCleanupEnabled
+                && rmtoolReadingAvailable
+
+            Component.onCompleted: rmtoolReadReadingSettings()
+            onRmtoolReadingDocumentIdChanged: rmtoolReadReadingSettings()
+
+            function rmtoolDocumentKey(key) {
+                if (!rmtoolReadingDocumentId) {
+                    return ""
+                }
+                return "documents/" + rmtoolReadingDocumentId + "/" + key
+            }
+
+            function readBool(key, fallback) {
+                const value = Settings.rawValue("RmtoolReadingEnhancements", key)
+                return value === undefined || value === null ? fallback : !!value
+            }
+
+            function rmtoolNormalizedInterval(value) {
+                let number = Number(value)
+                if (!Number.isFinite(number)) {
+                    return 10
+                }
+                number = Math.round(number / 5) * 5
+                return Math.max(5, Math.min(30, number))
+            }
+
+            function rmtoolReadScopedBool(key, fallback) {
+                const scopedKey = rmtoolDocumentKey(key)
+                if (!scopedKey) {
+                    return fallback
+                }
+                return readBool(scopedKey, fallback)
+            }
+
+            function rmtoolReadScopedInterval(key, fallback) {
+                const scopedKey = rmtoolDocumentKey(key)
+                if (!scopedKey) {
+                    return rmtoolNormalizedInterval(fallback)
+                }
+                const raw = Settings.rawValue("RmtoolReadingEnhancements", scopedKey)
+                return raw === undefined || raw === null
+                    ? rmtoolNormalizedInterval(fallback) : rmtoolNormalizedInterval(raw)
             }
 
             function rmtoolReadReadingSettings() {
-                const fastMonoEnabled = Settings.rawValue(
-                    "RmtoolReadingEnhancements", "fastMonoEnabled") === true
-                const cleanupEnabled = Settings.rawValue(
-                    "RmtoolReadingEnhancements", "cleanupEnabled") === true
-                const cleanupByChapter = Settings.rawValue(
-                    "RmtoolReadingEnhancements", "cleanupByChapter") === true
-                const rawInterval = Number(Settings.rawValue(
-                    "RmtoolReadingEnhancements", "cleanupInterval"))
-                const cleanupInterval = Number.isFinite(rawInterval)
-                    ? Math.max(5, Math.min(30, Math.round(rawInterval / 5) * 5)) : 10
-                const resetCleanup = cleanupEnabled !== rmtoolCleanupEnabled
-                    || cleanupByChapter !== rmtoolCleanupByChapter
-                    || cleanupInterval !== rmtoolCleanupInterval
+                const previousDocumentId = rmtoolCleanupLastDocumentId
+                const masterEnabled = readBool("masterEnabled", true)
+                const globalTap = readBool("tapPageTurnEnabled", false)
+                const globalFastMono = readBool("fastMonoEnabled", false)
+                const globalCleanup = readBool("cleanupEnabled", false)
+                const globalByChapter = readBool("cleanupByChapter", false)
+                const globalInterval = rmtoolNormalizedInterval(
+                    Settings.rawValue("RmtoolReadingEnhancements", "cleanupInterval"))
+                const documentTap = rmtoolReadScopedBool("tapPageTurnEnabled", true)
+                const documentFastMono = rmtoolReadScopedBool("fastMonoEnabled", true)
+                const documentCleanup = rmtoolReadScopedBool("cleanupEnabled", true)
+                const documentByChapter = rmtoolReadScopedBool(
+                    "cleanupByChapter", globalByChapter)
+                const documentInterval = rmtoolReadScopedInterval(
+                    "cleanupInterval", globalInterval)
+                const effectiveCleanup = masterEnabled && globalCleanup && documentCleanup
+                const effectiveByChapter = effectiveCleanup && documentByChapter
+                const resetCleanup = previousDocumentId !== rmtoolReadingDocumentId
+                    || effectiveCleanup !== rmtoolCleanupEnabled
+                    || effectiveByChapter !== rmtoolCleanupByChapter
+                    || documentInterval !== rmtoolCleanupInterval
 
-                rmtoolFastMonoReadingEnabled = fastMonoEnabled
-                rmtoolCleanupEnabled = cleanupEnabled
-                rmtoolCleanupByChapter = cleanupByChapter
-                rmtoolCleanupInterval = cleanupInterval
+                rmtoolMasterEnabled = masterEnabled
+                rmtoolGlobalTapPageTurnEnabled = globalTap
+                rmtoolGlobalFastMonoEnabled = globalFastMono
+                rmtoolGlobalCleanupEnabled = globalCleanup
+                rmtoolGlobalCleanupByChapter = globalByChapter
+                rmtoolGlobalCleanupInterval = globalInterval
+                rmtoolDocumentTapPageTurnEnabled = documentTap
+                rmtoolDocumentFastMonoEnabled = documentFastMono
+                rmtoolDocumentCleanupEnabled = documentCleanup
+                rmtoolDocumentCleanupByChapter = documentByChapter
+                rmtoolDocumentCleanupInterval = documentInterval
+                rmtoolFastMonoReadingEnabled = masterEnabled && globalFastMono && documentFastMono
+                rmtoolCleanupEnabled = effectiveCleanup
+                rmtoolCleanupByChapter = effectiveByChapter
+                rmtoolCleanupInterval = documentInterval
+                rmtoolCleanupLastDocumentId = rmtoolReadingDocumentId
                 if (resetCleanup) {
                     rmtoolResetReadingCleanup()
                     rmtoolCleanupLastPage = currentPage
                     rmtoolCleanupLastBoundary = rmtoolTocBoundaryForPage(currentPage)
                 }
+            }
+
+            function rmtoolWriteDocumentBool(key, value) {
+                const scopedKey = rmtoolDocumentKey(key)
+                if (!scopedKey) {
+                    return
+                }
+                Settings.setRawValue("RmtoolReadingEnhancements", scopedKey, !!value)
+                rmtoolReadReadingSettings()
+            }
+
+            function rmtoolWriteDocumentInterval(value) {
+                const scopedKey = rmtoolDocumentKey("cleanupInterval")
+                if (!scopedKey) {
+                    return
+                }
+                Settings.setRawValue("RmtoolReadingEnhancements", scopedKey,
+                    rmtoolNormalizedInterval(value))
+                rmtoolReadReadingSettings()
+            }
+
+            function rmtoolSetTapPageTurnEnabled(value) {
+                rmtoolWriteDocumentBool("tapPageTurnEnabled", value)
+            }
+
+            function rmtoolSetFastMonoEnabled(value) {
+                rmtoolWriteDocumentBool("fastMonoEnabled", value)
+            }
+
+            function rmtoolSetCleanupEnabled(value) {
+                rmtoolWriteDocumentBool("cleanupEnabled", value)
+            }
+
+            function rmtoolSetCleanupByChapter(value) {
+                rmtoolWriteDocumentBool("cleanupByChapter", value)
+            }
+
+            function rmtoolSetCleanupInterval(value) {
+                rmtoolWriteDocumentInterval(value)
             }
 
             function rmtoolResetReadingCleanup() {
@@ -397,7 +711,7 @@ AFFECT /qml/device/view/documentview/DocumentView.qml
                 interval: 500
                 repeat: false
                 onTriggered: {
-                    if (root.rmtoolReadingAvailable && root.rmtoolCleanupEnabled) {
+                    if (root.rmtoolReadingAvailable && root.rmtoolCleanupEffective) {
                         root.ghostBuster.forceClearNow("rmtool reading enhancements cleanup")
                     }
                 }
@@ -419,7 +733,7 @@ AFFECT /qml/device/view/documentview/DocumentView.qml
 
                 function onCurrentPageChanged() {
                     const page = root.currentPage
-                    const documentId = root.document ? root.document.id.toString() : ""
+                    const documentId = root.rmtoolReadingDocumentId
                     if (documentId !== root.rmtoolCleanupLastDocumentId) {
                         root.rmtoolCleanupLastDocumentId = documentId
                         root.rmtoolResetReadingCleanup()
@@ -456,13 +770,14 @@ AFFECT /qml/device/view/documentview/DocumentView.qml
                         root.rmtoolScheduleReadingCleanup()
                     }
                 }
-
-                function onDocumentChanged() {
-                    root.rmtoolCleanupLastDocumentId = ""
-                    root.rmtoolResetReadingCleanup()
-                    root.rmtoolCleanupLastPage = -1
-                }
             }
+        }
+    END TRAVERSE
+
+    TRAVERSE FocusScope#root > DeviceSceneView#sceneView
+        LOCATE BEFORE ALL
+        INSERT {
+            property var rmtoolDocumentView: root
         }
     END TRAVERSE
 
