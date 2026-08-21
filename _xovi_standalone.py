@@ -11,7 +11,7 @@ import re
 import shlex
 import tempfile
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from itertools import product
 from pathlib import Path, PurePosixPath
@@ -678,6 +678,9 @@ def _validate_owned_tree(
     optional_files = set(optional_files) & set(expected_files)
     command = (
         f"stat -c '%f|%u|%g|%s|%n' {shlex.quote(base)}; "
+        f"[ ! -L {shlex.quote(base)} ] || exit 1; "
+        f"if find -P {shlex.quote(base)} -mindepth 1 -type l -print -quit | grep -q .; "
+        "then exit 1; fi; "
         f"find {shlex.quote(base)} -mindepth 1 -exec stat -c '%f|%u|%g|%s|%n' {{}} \\;"
     )
     records = ssh_client.exec_checked(command).splitlines()
@@ -733,7 +736,8 @@ def _validate_owned_tree(
 
 def _assert_owned_dropin(ssh_client, path: str, digest: str, label: str) -> None:
     metadata = ssh_client.exec_checked(
-        f"stat -c '%f %u %g' {shlex.quote(path)}"
+        f"stat -c '%f %u %g' {shlex.quote(path)}; "
+        f"[ ! -L {shlex.quote(path)} ]"
     ).strip().split()
     if metadata != ["81a4", "0", "0"] or _remote_sha256(ssh_client, path) != digest:
         raise RuntimeError(f"{label} drop-in 类型、权限、所有权或内容已变化。")
@@ -1622,7 +1626,10 @@ cmp -s {shlex.quote(source_dropin)} "$MOUNT_DIR{SHARED_LAYOUT.dropin_path}"
     else:
         write_upper = ":"
         write_lower = ":"
-    remove_shared_base = 'rmdir "$BASE"' if remove_base else ":"
+    remove_shared_base = (
+        'rm -rf "$BASE"; rmdir "$BASE" 2>/dev/null || true; '
+        'test ! -e "$BASE"' if remove_base else ":"
+    )
 
     return f"""#!/bin/sh
 set -eu
@@ -1780,60 +1787,78 @@ def _stage_shared(
     launcher_sha = hashlib.sha256(launcher_text.encode()).hexdigest()
     dropin_sha = hashlib.sha256(dropin_text.encode()).hexdigest()
     marker = shared_marker(runtime, states, launcher_sha, dropin_sha)
-    expected = {item.path: item for item in runtime.files}
-    expected.update({
-        item.runtime_path: SharedFileSpec(
-            item.runtime_path, item.sha256, item.size, item.mode
-        )
-        for feature in enabled
-        for item in feature.files
-    })
-    directories = {stage, f"{stage}/systemd"}
+    expected = {}
+    if enabled:
+        expected.update({item.path: item for item in runtime.files})
+        expected.update({
+            item.runtime_path: SharedFileSpec(
+                item.runtime_path, item.sha256, item.size, item.mode
+            )
+            for feature in enabled
+            for item in feature.files
+        })
+    directories = {stage}
+    if enabled:
+        directories.add(f"{stage}/systemd")
     directories.update(posixpath.dirname(f"{stage}/{path}") for path in expected)
     ssh_client.exec_checked(
         "mkdir -p " + " ".join(shlex.quote(path) for path in sorted(directories))
     )
-    for item in runtime.files:
-        # Every feature package carries the identical common runtime files,
-        # so any staged extracted root can supply them.
-        local = next(iter(incoming_roots.values())).joinpath(
-            *PurePosixPath(item.path).parts
-        )
-        _upload_path(ssh_client, local, f"{stage}/{item.path}", item.mode)
-    for feature in enabled:
-        root = incoming_roots.get(feature.feature_id)
-        for item in feature.files:
-            remote = f"{stage}/{item.runtime_path}"
+    if enabled:
+        for item in runtime.files:
+            # Every feature package carries the identical common runtime files.
+            # Removal transactions have no incoming archive, so they copy these
+            # files from the already verified live tree instead.
+            root = next(iter(incoming_roots.values()), None)
             if root is not None:
-                local = root.joinpath(*PurePosixPath(item.archive_path).parts)
-                _upload_path(ssh_client, local, remote, item.mode)
+                local = root.joinpath(*PurePosixPath(item.path).parts)
+                _upload_path(ssh_client, local, f"{stage}/{item.path}", item.mode)
             else:
-                source = previous_sources.get(item.runtime_path)
-                if source is None and item.runtime_path == feature.runtime_path:
-                    source = previous_sources.get(feature.feature_id)
+                source = previous_sources.get(item.path)
                 if source is None:
-                    raise RuntimeError("无法从已验证安装中保留另一项功能。")
+                    raise RuntimeError("无法从已验证安装中保留共享运行资源。")
                 ssh_client.exec_checked(
-                    f"cp {shlex.quote(source)} {shlex.quote(remote)} && chmod {item.mode:o} {shlex.quote(remote)}"
+                    f"cp {shlex.quote(source)} {shlex.quote(stage + '/' + item.path)} && "
+                    f"chmod {item.mode:o} {shlex.quote(stage + '/' + item.path)}"
                 )
-    _upload_bytes(ssh_client, launcher_text.encode(), f"{stage}/launcher.sh", 0o755)
-    _upload_bytes(
-        ssh_client,
-        dropin_text.encode(),
-        f"{stage}/systemd/{SHARED_LAYOUT.dropin_name}",
-        0o644,
-    )
+        for feature in enabled:
+            root = incoming_roots.get(feature.feature_id)
+            for item in feature.files:
+                remote = f"{stage}/{item.runtime_path}"
+                if root is not None:
+                    local = root.joinpath(*PurePosixPath(item.archive_path).parts)
+                    _upload_path(ssh_client, local, remote, item.mode)
+                else:
+                    source = previous_sources.get(item.runtime_path)
+                    if source is None and item.runtime_path == feature.runtime_path:
+                        source = previous_sources.get(feature.feature_id)
+                    if source is None:
+                        raise RuntimeError("无法从已验证安装中保留另一项功能。")
+                    ssh_client.exec_checked(
+                        f"cp {shlex.quote(source)} {shlex.quote(remote)} && chmod {item.mode:o} {shlex.quote(remote)}"
+                    )
+        _upload_bytes(
+            ssh_client, launcher_text.encode(), f"{stage}/launcher.sh", 0o755
+        )
+        _upload_bytes(
+            ssh_client,
+            dropin_text.encode(),
+            f"{stage}/systemd/{SHARED_LAYOUT.dropin_name}",
+            0o644,
+        )
     _upload_bytes(ssh_client, marker, f"{stage}/package.json", 0o644)
     ssh_client.exec_checked(f"chown -R root:root {shlex.quote(stage)}")
     for path, item in expected.items():
         remote = f"{stage}/{path}"
         if _remote_sha256(ssh_client, remote) != item.sha256:
             raise RuntimeError(f"设备端共享 Xovi 资源 {path} 上传校验失败。")
-    for path, digest in (
-        ("launcher.sh", launcher_sha),
-        (f"systemd/{SHARED_LAYOUT.dropin_name}", dropin_sha),
-        ("package.json", hashlib.sha256(marker).hexdigest()),
-    ):
+    generated = [("package.json", hashlib.sha256(marker).hexdigest())]
+    if enabled:
+        generated.extend((
+            ("launcher.sh", launcher_sha),
+            (f"systemd/{SHARED_LAYOUT.dropin_name}", dropin_sha),
+        ))
+    for path, digest in generated:
         if _remote_sha256(ssh_client, f"{stage}/{path}") != digest:
             raise RuntimeError(f"设备端共享 Xovi 文件 {path} 上传校验失败。")
     if any(
@@ -1856,6 +1881,8 @@ def replace_shared_features(
     incoming_roots: Mapping[str, str | Path],
     *,
     legacy_layouts: Iterable[StandaloneLayout] = (),
+    remove_base_when_empty: bool = False,
+    _lock_already_held: bool = False,
 ) -> SharedInspection:
     """Atomically replace a verified shared feature set.
 
@@ -1866,7 +1893,8 @@ def replace_shared_features(
     feature-specific modules remain responsible for package selection and
     migration policy.
     """
-    with _operation_lock(ssh_client):
+    lock = nullcontext() if _lock_already_held else _operation_lock(ssh_client)
+    with lock:
         if not set(current_trusted) <= MIGRATABLE_FEATURE_IDS:
             raise RuntimeError("共享 Xovi 包含不受支持的功能。")
         if not set(target_trusted) <= MIGRATABLE_FEATURE_IDS:
@@ -1912,6 +1940,10 @@ def replace_shared_features(
             for state in inspection.states.values()
             if state.enabled
         })
+        previous_sources.update({
+            item.path: f"{inspection.layout.remote_base}/{item.path}"
+            for item in current_runtime.files
+        })
         enabled = tuple(state.spec for state in target_states.values() if state.enabled)
         if enabled and not incoming_roots and not previous_sources:
             raise RuntimeError("目标共享 Xovi 缺少可验证的资源来源。")
@@ -1941,6 +1973,7 @@ def replace_shared_features(
                 token,
                 legacy_layouts,
                 enable_dropin=bool(enabled),
+                remove_base=remove_base_when_empty and not enabled,
             )
             _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
             ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
@@ -1956,6 +1989,52 @@ def replace_shared_features(
             except Exception:
                 logging.exception("Could not remove shared Xovi replacement script")
         return inspect_shared(ssh_client, target_runtime, target_trusted)
+
+
+def remove_shared_features(
+    ssh_client,
+    runtime: SharedRuntimeSpec,
+    trusted: Mapping[str, SharedFeatureSpec],
+    feature_ids: Iterable[str],
+) -> SharedInspection:
+    """Remove verified features in one transaction, preserving other peers."""
+    remove_ids = frozenset(feature_ids)
+    if not remove_ids:
+        raise RuntimeError("没有指定要清理的共享 Xovi 功能。")
+    if not remove_ids <= set(trusted):
+        raise RuntimeError("共享 Xovi 清理目标不在内置信任清单中。")
+    with _operation_lock(ssh_client):
+        inspection = inspect_shared(ssh_client, runtime, trusted, check_lower=True)
+        present = set(inspection.states)
+        if not remove_ids <= present:
+            missing = sorted(remove_ids - present)
+            raise RuntimeError(
+                "共享 Xovi 清理目标不存在或无法验证：" + "、".join(missing) + "。"
+            )
+        remaining = {
+            feature_id: state
+            for feature_id, state in inspection.states.items()
+            if feature_id not in remove_ids
+        }
+        target_trusted = {
+            feature_id: trusted[feature_id]
+            for feature_id in remaining
+        }
+        legacy_layouts = (
+            (inspection.layout,) if inspection.layout != SHARED_LAYOUT else ()
+        )
+        return replace_shared_features(
+            ssh_client,
+            runtime,
+            trusted,
+            runtime,
+            target_trusted,
+            remaining,
+            {},
+            legacy_layouts=legacy_layouts,
+            remove_base_when_empty=not remaining,
+            _lock_already_held=True,
+        )
 
 
 def enable_shared(
@@ -2412,32 +2491,288 @@ def migrate_shared(
         return inspect_shared(ssh_client, new_runtime, target_trusted)
 
 
-def remove_verified_legacy(
+def legacy_cleanup_transaction_script(
+    token: str,
+    legacies: Iterable[LegacyStandaloneSpec],
+) -> str:
+    """Create one rollback-capable script for verified standalone layouts."""
+    specs = tuple(legacies)
+    bases = tuple(dict.fromkeys(item.layout.remote_base for item in specs))
+    dropins = tuple(dict.fromkeys(item.layout.dropin_path for item in specs))
+    mount_dir = f"/tmp/rmtool-xovi-legacy-rootfs-{token}"
+    backup_dir = f"/data/rmtool/.xovi-legacy-cleanup-{token}"
+    base_backups = tuple(f"{backup_dir}/base-{index}" for index in range(len(bases)))
+    upper_backups = tuple(f"{backup_dir}/upper-{index}" for index in range(len(dropins)))
+    lower_backups = tuple(f"{backup_dir}/lower-{index}" for index in range(len(dropins)))
+    base_flags = tuple(f"HAD_BASE_{index}" for index in range(len(bases)))
+    upper_flags = tuple(f"HAD_UPPER_{index}" for index in range(len(dropins)))
+    lower_flags = tuple(f"HAD_LOWER_{index}" for index in range(len(dropins)))
+
+    def snapshot_file(path: str, backup: str, flag: str) -> str:
+        return f'''if [ -L {shlex.quote(path)} ]; then exit 1; fi
+if [ -e {shlex.quote(path)} ]; then
+    [ -f {shlex.quote(path)} ] || exit 1
+    cp -p {shlex.quote(path)} {shlex.quote(backup)}
+    cmp -s {shlex.quote(path)} {shlex.quote(backup)}
+    {flag}=1
+fi'''
+
+    def snapshot_lower(path: str, backup: str, flag: str) -> str:
+        remote = f'"$MOUNT_DIR{path}"'
+        return f'''if [ -L {remote} ]; then exit 1; fi
+if [ -e {remote} ]; then
+    [ -f {remote} ] || exit 1
+    cp -p {remote} {shlex.quote(backup)}
+    cmp -s {remote} {shlex.quote(backup)}
+    {flag}=1
+fi'''
+
+    backup_upper = "\n".join(
+        snapshot_file(path, backup, flag)
+        for path, backup, flag in zip(dropins, upper_backups, upper_flags)
+    )
+    backup_lower = "\n".join(
+        snapshot_lower(path, backup, flag)
+        for path, backup, flag in zip(dropins, lower_backups, lower_flags)
+    )
+
+    snapshot_bases = "\n".join(
+        f'if [ -L {shlex.quote(base)} ]; then exit 1; fi\n'
+        f'if [ -e {shlex.quote(base)} ]; then\n'
+        f'    [ -d {shlex.quote(base)} ] || exit 1\n'
+        f'    cp -a {shlex.quote(base)} {shlex.quote(backup)}\n'
+        f'    verify_tree {shlex.quote(base)} {shlex.quote(backup)}\n'
+        f'    {flag}=1\n'
+        f'fi'
+        for base, backup, flag in zip(bases, base_backups, base_flags)
+    )
+    remove_bases = "\n".join(
+        f'if [ "${flag}" -eq 1 ]; then rm -rf {shlex.quote(base)}; '
+        f'[ ! -e {shlex.quote(base)} ] && [ ! -L {shlex.quote(base)} ]; fi'
+        for base, flag in zip(bases, base_flags)
+    )
+    restore_bases = "\n".join(
+        f'if [ "${flag}" -eq 1 ]; then '
+        f'if rm -rf {shlex.quote(base)} && cp -a {shlex.quote(backup)} '
+        f'{shlex.quote(base)} && verify_tree {shlex.quote(backup)} '
+        f'{shlex.quote(base)}; then :; else ROLLBACK_OK=0; fi; '
+        f'else if [ -e {shlex.quote(base)} ] || [ -L {shlex.quote(base)} ]; '
+        f'then rm -rf {shlex.quote(base)} || ROLLBACK_OK=0; fi; '
+        f'[ ! -e {shlex.quote(base)} ] && [ ! -L {shlex.quote(base)} ] '
+        f'|| ROLLBACK_OK=0; fi'
+        for base, backup, flag in zip(bases, base_backups, base_flags)
+    )
+
+    def restore_file(path: str, backup: str, flag: str, prefix: str = "") -> str:
+        remote = f'{prefix}{path}'
+        tmp = f'{remote}.tmp'
+        return f'''if [ "${flag}" -eq 1 ]; then
+    if cp -p {shlex.quote(backup)} {shlex.quote(tmp)} &&
+       mv -f {shlex.quote(tmp)} {shlex.quote(remote)} &&
+       cmp -s {shlex.quote(backup)} {shlex.quote(remote)}; then :
+    else ROLLBACK_OK=0
+    fi
+else
+    if rm -f {shlex.quote(remote)} && [ ! -e {shlex.quote(remote)} ] &&
+       [ ! -L {shlex.quote(remote)} ]; then :
+    else ROLLBACK_OK=0
+    fi
+fi'''
+
+    restore_upper = "\n".join(
+        restore_file(path, backup, flag)
+        for path, backup, flag in zip(dropins, upper_backups, upper_flags)
+    )
+
+    def restore_lower_file(path: str, backup: str, flag: str) -> str:
+        remote = f'"$MOUNT_DIR{path}"'
+        tmp = f'"$MOUNT_DIR{path}.tmp"'
+        return f'''if [ "${flag}" -eq 1 ]; then
+    if cp -p {shlex.quote(backup)} {tmp} &&
+       mv -f {tmp} {remote} &&
+       cmp -s {shlex.quote(backup)} {remote}; then :
+    else ROLLBACK_OK=0
+    fi
+else
+    if rm -f {remote} && [ ! -e {remote} ] &&
+       [ ! -L {remote} ]; then :
+    else ROLLBACK_OK=0
+    fi
+fi'''
+
+    restore_lower = "\n".join(
+        restore_lower_file(path, backup, flag)
+        for path, backup, flag in zip(dropins, lower_backups, lower_flags)
+    )
+    remove_upper = "\n".join(
+        f"rm -f {shlex.quote(path)} && [ ! -e {shlex.quote(path)} ] && "
+        f"[ ! -L {shlex.quote(path)} ]"
+        for path in dropins
+    )
+    remove_lower = "\n".join(
+        f'rm -f "$MOUNT_DIR{path}" && [ ! -e "$MOUNT_DIR{path}" ] && '
+        f'[ ! -L "$MOUNT_DIR{path}" ]'
+        for path in dropins
+    )
+    cleanup_backups = shlex.quote(backup_dir)
+    return f"""#!/bin/sh
+set -eu
+MOUNT_DIR={shlex.quote(mount_dir)}
+BACKUP_DIR={shlex.quote(backup_dir)}
+MOUNTED=0
+COMMITTED=0
+BASES_SNAPSHOTTED=0
+DROPINS_SNAPSHOTTED=0
+ROOT_RELEASED=1
+ROLLBACK_OK=1
+{chr(10).join(flag + '=0' for flag in (*base_flags, *upper_flags, *lower_flags))}
+
+tree_manifest() {{
+    root=$1
+    (cd "$root" && find -P . -print | sort)
+}}
+
+verify_tree() {{
+    left=$1
+    right=$2
+    [ -d "$left" ] && [ -d "$right" ] || return 1
+    left_list=$(tree_manifest "$left") || return 1
+    right_list=$(tree_manifest "$right") || return 1
+    [ "$left_list" = "$right_list" ] || return 1
+    old_ifs=$IFS
+    IFS='\n'
+    for relative in $left_list; do
+        [ "$relative" = "." ] && continue
+        left_path="$left/$relative"
+        right_path="$right/$relative"
+        [ ! -L "$left_path" ] && [ ! -L "$right_path" ] || return 1
+        if [ -d "$left_path" ] && [ -d "$right_path" ]; then
+            continue
+        fi
+        [ -f "$left_path" ] && [ -f "$right_path" ] || return 1
+        cmp -s "$left_path" "$right_path" || return 1
+    done
+    IFS=$old_ifs
+}}
+
+unmount_root() {{
+    [ "$MOUNTED" -eq 1 ] || return 0
+    sync
+    mount -o remount,ro "$MOUNT_DIR" || return 1
+    umount "$MOUNT_DIR" || return 1
+    MOUNTED=0
+    rmdir "$MOUNT_DIR"
+}}
+
+mount_root_rw() {{
+    mkdir -p "$MOUNT_DIR"
+    mount --bind / "$MOUNT_DIR"
+    MOUNTED=1
+    mount -o remount,rw "$MOUNT_DIR"
+}}
+
+rollback() {{
+    rc=$?
+    [ "$rc" -ne 0 ] || rc=1
+    trap - EXIT INT TERM
+    if [ "$COMMITTED" -eq 0 ]; then
+        if [ "$MOUNTED" -eq 1 ]; then
+            sync
+            mount -o remount,ro "$MOUNT_DIR" 2>/dev/null || true
+            if umount "$MOUNT_DIR" 2>/dev/null; then
+                MOUNTED=0
+            else
+                ROOT_RELEASED=0
+                ROLLBACK_OK=0
+            fi
+        fi
+        if [ "$BASES_SNAPSHOTTED" -eq 1 ]; then
+            {restore_bases}
+        fi
+        if [ "$DROPINS_SNAPSHOTTED" -eq 1 ]; then
+            {restore_upper}
+            if [ "$ROOT_RELEASED" -eq 1 ] && mount_root_rw 2>/dev/null; then
+                {restore_lower}
+                if ! unmount_root 2>/dev/null; then ROOT_RELEASED=0; ROLLBACK_OK=0; fi
+            else
+                ROLLBACK_OK=0
+            fi
+        fi
+        if [ "$ROOT_RELEASED" -eq 1 ]; then
+            systemctl daemon-reload 2>/dev/null || ROLLBACK_OK=0
+        fi
+    fi
+    rm -f {' '.join(shlex.quote(path + '.tmp') for path in dropins)} 2>/dev/null || true
+    if [ "$ROLLBACK_OK" -eq 1 ] && [ "$ROOT_RELEASED" -eq 1 ]; then
+        rm -rf {cleanup_backups}
+        rmdir "$MOUNT_DIR" 2>/dev/null || true
+    else
+        echo "rmtool legacy cleanup rollback incomplete; recovery kept at $BACKUP_DIR" >&2
+    fi
+    exit "$rc"
+}}
+trap rollback EXIT INT TERM
+
+rm -rf "$BACKUP_DIR" {' '.join(shlex.quote(path) for path in base_backups)}
+mkdir -p "$BACKUP_DIR"
+{backup_upper}
+mount_root_rw
+{backup_lower}
+unmount_root
+DROPINS_SNAPSHOTTED=1
+
+{snapshot_bases}
+BASES_SNAPSHOTTED=1
+{remove_bases}
+{remove_upper}
+mount_root_rw
+{remove_lower}
+unmount_root
+systemctl daemon-reload
+{chr(10).join(f'[ ! -e {shlex.quote(path)} ] && [ ! -L {shlex.quote(path)} ]' for path in dropins)}
+COMMITTED=1
+rm -rf "$BACKUP_DIR"
+trap - EXIT INT TERM
+"""
+
+
+def remove_verified_legacy_batch(
     ssh_client,
-    legacy: LegacyStandaloneSpec,
+    legacies: Iterable[LegacyStandaloneSpec],
 ) -> None:
+    specs = tuple(legacies)
+    if not specs:
+        raise RuntimeError("没有检测到可清理的旧版独立 Xovi。")
+    if len({item.layout.remote_base for item in specs}) != len(specs):
+        raise RuntimeError("旧版独立 Xovi 清理目标存在重复布局。")
     with _operation_lock(ssh_client):
-        if not validate_legacy(ssh_client, legacy, check_lower=True):
-            raise RuntimeError(f"{legacy.feature.feature_id} 旧版安装不存在。")
+        _assert_managed_dropins(
+            ssh_client, tuple(item.layout.dropin_path for item in specs)
+        )
+        # Every legacy tree is validated before the first removal or script
+        # upload. A partial or modified peer therefore leaves all bytes intact.
+        for legacy in specs:
+            if not validate_legacy(ssh_client, legacy, check_lower=True):
+                raise RuntimeError(f"{legacy.feature.feature_id} 旧版安装不存在。")
         token = uuid.uuid4().hex
         remote_script = f"/tmp/rmtool-xovi-remove-legacy-{token}.sh"
         try:
             _upload_bytes(
                 ssh_client,
-                disable_script(token, legacy.layout).encode(),
+                legacy_cleanup_transaction_script(token, specs).encode(),
                 remote_script,
                 0o755,
             )
             ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
-            _check_lower_dropins(
-                ssh_client, {legacy.layout.dropin_path: None}
-            )
-            ssh_client.exec_checked(
-                f"rm -rf {shlex.quote(legacy.layout.remote_base)}; "
-                f"test ! -e {shlex.quote(legacy.layout.remote_base)}"
-            )
         finally:
             try:
                 ssh_client.exec_checked(f"rm -f {shlex.quote(remote_script)}")
             except Exception:
                 logging.exception("Could not remove legacy Xovi cleanup script")
+
+
+def remove_verified_legacy(
+    ssh_client,
+    legacy: LegacyStandaloneSpec,
+) -> None:
+    remove_verified_legacy_batch(ssh_client, (legacy,))

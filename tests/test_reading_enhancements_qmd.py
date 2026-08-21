@@ -50,6 +50,12 @@ def _targets() -> tuple[dict, ...]:
 
 
 class ReadingEnhancementsQmdTests(unittest.TestCase):
+    def test_source_is_utf8_lf_text_without_nul_bytes(self):
+        data = SOURCE.read_bytes()
+        self.assertNotIn(b"\x00", data)
+        self.assertNotIn(b"\r", data)
+        SOURCE.read_text(encoding="utf-8")
+
     def test_source_contains_shared_contract(self):
         source = SOURCE.read_text(encoding="utf-8")
 
@@ -57,12 +63,22 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
             "/qml/device/view/settings/Settings.qml",
             "/qml/device/view/documentview/SceneViewGestures.qml",
             "/qml/device/view/documentview/DocumentView.qml",
+            "/qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml",
         ):
             self.assertIn(target, source)
 
         for marker in (
             "rmtoolReadingEnhancementsPage",
             "privatePage: 1001",
+            "masterEnabled",
+            "rmtoolGlobalTapPageTurnEnabled",
+            "rmtoolGlobalFastMonoEnabled",
+            "rmtoolGlobalCleanupEnabled",
+            "rmtoolDocumentKey",
+            "function rmtoolNormalizedInterval(value)",
+            "documents/",
+            "rmtoolTapPageTurnEnabled",
+            "rmtoolCleanupEffective",
             "Settings.rawValue",
             "Settings.setRawValue",
             '"tapPageTurnEnabled"',
@@ -75,15 +91,21 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
             "interval: 500",
             "tocModel",
             "onCurrentPageChanged",
-            "onDocumentChanged",
+            "onRmtoolReadingDocumentIdChanged",
+            "const documentId = root.rmtoolReadingDocumentId",
             "rmtoolHasUsableToc",
             "const resetCleanup =",
-            "cleanupInterval !== rmtoolCleanupInterval",
+            "documentInterval !== rmtoolCleanupInterval",
             "rmtoolCleanupLastBoundary = rmtoolTocBoundaryForPage(currentPage)",
             "notePage",
             "textMode",
             "itemSelectionMode",
             "textSelectionMode",
+            "ArkControls.FoldoutToggle",
+            "ArkControls.FoldoutItem",
+            "stackView.push(rmtoolCleanupOptions)",
+            "每 15 次翻页",
+            "按章节",
         ):
             self.assertIn(marker, source, marker)
 
@@ -91,8 +113,23 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
         self.assertIn("TRAVERSE Item#root", source)
         self.assertIn("LOCATE BEFORE Component#general", source)
         self.assertNotIn("TRAVERSE ?#general", source)
-        self.assertNotIn("SettingsMenu.qml", source)
+        self.assertIn("SettingsMenu.qml", source)
         self.assertNotIn("AFFECT /qml/device/view/main/MainView.qml", source)
+        self.assertNotIn(
+            'Settings.setRawValue("RmtoolReadingEnhancements", "fastMonoEnabled", false)',
+            source,
+        )
+        self.assertIn(
+            'description: "作为全局授权；开启后可在每本 PDF/EPUB 的阅读菜单中独立开关。"',
+            source,
+        )
+        self.assertNotIn("重启后默认关闭", source)
+        self.assertIn("readonly property bool rmtoolReadingAvailable: !!document\n                && !notePage", source)
+        self.assertNotIn("function onDocumentChanged()", source)
+        document_source = source.split(
+            "AFFECT /qml/device/view/documentview/DocumentView.qml", 1
+        )[1]
+        self.assertNotIn("normalizedInterval(", document_source)
         self.assertNotIn("E:\\", source)
 
     def test_release_source_uses_the_exact_settings_root_selector(self):
@@ -234,6 +271,9 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
                 document = (replay / "qml/device/view/documentview/DocumentView.qml").read_text(
                     encoding="utf-8"
                 )
+                menu = (
+                    replay / "qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml"
+                ).read_text(encoding="utf-8")
                 self.assertIn("rmtoolReadingEnhancementsPage", settings)
                 self.assertIsNone(
                     re.search(r"Component\s*\{\s*Component\s*\{", settings),
@@ -247,6 +287,14 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
                 self.assertIn("rmtoolTapPageDirection", gestures)
                 self.assertIn("rmtoolHasUsableToc", document)
                 self.assertIn("forceClearNow", document)
+                self.assertIn("onRmtoolReadingDocumentIdChanged", document)
+                self.assertRegex(
+                    document,
+                    r"readonly property\s+bool\s+rmtoolReadingAvailable:\s*!!document\s*&&\s*!notePage",
+                )
+                self.assertIn("rmtoolTapPageTurnToggle", menu)
+                self.assertIn("rmtoolFastMonoToggle", menu)
+                self.assertIn("rmtoolCleanupSelector", menu)
                 if release.startswith("3.27."):
                     self.assertIn("rmtoolSettingsRoot._selectedIndex = page", settings)
                     self.assertIn("rmtoolSettingsRoot.highlightedIndex = page", settings)

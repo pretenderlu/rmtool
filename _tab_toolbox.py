@@ -39,6 +39,11 @@ def _install_reading_enhancements(
     return operation(ssh_client, package, archive)
 
 
+def _cleanup_reading_enhancements(ssh_client, state_dir: str):
+    catalog = _reading_enhancements.load_catalog(state_dir, refresh=True)
+    return _reading_enhancements.cleanup_legacy(ssh_client, catalog)
+
+
 def select_font_file(parent: QtWidgets.QWidget) -> Optional[str]:
     path, _ = QtWidgets.QFileDialog.getOpenFileName(
         parent, "选择字体文件", "", "字体文件 (*.ttf *.otf)"
@@ -2124,6 +2129,8 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         self.install_button = QtWidgets.QPushButton("安装阅读增强")
         self.install_button.setProperty("btnRole", "primary")
         self.disable_button = QtWidgets.QPushButton("停用")
+        self.cleanup_legacy_button = QtWidgets.QPushButton("清理旧版")
+        self.cleanup_legacy_button.setProperty("btnRole", "danger")
         self.explain_button = QtWidgets.QPushButton("查看说明")
 
         buttons = QtWidgets.QHBoxLayout()
@@ -2133,6 +2140,7 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             self.detect_button,
             self.install_button,
             self.disable_button,
+            self.cleanup_legacy_button,
             self.explain_button,
         ):
             buttons.addWidget(button)
@@ -2153,6 +2161,7 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         self.detect_button.clicked.connect(self._detect_status)
         self.install_button.clicked.connect(self._install)
         self.disable_button.clicked.connect(self._disable)
+        self.cleanup_legacy_button.clicked.connect(self._cleanup_legacy)
         self.explain_button.clicked.connect(self._show_explanation)
         self.ssh_client.connection_changed.connect(self._on_connection_changed)
         self._on_connection_changed(self.ssh_client.is_connected())
@@ -2226,6 +2235,16 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
                 _reading_enhancements.ReadingEnhancementsState.MIGRATION_AVAILABLE,
                 _reading_enhancements.ReadingEnhancementsState.INSTALLED_DISABLED,
                 _reading_enhancements.ReadingEnhancementsState.BROKEN,
+            )
+        )
+        self.cleanup_legacy_button.setEnabled(
+            connected
+            and self._status is not None
+            and self._status.cleanup_available
+            and state
+            in (
+                _reading_enhancements.ReadingEnhancementsState.MIGRATION_AVAILABLE,
+                _reading_enhancements.ReadingEnhancementsState.REPAIR_AVAILABLE,
             )
         )
         self.explain_button.setEnabled(True)
@@ -2427,6 +2446,38 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             self._status.available_packages,
             pending="正在安全停用阅读增强并保留其他功能…",
             success="阅读增强已停用，SSH 会话已关闭。\n请手动重启设备使修改生效。",
+            close_connection=True,
+        )
+
+    @require_connection
+    def _cleanup_legacy(self):
+        if not self._status or not self._status.cleanup_available:
+            return
+        state = self._status.state
+        if state not in (
+            _reading_enhancements.ReadingEnhancementsState.MIGRATION_AVAILABLE,
+            _reading_enhancements.ReadingEnhancementsState.REPAIR_AVAILABLE,
+        ):
+            return
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "将清理已逐文件验证的旧版阅读插件，并保留其他已验证的 rmtool 功能。"
+            "清理完成后 SSH 会话会关闭；请重新连接设备，再进行全新安装。"
+            "本次不会自动重启设备。是否继续？",
+            confirm_text="清理旧版",
+            cancel_text="取消",
+        ):
+            return
+        self._start_worker(
+            _cleanup_reading_enhancements,
+            self.ssh_client,
+            str(_rmtool.app_state_dir()),
+            pending="正在再次验证并原子清理旧版阅读插件…",
+            success=(
+                "已清理旧版阅读插件，SSH 会话已关闭。\n"
+                "请重新连接设备后，再进行全新安装当前固件对应的阅读增强。"
+            ),
             close_connection=True,
         )
 

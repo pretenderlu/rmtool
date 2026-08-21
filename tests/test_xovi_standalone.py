@@ -698,6 +698,9 @@ class SharedXoviTests(unittest.TestCase):
             )
             with self.subTest(message=message), self.assertRaisesRegex(RuntimeError, message):
                 shared._validate_owned_tree(ssh, "/base", expected, "测试")
+            command = ssh.exec_checked.call_args_list[0].args[0]
+            self.assertIn("[ ! -L /base ]", command)
+            self.assertIn("find -P /base", command)
 
     def test_owned_tree_accepts_exact_root_owned_regular_files(self):
         expected = {

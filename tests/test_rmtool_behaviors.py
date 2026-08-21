@@ -1873,6 +1873,10 @@ class WallpaperUiTests(unittest.TestCase):
         apply(_reading_enhancements.ReadingEnhancementsState.INCOMPATIBLE)
         self.assertFalse(section.install_button.isEnabled())
         self.assertFalse(section.disable_button.isEnabled())
+        apply(_reading_enhancements.ReadingEnhancementsState.BROKEN)
+        self.assertFalse(section.install_button.isEnabled())
+        self.assertFalse(section.disable_button.isEnabled())
+        self.assertFalse(section.cleanup_legacy_button.isEnabled())
 
     def test_reading_enhancements_clean_install_closes_ssh_and_requires_manual_restart(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")
@@ -1942,6 +1946,71 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertIn("迁移不会沿用旧版开关状态", ask.call_args.args[2])
         self.assertEqual(worker_cls.call_args.args[-1], True)
         self.assertEqual(client.close_calls, 1)
+
+    def test_reading_enhancements_legacy_cleanup_is_secondary_action(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.ReadingEnhancementsSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.reading_enhancements_packages()[0]
+        identity = _reading_enhancements.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        section._apply_status(
+            _reading_enhancements.ReadingEnhancementsStatus(
+                _reading_enhancements.ReadingEnhancementsState.MIGRATION_AVAILABLE,
+                identity,
+                package,
+                (package,),
+                cleanup_available=True,
+            )
+        )
+        self.assertTrue(section.cleanup_legacy_button.isEnabled())
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+        result = _reading_enhancements.ReadingEnhancementsStatus(
+            _reading_enhancements.ReadingEnhancementsState.NOT_INSTALLED,
+            identity,
+            package,
+            (package,),
+        )
+        with mock.patch.object(_tab_toolbox, "ask_confirmation", return_value=True) as ask, mock.patch.object(
+            rmtool, "app_state_dir", return_value=Path("state")
+        ), mock.patch.object(rmtool, "Worker", return_value=worker) as worker_cls, mock.patch.object(
+            section.thread_pool, "start"
+        ), mock.patch.object(_tab_toolbox, "show_info") as show_info:
+            section._cleanup_legacy()
+            worker.signals.finished.connect.call_args.args[0](result)
+        worker_cls.assert_called_once_with(
+            _tab_toolbox._cleanup_reading_enhancements, client, "state"
+        )
+        self.assertIn("重新连接", ask.call_args.args[2])
+        self.assertIn("全新安装", show_info.call_args.args[2])
+        self.assertEqual(client.close_calls, 1)
+
+    def test_reading_enhancements_cleanup_is_disabled_for_broken_state(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.ReadingEnhancementsSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.reading_enhancements_packages()[0]
+        identity = _reading_enhancements.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        section._apply_status(
+            _reading_enhancements.ReadingEnhancementsStatus(
+                _reading_enhancements.ReadingEnhancementsState.BROKEN,
+                identity,
+                package,
+                (package,),
+                cleanup_available=True,
+            )
+        )
+        self.assertFalse(section.cleanup_legacy_button.isEnabled())
 
     def test_reading_enhancements_disable_uses_backend_and_closes_ssh(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")

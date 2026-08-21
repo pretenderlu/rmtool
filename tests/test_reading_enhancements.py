@@ -14,6 +14,11 @@ import _xovi_standalone as shared
 
 class ReadingEnhancementsBackendTests(unittest.TestCase):
     def setUp(self):
+        self.no_vellum = patch.object(
+            tap, "_vellum_runtime_present", return_value=False
+        )
+        self.no_vellum.start()
+        self.addCleanup(self.no_vellum.stop)
         self.catalog = reading.parse_manifest(
             Path("reading-enhancements/manifest.json").read_bytes(),
             require_local_match=False,
@@ -54,7 +59,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
             len({(item.release_version, item.platform) for item in self.catalog}),
             14,
         )
-        self.assertTrue(all(item.package_revision == 1 for item in self.catalog))
+        self.assertTrue(all(item.package_revision == 3 for item in self.catalog))
         self.assertTrue(all(item.offline_verified for item in self.catalog))
         self.assertEqual(
             {
@@ -130,6 +135,117 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
             else:
                 self.assertIsNone(predecessor)
 
+    def test_revision_one_predecessor_is_exact_and_variant_bounded(self):
+        expected = {
+            "3.27": (
+                "7c3a384e1cd4f2be7b94aadce82b30c31ca81a49ed482a300e63bf83fce67fe7",
+                28715,
+            ),
+            "3.28": (
+                "e6d6ef9260c4bc6cfffc375d4485e3ec33eea36fd6725790c7e2483da16c74ec",
+                27761,
+            ),
+        }
+        for package in self.catalog:
+            _runtime, current = reading._shared_specs(package)
+            predecessor = reading._known_revision_one_feature(package, current)
+            self.assertEqual(
+                (predecessor.sha256, predecessor.size),
+                expected["3.27" if package.release_version.startswith("3.27.") else "3.28"],
+            )
+            self.assertEqual(predecessor.feature_id, current.feature_id)
+            self.assertEqual(predecessor.package_id, current.package_id)
+            self.assertEqual(predecessor.runtime_path, current.runtime_path)
+
+    def test_revision_two_predecessor_is_exact_and_variant_bounded(self):
+        expected = {
+            "3.27": (
+                "9f965de55f94e767cd64d9c57aab6c3ed5b2322054d7441f1e25c258ea343d97",
+                47040,
+            ),
+            "3.28": (
+                "9ffbc98e5241a1f4e893408d41c8b6680ecb86c0d1cc06aafe5c56fad9488906",
+                46086,
+            ),
+        }
+        for package in self.catalog:
+            _runtime, current = reading._shared_specs(package)
+            predecessor = reading._known_revision_two_feature(package, current)
+            self.assertEqual(
+                (predecessor.sha256, predecessor.size),
+                expected["3.27" if package.release_version.startswith("3.27.") else "3.28"],
+            )
+            self.assertEqual(predecessor.feature_id, current.feature_id)
+            self.assertEqual(predecessor.package_id, current.package_id)
+            self.assertEqual(predecessor.runtime_path, current.runtime_path)
+
+    def test_verified_device_trial_is_exact_and_identity_bounded(self):
+        package = next(
+            item
+            for item in self.catalog
+            if item.platform == "ferrari" and item.release_version == "3.28.0.169"
+        )
+        _runtime, current = reading._shared_specs(package)
+        predecessor = reading._known_device_trial_feature(package, current)
+        self.assertEqual(
+            (
+                predecessor.package_id,
+                predecessor.sha256,
+                predecessor.size,
+                predecessor.runtime_path,
+            ),
+            (
+                "local-ferrari-20260806095513-reading-enhancements",
+                "6e24a580961b1283d16009bcf22a94dfa397b0af1ec0062b06d41169ae4d367b",
+                26193,
+                current.runtime_path,
+            ),
+        )
+        chiappa = reading.replace(package, platform="chiappa")
+        other_firmware = reading.replace(package, firmware="20260806095514")
+        self.assertIsNone(reading._known_device_trial_feature(chiappa, current))
+        self.assertIsNone(
+            reading._known_device_trial_feature(other_firmware, current)
+        )
+
+    def test_exact_device_trial_is_inspected_after_normal_revisions_fail(self):
+        package = next(
+            item
+            for item in self.catalog
+            if item.platform == "ferrari" and item.release_version == "3.28.0.169"
+        )
+        runtime, current = reading._shared_specs(package)
+        trial = reading._known_device_trial_feature(package, current)
+        trusted = {reading.FEATURE_ID: current}
+        inspection = shared.SharedInspection(
+            {reading.FEATURE_ID: self._state(trial)}, True, True
+        )
+        with patch.object(
+            reading.shared,
+            "inspect_shared_revisions",
+            side_effect=RuntimeError("current mismatch"),
+        ), patch.object(
+            reading.shared, "inspect_shared", return_value=inspection
+        ) as inspect:
+            result = reading._inspection_for_migration(
+                Mock(), runtime, trusted, package
+            )
+
+        self.assertEqual(
+            result,
+            (
+                inspection,
+                {reading.FEATURE_ID: trial},
+                {reading.FEATURE_ID: "verified-device-trial"},
+            ),
+        )
+        inspect.assert_called_once_with(
+            unittest.mock.ANY,
+            runtime,
+            {reading.FEATURE_ID: trial},
+            check_lower=True,
+        )
+
     def test_inspection_offers_only_the_exact_settings_defect_predecessor(self):
         defective = reading._known_defective_feature(self.package, self.feature)
         inspection = shared.SharedInspection(
@@ -158,6 +274,12 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                             self.package, self.feature
                         ),
                     ),
+                    ("package-revision-1", reading._known_revision_one_feature(
+                        self.package, self.feature
+                    )),
+                    ("package-revision-2", reading._known_revision_two_feature(
+                        self.package, self.feature
+                    )),
                 )
             },
         )
@@ -183,6 +305,14 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                     (
                         "settings-component-defect",
                         reading._known_defective_feature(package, feature),
+                    ),
+                    (
+                        "package-revision-1",
+                        reading._known_revision_one_feature(package, feature),
+                    ),
+                    (
+                        "package-revision-2",
+                        reading._known_revision_two_feature(package, feature),
                     ),
                 )
             },
@@ -409,6 +539,22 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         extract.assert_not_called()
         replace.assert_not_called()
 
+    def test_vellum_runtime_blocks_reading_status_and_all_mutations(self):
+        legacy = self._legacy_mock()
+        ssh = Mock()
+        ssh.file_exists.side_effect = lambda path: path == legacy.layout.remote_base
+        with patch.object(reading.tap, "get_device_identity", return_value=self.identity), patch.object(
+            reading, "_trusted_context", return_value=(self.runtime, self._trusted(), (legacy,), self.feature)
+        ), patch.object(reading.shared, "validate_legacy", return_value=True), patch.object(
+            reading.shared, "has_shared_artifacts", return_value=True
+        ), patch.object(reading.tap, "_vellum_runtime_present", return_value=True):
+            status = reading.get_status(ssh, (self.package,))
+
+        self.assertEqual(status.state, reading.ReadingEnhancementsState.BROKEN)
+        self.assertFalse(status.recovery_available)
+        self.assertFalse(status.cleanup_available)
+        self.assertIn("Vellum/AppLoader", status.detail)
+
     def test_invalid_legacy_refuses_before_staging(self):
         legacy = self._legacy_mock()
         ssh = Mock()
@@ -525,6 +671,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 self.assertEqual(
                     status.state, reading.ReadingEnhancementsState.REPAIR_AVAILABLE
                 )
+                self.assertIn("设置页缺陷包", status.detail)
                 self.assertTrue(status.recovery_available)
 
                 calls = []
@@ -550,6 +697,74 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 self.assertEqual(
                     calls[0][0][5][reading.FEATURE_ID].spec, self.feature
                 )
+
+    def test_revision_one_reports_safe_update_without_defect_wording(self):
+        predecessor = reading._known_revision_one_feature(
+            self.package, self.feature
+        )
+        inspection = shared.SharedInspection(
+            {reading.FEATURE_ID: self._state(predecessor, True)}, True, True
+        )
+        ssh = Mock()
+        ssh.file_exists.return_value = True
+        with patch.object(
+            reading.tap, "get_device_identity", return_value=self.identity
+        ), patch.object(
+            reading,
+            "_trusted_context",
+            return_value=(self.runtime, self._trusted(), (), self.feature),
+        ), patch.object(
+            reading.shared, "has_shared_artifacts", return_value=True
+        ), patch.object(
+            reading,
+            "_inspection_for_migration",
+            return_value=(
+                inspection,
+                {reading.FEATURE_ID: predecessor},
+                {reading.FEATURE_ID: "package-revision-1"},
+            ),
+        ):
+            status = reading.get_status(ssh, (self.package,))
+
+        self.assertEqual(
+            status.state, reading.ReadingEnhancementsState.REPAIR_AVAILABLE
+        )
+        self.assertIn("旧版阅读增强，可安全更新", status.detail)
+        self.assertNotIn("设置页缺陷包", status.detail)
+
+    def test_revision_two_reports_safe_update_without_defect_wording(self):
+        predecessor = reading._known_revision_two_feature(
+            self.package, self.feature
+        )
+        inspection = shared.SharedInspection(
+            {reading.FEATURE_ID: self._state(predecessor, True)}, True, True
+        )
+        ssh = Mock()
+        ssh.file_exists.return_value = True
+        with patch.object(
+            reading.tap, "get_device_identity", return_value=self.identity
+        ), patch.object(
+            reading,
+            "_trusted_context",
+            return_value=(self.runtime, self._trusted(), (), self.feature),
+        ), patch.object(
+            reading.shared, "has_shared_artifacts", return_value=True
+        ), patch.object(
+            reading,
+            "_inspection_for_migration",
+            return_value=(
+                inspection,
+                {reading.FEATURE_ID: predecessor},
+                {reading.FEATURE_ID: "package-revision-2"},
+            ),
+        ):
+            status = reading.get_status(ssh, (self.package,))
+
+        self.assertEqual(
+            status.state, reading.ReadingEnhancementsState.REPAIR_AVAILABLE
+        )
+        self.assertIn("旧版阅读增强，可安全更新", status.detail)
+        self.assertNotIn("设置页缺陷包", status.detail)
 
     def test_known_defective_package_can_be_disabled_and_marker_normalized(self):
         defective = reading._known_defective_feature(self.package, self.feature)
@@ -635,6 +850,297 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         self.assertIn("systemctl daemon-reload", script)
         self.assertNotIn("systemctl restart", script)
         self.assertNotIn("reboot", script)
+
+    def test_legacy_cleanup_transaction_is_atomic_and_never_restarts(self):
+        legacy = tap._legacy_spec(tap.select_package(tap._trusted_catalog(), self.identity))
+        script = shared.legacy_cleanup_transaction_script("token", (legacy,))
+        self.assertIn("ROLLBACK_OK=1", script)
+        self.assertIn("HAD_BASE_0=0", script)
+        self.assertIn("BASES_SNAPSHOTTED=0", script)
+        self.assertIn("DROPINS_SNAPSHOTTED=0", script)
+        self.assertIn(
+            'if [ "$DROPINS_SNAPSHOTTED" -eq 1 ]; then', script
+        )
+        snapshot_complete = script.index("\nDROPINS_SNAPSHOTTED=1\n")
+        base_snapshot = script.index(
+            "cp -a /home/root/.local/share/rmtool/tap-page-turn", snapshot_complete
+        )
+        base_mutation = script.index(
+            "rm -rf /home/root/.local/share/rmtool/tap-page-turn", base_snapshot
+        )
+        dropin_remove = script.index(
+            f"rm -f {legacy.layout.dropin_path}", snapshot_complete
+        )
+        self.assertIn("verify_tree", script)
+        self.assertIn("cmp -s", script)
+        self.assertIn("recovery kept at $BACKUP_DIR", script)
+        self.assertLess(snapshot_complete, base_snapshot)
+        self.assertLess(base_snapshot, base_mutation)
+        self.assertLess(snapshot_complete, dropin_remove)
+        self.assertIn("mount -o remount,rw", script)
+        self.assertIn("systemctl daemon-reload", script)
+        self.assertNotIn("systemctl restart", script)
+        self.assertNotIn("reboot", script)
+        self.assertLess(
+            script.rindex('umount "$MOUNT_DIR"'),
+            script.rindex("systemctl daemon-reload"),
+        )
+
+    def test_remove_shared_features_preserves_verified_non_reading_peers(self):
+        peer = shared.SharedFeatureSpec(
+            "native-chinese", "native", "native.qmd",
+            "exthome/qt-resource-rebuilder/native.qmd", "a" * 64, 1, 0o644
+        )
+        inspection = shared.SharedInspection(
+            {
+                reading.FEATURE_ID: self._state(self.feature, True),
+                "native-chinese": self._state(peer, True),
+            },
+            True,
+            True,
+        )
+        ssh = Mock()
+        with patch.object(shared, "_operation_lock", lambda _ssh: contextlib.nullcontext()), patch.object(
+            shared, "inspect_shared", return_value=inspection
+        ), patch.object(shared, "replace_shared_features") as replace:
+            shared.remove_shared_features(
+                ssh,
+                self.runtime,
+                {reading.FEATURE_ID: self.feature, "native-chinese": peer},
+                {reading.FEATURE_ID},
+            )
+        replace.assert_called_once()
+        self.assertEqual(
+            set(replace.call_args.args[5]), {"native-chinese"}
+        )
+        self.assertFalse(replace.call_args.kwargs["remove_base_when_empty"])
+
+    def test_remove_shared_features_preserves_disabled_non_reading_peers(self):
+        native = shared.SharedFeatureSpec(
+            "native-chinese", "native", "native.qmd",
+            "exthome/qt-resource-rebuilder/native.qmd", "a" * 64, 1, 0o644
+        )
+        pinyin = shared.SharedFeatureSpec(
+            "pinyin-input", "pinyin", "pinyin.qmd",
+            "exthome/qt-resource-rebuilder/pinyin.qmd", "b" * 64, 1, 0o644
+        )
+        inspection = shared.SharedInspection(
+            {
+                reading.FEATURE_ID: self._state(self.feature, True),
+                native.feature_id: self._state(native, False),
+                pinyin.feature_id: self._state(pinyin, False),
+            },
+            True,
+            True,
+        )
+        trusted = {
+            reading.FEATURE_ID: self.feature,
+            native.feature_id: native,
+            pinyin.feature_id: pinyin,
+        }
+        with patch.object(
+            shared, "_operation_lock", lambda _ssh: contextlib.nullcontext()
+        ), patch.object(
+            shared, "inspect_shared", return_value=inspection
+        ), patch.object(shared, "replace_shared_features") as replace:
+            shared.remove_shared_features(
+                Mock(), self.runtime, trusted, {reading.FEATURE_ID}
+            )
+        remaining = replace.call_args.args[5]
+        self.assertEqual(set(remaining), {native.feature_id, pinyin.feature_id})
+        self.assertTrue(all(not state.enabled for state in remaining.values()))
+        self.assertFalse(replace.call_args.kwargs["remove_base_when_empty"])
+
+    def test_stage_shared_with_only_disabled_peer_writes_marker_only(self):
+        peer = shared.SharedFeatureSpec(
+            "native-chinese", "native", "native.qmd",
+            "exthome/qt-resource-rebuilder/native.qmd", "a" * 64, 1, 0o644
+        )
+        states = {peer.feature_id: self._state(peer, False)}
+        launcher_sha = hashlib.sha256(
+            shared.shared_launcher(self.runtime, ()).encode()
+        ).hexdigest()
+        dropin_sha = hashlib.sha256(
+            shared.shared_dropin(self.runtime, ()).encode()
+        ).hexdigest()
+        marker = shared.shared_marker(
+            self.runtime, states, launcher_sha, dropin_sha
+        )
+        ssh = Mock()
+        ssh.exec_checked.return_value = ""
+        with patch.object(shared, "_upload_path") as upload_path, patch.object(
+            shared, "_upload_bytes"
+        ) as upload_bytes, patch.object(
+            shared,
+            "_remote_sha256",
+            return_value=hashlib.sha256(marker).hexdigest(),
+        ):
+            result = shared._stage_shared(
+                ssh, self.runtime, states, {}, {}, "/stage"
+            )
+        self.assertEqual(result, (launcher_sha, dropin_sha))
+        upload_path.assert_not_called()
+        upload_bytes.assert_called_once_with(
+            ssh, marker, "/stage/package.json", 0o644
+        )
+        commands = "\n".join(
+            call.args[0] for call in ssh.exec_checked.call_args_list
+        )
+        self.assertNotIn("/stage/systemd", commands)
+        self.assertNotIn("qmd-tool", commands)
+        self.assertNotIn("cp ", commands)
+
+    def test_remove_shared_features_removes_complete_tree_when_last_peer_is_gone(self):
+        inspection = shared.SharedInspection(
+            {reading.FEATURE_ID: self._state(self.feature, True)}, True, True
+        )
+        ssh = Mock()
+        with patch.object(shared, "_operation_lock", lambda _ssh: contextlib.nullcontext()), patch.object(
+            shared, "inspect_shared", return_value=inspection
+        ), patch.object(shared, "replace_shared_features") as replace:
+            shared.remove_shared_features(
+                ssh,
+                self.runtime,
+                {reading.FEATURE_ID: self.feature},
+                {reading.FEATURE_ID},
+            )
+        self.assertEqual(replace.call_args.args[5], {})
+        self.assertTrue(replace.call_args.kwargs["remove_base_when_empty"])
+
+    def test_cleanup_legacy_removes_verified_standalone_batch(self):
+        legacy = self._legacy_mock("tap-page-turn")
+        status = reading.ReadingEnhancementsStatus(
+            reading.ReadingEnhancementsState.MIGRATION_AVAILABLE,
+            self.identity,
+            self.package,
+            (self.package,),
+            cleanup_available=True,
+        )
+        final = reading.ReadingEnhancementsStatus(
+            reading.ReadingEnhancementsState.NOT_INSTALLED,
+            self.identity,
+            self.package,
+        )
+        ssh = Mock()
+        with patch.object(reading, "get_status", side_effect=(status, final)), patch.object(
+            reading, "_trusted_context",
+            return_value=(self.runtime, self._trusted(), (legacy,), self.feature),
+        ), patch.object(reading, "_validated_legacy_standalone", return_value=(legacy,)), patch.object(
+            reading.shared, "has_shared_artifacts", return_value=False
+        ), patch.object(reading.shared, "remove_verified_legacy_batch") as remove:
+            result = reading.cleanup_legacy(ssh, (self.package,))
+        self.assertIs(result, final)
+        remove.assert_called_once_with(ssh, (legacy,))
+
+    def test_cleanup_legacy_removes_old_shared_reading_features_only(self):
+        status = reading.ReadingEnhancementsStatus(
+            reading.ReadingEnhancementsState.MIGRATION_AVAILABLE,
+            self.identity,
+            self.package,
+            (self.package,),
+            cleanup_available=True,
+        )
+        final = reading.ReadingEnhancementsStatus(
+            reading.ReadingEnhancementsState.NOT_INSTALLED,
+            self.identity,
+            self.package,
+        )
+        fast_spec = shared.SharedFeatureSpec(
+            "fast-mono-reading", "fast", "fast.qmd",
+            "exthome/qt-resource-rebuilder/fast.qmd", "b" * 64, 1, 0o644
+        )
+        inspection = shared.SharedInspection(
+            {"fast-mono-reading": self._state(fast_spec, True)}, True, True
+        )
+        with patch.object(reading, "get_status", side_effect=(status, final)), patch.object(
+            reading, "_trusted_context",
+            return_value=(
+                self.runtime,
+                {reading.FEATURE_ID: self.feature, "fast-mono-reading": fast_spec},
+                (),
+                self.feature,
+            ),
+        ), patch.object(reading, "_validated_legacy_standalone", return_value=()), patch.object(
+            reading.shared, "has_shared_artifacts", return_value=True
+        ), patch.object(
+            reading, "_inspection_for_migration",
+            return_value=(inspection, {"fast-mono-reading": fast_spec}, {"fast-mono-reading": "known-predecessor"}),
+        ), patch.object(reading.shared, "remove_shared_features") as remove:
+            result = reading.cleanup_legacy(Mock(), (self.package,))
+        self.assertIs(result, final)
+        remove.assert_called_once_with(
+            unittest.mock.ANY,
+            self.runtime,
+            {"fast-mono-reading": fast_spec},
+            {"fast-mono-reading"},
+        )
+
+    def test_cleanup_legacy_repair_removes_all_verified_old_reading_features(self):
+        old_reading = reading._known_revision_one_feature(
+            self.package, self.feature
+        )
+        tap_spec = shared.SharedFeatureSpec(
+            "tap-page-turn", "tap", "tap.qmd",
+            "exthome/qt-resource-rebuilder/tap.qmd", "a" * 64, 1, 0o644
+        )
+        fast_spec = shared.SharedFeatureSpec(
+            "fast-mono-reading", "fast", "fast.qmd",
+            "exthome/qt-resource-rebuilder/fast.qmd", "b" * 64, 1, 0o644
+        )
+        status = reading.ReadingEnhancementsStatus(
+            reading.ReadingEnhancementsState.REPAIR_AVAILABLE,
+            self.identity,
+            self.package,
+            (self.package,),
+            cleanup_available=True,
+        )
+        final = reading.ReadingEnhancementsStatus(
+            reading.ReadingEnhancementsState.NOT_INSTALLED,
+            self.identity,
+            self.package,
+        )
+        inspection = shared.SharedInspection(
+            {
+                reading.FEATURE_ID: self._state(old_reading, True),
+                tap_spec.feature_id: self._state(tap_spec, True),
+                fast_spec.feature_id: self._state(fast_spec, False),
+            },
+            True,
+            True,
+        )
+        installed = {
+            reading.FEATURE_ID: old_reading,
+            tap_spec.feature_id: tap_spec,
+            fast_spec.feature_id: fast_spec,
+        }
+        ssh = Mock()
+        with patch.object(
+            reading, "get_status", side_effect=(status, final)
+        ), patch.object(
+            reading,
+            "_trusted_context",
+            return_value=(self.runtime, installed, (), self.feature),
+        ), patch.object(
+            reading, "_validated_legacy_standalone", return_value=()
+        ), patch.object(
+            reading.shared, "has_shared_artifacts", return_value=True
+        ), patch.object(
+            reading,
+            "_inspection_for_migration",
+            return_value=(
+                inspection,
+                installed,
+                {reading.FEATURE_ID: "package-revision-1"},
+            ),
+        ), patch.object(reading.shared, "remove_shared_features") as remove:
+            result = reading.cleanup_legacy(ssh, (self.package,))
+        self.assertIs(result, final)
+        remove.assert_called_once_with(
+            ssh,
+            self.runtime,
+            installed,
+            {reading.FEATURE_ID, tap_spec.feature_id, fast_spec.feature_id},
+        )
 
     def test_target_state_validation_happens_before_stage(self):
         target = {reading.FEATURE_ID: self.feature}
