@@ -1,2 +1,2 @@
 *.qmd binary
-reading-enhancements/qmd-src/*.qmd -binary text diff
+reading-enhancements/qmd-src/*.qmd text eol=lf diff merge
