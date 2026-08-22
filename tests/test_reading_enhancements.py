@@ -80,19 +80,26 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 ),
             )
             self.assertEqual(
-                package.urls,
-                tuple(f"{base}/{package.asset}" for base in reading.REMOTE_BASE_URLS),
+                set(package.urls),
+                {f"{base}/{package.asset}" for base in reading.REMOTE_BASE_URLS},
+            )
+            self.assertEqual(
+                package.download_urls[0],
+                f"{reading.ASSET_RELEASE_URL}/{package.asset}",
+            )
+            self.assertEqual(
+                package.download_urls[1], f"{reading.COS_URL}/{package.asset}"
             )
 
     def test_manifest_rejects_changed_url_order_and_extra_fields(self):
         document = json.loads(
             Path("reading-enhancements/manifest.json").read_text(encoding="utf-8")
         )
-        changed_order = json.loads(json.dumps(document))
-        changed_order["packages"][0]["urls"].reverse()
+        changed_url = json.loads(json.dumps(document))
+        changed_url["packages"][0]["urls"][0] = "https://example.invalid/payload"
         extra_field = json.loads(json.dumps(document))
         extra_field["packages"][0]["unexpected"] = True
-        for changed in (changed_order, extra_field):
+        for changed in (changed_url, extra_field):
             with self.subTest(changed=changed), self.assertRaises(RuntimeError):
                 reading.parse_manifest(json.dumps(changed).encode(), require_local_match=False)
 

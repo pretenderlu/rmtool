@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import _package_download
 import _tap_page_turn as tap
 
 
@@ -192,16 +193,16 @@ class TapPageTurnTests(unittest.TestCase):
             with patch.object(tap, "_download_limited", side_effect=OSError("offline")):
                 self.assertEqual(tap.load_catalog(state_dir), (package,))
 
-    def test_download_sources_are_cos_first_and_github_second(self):
+    def test_download_sources_are_github_first_and_cos_fallback(self):
         package = self.package()
         self.assertEqual(
             tap.MANIFEST_URLS,
             tuple(f"{base}/manifest.json" for base in tap.REMOTE_BASE_URLS),
         )
-        self.assertEqual(package.download_urls[0], f"{tap.COS_URL}/{package.asset}")
         self.assertEqual(
-            package.download_urls[1], f"{tap.ASSET_RELEASE_URL}/{package.asset}"
+            package.download_urls[0], f"{tap.ASSET_RELEASE_URL}/{package.asset}"
         )
+        self.assertEqual(package.download_urls[1], f"{tap.COS_URL}/{package.asset}")
         self.assertEqual(package.download_url, package.download_urls[0])
 
     def test_manifest_falls_back_from_invalid_cos_to_github(self):
@@ -266,9 +267,53 @@ class TapPageTurnTests(unittest.TestCase):
             cache = tap._cache_dir(state_dir) / package.firmware / package.asset
             tap._write_atomic(cache, b"existing-invalid-cache")
             with patch.object(tap, "_download_limited", return_value=b"invalid"):
-                with self.assertRaisesRegex(RuntimeError, "可用镜像"):
+                with self.assertRaises(_package_download.PackageDownloadError) as ctx:
                     tap.download_package(package, state_dir)
+                error = ctx.exception
+                self.assertEqual(
+                    error.urls,
+                    (
+                        f"{tap.ASSET_RELEASE_URL}/{package.asset}",
+                        f"{tap.COS_URL}/{package.asset}",
+                    ),
+                )
+                self.assertIn(package.asset, str(error))
+                self.assertIn("github.com", str(error))
+                self.assertIn("myqcloud.com", str(error))
             self.assertEqual(cache.read_bytes(), b"existing-invalid-cache")
+
+    def test_download_failure_error_can_store_a_verified_local_file(self):
+        package = self.package()
+        archive = b"manual-archive"
+        package = self.package(archive)
+        with tempfile.TemporaryDirectory() as state_dir, tempfile.TemporaryDirectory() as other:
+            source = Path(other) / "manual.tar.gz"
+            source.write_bytes(archive)
+            with patch.object(tap, "_download_limited", side_effect=OSError("down")):
+                with self.assertRaises(_package_download.PackageDownloadError) as ctx:
+                    tap.download_package(package, state_dir)
+            stored = ctx.exception.store(str(source))
+            self.assertEqual(stored.read_bytes(), archive)
+            self.assertEqual(
+                stored,
+                tap._cache_dir(state_dir) / package.firmware / package.asset,
+            )
+            with patch.object(tap, "_download_limited") as download:
+                self.assertEqual(tap.download_package(package, state_dir), stored)
+            download.assert_not_called()
+
+    def test_load_local_package_rejects_size_and_hash_mismatches(self):
+        archive = b"manual-archive"
+        package = self.package(archive)
+        with tempfile.TemporaryDirectory() as state_dir, tempfile.TemporaryDirectory() as other:
+            tampered = Path(other) / "tampered.tar.gz"
+            tampered.write_bytes(archive + b"x")
+            with self.assertRaisesRegex(RuntimeError, "大小与清单不符"):
+                tap.load_local_package(package, tampered, state_dir)
+            wrong = Path(other) / "wrong.tar.gz"
+            wrong.write_bytes(b"x" * len(archive))
+            with self.assertRaisesRegex(RuntimeError, "SHA-256 与清单不符"):
+                tap.load_local_package(package, wrong, state_dir)
 
     def test_valid_package_cache_needs_no_remote_source(self):
         archive = b"archive"

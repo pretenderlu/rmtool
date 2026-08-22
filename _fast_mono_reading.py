@@ -18,6 +18,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Optional
 
+import _package_download
 import _tap_page_turn as tap
 import _xovi_standalone
 
@@ -28,7 +29,7 @@ COS_URL = (
     "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/"
     "fast-mono-reading"
 )
-REMOTE_BASE_URLS = (COS_URL, ASSET_RELEASE_URL)
+REMOTE_BASE_URLS = (ASSET_RELEASE_URL, COS_URL)
 MANIFEST_URLS = tuple(f"{base_url}/manifest.json" for base_url in REMOTE_BASE_URLS)
 MANIFEST_URL = MANIFEST_URLS[0]
 BUNDLED_MANIFEST = Path(__file__).with_name("fast-mono-reading") / "manifest.json"
@@ -472,7 +473,27 @@ def download_package(package: FastMonoReadingPackage, state_dir: str) -> Path:
                 download_url,
                 exc,
             )
-    raise RuntimeError("无法从可用镜像下载并校验快速黑白资源包。") from last_error
+    raise _package_download.PackageDownloadError(
+        "快速黑白阅读",
+        package.asset,
+        package.download_urls,
+        package.size,
+        package.sha256,
+        store=lambda source_path: load_local_package(
+            package, source_path, state_dir
+        ),
+    ) from last_error
+
+
+def load_local_package(package, source_path: str | Path, state_dir: str) -> Path:
+    """Verify a manually downloaded archive and store it in the package cache."""
+    data = Path(source_path).read_bytes()
+    _package_download.verify_local_package(
+        data, package.size, package.sha256, "快速黑白阅读"
+    )
+    destination = _cache_dir(state_dir) / package.firmware / package.asset
+    tap._write_atomic(destination, data)
+    return destination
 
 
 def extract_verified_package(

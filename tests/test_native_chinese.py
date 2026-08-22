@@ -331,7 +331,7 @@ class NativeChineseTests(unittest.TestCase):
             if mutation == "path":
                 changed["packages"][0]["files"][0]["path"] = "unknown.bin"
             else:
-                changed["packages"][0]["urls"].reverse()
+                changed["packages"][0]["urls"][0] = "https://example.invalid/payload"
             with self.subTest(mutation=mutation), self.assertRaises(RuntimeError):
                 native.parse_manifest(json.dumps(changed).encode())
 

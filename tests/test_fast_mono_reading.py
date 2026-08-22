@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import _fast_mono_reading as fast
+import _package_download
 import _tap_page_turn as tap
 
 
@@ -634,16 +635,16 @@ class FastMonoReadingTests(unittest.TestCase):
         ):
             self.assertEqual(fast.load_catalog(state_dir), self.packages())
 
-    def test_download_sources_are_cos_first_and_github_second(self):
+    def test_download_sources_are_github_first_and_cos_fallback(self):
         package = self.package()
         self.assertEqual(
             fast.MANIFEST_URLS,
             tuple(f"{base}/manifest.json" for base in fast.REMOTE_BASE_URLS),
         )
-        self.assertEqual(package.download_urls[0], f"{fast.COS_URL}/{package.asset}")
         self.assertEqual(
-            package.download_urls[1], f"{fast.ASSET_RELEASE_URL}/{package.asset}"
+            package.download_urls[0], f"{fast.ASSET_RELEASE_URL}/{package.asset}"
         )
+        self.assertEqual(package.download_urls[1], f"{fast.COS_URL}/{package.asset}")
         self.assertEqual(package.download_url, package.download_urls[0])
 
     def test_manifest_falls_back_from_invalid_cos_to_github(self):
@@ -693,8 +694,11 @@ class FastMonoReadingTests(unittest.TestCase):
             cache = fast._cache_dir(state_dir) / package.firmware / package.asset
             tap._write_atomic(cache, b"existing-invalid-cache")
             with patch.object(tap, "_download_limited", return_value=b"invalid"):
-                with self.assertRaisesRegex(RuntimeError, "可用镜像"):
+                with self.assertRaises(_package_download.PackageDownloadError) as ctx:
                     fast.download_package(package, state_dir)
+                self.assertEqual(len(ctx.exception.urls), 2)
+                self.assertIn("github.com", ctx.exception.urls[0])
+                self.assertIn("myqcloud.com", ctx.exception.urls[1])
             self.assertEqual(cache.read_bytes(), b"existing-invalid-cache")
 
     def test_valid_package_cache_needs_no_remote_source(self):
