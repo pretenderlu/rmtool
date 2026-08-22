@@ -170,7 +170,10 @@ def _collect_pc_environment() -> CollectedItem:
 
 
 def _collect_device_item(ssh_client, diag: DiagItem) -> CollectedItem:
-    capped = f"({diag.command}) 2>&1 | head -c {ITEM_CAP_BYTES}"
+    # The device BusyBox head has no -c option (and its dd counts short
+    # reads as full blocks), but tail -c works everywhere; keeping the tail
+    # also preserves the most recent log lines when output exceeds the cap.
+    capped = f"({diag.command}) 2>&1 | tail -c {ITEM_CAP_BYTES}"
     try:
         stdout, _stderr, code = ssh_client.exec_command(capped)
     except Exception as exc:
