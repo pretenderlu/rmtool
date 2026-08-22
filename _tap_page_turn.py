@@ -21,6 +21,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Optional
 
+import _package_download
 import _xovi_standalone
 
 
@@ -30,7 +31,7 @@ COS_URL = (
     "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/"
     "tap-page-turn"
 )
-REMOTE_BASE_URLS = (COS_URL, ASSET_RELEASE_URL)
+REMOTE_BASE_URLS = (ASSET_RELEASE_URL, COS_URL)
 MANIFEST_URLS = tuple(f"{base_url}/manifest.json" for base_url in REMOTE_BASE_URLS)
 MANIFEST_URL = MANIFEST_URLS[0]
 BUNDLED_MANIFEST = Path(__file__).resolve().parent / "tap-page-turn" / "manifest.json"
@@ -372,7 +373,29 @@ def download_package(
                 download_url,
                 exc,
             )
-    raise RuntimeError("无法从可用镜像下载并校验点击翻页资源包。") from last_error
+    raise _package_download.PackageDownloadError(
+        "点击翻页",
+        package.asset,
+        package.download_urls,
+        package.size,
+        package.sha256,
+        store=lambda source_path: load_local_package(
+            package, source_path, state_dir
+        ),
+    ) from last_error
+
+
+def load_local_package(
+    package: TapPageTurnPackage, source_path: str | Path, state_dir: str
+) -> Path:
+    """Verify a manually downloaded archive and store it in the package cache."""
+    data = Path(source_path).read_bytes()
+    _package_download.verify_local_package(
+        data, package.size, package.sha256, "点击翻页"
+    )
+    destination = _cache_dir(state_dir) / package.firmware / package.asset
+    _write_atomic(destination, data)
+    return destination
 
 
 def extract_verified_package(

@@ -3028,8 +3028,8 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(
             _rmkit_cn.TRANSLATION_REMOTE_BASE_URLS,
             (
-                _rmkit_cn.TRANSLATION_COS_URL,
                 _rmkit_cn.TRANSLATION_RELEASE_URL,
+                _rmkit_cn.TRANSLATION_COS_URL,
             ),
         )
         self.assertEqual(
@@ -3039,8 +3039,8 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(
             _rmkit_cn.TRANSLATION_MANIFEST_URLS,
             (
-                f"{_rmkit_cn.TRANSLATION_COS_URL}/manifest.json",
                 _rmkit_cn.TRANSLATION_MANIFEST_URL,
+                f"{_rmkit_cn.TRANSLATION_COS_URL}/manifest.json",
             ),
         )
         self.assertEqual(
@@ -3355,7 +3355,14 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             with patch.object(
                 _rmkit_cn, "_download_limited", return_value=b"truncated"
             ), self.assertRaisesRegex(RuntimeError, "大小"):
+                _rmkit_cn._validate_translation_data(b"truncated", package, "下载的")
+            with patch.object(
+                _rmkit_cn, "_download_limited", side_effect=OSError("unreachable")
+            ), self.assertRaisesRegex(RuntimeError, "github.com") as ctx:
                 _rmkit_cn.download_translation_package(package, state_dir)
+            message = str(ctx.exception)
+            self.assertIn("myqcloud.com", message)
+            self.assertIn("加载本地汉化包", message)
 
             self.assertEqual(destination.read_bytes(), b"previous-invalid-cache")
             self.assertFalse(destination.with_name(f"{destination.name}.tmp").exists())

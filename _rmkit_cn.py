@@ -40,8 +40,8 @@ TRANSLATION_RELEASE_URL = (
 )
 TRANSLATION_MANIFEST_URL = f"{TRANSLATION_RELEASE_URL}/manifest.json"
 TRANSLATION_REMOTE_BASE_URLS = (
-    TRANSLATION_COS_URL,
     TRANSLATION_RELEASE_URL,
+    TRANSLATION_COS_URL,
 )
 TRANSLATION_MANIFEST_URLS = tuple(
     f"{base_url}/manifest.json" for base_url in TRANSLATION_REMOTE_BASE_URLS
@@ -500,8 +500,14 @@ def download_translation_package(
                 exc,
             )
 
+    mirror_lines = "\n".join(
+        f"{index}. {'GitHub（默认）' if 'github.com' in url else '腾讯云 COS（备用）'}：{url}"
+        for index, url in enumerate(package.download_urls, start=1)
+    )
     raise RuntimeError(
-        f"无法从可用镜像下载并校验当前固件的汉化包：{last_error}"
+        "无法从可用镜像下载并校验当前固件的汉化包"
+        f"（{package.asset}）：\n{mirror_lines}\n"
+        "可手动下载任一地址的文件，再点击“加载本地汉化包…”完成校验。"
     ) from last_error
 
 

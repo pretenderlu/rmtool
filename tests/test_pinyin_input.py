@@ -105,7 +105,9 @@ class PinyinInputTests(unittest.TestCase):
         mutations = (
             lambda entry: entry.update(platform="chiappa"),
             lambda entry: entry["files"][0].update(path="outside"),
-            lambda entry: entry["urls"].reverse(),
+            lambda entry: entry["urls"].__setitem__(
+                0, "https://example.invalid/payload"
+            ),
         )
         for mutate in mutations:
             changed = json.loads(json.dumps(document))

@@ -13,6 +13,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Optional
 
+import _package_download
 import _tap_page_turn as tap
 import _xovi_standalone as shared
 
@@ -23,7 +24,7 @@ COS_URL = (
     "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/"
     "reading-enhancements"
 )
-REMOTE_BASE_URLS = (COS_URL, ASSET_RELEASE_URL)
+REMOTE_BASE_URLS = (ASSET_RELEASE_URL, COS_URL)
 MANIFEST_URLS = tuple(f"{base}/manifest.json" for base in REMOTE_BASE_URLS)
 BUNDLED_MANIFEST = Path(__file__).with_name("reading-enhancements") / "manifest.json"
 
@@ -256,7 +257,8 @@ class ReadingEnhancementsPackage:
 
     @property
     def download_urls(self) -> tuple[str, ...]:
-        return self.urls
+        # GitHub first, Tencent COS fallback; the manifest field is a set.
+        return (f"{ASSET_RELEASE_URL}/{self.asset}", f"{COS_URL}/{self.asset}")
 
     @property
     def download_url(self) -> str:
@@ -364,8 +366,8 @@ def parse_manifest(
         if asset != _expected_asset_name(platform, firmware, release_version):
             raise RuntimeError("阅读增强资源包文件名与本地信任清单不一致。")
         urls = entry.get("urls")
-        expected_urls = [f"{base}/{asset}" for base in REMOTE_BASE_URLS]
-        if urls != expected_urls:
+        expected_urls = {f"{base}/{asset}" for base in REMOTE_BASE_URLS}
+        if not isinstance(urls, list) or len(urls) != 2 or set(urls) != expected_urls:
             raise RuntimeError("阅读增强资源包下载源无效。")
         identities.add(identity)
         assets.add(asset)
@@ -443,7 +445,29 @@ def download_package(package: ReadingEnhancementsPackage, state_dir: str) -> Pat
         except Exception as exc:
             last_error = exc
             logging.warning("Could not download reading-enhancements package from %s: %s", url, exc)
-    raise RuntimeError("无法从腾讯云 COS 或 GitHub 下载并校验阅读增强包。") from last_error
+    raise _package_download.PackageDownloadError(
+        "阅读增强",
+        package.asset,
+        package.download_urls,
+        package.size,
+        package.sha256,
+        store=lambda source_path: load_local_package(
+            package, source_path, state_dir
+        ),
+    ) from last_error
+
+
+def load_local_package(
+    package: ReadingEnhancementsPackage, source_path: str | Path, state_dir: str
+) -> Path:
+    """Verify a manually downloaded archive and store it in the package cache."""
+    data = Path(source_path).read_bytes()
+    _package_download.verify_local_package(
+        data, package.size, package.sha256, "阅读增强"
+    )
+    destination = _cache_dir(state_dir) / package.firmware / package.asset
+    tap._write_atomic(destination, data)
+    return destination
 
 
 def extract_verified_package(

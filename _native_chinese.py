@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 import _rmkit_cn
+import _package_download
 import _tap_page_turn as tap
 import _xovi_standalone
 
@@ -199,6 +200,11 @@ class NativeChinesePackage:
     device_verified: bool
 
     @property
+    def download_urls(self) -> tuple[str, ...]:
+        # GitHub first, Tencent COS fallback; the manifest field is a set.
+        return (f"{GITHUB_URL}/{self.asset}", f"{COS_URL}/{self.asset}")
+
+    @property
     def package_id(self) -> str:
         return f"{self.platform}-{self.firmware}-{self.xochitl_sha256[:12]}"
 
@@ -305,8 +311,8 @@ def parse_manifest(data: bytes) -> tuple[NativeChinesePackage, ...]:
         ) or asset != EXPECTED_ASSETS.get(identity):
             raise RuntimeError("原生中文包不在本地精确身份白名单中。")
         urls = entry.get("urls")
-        expected_urls = [f"{COS_URL}/{asset}", f"{GITHUB_URL}/{asset}"]
-        if urls != expected_urls:
+        expected_urls = {f"{COS_URL}/{asset}", f"{GITHUB_URL}/{asset}"}
+        if not isinstance(urls, list) or len(urls) != 2 or set(urls) != expected_urls:
             raise RuntimeError("原生中文包的下载镜像字段无效。")
         result.append(
             NativeChinesePackage(
@@ -372,7 +378,7 @@ def download_package(package: NativeChinesePackage, state_dir: str) -> Path:
         if len(data) == package.size and hashlib.sha256(data).hexdigest() == package.sha256:
             return destination
     last_error: Optional[Exception] = None
-    for url in package.urls:
+    for url in package.download_urls:
         try:
             data = tap._download_limited(url, MAX_PACKAGE_BYTES)
             if len(data) != package.size or hashlib.sha256(data).hexdigest() != package.sha256:
@@ -382,7 +388,28 @@ def download_package(package: NativeChinesePackage, state_dir: str) -> Path:
         except Exception as exc:
             last_error = exc
             logging.warning("Could not download native Chinese package from %s: %s", url, exc)
-    raise RuntimeError("无法从腾讯云 COS 或 GitHub 下载并验证原生中文包。") from last_error
+    raise _package_download.PackageDownloadError(
+        "原生简体中文",
+        package.asset,
+        package.download_urls,
+        package.size,
+        package.sha256,
+        store=lambda source_path: load_local_package(
+            package, source_path, state_dir
+        ),
+    ) from last_error
+
+
+def load_local_package(
+    package: NativeChinesePackage, source_path: str | Path, state_dir: str
+) -> Path:
+    """Verify a manually downloaded archive and store it in the package cache."""
+    data = Path(source_path).read_bytes()
+    _package_download.verify_local_package(
+        data, package.size, package.sha256, "原生简体中文"
+    )
+    tap._write_atomic(_cache_path(state_dir, package), data)
+    return _cache_path(state_dir, package)
 
 
 def _shared_specs(package: NativeChinesePackage):
