@@ -171,6 +171,7 @@ AFFECT /qml/device/view/settings/Settings.qml
                                     label: "点击翻页"
                                     description: "在 PDF 和 EPUB 阅读页点击屏幕区域翻页。笔记本保持原生手势。"
                                     enabled: rmtoolReadingPage.masterEnabled
+                                    opacity: enabled ? 1 : 0.5
                                     action: ArkToggleWrapper {
                                         checked: rmtoolReadingPage.tapPageTurnEnabled
                                         extendedMouseArea.onPressed: rmtoolReadingPage.writeBool(
@@ -183,6 +184,7 @@ AFFECT /qml/device/view/settings/Settings.qml
                                     label: "快速黑白阅读模式"
                                     description: "作为全局授权；开启后可在每本 PDF/EPUB 的阅读菜单中独立开关。"
                                     enabled: rmtoolReadingPage.masterEnabled
+                                    opacity: enabled ? 1 : 0.5
                                     action: ArkToggleWrapper {
                                         checked: rmtoolReadingPage.fastMonoEnabled
                                         extendedMouseArea.onPressed: rmtoolReadingPage.writeBool(
@@ -195,6 +197,7 @@ AFFECT /qml/device/view/settings/Settings.qml
                                     label: "翻页清残影"
                                     description: "翻页后使用系统整屏刷新清理残影，彩色和黑白模式均可用。"
                                     enabled: rmtoolReadingPage.masterEnabled
+                                    opacity: enabled ? 1 : 0.5
                                     action: ArkToggleWrapper {
                                         checked: rmtoolReadingPage.cleanupEnabled
                                         extendedMouseArea.onPressed: rmtoolReadingPage.writeBool(
@@ -206,6 +209,9 @@ AFFECT /qml/device/view/settings/Settings.qml
                                     Layout.fillWidth: true
                                     label: "按章节清残影"
                                     description: "有目录时跨越目录边界清理；没有目录时使用固定页数。"
+                                    enabled: rmtoolReadingPage.masterEnabled
+                                        && rmtoolReadingPage.cleanupEnabled
+                                    opacity: enabled ? 1 : 0.5
                                     action: ArkToggleWrapper {
                                         enabled: rmtoolReadingPage.masterEnabled
                                             && rmtoolReadingPage.cleanupEnabled
@@ -224,6 +230,7 @@ AFFECT /qml/device/view/settings/Settings.qml
                                     enabled: rmtoolReadingPage.masterEnabled
                                         && rmtoolReadingPage.cleanupEnabled
                                         && !rmtoolReadingPage.cleanupByChapter
+                                    opacity: enabled ? 1 : 0.5
                                     showAttachment: true
                                     attachment: RowLayout {
                                         Layout.fillWidth: true

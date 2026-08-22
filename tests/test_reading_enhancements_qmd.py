@@ -106,8 +106,12 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
             "stackView.push(rmtoolCleanupOptions)",
             "每 15 次翻页",
             "按章节",
+            # Conditional settings panels must gray out when disabled
+            # (opacity follows the stock DisplayVisibleContent pattern).
+            "opacity: enabled ? 1 : 0.5",
         ):
             self.assertIn(marker, source, marker)
+        self.assertEqual(source.count("opacity: enabled ? 1 : 0.5"), 5)
 
         self.assertIn("Settings.rawValue(\"RmtoolReadingEnhancements\",", source)
         self.assertIn("TRAVERSE Item#root", source)
