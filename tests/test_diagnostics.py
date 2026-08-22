@@ -64,9 +64,10 @@ class DiagnosticsTests(unittest.TestCase):
         journal = by_name["device/journal-xochitl.txt"]
         self.assertLessEqual(len(journal.text.encode()), _diagnostics.ITEM_CAP_BYTES)
         self.assertTrue(journal.truncated)
-        # Every remote command is wrapped with the read-only head cap.
+        # Every remote command is wrapped with the read-only tail cap
+        # (device BusyBox head has no -c).
         for command in ssh.commands:
-            self.assertIn("| head -c 65536", command)
+            self.assertIn("| tail -c 65536", command)
 
     def test_pc_log_tail_is_capped(self):
         import tempfile
