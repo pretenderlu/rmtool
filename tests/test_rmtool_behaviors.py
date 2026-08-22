@@ -38,6 +38,8 @@ import _ssh
 import _tap_page_turn
 import _tab_connection
 import _tab_documents
+import _diagnostics
+import _package_download
 import _tab_toolbox
 import _tab_wallpaper
 import _tokens
@@ -1268,7 +1270,7 @@ class WallpaperUiTests(unittest.TestCase):
         toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
         self.addCleanup(toolbox.deleteLater)
 
-        self.assertEqual(toolbox.tool_table.rowCount(), 6)
+        self.assertEqual(toolbox.tool_table.rowCount(), 8)
         self.assertEqual(
             [
                 toolbox.tool_table.item(row, 0).text()
@@ -1278,8 +1280,10 @@ class WallpaperUiTests(unittest.TestCase):
                 "原生简体中文",
                 "拼音输入法",
                 "阅读增强",
+                "点击翻页（RM1/RM2/Paper Pure）",
                 "时间管理",
                 "设备控制",
+                "诊断日志导出",
                 "旧版插件迁移/清理",
             ],
         )
@@ -1289,7 +1293,7 @@ class WallpaperUiTests(unittest.TestCase):
                 for entry in toolbox._tool_entries
                 if entry["category"] == "阅读增强"
             ],
-            ["阅读增强"],
+            ["阅读增强", "点击翻页（RM1/RM2/Paper Pure）"],
         )
         toolbox.tool_table.setCurrentCell(2, 0)
         self.assertTrue(
@@ -1374,6 +1378,7 @@ class WallpaperUiTests(unittest.TestCase):
             ("native", toolbox.native_chinese_section),
             ("pinyin", toolbox.pinyin_input_section),
             ("reading", toolbox.reading_enhancements_section),
+            ("tap", toolbox.tap_page_turn_section),
         ):
             def start(*, on_done, show_errors, current_name=name):
                 calls.append((current_name, show_errors))
@@ -1385,9 +1390,11 @@ class WallpaperUiTests(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
+        # The device-scoped tap section stays hidden for unknown devices,
+        # so detect-all skips it without starting a detection.
         toolbox.detect_all_button.click()
         self.assertEqual(calls, [("native", False)])
-        self.assertEqual(toolbox.detect_all_button.text(), "正在检测 1/3")
+        self.assertEqual(toolbox.detect_all_button.text(), "正在检测 1/4")
         self.assertFalse(toolbox.detect_all_button.isEnabled())
 
         for expected in ("pinyin", "reading"):
@@ -1405,6 +1412,307 @@ class WallpaperUiTests(unittest.TestCase):
         )
         self.assertEqual(toolbox.detect_all_button.text(), "检测全部插件")
         self.assertTrue(toolbox.detect_all_button.isEnabled())
+
+    def test_toolbox_tap_entry_is_device_scoped(self):
+        toolbox = rmtool.ToolboxToolboxTab = None
+        toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
+        self.addCleanup(toolbox.deleteLater)
+        tap_row = next(
+            row
+            for row, entry in enumerate(toolbox._tool_entries)
+            if entry.get("device_scoped")
+        )
+
+        def visible_rows():
+            return [
+                row
+                for row in range(toolbox.tool_table.rowCount())
+                if not toolbox.tool_table.isRowHidden(row)
+            ]
+
+        # Hidden until the identity probe decides.
+        self.assertNotIn(tap_row, visible_rows())
+
+        rm1_package = next(
+            item
+            for item in _tap_page_turn._trusted_catalog()
+            if item.platform == "rm1"
+        )
+        rm1_identity = _tap_page_turn.DeviceIdentity(
+            rm1_package.firmware,
+            rm1_package.platform,
+            rm1_package.architecture,
+            rm1_package.xochitl_sha256,
+        )
+        toolbox._device_identity = rm1_identity
+        toolbox._update_device_scoped_entries()
+        self.assertIn(tap_row, visible_rows())
+
+        ferrari_package = next(
+            item
+            for item in _tap_page_turn._trusted_catalog()
+            if item.platform == "ferrari"
+        )
+        ferrari_identity = _tap_page_turn.DeviceIdentity(
+            ferrari_package.firmware,
+            ferrari_package.platform,
+            ferrari_package.architecture,
+            ferrari_package.xochitl_sha256,
+        )
+        toolbox._device_identity = ferrari_identity
+        toolbox._update_device_scoped_entries()
+        self.assertNotIn(tap_row, visible_rows())
+
+        toolbox._device_identity = None
+        toolbox._update_device_scoped_entries()
+        self.assertNotIn(tap_row, visible_rows())
+
+    def test_tap_section_emphasizes_offline_verification(self):
+        section = _tab_toolbox.TapPageTurnSection(
+            FakeConnectionClient(connected=True, host="10.11.99.1")
+        )
+        self.addCleanup(section.deleteLater)
+        package = next(
+            item
+            for item in _tap_page_turn._trusted_catalog()
+            if item.platform == "rm1"
+        )
+        identity = _tap_page_turn.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        section._apply_status(
+            _tap_page_turn.TapPageTurnStatus(
+                _tap_page_turn.TapPageTurnState.NOT_INSTALLED,
+                identity,
+                package,
+                (package,),
+            )
+        )
+        self.assertIn("离线验证（未实机）", section.catalog_label.text())
+        self.assertIn("仅通过官方固件离线验证，尚未进行实机验证", section.status_label.text())
+        self.assertTrue(section.enable_button.isEnabled())
+        self.assertTrue(section.load_package_button.isEnabled())
+
+    def test_tap_section_load_local_package_verifies_and_caches(self):
+        section = _tab_toolbox.TapPageTurnSection(
+            FakeConnectionClient(connected=True, host="10.11.99.1")
+        )
+        self.addCleanup(section.deleteLater)
+        archive = b"tap-archive"
+        package = replace(
+            next(
+                item
+                for item in _tap_page_turn._trusted_catalog()
+                if item.platform == "rm1"
+            ),
+            sha256=hashlib.sha256(archive).hexdigest(),
+            size=len(archive),
+        )
+        identity = _tap_page_turn.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        section._apply_status(
+            _tap_page_turn.TapPageTurnStatus(
+                _tap_page_turn.TapPageTurnState.NOT_INSTALLED,
+                identity,
+                package,
+                (package,),
+            )
+        )
+        with (
+            tempfile.TemporaryDirectory() as folder,
+            mock.patch.object(
+                _tab_toolbox.QtWidgets.QFileDialog,
+                "getOpenFileName",
+                return_value=(str(Path(folder) / "manual.tar.gz"), ""),
+            ) as dialog,
+            mock.patch.object(_tab_toolbox, "show_info") as show_info,
+        ):
+            (Path(folder) / "manual.tar.gz").write_bytes(archive)
+            with mock.patch.object(
+                rmtool, "app_state_dir", return_value=Path(folder)
+            ):
+                section._load_local_package()
+            dialog.assert_called_once()
+            cached = (
+                Path(folder)
+                / "cache"
+                / "tap-page-turn"
+                / package.firmware
+                / package.asset
+            )
+            self.assertTrue(cached.is_file())
+            self.assertEqual(cached.read_bytes(), archive)
+            self.assertIn("SHA-256", show_info.call_args.args[2])
+
+    def test_package_download_error_dialog_loads_manual_file_and_retries(self):
+        archive = b"manual-archive"
+        calls = {"retry": 0, "store": 0}
+
+        def store(source_path):
+            calls["store"] += 1
+            return Path(source_path)
+
+        exc = _package_download.PackageDownloadError(
+            "点击翻页",
+            "asset.tar.gz",
+            (
+                "https://github.com/pretenderlu/rmtool/releases/download/tap-page-turn-assets/asset.tar.gz",
+                "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/tap-page-turn/asset.tar.gz",
+            ),
+            len(archive),
+            hashlib.sha256(archive).hexdigest(),
+            store=store,
+        )
+        self.assertIn("github.com", str(exc))
+        self.assertIn("myqcloud.com", str(exc))
+        self.assertIn("asset.tar.gz", str(exc))
+
+        def retry():
+            calls["retry"] += 1
+
+        buttons = {}
+
+        def add_button(text, role):
+            button = mock.Mock()
+            buttons[text] = button
+            return button
+
+        with tempfile.TemporaryDirectory() as folder:
+            manual = Path(folder) / "asset.tar.gz"
+            manual.write_bytes(archive)
+            with (
+                mock.patch.object(_tab_toolbox.QtWidgets, "QMessageBox") as box,
+                mock.patch.object(
+                    _tab_toolbox.QtWidgets.QFileDialog,
+                    "getOpenFileName",
+                    return_value=(str(manual), ""),
+                ) as dialog,
+                mock.patch.object(_tab_toolbox, "show_info") as show_info,
+            ):
+                box.return_value.addButton.side_effect = add_button
+                box.return_value.clickedButton.side_effect = (
+                    lambda: buttons["手动加载资源包…"]
+                )
+                _tab_toolbox._show_package_download_error(None, exc, retry=retry)
+        dialog.assert_called_once()
+        self.assertEqual(calls, {"retry": 1, "store": 1})
+        self.assertIn("SHA-256", show_info.call_args.args[2])
+
+    def test_package_download_error_dialog_copies_urls(self):
+        exc = _package_download.PackageDownloadError(
+            "阅读增强",
+            "asset.tar.gz",
+            ("https://github.com/x", "https://myqcloud.com/y"),
+            1,
+            "0" * 64,
+        )
+        buttons = {}
+
+        def add_button(text, role):
+            button = mock.Mock()
+            buttons[text] = button
+            return button
+
+        clipboard = mock.Mock()
+        with (
+            mock.patch.object(_tab_toolbox.QtWidgets, "QMessageBox") as box,
+            mock.patch.object(
+                _tab_toolbox.QtWidgets.QApplication, "clipboard",
+                return_value=clipboard,
+            ),
+            mock.patch.object(_tab_toolbox, "show_info"),
+        ):
+            box.return_value.addButton.side_effect = add_button
+            box.return_value.clickedButton.side_effect = (
+                lambda: buttons["复制下载地址"]
+            )
+            _tab_toolbox._show_package_download_error(None, exc)
+        clipboard.setText.assert_called_once_with(
+            "https://github.com/x\nhttps://myqcloud.com/y"
+        )
+
+    def test_diagnostic_preview_dialog_lists_optional_items(self):
+        collected = [
+            _diagnostics.CollectedItem(
+                _diagnostics.DiagItem("pc/environment.txt", "运行环境"), "env\n"
+            ),
+            _diagnostics.CollectedItem(
+                _diagnostics.DiagItem(
+                    "device/journal-xochitl.txt", "xochitl 运行日志", optional=True
+                ),
+                "journal\n",
+            ),
+        ]
+        dialog = _tab_toolbox.DiagnosticPreviewDialog(collected)
+        self.addCleanup(dialog.deleteLater)
+        self.assertEqual(len(dialog.optional_boxes), 1)
+        box = dialog.optional_boxes["device/journal-xochitl.txt"]
+        self.assertTrue(dialog.include_optional("device/journal-xochitl.txt"))
+        self.assertTrue(dialog.include_optional("pc/environment.txt"))
+        box.setChecked(False)
+        self.assertFalse(dialog.include_optional("device/journal-xochitl.txt"))
+        text = _tab_toolbox.DiagnosticPreviewDialog._preview_text(collected)
+        self.assertIn("pc/environment.txt", text)
+        self.assertIn("journal", text)
+
+    def test_diagnostics_section_saves_previewed_bundle(self):
+        section = _tab_toolbox.DiagnosticsSection(
+            FakeConnectionClient(connected=True, host="10.11.99.1")
+        )
+        self.addCleanup(section.deleteLater)
+        self.assertTrue(section.export_button.isEnabled())
+
+        identity = _diagnostics.DiagItem("device/system-identity.txt", "身份")
+        collected = [
+            _diagnostics.CollectedItem(
+                _diagnostics.DiagItem("pc/environment.txt", "运行环境"), "env\n"
+            ),
+            _diagnostics.CollectedItem(
+                identity,
+                "20260806095513\n---\naarch64\n---\nreMarkable Ferrari\n",
+            ),
+            _diagnostics.CollectedItem(
+                _diagnostics.DiagItem(
+                    "device/journal-xochitl.txt", "xochitl 运行日志", optional=True
+                ),
+                "journal\n",
+            ),
+        ]
+        dialog = mock.Mock()
+        dialog.exec_.return_value = _tab_toolbox.QtWidgets.QDialog.Accepted
+        dialog.include_optional.side_effect = (
+            lambda name: name != "device/journal-xochitl.txt"
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "diag.zip"
+            with (
+                mock.patch.object(
+                    _tab_toolbox, "DiagnosticPreviewDialog", return_value=dialog
+                ),
+                mock.patch.object(
+                    _tab_toolbox.QtWidgets.QFileDialog,
+                    "getSaveFileName",
+                    return_value=(str(target), ""),
+                ),
+                mock.patch.object(_tab_toolbox, "show_info"),
+                mock.patch.object(_tab_toolbox.QtGui.QDesktopServices, "openUrl"),
+            ):
+                section._preview_and_save(collected)
+            self.assertTrue(target.is_file())
+            with zipfile.ZipFile(target) as archive:
+                names = set(archive.namelist())
+                manifest = archive.read("MANIFEST.txt").decode("utf-8")
+        self.assertNotIn("device/journal-xochitl.txt", names)
+        self.assertIn("pc/environment.txt", names)
+        self.assertIn("device platform: ferrari", manifest)
+        self.assertIn("excluded", manifest)
 
     def test_toolbox_detect_all_requires_connection(self):
         toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
@@ -1452,6 +1760,7 @@ class WallpaperUiTests(unittest.TestCase):
             (_tab_toolbox.RmkitCnSection, "原生界面中文"),
             (_tab_toolbox.NativeChineseSection, "原生简体中文"),
             (_tab_toolbox.ReadingEnhancementsSection, "阅读增强"),
+            (_tab_toolbox.TapPageTurnSection, "点击翻页"),
         )
 
         for section_type, expected_text in sections:
@@ -1462,7 +1771,6 @@ class WallpaperUiTests(unittest.TestCase):
                 self.assertIsNotNone(title)
                 self.assertEqual(title.text(), expected_text)
 
-        self.assertFalse(hasattr(_tab_toolbox, "TapPageTurnSection"))
         self.assertFalse(hasattr(_tab_toolbox, "FastMonoReadingSection"))
 
     def test_native_chinese_section_exposes_exact_actions_and_emergency_controls(self):

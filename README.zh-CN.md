@@ -10,7 +10,8 @@
 
 </div>
 
-rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Paper Pure、reMarkable 1 和 reMarkable 2，提供多设备连接、仪表盘、壁纸、文档、KOReader 书库管理、字体、时间、设备控制、原生界面中文、离线拼音输入，以及彩色设备按固件精确匹配的阅读增强等功能。设备操作不依赖 reMarkable 云服务；发布包内置这些固件功能的基础可信清单，可离线识别支持情况并复用已验证缓存。固件专用载荷不会打包进应用，仍需联网下载或使用已有的有效缓存。
+rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Paper Pure、reMarkable 1 和 reMarkable 2，提供多设备连接、仪表盘、壁纸、文档、KOReader 书库管理、字体、时间、设备控制、原生界面中文、离线拼音输入，彩色设备按固件精确匹配的阅读增强，Paper Pure、reMarkable 1 和
+reMarkable 2 的经典离线验证点击翻页插件，以及一键只读诊断日志导出。设备操作不依赖 reMarkable 云服务；发布包内置这些固件功能的基础可信清单，可离线识别支持情况并复用已验证缓存。固件专用载荷不会打包进应用，仍需联网下载或使用已有的有效缓存。
 
 > [!WARNING]
 > rmtool 会直接修改设备文件。请先同步或备份重要内容，并确认自己能够承担开发者模式、root SSH 和第三方修改带来的数据与保修风险。本项目不是 reMarkable 官方软件。
@@ -66,9 +67,9 @@ macOS 版会把运行状态保存在 `~/Library/Application Support/rmtool/`，�
 
 ### 托管资源下载源
 
-rmtool 管理的固件专用资源均使用两个固定来源。客户端优先访问腾讯云 COS，失败后自动回退 GitHub；清单和载荷每次都必须通过预期大小与 SHA-256 校验，无效响应不会覆盖已验证缓存。两个远端均失败时，程序依次使用此前验证过的缓存清单和应用内置基础可信清单；真正安装时仍必须在缓存中已有精确匹配且通过验证的载荷。
+rmtool 管理的固件专用资源均使用两个固定来源。客户端默认优先访问 GitHub Releases，失败后自动回退腾讯云 COS 镜像（便于中国大陆用户在 GitHub 下载不畅时继续使用）；清单和载荷每次都必须通过预期大小与 SHA-256 校验，无效响应不会覆盖已验证缓存。两个远端均失败时，程序依次使用此前验证过的缓存清单和应用内置基础可信清单；真正安装时仍必须在缓存中已有精确匹配且通过验证的载荷。当资源包从两个镜像都无法下载时，报错弹窗会列出 GitHub 与腾讯云 COS 的实际下载地址（可一键复制），并支持通过“手动加载资源包”导入已下载到本机的文件，导入同样必须通过大小与 SHA-256 校验。
 
-| 资源 | 腾讯云 COS（中国大陆优先） | GitHub 备用源 |
+| 资源 | GitHub（默认） | 腾讯云 COS 备用（中国大陆） |
 | --- | --- | --- |
 | 原生界面汉化 | [COS 根目录](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/) | [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/tag/localization-assets) |
 | 独立简体中文 | [`native-chinese/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/) | [`native-chinese-assets`](https://github.com/pretenderlu/rmtool/releases/tag/native-chinese-assets) |
@@ -143,12 +144,12 @@ rmtool 按运行平台将状态保存在以下目录：
 
 发布包不内置任何固件专用 `.qm` 文件。点击“设备工具箱 > 系统汉化 > 检测状态”后，rmtool 会：
 
-1. 优先从[腾讯云 COS 中国大陆镜像](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/manifest.json)获取清单，再尝试固定的 GitHub `localization-assets` Release；两者均不可用或内容无效时，依次使用已验证的本地缓存和应用内置的基础清单。
+1. 优先从固定的 GitHub [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/download/localization-assets/manifest.json) Release 获取清单，再尝试[腾讯云 COS 中国大陆镜像](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/manifest.json)；两者均不可用或内容无效时，依次使用已验证的本地缓存和应用内置的基础清单。
 2. 按 `/etc/version` 的 14 位内部固件版本精确匹配。
 3. 对设备原始法语载体文件 `reMarkable_fr.qm` 计算 SHA-256，据此选择对应硬件载荷；`chiappa`、`ferrari`、`tatsu`、`rm1`、`rm2` 等平台名仅用于显示，不用于猜测兼容性。
 4. 校验下载大小和 SHA-256。固件、原始法语文件或校验值不匹配时，不会写入设备。
 
-默认直接点击“启用中文”，rmtool 会依次从腾讯云 COS 镜像和 GitHub 下载精确匹配的汉化包；每次响应都必须通过清单规定的精确大小和 SHA-256 校验后，才能替换缓存并继续安装。网络不稳定时，可通过“获取汉化包”将匹配文件下载到电脑或复制 COS 直链，再用“加载本地汉化包”导入；本地文件同样必须通过当前设备对应的校验，验证后只写入电脑端缓存，随后仍由“启用中文”执行原有的安全部署流程。rmtool 发布包不会内置任何固件专用 `.qm` 载荷。
+默认直接点击“启用中文”，rmtool 会依次从 GitHub 和腾讯云 COS 镜像下载精确匹配的汉化包；每次响应都必须通过清单规定的精确大小和 SHA-256 校验后，才能替换缓存并继续安装。网络不稳定时，可通过“获取汉化包”将匹配文件下载到电脑或复制 COS 直链，再用“加载本地汉化包”导入；本地文件同样必须通过当前设备对应的校验，验证后只写入电脑端缓存，随后仍由“启用中文”执行原有的安全部署流程。rmtool 发布包不会内置任何固件专用 `.qm` 载荷。
 
 #### 当前汉化支持矩阵
 
@@ -202,7 +203,9 @@ Move 3.27.3 已完成真机安装、重启、设置页导航和功能测试；�
 
 安装、迁移、修复或停用与重启严格分离。rmtool 只写入并校验持久化配置，随后关闭 SSH，不会自动重启 xochitl 或设备。操作后应从设备菜单执行完整重启。启动器会在每次开机时校验设备身份和全部运行文件；任一项不匹配时会直接启动原生 xochitl。
 
-阅读增强、原生简体中文和拼音输入统一共享 rmtool 自有 Xovi/QRR 运行时，同时保留各自的功能状态。检测到 Vellum/AppLoader 或非托管 Xovi 时会阻止安装，避免混合运行时。固件资源优先从腾讯云 COS 获取，失败后回退固定的 `reading-enhancements-assets` Release，并执行精确大小、SHA-256 校验和已验证缓存回退。“旧版插件迁移/清理”可把已验证的历史点击翻页、快速黑白包替换为当前固件精确包，同时保留同伴功能。rmtool 不会自行卸载 Vellum；清理已验证旧包后，请按 [Vellum CLI 官方卸载说明](https://github.com/vellum-dev/vellum-cli#usage) 操作。
+Paper Pure、reMarkable 1 和 reMarkable 2 不在统一阅读增强包的覆盖范围内。这些设备会在工具箱中看到按设备显示的**点击翻页**入口（仅当连接的设备有精确点击翻页包且没有阅读增强包时出现），用于管理经典点击翻页插件：安装、停用、固件残留清理和本地资源包加载。这些设备上的全部点击翻页目标都只有离线验证、尚未在实机部署，界面会在每次安装前明确说明。
+
+阅读增强、原生简体中文和拼音输入统一共享 rmtool 自有 Xovi/QRR 运行时，同时保留各自的功能状态。检测到 Vellum/AppLoader 或非托管 Xovi 时会阻止安装，避免混合运行时。固件资源优先从固定的 `reading-enhancements-assets` GitHub Release 获取，失败后回退腾讯云 COS 镜像，并执行精确大小、SHA-256 校验和已验证缓存回退。“旧版插件迁移/清理”可把已验证的历史点击翻页、快速黑白包替换为当前固件精确包，同时保留同伴功能。rmtool 不会自行卸载 Vellum；清理已验证旧包后，请按 [Vellum CLI 官方卸载说明](https://github.com/vellum-dev/vellum-cli#usage) 操作。
 
 ## 使用建议
 
@@ -254,7 +257,7 @@ Windows 也可在依赖安装完成后双击 `rmtool.bat`，通过 `pythonw.exe`
 ## 开发与发布检查
 
 ```bash
-python -m compileall -q rmtool.py _dialogs.py _fast_mono_reading.py _log_viewer.py _pinyin_input.py _residue_migration.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tools tests
+python -m compileall -q rmtool.py _dialogs.py _diagnostics.py _fast_mono_reading.py _log_viewer.py _package_download.py _pinyin_input.py _residue_migration.py _reading_enhancements.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tools tests
 python -m unittest discover -s tests -v
 git diff --check
 actionlint .github/workflows/release.yml .github/workflows/sync-localization-assets.yml .github/workflows/sync-feature-assets.yml

@@ -10,7 +10,9 @@ A desktop GUI management tool for reMarkable devices
 
 </div>
 
-rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, and reMarkable 2 devices over local root SSH. It provides multi-device connections, a dashboard, wallpaper and document management, KOReader library management, font upload, time management, device controls, native Chinese UI localization, offline Pinyin input, and exact-build reading enhancements for color devices. Device operations do not depend on reMarkable cloud services. Release builds include baseline trusted manifests for these firmware-specific features, enabling offline support discovery and verified cache reuse. Payloads are not bundled and still require a network download or an existing validated cache.
+rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, and reMarkable 2 devices over local root SSH. It provides multi-device connections, a dashboard, wallpaper and document management, KOReader library management, font upload, time management, device controls, native Chinese UI localization, offline Pinyin input, exact-build reading enhancements for color devices, the
+classic offline-verified tap-to-turn plugin for Paper Pure, reMarkable 1,
+and reMarkable 2, plus a one-click read-only diagnostic bundle for support. Device operations do not depend on reMarkable cloud services. Release builds include baseline trusted manifests for these firmware-specific features, enabling offline support discovery and verified cache reuse. Payloads are not bundled and still require a network download or an existing validated cache.
 
 > [!WARNING]
 > rmtool directly modifies files on the device. Sync or back up important content first, and make sure you accept the data and warranty risks associated with Developer Mode, root SSH, and third-party modifications. This project is not official reMarkable software.
@@ -66,9 +68,9 @@ The macOS build stores its runtime state in `~/Library/Application Support/rmtoo
 
 ### Hosted resource sources
 
-All firmware-specific resources managed by rmtool use two fixed sources. The client tries Tencent COS first, falls back to GitHub, and accepts a manifest or payload only after its expected size and SHA-256 match. An invalid response never replaces a validated cache. If both sources fail, rmtool uses a previously validated cached manifest and then the baseline trusted manifest bundled with the application; installation still requires the matching payload to exist in the validated cache.
+All firmware-specific resources managed by rmtool use two fixed sources. The client tries GitHub Releases first and automatically falls back to the Tencent COS mirror (useful when GitHub is hard to reach from mainland China), and accepts a manifest or payload only after its expected size and SHA-256 match. An invalid response never replaces a validated cache. If both sources fail, rmtool uses a previously validated cached manifest and then the baseline trusted manifest bundled with the application; installation still requires the matching payload to exist in the validated cache. When a payload cannot be downloaded from either mirror, the error dialog lists the exact GitHub and COS download URLs, offers to copy them, and can load a manually downloaded archive after the same size and SHA-256 verification.
 
-| Resource | Tencent COS (mainland China preferred) | GitHub fallback |
+| Resource | GitHub (default) | Tencent COS fallback (mainland China) |
 | --- | --- | --- |
 | Chinese localization | [COS root](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/) | [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/tag/localization-assets) |
 | Native Simplified Chinese | [`native-chinese/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/) | [`native-chinese-assets`](https://github.com/pretenderlu/rmtool/releases/tag/native-chinese-assets) |
@@ -195,6 +197,8 @@ The GPL-3.0 components ported from [boangs/rmkit](https://github.com/boangs/rmki
 
 Reading enhancements remain one rmtool plugin and one exact-firmware package. The native device Settings page provides a master switch plus independent global gates for tap-to-turn, fast monochrome, and forced refresh. Each PDF/EPUB reading menu then exposes per-book switches; forced refresh can use a 5/10/15/20/25/30-page interval or chapter boundaries for that document. Global gates always win over per-book state, while disabling a global feature preserves the saved book preferences. rmtool requires the hardware platform, CPU architecture, internal firmware version, and stock `/usr/bin/xochitl` SHA-256 to match; other or modified builds are rejected rather than guessed. The older tap-to-turn and fast-monochrome packages remain private compatibility inputs for safe migration and cleanup only.
 
+Paper Pure, reMarkable 1, and reMarkable 2 are not covered by the unified reading-enhancements packages. On those devices the toolbox shows a device-scoped **Tap to turn** entry (it appears only when the connected device has an exact tap package and no reading-enhancements package) that manages the classic tap-to-turn plugin with install, disable, firmware-residue cleanup, and a local-package loader. Every tap target on these devices is offline verified only and has not been deployed to a real device; the UI states this explicitly before every install.
+
 For every package in the support matrix, rmtool can identify exact earlier Reading Enhancements revisions and verified historical tap-to-turn/fast-monochrome layouts. It offers migration or repair as the primary path and a separate **Clean legacy** action before a fresh install. Cleanup validates the complete old installation before changing the device, preserves other verified rmtool plugins even when they are disabled, and refuses unknown, modified, or mixed layouts.
 
 | Device model | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) | 3.28.0.169 beta (`20260806095513`) |
@@ -208,7 +212,7 @@ After installation and a manual device restart, first authorize the required fea
 
 Installation, migration, repair, and removal are intentionally separated from activation. rmtool writes and validates the persistent configuration, closes SSH, and never restarts xochitl or reboots the device automatically. Use the device menu to perform a full restart afterward. The launcher checks the device and every runtime file on each boot and falls back to stock xochitl if any check fails.
 
-Reading enhancements, native Simplified Chinese, and Pinyin input share one rmtool-owned Xovi/QRR runtime while retaining separate feature state. Vellum/AppLoader and unmanaged Xovi layouts block installation to prevent mixed runtimes. Firmware-specific resources are fetched from Tencent COS first and the fixed `reading-enhancements-assets` release second, with exact size and SHA-256 verification plus validated-cache fallback. The legacy migration/cleanup action can replace verified historical tap-to-turn and fast-monochrome packages with the current exact package while preserving peer features. rmtool does not uninstall Vellum itself; follow the [official Vellum CLI instructions](https://github.com/vellum-dev/vellum-cli#usage) after verified legacy package cleanup.
+Reading enhancements, native Simplified Chinese, and Pinyin input share one rmtool-owned Xovi/QRR runtime while retaining separate feature state. Vellum/AppLoader and unmanaged Xovi layouts block installation to prevent mixed runtimes. Firmware-specific resources are fetched from the fixed `reading-enhancements-assets` GitHub release first and the Tencent COS mirror second, with exact size and SHA-256 verification plus validated-cache fallback. The legacy migration/cleanup action can replace verified historical tap-to-turn and fast-monochrome packages with the current exact package while preserving peer features. rmtool does not uninstall Vellum itself; follow the [official Vellum CLI instructions](https://github.com/vellum-dev/vellum-cli#usage) after verified legacy package cleanup.
 
 ## Usage recommendations
 
@@ -260,7 +264,7 @@ On Windows, after installing dependencies, you can also double-click `rmtool.bat
 ## Development and release checks
 
 ```bash
-python -m compileall -q rmtool.py _dialogs.py _fast_mono_reading.py _log_viewer.py _pinyin_input.py _residue_migration.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tools tests
+python -m compileall -q rmtool.py _dialogs.py _diagnostics.py _fast_mono_reading.py _log_viewer.py _package_download.py _pinyin_input.py _residue_migration.py _reading_enhancements.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tools tests
 python -m unittest discover -s tests -v
 git diff --check
 actionlint .github/workflows/release.yml .github/workflows/sync-localization-assets.yml .github/workflows/sync-feature-assets.yml
