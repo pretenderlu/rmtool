@@ -180,12 +180,18 @@ class PublishResourcesTests(unittest.TestCase):
             write_manifest()
             publisher._validate_feature(resource, release_dir)
 
+            # Mirror order is no longer significant (GitHub may be listed
+            # first); the validator compares the exact URLs as a set.
             package["urls"].reverse()
+            write_manifest()
+            publisher._validate_feature(resource, release_dir)
+
+            package["urls"][0] = "https://example.invalid/payload"
             write_manifest()
             with self.assertRaisesRegex(RuntimeError, "download URLs"):
                 publisher._validate_feature(resource, release_dir)
 
-            package["urls"].reverse()
+            package["urls"][0] = f"{resource.url_bases[0]}/{package['asset']}"
             package["offline_verified"] = 1
             write_manifest()
             with self.assertRaisesRegex(RuntimeError, "verification metadata"):
