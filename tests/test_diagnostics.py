@@ -43,7 +43,7 @@ class DiagnosticsTests(unittest.TestCase):
                 )
             self.assertRegex(item.command, r"^(cat|ls|journalctl|systemctl show|"
                             r"sha256sum|df|uname|uptime|for)")
-        # The journal that may contain document names is opt-out.
+        # The device journal that may contain document names is opt-out.
         optional = [item for item in _diagnostics.DEVICE_ITEMS if item.optional]
         self.assertEqual(
             [item.name for item in optional], ["device/journal-xochitl.txt"]
@@ -88,6 +88,8 @@ class DiagnosticsTests(unittest.TestCase):
             len(tail.text.encode()), _diagnostics.PC_LOG_TAIL_BYTES
         )
         self.assertTrue(tail.truncated)
+        self.assertTrue(tail.item.optional)
+        self.assertIn("本地路径", tail.item.description)
 
         missing = _diagnostics.collect(
             FakeDiagnosticsSsh(), pc_log_path=Path(folder) / "absent.log"
@@ -140,7 +142,11 @@ class DiagnosticsTests(unittest.TestCase):
             included = [
                 result
                 for result in collected
-                if result.item.name != "device/journal-xochitl.txt"
+                if result.item.name
+                not in {
+                    "pc/rmtool-log-tail.txt",
+                    "device/journal-xochitl.txt",
+                }
             ]
             saved = _diagnostics.write_bundle(target, collected, included)
             self.assertEqual(saved, target)
@@ -150,14 +156,14 @@ class DiagnosticsTests(unittest.TestCase):
                 marker = archive.read("device/shared-marker.txt").decode("utf-8")
         self.assertIn("MANIFEST.txt", names)
         self.assertIn("pc/environment.txt", names)
-        self.assertIn("pc/rmtool-log-tail.txt", names)
+        self.assertNotIn("pc/rmtool-log-tail.txt", names)
         self.assertNotIn("device/journal-xochitl.txt", names)
         self.assertIn('{"schema_version": 1}', marker)
         self.assertIn("device platform: chiappa", manifest)
         self.assertIn("device/journal-xochitl.txt: excluded", manifest)
         self.assertIn("device/shared-marker.txt: ok (", manifest)
         self.assertIn("device/system-identity.txt: ok (", manifest)
-        self.assertIn("pc/rmtool-log-tail.txt: error:", manifest)
+        self.assertIn("pc/rmtool-log-tail.txt: excluded", manifest)
 
     def test_write_bundle_rejects_oversized_content(self):
         huge = [

@@ -136,7 +136,7 @@ class PublishResourcesTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "nested file metadata"):
                 publisher._validate_feature(resource, release_dir)
 
-    def test_reading_enhancements_requires_verification_and_ordered_urls(self):
+    def test_reading_enhancements_requires_exact_url_pair_in_either_order(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             resource, release_dir = self.make_feature(Path(temp_dir))
             resource = publisher.Resource(
@@ -186,16 +186,44 @@ class PublishResourcesTests(unittest.TestCase):
             write_manifest()
             publisher._validate_feature(resource, release_dir)
 
-            package["urls"][0] = "https://example.invalid/payload"
-            write_manifest()
-            with self.assertRaisesRegex(RuntimeError, "download URLs"):
-                publisher._validate_feature(resource, release_dir)
+            valid_urls = list(package["urls"])
+            invalid_urls = (
+                valid_urls + [valid_urls[0]],
+                [valid_urls[0], valid_urls[0]],
+                valid_urls[:1],
+                {"primary": valid_urls[0], "fallback": valid_urls[1]},
+                ["https://example.invalid/payload", valid_urls[1]],
+            )
+            for urls in invalid_urls:
+                with self.subTest(urls=urls):
+                    package["urls"] = urls
+                    write_manifest()
+                    with self.assertRaisesRegex(RuntimeError, "download URLs"):
+                        publisher._validate_feature(resource, release_dir)
 
-            package["urls"][0] = f"{resource.url_bases[0]}/{package['asset']}"
+            package["urls"] = valid_urls
             package["offline_verified"] = 1
             write_manifest()
             with self.assertRaisesRegex(RuntimeError, "verification metadata"):
                 publisher._validate_feature(resource, release_dir)
+
+    def test_readmes_describe_github_first_and_cos_fallback(self):
+        for filename in ("README.md", "README.zh-CN.md"):
+            text = (publisher.ROOT / filename).read_text(encoding="utf-8")
+            resource_rows = [
+                line
+                for line in text.splitlines()
+                if line.startswith("|")
+                and "github.com/pretenderlu/rmtool/releases/tag/" in line
+                and "myqcloud.com" in line
+            ]
+            self.assertEqual(len(resource_rows), 4, filename)
+            for row in resource_rows:
+                self.assertLess(row.index("github.com"), row.index("myqcloud.com"))
+        english = (publisher.ROOT / "README.md").read_text(encoding="utf-8")
+        chinese = (publisher.ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+        self.assertNotIn("Tencent COS mirror before GitHub", english)
+        self.assertNotIn("COS、GitHub", chinese)
 
     def test_publisher_uploads_changed_payloads_then_all_manifests(self):
         events = []

@@ -1467,6 +1467,54 @@ class WallpaperUiTests(unittest.TestCase):
         toolbox._update_device_scoped_entries()
         self.assertNotIn(tap_row, visible_rows())
 
+    def test_toolbox_discards_identity_probe_from_previous_connection(self):
+        client = FakeConnectionClient()
+        toolbox = rmtool.ToolboxTab(client, rmtool._default_config())
+        self.addCleanup(toolbox.deleteLater)
+        workers = []
+        for _ in range(2):
+            worker = mock.Mock()
+            worker.signals = mock.Mock()
+            workers.append(worker)
+
+        with mock.patch.object(
+            rmtool, "Worker", side_effect=workers
+        ), mock.patch.object(toolbox.thread_pool, "start"):
+            client._connected = True
+            client.connection_changed.emit(True)
+            client._connected = False
+            client.connection_changed.emit(False)
+            client._connected = True
+            client.connection_changed.emit(True)
+
+        stale_package = next(
+            item for item in _tap_page_turn._trusted_catalog() if item.platform == "rm1"
+        )
+        stale_identity = _tap_page_turn.DeviceIdentity(
+            stale_package.firmware,
+            stale_package.platform,
+            stale_package.architecture,
+            stale_package.xochitl_sha256,
+        )
+        current_package = next(
+            item
+            for item in _tap_page_turn._trusted_catalog()
+            if item.platform == "ferrari"
+        )
+        current_identity = _tap_page_turn.DeviceIdentity(
+            current_package.firmware,
+            current_package.platform,
+            current_package.architecture,
+            current_package.xochitl_sha256,
+        )
+
+        workers[0].signals.finished.connect.call_args.args[0](stale_identity)
+        self.assertIsNone(toolbox._device_identity)
+        self.assertTrue(toolbox._identity_probe_running)
+        workers[1].signals.finished.connect.call_args.args[0](current_identity)
+        self.assertEqual(toolbox._device_identity, current_identity)
+        self.assertFalse(toolbox._identity_probe_running)
+
     def test_tap_section_emphasizes_offline_verification(self):
         section = _tab_toolbox.TapPageTurnSection(
             FakeConnectionClient(connected=True, host="10.11.99.1")
@@ -1645,6 +1693,12 @@ class WallpaperUiTests(unittest.TestCase):
             ),
             _diagnostics.CollectedItem(
                 _diagnostics.DiagItem(
+                    "pc/rmtool-log-tail.txt", "本机日志", optional=True
+                ),
+                "local path\n",
+            ),
+            _diagnostics.CollectedItem(
+                _diagnostics.DiagItem(
                     "device/journal-xochitl.txt", "xochitl 运行日志", optional=True
                 ),
                 "journal\n",
@@ -1652,11 +1706,15 @@ class WallpaperUiTests(unittest.TestCase):
         ]
         dialog = _tab_toolbox.DiagnosticPreviewDialog(collected)
         self.addCleanup(dialog.deleteLater)
-        self.assertEqual(len(dialog.optional_boxes), 1)
-        box = dialog.optional_boxes["device/journal-xochitl.txt"]
+        self.assertEqual(len(dialog.optional_boxes), 2)
+        log_box = dialog.optional_boxes["pc/rmtool-log-tail.txt"]
+        journal_box = dialog.optional_boxes["device/journal-xochitl.txt"]
+        self.assertTrue(dialog.include_optional("pc/rmtool-log-tail.txt"))
         self.assertTrue(dialog.include_optional("device/journal-xochitl.txt"))
         self.assertTrue(dialog.include_optional("pc/environment.txt"))
-        box.setChecked(False)
+        log_box.setChecked(False)
+        journal_box.setChecked(False)
+        self.assertFalse(dialog.include_optional("pc/rmtool-log-tail.txt"))
         self.assertFalse(dialog.include_optional("device/journal-xochitl.txt"))
         text = _tab_toolbox.DiagnosticPreviewDialog._preview_text(collected)
         self.assertIn("pc/environment.txt", text)
@@ -1680,6 +1738,12 @@ class WallpaperUiTests(unittest.TestCase):
             ),
             _diagnostics.CollectedItem(
                 _diagnostics.DiagItem(
+                    "pc/rmtool-log-tail.txt", "本机日志", optional=True
+                ),
+                "local path\n",
+            ),
+            _diagnostics.CollectedItem(
+                _diagnostics.DiagItem(
                     "device/journal-xochitl.txt", "xochitl 运行日志", optional=True
                 ),
                 "journal\n",
@@ -1688,7 +1752,8 @@ class WallpaperUiTests(unittest.TestCase):
         dialog = mock.Mock()
         dialog.exec_.return_value = _tab_toolbox.QtWidgets.QDialog.Accepted
         dialog.include_optional.side_effect = (
-            lambda name: name != "device/journal-xochitl.txt"
+            lambda name: name
+            not in {"pc/rmtool-log-tail.txt", "device/journal-xochitl.txt"}
         )
         with tempfile.TemporaryDirectory() as folder:
             target = Path(folder) / "diag.zip"
@@ -1710,6 +1775,7 @@ class WallpaperUiTests(unittest.TestCase):
                 names = set(archive.namelist())
                 manifest = archive.read("MANIFEST.txt").decode("utf-8")
         self.assertNotIn("device/journal-xochitl.txt", names)
+        self.assertNotIn("pc/rmtool-log-tail.txt", names)
         self.assertIn("pc/environment.txt", names)
         self.assertIn("device platform: ferrari", manifest)
         self.assertIn("excluded", manifest)
@@ -1870,6 +1936,80 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertIn("正式版", section.catalog_label.text())
         self.assertIn("硬件 Chiappa", section.catalog_label.text())
         self.assertIn("已实机验证", section.catalog_label.text())
+
+    def test_native_and_pinyin_download_failures_keep_session_and_offer_manual_retry(self):
+        cases = []
+
+        native_client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        native_section = _tab_toolbox.NativeChineseSection(native_client)
+        native_package = _native_chinese._trusted_catalog()[0]
+        native_identity = _tap_page_turn.DeviceIdentity(
+            native_package.firmware,
+            native_package.platform,
+            native_package.architecture,
+            native_package.xochitl_sha256,
+        )
+        native_status = _native_chinese.NativeChineseStatus(
+            _native_chinese.NativeChineseState.NOT_INSTALLED,
+            native_identity,
+            native_package,
+        )
+        cases.append(("native", native_client, native_section, native_status))
+
+        pinyin_client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        pinyin_section = _tab_toolbox.PinyinInputSection(pinyin_client)
+        pinyin_package = _pinyin_input._trusted_catalog()[0]
+        pinyin_identity = _tap_page_turn.DeviceIdentity(
+            pinyin_package.firmware,
+            pinyin_package.platform,
+            pinyin_package.architecture,
+            pinyin_package.xochitl_sha256,
+        )
+        pinyin_status = _pinyin_input.PinyinInputStatus(
+            _pinyin_input.PinyinInputState.NOT_INSTALLED,
+            pinyin_identity,
+            pinyin_package,
+        )
+        cases.append(("pinyin", pinyin_client, pinyin_section, pinyin_status))
+
+        for name, client, section, status in cases:
+            with self.subTest(section=name):
+                self.addCleanup(section.deleteLater)
+                section._apply_status(status)
+                worker = mock.Mock()
+                worker.signals = mock.Mock()
+                on_done = mock.Mock()
+                error = _package_download.PackageDownloadError(
+                    name,
+                    "asset.tar.gz",
+                    ("https://github.com/asset", "https://myqcloud.com/asset"),
+                    1,
+                    "0" * 64,
+                    store=mock.Mock(),
+                )
+                with mock.patch.object(
+                    rmtool, "Worker", return_value=worker
+                ), mock.patch.object(section.thread_pool, "start"), mock.patch.object(
+                    _tab_toolbox, "_show_package_download_error"
+                ) as show_download, mock.patch.object(
+                    _tab_toolbox, "show_error"
+                ) as show_error:
+                    section._start_worker(
+                        lambda: None,
+                        pending="正在下载…",
+                        close_connection=True,
+                        on_done=on_done,
+                    )
+                    worker.signals.error.connect.call_args.args[0](error)
+
+                self.assertEqual(client.close_calls, 0)
+                self.assertIs(section._status, status)
+                self.assertIn("手动加载", section.status_label.text())
+                retry = show_download.call_args.kwargs["retry"]
+                self.assertIs(retry.__self__, section)
+                self.assertIs(retry.__func__, section._enable.__func__)
+                show_error.assert_not_called()
+                on_done.assert_called_once_with()
 
     def test_legacy_vellum_cleanup_exposes_one_strict_action(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")

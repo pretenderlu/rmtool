@@ -325,10 +325,16 @@ def _validate_feature(resource: Resource, release_dir: Path) -> Bundle:
             raise RuntimeError(f"Invalid {resource.name} package revision.")
         # The runtime parsers accept the two mirrors in any order (GitHub is
         # now the default route), so validate them as a set of exact URLs.
-        if resource.url_bases is not None and set(package.get("urls") or ()) != {
-            f"{base}/{name}" for base in resource.url_bases
-        }:
-            raise RuntimeError(f"Invalid {resource.name} download URLs.")
+        if resource.url_bases is not None:
+            urls = package.get("urls")
+            expected_urls = {f"{base}/{name}" for base in resource.url_bases}
+            if (
+                not isinstance(urls, list)
+                or len(urls) != 2
+                or any(not isinstance(url, str) for url in urls)
+                or set(urls) != expected_urls
+            ):
+                raise RuntimeError(f"Invalid {resource.name} download URLs.")
 
         files = package.get("files")
         if not isinstance(files, list) or not files:

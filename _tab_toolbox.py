@@ -1719,6 +1719,15 @@ class NativeChineseSection(QtWidgets.QWidget):
                     self.ssh_client.close()
                 logging.error("Native Chinese operation failed after tab close: %s", exc)
                 return
+            if isinstance(exc, _package_download.PackageDownloadError):
+                # Download failed before any device change; keep the session.
+                self._set_busy(False, "资源包下载失败，可手动加载后重试")
+                logging.error("Native Chinese package download failed: %s", exc)
+                if show_errors:
+                    _show_package_download_error(self, exc, retry=self._enable)
+                if on_done is not None:
+                    on_done()
+                return
             if close_connection:
                 self.ssh_client.close()
             self._set_busy(False)
@@ -2051,10 +2060,24 @@ class PinyinInputSection(QtWidgets.QWidget):
                 on_done()
 
         def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                if close_connection:
+                    self.ssh_client.close()
+                logging.error("Pinyin input operation failed after tab close: %s", exc)
+                return
+            if isinstance(exc, _package_download.PackageDownloadError):
+                # Download failed before any device change; keep the session.
+                self._busy = False
+                self.status_label.setText("资源包下载失败，可手动加载后重试")
+                self._update_buttons()
+                logging.error("Pinyin input package download failed: %s", exc)
+                if show_errors:
+                    _show_package_download_error(self, exc, retry=self._enable)
+                if on_done is not None:
+                    on_done()
+                return
             if close_connection:
                 self.ssh_client.close()
-            if sip.isdeleted(self):
-                return
             self._busy = False
             self._status = None
             self.status_label.setText("操作失败，设备不会被自动重启；请检查日志后重试")
@@ -3350,8 +3373,8 @@ class DiagnosticPreviewDialog(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
 
         hint = QtWidgets.QLabel(
-            "以下是将写入诊断包的全部内容。带勾选的条目可能包含文档名，"
-            "如不希望提供可取消勾选。"
+            "以下是将写入诊断包的全部内容。带勾选的可选条目可能包含本地路径、"
+            "文档名或字体名，如不希望提供可取消勾选。"
         )
         hint.setWordWrap(True)
         layout.addWidget(hint)
@@ -3417,7 +3440,8 @@ class DiagnosticsSection(QtWidgets.QWidget):
             "把 rmtool 本机日志和设备上的只读诊断信息（版本、服务状态、"
             "rmtool Xovi 启动日志、共享目录清单等）打包成一个 zip，"
             "供你发给维护者定位问题。导出前会展示全部内容供确认；"
-            "包含文档名的条目可以单独取消。设备凭据永远不会进入诊断包。"
+            "可能包含本地路径、文档名或字体名的条目可以单独取消。"
+            "设备凭据永远不会进入诊断包。"
         )
         detail.setWordWrap(True)
 
@@ -3551,6 +3575,8 @@ class ToolboxTab(QtWidgets.QWidget):
         )
         self._device_identity = None
         self._identity_probe_running = False
+        self._identity_connection_state: Optional[bool] = None
+        self._identity_connection_generation = 0
         self.thread_pool = QtCore.QThreadPool.globalInstance()
 
         self._tool_entries = (
@@ -3857,6 +3883,11 @@ class ToolboxTab(QtWidgets.QWidget):
                 self.detail_stack.setCurrentWidget(self.empty_detail_page)
 
     def _on_connection_changed(self, connected: bool):
+        connected = bool(connected)
+        if connected != self._identity_connection_state:
+            self._identity_connection_state = connected
+            self._identity_connection_generation += 1
+            self._identity_probe_running = False
         self.detect_all_button.setEnabled(connected and not self._detect_all_busy)
         if not connected:
             self._device_identity = None
@@ -3873,10 +3904,13 @@ class ToolboxTab(QtWidgets.QWidget):
         ):
             return
         self._identity_probe_running = True
+        connection_generation = self._identity_connection_generation
         worker = _rmtool.Worker(_tap_page_turn.get_device_identity, self.ssh_client)
 
         def on_finished(identity):
             if sip.isdeleted(self):
+                return
+            if connection_generation != self._identity_connection_generation:
                 return
             self._identity_probe_running = False
             self._device_identity = identity
@@ -3884,6 +3918,8 @@ class ToolboxTab(QtWidgets.QWidget):
 
         def on_error(_exc):
             if sip.isdeleted(self):
+                return
+            if connection_generation != self._identity_connection_generation:
                 return
             self._identity_probe_running = False
             self._device_identity = None
