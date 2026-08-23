@@ -2310,7 +2310,7 @@ class WallpaperUiTests(unittest.TestCase):
         apply(_reading_enhancements.ReadingEnhancementsState.REPAIR_AVAILABLE, recovery=True)
         self.assertTrue(section.install_button.isEnabled())
         self.assertTrue(section.disable_button.isEnabled())
-        self.assertEqual(section.install_button.text(), "修复阅读增强")
+        self.assertEqual(section.install_button.text(), "修复并更新")
         self.assertIn("可安全修复", section.status_label.text())
         apply(_reading_enhancements.ReadingEnhancementsState.INSTALLED_DISABLED)
         self.assertTrue(section.install_button.isEnabled())

@@ -831,6 +831,40 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         self.assertIn("旧版阅读增强，可安全更新", status.detail)
         self.assertNotIn("设置页缺陷包", status.detail)
 
+    def test_revision_four_reports_safe_update_without_defect_wording(self):
+        predecessor = reading._known_revision_four_feature(
+            self.package, self.feature
+        )
+        inspection = shared.SharedInspection(
+            {reading.FEATURE_ID: self._state(predecessor, True)}, True, True
+        )
+        ssh = Mock()
+        ssh.file_exists.return_value = True
+        with patch.object(
+            reading.tap, "get_device_identity", return_value=self.identity
+        ), patch.object(
+            reading,
+            "_trusted_context",
+            return_value=(self.runtime, self._trusted(), (), self.feature),
+        ), patch.object(
+            reading.shared, "has_shared_artifacts", return_value=True
+        ), patch.object(
+            reading,
+            "_inspection_for_migration",
+            return_value=(
+                inspection,
+                {reading.FEATURE_ID: predecessor},
+                {reading.FEATURE_ID: "package-revision-4"},
+            ),
+        ):
+            status = reading.get_status(ssh, (self.package,))
+
+        self.assertEqual(
+            status.state, reading.ReadingEnhancementsState.REPAIR_AVAILABLE
+        )
+        self.assertIn("旧版阅读增强，可安全更新", status.detail)
+        self.assertNotIn("设置页缺陷包", status.detail)
+
     def test_known_defective_package_can_be_disabled_and_marker_normalized(self):
         defective = reading._known_defective_feature(self.package, self.feature)
         inspection = shared.SharedInspection(
