@@ -30,7 +30,10 @@ QREX_FILES = (
     "qml/device/view/documentview/SceneViewGestures.qml",
     "qml/device/view/documentview/DocumentView.qml",
     "qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml",
+    "qml/device/view/documentview/FormatFont.qml",
 )
+EPUB_FONT_328_START = "; RMTOOL_EPUB_FONT_328_START"
+EPUB_FONT_328_END = "; RMTOOL_EPUB_FONT_328_END"
 
 
 def sha256(data: bytes) -> str:
@@ -128,10 +131,18 @@ END AFFECT
     return source.replace(old, new, 1)
 
 
+def _strip_epub_font_328(source: str) -> str:
+    if source.count(EPUB_FONT_328_START) != 1 or source.count(EPUB_FONT_328_END) != 1:
+        raise RuntimeError("reading-enhancements source lacks one 3.28 EPUB font block")
+    before, remainder = source.split(EPUB_FONT_328_START, 1)
+    _block, after = remainder.split(EPUB_FONT_328_END, 1)
+    return before.rstrip() + "\n" + after.lstrip("\n")
+
+
 def _source_for_release(source: Path, release_version: str, temporary: Path) -> Path:
     text = source.read_text(encoding="utf-8")
     if _variant_for_release(release_version) == "3.27":
-        text = _main_view_variant(text)
+        text = _strip_epub_font_328(_main_view_variant(text))
     temporary.mkdir(parents=True, exist_ok=True)
     destination = temporary / f"reading-enhancements-{_variant_for_release(release_version)}.qmd"
     destination.write_text(text, encoding="utf-8", newline="\n")
@@ -233,6 +244,12 @@ def _compile_and_validate(*, qmd_tool: Path, qmldiff: Path, source: Path, target
         if "rmtoolFastMonoReadingEnabled" not in main:
             raise RuntimeError(f"structure assertion {target['id']} missing MainView fast-mono hook")
     else:
+        font_menu = (replay / QREX_FILES[4]).read_text(encoding="utf-8")
+        for marker in ("rmtoolEpubFont", "fontModel.insert(fontModel.count - 1"):
+            if marker not in font_menu:
+                raise RuntimeError(
+                    f"structure assertion {target['id']} missing EPUB font marker {marker}"
+                )
         for marker in (
             "rmtoolSettingsRoot._selectedPage = page",
             "root.sideBarItemClicked(root._selectedPage);",

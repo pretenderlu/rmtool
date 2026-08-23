@@ -59,7 +59,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
             len({(item.release_version, item.platform) for item in self.catalog}),
             14,
         )
-        self.assertTrue(all(item.package_revision == 4 for item in self.catalog))
+        self.assertTrue(all(item.package_revision == 5 for item in self.catalog))
         self.assertTrue(all(item.offline_verified for item in self.catalog))
         self.assertEqual(
             {
@@ -117,6 +117,28 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         for package in self.catalog:
             _runtime, current = reading._shared_specs(package)
             predecessor = reading._known_revision_three_feature(package, current)
+            self.assertEqual(
+                (predecessor.sha256, predecessor.size),
+                expected["3.27" if package.release_version.startswith("3.27.") else "3.28"],
+            )
+            self.assertEqual(predecessor.feature_id, current.feature_id)
+            self.assertEqual(predecessor.package_id, current.package_id)
+            self.assertEqual(predecessor.runtime_path, current.runtime_path)
+
+    def test_revision_four_predecessor_is_exact_and_variant_bounded(self):
+        expected = {
+            "3.27": (
+                "d8b2a21d75eb4f1c26e67446a6519360aa2d690c7ae91f83c744c83152ba9e28",
+                48148,
+            ),
+            "3.28": (
+                "aadec3d2ec54c408a8f64c8f046bd5973ead1ba6e7e4a3c91cb38404d174b164",
+                47194,
+            ),
+        }
+        for package in self.catalog:
+            _runtime, current = reading._shared_specs(package)
+            predecessor = reading._known_revision_four_feature(package, current)
             self.assertEqual(
                 (predecessor.sha256, predecessor.size),
                 expected["3.27" if package.release_version.startswith("3.27.") else "3.28"],
@@ -303,6 +325,9 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                             self.package, self.feature
                         ),
                     ),
+                    ("package-revision-4", reading._known_revision_four_feature(
+                        self.package, self.feature
+                    )),
                     ("package-revision-3", reading._known_revision_three_feature(
                         self.package, self.feature
                     )),
@@ -337,6 +362,10 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                     (
                         "settings-component-defect",
                         reading._known_defective_feature(package, feature),
+                    ),
+                    (
+                        "package-revision-4",
+                        reading._known_revision_four_feature(package, feature),
                     ),
                     (
                         "package-revision-3",

@@ -63,6 +63,7 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
             "/qml/device/view/settings/Settings.qml",
             "/qml/device/view/documentview/SceneViewGestures.qml",
             "/qml/device/view/documentview/DocumentView.qml",
+            "/qml/device/view/documentview/FormatFont.qml",
             "/qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml",
         ):
             self.assertIn(target, source)
@@ -109,6 +110,13 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
             # Conditional settings panels must gray out when disabled
             # (opacity follows the stock DisplayVisibleContent pattern).
             "opacity: enabled ? 1 : 0.5",
+            "RMTOOL_EPUB_FONT_328_START",
+            "file:///home/root/.local/share/rmtool/epub-fonts/slot-1.ttf",
+            "FontLoader.Ready",
+            "rmtoolEpubFont.name",
+            "fontModel.insert(fontModel.count - 1",
+            "return fontModel.count - 1",
+            "LOCATE AFTER ListModel#fontModel",
         ):
             self.assertIn(marker, source, marker)
         self.assertEqual(source.count("opacity: enabled ? 1 : 0.5"), 5)
@@ -154,6 +162,10 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
         self.assertIn("rmtoolSettingsRoot._selectedPage = page", text_328)
         self.assertNotIn("rmtoolSettingsRoot.highlightedIndex = page", text_328)
         self.assertEqual(bytes_328, SOURCE.read_bytes())
+        self.assertNotIn("RMTOOL_EPUB_FONT_328_START", text_327)
+        self.assertNotIn("FormatFont.qml", text_327)
+        self.assertIn("RMTOOL_EPUB_FONT_328_START", text_328)
+        self.assertIn("FormatFont.qml", text_328)
         for source in (text_327, text_328):
             self.assertIn("LOCATE BEFORE Component#general", source)
             self.assertNotIn("TRAVERSE ?#general", source)
@@ -316,6 +328,18 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
                     self.assertNotIn(
                         "rmtoolSettingsRoot.highlightedIndex = page", settings
                     )
+                    font_menu = (
+                        replay / "qml/device/view/documentview/FormatFont.qml"
+                    ).read_text(encoding="utf-8")
+                    self.assertLess(
+                        font_menu.index("id: fontModel"),
+                        font_menu.index("id: rmtoolEpubFont"),
+                        target_id,
+                    )
+                    self.assertEqual(
+                        font_menu.count("key: rmtoolEpubFont.name"), 1, target_id
+                    )
+                    self.assertIn("return fontModel.count - 1", font_menu)
 
 
 if __name__ == "__main__":

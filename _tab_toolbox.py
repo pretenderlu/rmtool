@@ -134,6 +134,7 @@ class FontTab(QtWidgets.QWidget):
         self._font_progress: Optional[QtWidgets.QProgressDialog] = None
         self._fonts: tuple[_rmkit_cn.UserFont, ...] = ()
         self._font_verification: Optional[_rmkit_cn.FontMirrorVerification] = None
+        self._epub_font_status: Optional[_rmkit_cn.EpubFontSlotStatus] = None
         self._legacy_font_migration: Optional[
             _rmkit_cn.LegacySystemFontMigration
         ] = None
@@ -206,6 +207,8 @@ class FontTab(QtWidgets.QWidget):
         self.refresh_button.clicked.connect(self._refresh_fonts)
         self.set_active_button = QtWidgets.QPushButton("设为系统字体")
         self.set_active_button.clicked.connect(self._set_selected_active)
+        self.epub_font_button = QtWidgets.QPushButton("添加到 EPUB 字体菜单")
+        self.epub_font_button.clicked.connect(self._toggle_selected_epub_font)
         self.delete_button = QtWidgets.QPushButton("删除")
         self.delete_button.setProperty("btnRole", "danger")
         self.delete_button.clicked.connect(self._delete_selected_font)
@@ -219,6 +222,7 @@ class FontTab(QtWidgets.QWidget):
         manager_actions.setSpacing(_rmtool.SUBSECTION_GAP)
         manager_actions.addWidget(self.refresh_button)
         manager_actions.addWidget(self.set_active_button)
+        manager_actions.addWidget(self.epub_font_button)
         manager_actions.addWidget(self.delete_button)
         manager_actions.addWidget(self.migrate_font_button)
         manager_actions.addStretch()
@@ -378,6 +382,7 @@ class FontTab(QtWidgets.QWidget):
         if not connected:
             self._fonts = ()
             self._font_verification = None
+            self._epub_font_status = None
             self._legacy_font_migration = None
             self.font_table.setRowCount(0)
             self.manager_status_label.setText("设备未连接。")
@@ -400,6 +405,11 @@ class FontTab(QtWidgets.QWidget):
         self.set_active_button.setText(
             "重新应用系统字体" if selected and selected.active else "设为系统字体"
         )
+        self.epub_font_button.setText(
+            "从 EPUB 字体菜单移除"
+            if selected and selected.epub
+            else "添加到 EPUB 字体菜单"
+        )
         self.refresh_button.setEnabled(connected)
         self.select_button.setEnabled(not self._busy)
         self.upload_button.setEnabled(
@@ -408,8 +418,17 @@ class FontTab(QtWidgets.QWidget):
         self.set_active_button.setEnabled(
             connected and selected is not None
         )
+        self.epub_font_button.setEnabled(
+            connected
+            and selected is not None
+            and self._epub_font_status is not None
+            and self._epub_font_status.supported
+        )
         self.delete_button.setEnabled(
-            connected and selected is not None and not selected.active
+            connected
+            and selected is not None
+            and not selected.active
+            and not selected.epub
         )
         self.migrate_font_button.setEnabled(
             connected
@@ -539,6 +558,7 @@ class FontTab(QtWidgets.QWidget):
                 inventory[0],
                 verification=inventory[1],
                 migration=inventory[2],
+                epub_status=inventory[3],
                 select_remote_path=select_remote_path,
                 select_filename=select_filename,
                 success=success,
@@ -548,6 +568,7 @@ class FontTab(QtWidgets.QWidget):
 
     @staticmethod
     def _load_font_inventory(ssh_client, remote_dir: str):
+        epub_status = _rmkit_cn.get_epub_font_slot_status(ssh_client)
         font_dirs = [remote_dir]
         migration_dir = remote_dir
         if posixpath.normpath(remote_dir) == posixpath.normpath(
@@ -558,7 +579,11 @@ class FontTab(QtWidgets.QWidget):
         fonts = {
             font.remote_path: font
             for font_dir in font_dirs
-            for font in _rmkit_cn.list_user_fonts(ssh_client, font_dir)
+            for font in _rmkit_cn.list_user_fonts(
+                ssh_client,
+                font_dir,
+                epub_slot_target=epub_status.target_path,
+            )
         }
         return (
             tuple(
@@ -575,6 +600,7 @@ class FontTab(QtWidgets.QWidget):
             _rmkit_cn.get_legacy_system_font_migration(
                 ssh_client, migration_dir
             ),
+            epub_status,
         )
 
     def _apply_font_inventory(
@@ -583,6 +609,7 @@ class FontTab(QtWidgets.QWidget):
         *,
         verification: Optional[_rmkit_cn.FontMirrorVerification] = None,
         migration: Optional[_rmkit_cn.LegacySystemFontMigration] = None,
+        epub_status: Optional[_rmkit_cn.EpubFontSlotStatus] = None,
         select_remote_path: str = "",
         select_filename: str = "",
         success: str = "",
@@ -597,10 +624,16 @@ class FontTab(QtWidgets.QWidget):
         self._fonts = tuple(fonts)
         self._font_verification = verification
         self._legacy_font_migration = migration
+        self._epub_font_status = epub_status
         self.font_table.setRowCount(len(self._fonts))
         selected_row = -1
         for row, font in enumerate(self._fonts):
-            values = (font.filename, font.family, "当前系统字体" if font.active else "已上传")
+            roles = []
+            if font.active:
+                roles.append("当前系统字体")
+            if font.epub:
+                roles.append("EPUB 字体")
+            values = (font.filename, font.family, " / ".join(roles) or "已上传")
             for column, value in enumerate(values):
                 self.font_table.setItem(row, column, QtWidgets.QTableWidgetItem(value))
             if (
@@ -633,9 +666,14 @@ class FontTab(QtWidgets.QWidget):
             and self._legacy_font_migration.state != "none"
             else ""
         )
+        epub_note = (
+            f"；EPUB 字体：{self._epub_font_status.detail}"
+            if self._epub_font_status is not None
+            else ""
+        )
         self.manager_status_label.setText(
             f"已读取 {len(self._fonts)} 个用户字体；当前系统字体：{active}"
-            f"{legacy_note}{verification_note}{migration_note}。"
+            f"{legacy_note}{verification_note}{migration_note}{epub_note}。"
         )
         tooltip = "\n".join(
             detail
@@ -645,6 +683,7 @@ class FontTab(QtWidgets.QWidget):
                 if self._legacy_font_migration
                 and self._legacy_font_migration.state != "none"
                 else "",
+                self._epub_font_status.detail if self._epub_font_status else "",
             )
             if detail
         )
@@ -699,7 +738,10 @@ class FontTab(QtWidgets.QWidget):
                     # Stale result from a previous connection; discard it.
                     return
                 self._apply_font_inventory(
-                    inventory[0], verification=inventory[1], migration=inventory[2]
+                    inventory[0],
+                    verification=inventory[1],
+                    migration=inventory[2],
+                    epub_status=inventory[3],
                 )
             except Exception:
                 # Never let an apply failure stall the serial coordinator.
@@ -803,12 +845,73 @@ class FontTab(QtWidgets.QWidget):
         )
 
     @require_connection
+    def _toggle_selected_epub_font(self):
+        selected = self._selected_device_font()
+        status = self._epub_font_status
+        if not selected or status is None or not status.supported:
+            return
+        removing = selected.epub
+        action = "从 EPUB 字体菜单移除" if removing else "添加到 EPUB 字体菜单"
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            f"{action} {selected.filename}。字体文件仍保留在 /home，"
+            "需先在设备工具中安装或更新到阅读增强 revision 5，"
+            "操作完成后再手动重启设备，EPUB 字体菜单才会更新。是否继续？",
+            confirm_text=action,
+            cancel_text="取消",
+        ):
+            return
+        fn = (
+            _rmkit_cn.remove_epub_font_slot
+            if removing
+            else _rmkit_cn.set_epub_font_slot
+        )
+        args = (
+            (self.ssh_client,)
+            if removing
+            else (
+                self.ssh_client,
+                posixpath.dirname(selected.remote_path),
+                selected.filename,
+            )
+        )
+        self._start_font_worker(
+            fn,
+            *args,
+            pending=(
+                "正在移除 EPUB 字体槽位…"
+                if removing
+                else "正在设置并验证 EPUB 字体槽位…"
+            ),
+            on_success=lambda _: self._refresh_fonts(
+                select_remote_path=selected.remote_path,
+                select_filename=selected.filename,
+                success=(
+                    "已从 EPUB 字体菜单移除。请确认阅读增强为 revision 5，"
+                    "再在准备好后点击“重启生效”。"
+                    if removing
+                    else "已添加到 EPUB 字体菜单。请确认阅读增强已安装或更新至 "
+                    "revision 5，再在准备好后点击“重启生效”。"
+                ),
+            ),
+            error_prefix="EPUB 字体菜单更新失败",
+        )
+
+    @require_connection
     def _delete_selected_font(self):
         selected = self._selected_device_font()
         if not selected:
             return
         if selected.active:
             show_warning(self, _rmtool.APP_NAME, "当前系统字体不能删除，请先切换到其他字体。")
+            return
+        if selected.epub:
+            show_warning(
+                self,
+                _rmtool.APP_NAME,
+                "当前 EPUB 字体不能删除，请先从 EPUB 字体菜单移除。",
+            )
             return
         if not ask_confirmation(
             self,
