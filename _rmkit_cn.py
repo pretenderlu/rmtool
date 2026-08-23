@@ -117,6 +117,8 @@ SYSTEM_FONT_VALIDATION_ARTIFACTS = (
     f"{SYSTEM_FONT_DIR}/test-fonts.conf",
     f"{SYSTEM_FONT_DIR}/test-state.json",
 )
+EPUB_FONT_SLOT_DIR = "/home/root/.local/share/rmtool/epub-fonts"
+EPUB_FONT_SLOT_PATH = f"{EPUB_FONT_SLOT_DIR}/slot-1.ttf"
 SYSTEM_FONT_MATCH_ENV = (
     "HOME=/nonexistent XDG_CONFIG_HOME=/nonexistent "
     "FONTCONFIG_FILE=/etc/fonts/fonts.conf"
@@ -149,6 +151,18 @@ class UserFont:
     family: str
     remote_path: str
     active: bool
+    epub: bool = False
+
+
+@dataclass(frozen=True)
+class EpubFontSlotStatus:
+    state: str
+    detail: str
+    target_path: str = ""
+
+    @property
+    def supported(self) -> bool:
+        return self.state == "ready"
 
 
 @dataclass(frozen=True)
@@ -1698,7 +1712,162 @@ def _ui_font_match_paths(ssh_client) -> tuple[str, ...]:
     return tuple(dict.fromkeys(paths))
 
 
-def list_user_fonts(ssh_client, remote_dir: str) -> tuple[UserFont, ...]:
+def _epub_font_slot_target_from_sftp(sftp) -> str:
+    try:
+        attributes = sftp.lstat(EPUB_FONT_SLOT_PATH)
+    except IOError:
+        return ""
+    if not stat.S_ISLNK(attributes.st_mode):
+        raise RuntimeError("EPUB 字体槽位已被非软链接文件占用。")
+    target = posixpath.normpath(sftp.readlink(EPUB_FONT_SLOT_PATH))
+    if not posixpath.isabs(target):
+        raise RuntimeError("EPUB 字体槽位不是 rmtool 创建的绝对软链接。")
+    directory = posixpath.dirname(target)
+    filename = posixpath.basename(target)
+    _user_font_path(directory, filename)
+    _require_top_level_regular_font(sftp, directory, filename)
+    return target
+
+
+def _epub_font_slot_target(ssh_client) -> str:
+    with ssh_client.sftp_session() as sftp:
+        return _epub_font_slot_target_from_sftp(sftp)
+
+
+def get_epub_font_slot_status(ssh_client) -> EpubFontSlotStatus:
+    """Inspect exact 3.28 support and the optional EPUB font link without writes."""
+    import _reading_enhancements as reading
+    import _tap_page_turn as tap
+
+    try:
+        identity = tap.get_device_identity(ssh_client)
+        package = reading.select_package(reading._trusted_catalog(), identity)
+    except Exception as exc:
+        return EpubFontSlotStatus(
+            "unsupported",
+            f"无法确认当前设备是否精确支持 EPUB 字体菜单：{exc}",
+        )
+    if package is None or not package.release_version.startswith("3.28."):
+        return EpubFontSlotStatus(
+            "unsupported",
+            "仅精确支持已收录的 3.28 固件，当前设备不能修改 EPUB 字体菜单。",
+        )
+    try:
+        target = _epub_font_slot_target(ssh_client)
+    except Exception as exc:
+        return EpubFontSlotStatus("invalid", str(exc))
+    return EpubFontSlotStatus(
+        "ready",
+        "当前固件支持一个 EPUB 自定义字体槽位；需安装或更新阅读增强 revision 5。",
+        target,
+    )
+
+
+def _require_epub_font_slot_support(ssh_client) -> EpubFontSlotStatus:
+    status = get_epub_font_slot_status(ssh_client)
+    if not status.supported:
+        raise RuntimeError(status.detail)
+    return status
+
+
+def set_epub_font_slot(
+    ssh_client, remote_dir: str, filename: str
+) -> EpubFontSlotStatus:
+    """Atomically point the trusted 3.28 EPUB slot at one uploaded font."""
+    status = _require_epub_font_slot_support(ssh_client)
+    directory, remote_path = _user_font_path(remote_dir, filename)
+    with ssh_client.sftp_session() as sftp:
+        _require_top_level_regular_font(sftp, directory, filename)
+    if status.target_path == remote_path:
+        return status
+
+    token = os.urandom(6).hex()
+    temporary = f"{EPUB_FONT_SLOT_PATH}.rmtool-{token}.tmp"
+    backup = f"{EPUB_FONT_SLOT_PATH}.rmtool-{token}.bak"
+    backup_created = False
+    installed = False
+    ssh_client.exec_checked(f"mkdir -p {shlex.quote(EPUB_FONT_SLOT_DIR)}")
+    try:
+        with ssh_client.sftp_session() as sftp:
+            sftp.symlink(remote_path, temporary)
+            if not stat.S_ISLNK(sftp.lstat(temporary).st_mode):
+                raise RuntimeError("EPUB 字体临时软链接创建失败。")
+            if posixpath.normpath(sftp.readlink(temporary)) != remote_path:
+                raise RuntimeError("EPUB 字体临时软链接校验失败。")
+            try:
+                current = sftp.lstat(EPUB_FONT_SLOT_PATH)
+            except IOError:
+                current = None
+            if current is not None:
+                if not stat.S_ISLNK(current.st_mode):
+                    raise RuntimeError("EPUB 字体槽位已被非软链接文件占用。")
+                sftp.rename(EPUB_FONT_SLOT_PATH, backup)
+                backup_created = True
+            sftp.rename(temporary, EPUB_FONT_SLOT_PATH)
+            installed = True
+        verified = _epub_font_slot_target(ssh_client)
+        if verified != remote_path:
+            raise RuntimeError("EPUB 字体槽位写入后校验失败。")
+        if backup_created:
+            with ssh_client.sftp_session() as sftp:
+                sftp.remove(backup)
+            backup_created = False
+        return EpubFontSlotStatus("ready", "EPUB 字体槽位已更新。", remote_path)
+    except Exception as exc:
+        rollback_errors = []
+        try:
+            with ssh_client.sftp_session() as sftp:
+                if installed:
+                    _remove_sftp_path_if_present(sftp, EPUB_FONT_SLOT_PATH)
+                if backup_created:
+                    sftp.rename(backup, EPUB_FONT_SLOT_PATH)
+                    backup_created = False
+                _remove_sftp_path_if_present(sftp, temporary)
+        except Exception as rollback_exc:
+            rollback_errors.append(f"EPUB 字体槽位恢复失败：{rollback_exc}")
+        if rollback_errors:
+            raise RuntimeError(f"{exc} 自动回滚未完整完成：{'；'.join(rollback_errors)}") from exc
+        raise
+
+
+def remove_epub_font_slot(ssh_client) -> EpubFontSlotStatus:
+    """Atomically remove the trusted 3.28 EPUB font slot."""
+    status = _require_epub_font_slot_support(ssh_client)
+    if not status.target_path:
+        return status
+    backup = f"{EPUB_FONT_SLOT_PATH}.rmtool-{os.urandom(6).hex()}.bak"
+    moved = False
+    try:
+        with ssh_client.sftp_session() as sftp:
+            current = sftp.lstat(EPUB_FONT_SLOT_PATH)
+            if not stat.S_ISLNK(current.st_mode):
+                raise RuntimeError("EPUB 字体槽位已被非软链接文件占用。")
+            sftp.rename(EPUB_FONT_SLOT_PATH, backup)
+            moved = True
+        if _epub_font_slot_target(ssh_client):
+            raise RuntimeError("EPUB 字体槽位移除后校验失败。")
+        with ssh_client.sftp_session() as sftp:
+            sftp.remove(backup)
+        moved = False
+        return EpubFontSlotStatus("ready", "EPUB 字体槽位已移除。")
+    except Exception as exc:
+        if moved:
+            try:
+                with ssh_client.sftp_session() as sftp:
+                    sftp.rename(backup, EPUB_FONT_SLOT_PATH)
+            except Exception as rollback_exc:
+                raise RuntimeError(
+                    f"{exc} 自动回滚未完整完成：EPUB 字体槽位恢复失败：{rollback_exc}"
+                ) from exc
+        raise
+
+
+def list_user_fonts(
+    ssh_client,
+    remote_dir: str,
+    *,
+    epub_slot_target: str = "",
+) -> tuple[UserFont, ...]:
     """List manageable top-level user fonts without traversing subdirectories."""
     directory = _normalize_user_font_dir(remote_dir)
     with ssh_client.sftp_session() as sftp:
@@ -1718,6 +1887,7 @@ def list_user_fonts(ssh_client, remote_dir: str) -> tuple[UserFont, ...]:
                 family=family,
                 remote_path=remote_path,
                 active=remote_path in matched_paths,
+                epub=remote_path == epub_slot_target,
             )
         )
     return tuple(fonts)
@@ -1741,6 +1911,10 @@ def upload_user_font(
         raise RuntimeError(
             "上传目标正被系统字体配置使用。请改用其他文件名，或先切换系统字体。"
         )
+    if remote_path == _epub_font_slot_target(ssh_client):
+        raise RuntimeError(
+            "上传目标正作为 EPUB 字体使用。请改用其他文件名，或先从 EPUB 字体菜单移除。"
+        )
 
     with remount_rw(ssh_client):
         ssh_client.exec_checked(f"mkdir -p {shlex.quote(directory)}")
@@ -1754,6 +1928,10 @@ def upload_user_font(
                 if remote_path in _ui_font_match_paths(ssh_client):
                     raise RuntimeError(
                         "上传目标在操作期间成为系统字体，已停止上传。"
+                    )
+                if remote_path == _epub_font_slot_target_from_sftp(sftp):
+                    raise RuntimeError(
+                        "上传目标在操作期间成为 EPUB 字体，已停止上传。"
                     )
                 try:
                     existing = sftp.lstat(remote_path)
@@ -1813,6 +1991,7 @@ def upload_user_font(
         family=family,
         remote_path=remote_path,
         active=False,
+        epub=False,
     )
 
 
@@ -1888,6 +2067,8 @@ def delete_user_font(ssh_client, remote_dir: str, filename: str) -> None:
     active_before = _ui_font_match_paths(ssh_client)
     if remote_path in active_before:
         raise RuntimeError("当前系统字体不能删除，请先切换到其他字体。")
+    if remote_path == _epub_font_slot_target(ssh_client):
+        raise RuntimeError("当前 EPUB 字体不能删除，请先从 EPUB 字体菜单移除。")
     backup_path = f"{remote_path}.rmtool-delete-{os.urandom(6).hex()}.bak"
     moved = False
     refresh_cache = directory != USER_FONT_REPOSITORY
@@ -1897,6 +2078,10 @@ def delete_user_font(ssh_client, remote_dir: str, filename: str) -> None:
                 _require_top_level_regular_font(sftp, directory, filename)
                 if remote_path in _ui_font_match_paths(ssh_client):
                     raise RuntimeError("当前系统字体不能删除，请先切换到其他字体。")
+                if remote_path == _epub_font_slot_target_from_sftp(sftp):
+                    raise RuntimeError(
+                        "当前 EPUB 字体不能删除，请先从 EPUB 字体菜单移除。"
+                    )
                 sftp.rename(remote_path, backup_path)
                 moved = True
             if refresh_cache:

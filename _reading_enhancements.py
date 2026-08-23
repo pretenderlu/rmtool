@@ -30,7 +30,7 @@ BUNDLED_MANIFEST = Path(__file__).with_name("reading-enhancements") / "manifest.
 
 QMD_PAYLOAD_PATH = "exthome/qt-resource-rebuilder/reading-enhancements.qmd"
 FEATURE_ID = "reading-enhancements"
-PACKAGE_REVISION = 4
+PACKAGE_REVISION = 5
 MAX_MANIFEST_BYTES = tap.MAX_MANIFEST_BYTES
 MAX_PACKAGE_BYTES = tap.MAX_PACKAGE_BYTES
 MAX_UNPACKED_BYTES = tap.MAX_UNPACKED_BYTES
@@ -81,6 +81,19 @@ _REVISION_3_QMD = {
     "3.28": (
         "10ef980eb3bc66cf94087ab096e660a5d3519fad1b383513ca7ed0db09f48a7a",
         46594,
+    ),
+}
+
+# Revision 4 shipped in v1.14.1. Revision 5 adds the 3.28-only EPUB custom
+# font slot while preserving the unified reading-enhancements runtime.
+_REVISION_4_QMD = {
+    "3.27": (
+        "d8b2a21d75eb4f1c26e67446a6519360aa2d690c7ae91f83c744c83152ba9e28",
+        48148,
+    ),
+    "3.28": (
+        "aadec3d2ec54c408a8f64c8f046bd5973ead1ba6e7e4a3c91cb38404d174b164",
+        47194,
     ),
 }
 
@@ -557,6 +570,14 @@ def _known_revision_three_feature(package, current):
     return replace(current, sha256=predecessor[0], size=predecessor[1])
 
 
+def _known_revision_four_feature(package, current):
+    variant = "3.27" if package.release_version.startswith("3.27.") else "3.28"
+    predecessor = _REVISION_4_QMD.get(variant)
+    if predecessor is None:
+        return None
+    return replace(current, sha256=predecessor[0], size=predecessor[1])
+
+
 def _known_device_trial_feature(package, current):
     predecessor = _VERIFIED_DEVICE_TRIALS.get((package.platform, package.firmware))
     if predecessor is None:
@@ -665,7 +686,10 @@ def _inspection_for_migration(ssh_client, runtime, trusted, package):
         predecessors.append(("settings-component-defect", defective))
     if navigation_defective is not None:
         predecessors.append(("settings-navigation-defect", navigation_defective))
-    # Newest predecessors first: revision 3, then 2, then 1.
+    # Newest predecessors first: revision 4, then 3, 2, and 1.
+    revision_four = _known_revision_four_feature(package, trusted[FEATURE_ID])
+    if revision_four is not None and revision_four != trusted[FEATURE_ID]:
+        predecessors.append(("package-revision-4", revision_four))
     revision_three = _known_revision_three_feature(package, trusted[FEATURE_ID])
     if revision_three is not None and revision_three != trusted[FEATURE_ID]:
         predecessors.append(("package-revision-3", revision_three))

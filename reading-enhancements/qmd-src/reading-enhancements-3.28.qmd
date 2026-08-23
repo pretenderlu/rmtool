@@ -268,6 +268,56 @@ AFFECT /qml/device/view/settings/Settings.qml
     END TRAVERSE
 END AFFECT
 
+; RMTOOL_EPUB_FONT_328_START
+AFFECT /qml/device/view/documentview/FormatFont.qml
+    TRAVERSE Control#root
+        LOCATE BEFORE ALL
+        INSERT {
+            function rmtoolInsertEpubFont() {
+                if (rmtoolEpubFont.status !== FontLoader.Ready || !rmtoolEpubFont.name) {
+                    return
+                }
+                for (let index = 0; index < fontModel.count; index++) {
+                    if (fontModel.get(index).key === rmtoolEpubFont.name) {
+                        return
+                    }
+                }
+                fontModel.insert(fontModel.count - 1, {
+                    key: rmtoolEpubFont.name,
+                    value: rmtoolEpubFont.name
+                })
+            }
+
+            Component.onCompleted: Qt.callLater(root.rmtoolInsertEpubFont)
+        }
+    END TRAVERSE
+
+    TRAVERSE Control#root > ColumnLayout
+        LOCATE AFTER ListModel#fontModel
+        INSERT {
+            FontLoader {
+                id: rmtoolEpubFont
+                source: "file:///home/root/.local/share/rmtool/epub-fonts/slot-1.ttf"
+                onStatusChanged: root.rmtoolInsertEpubFont()
+            }
+        }
+    END TRAVERSE
+
+    TRAVERSE Control#root > ColumnLayout > Dropdown#dropdown
+        REPLACE currentIndex WITH {
+            currentIndex: {
+                for (let index = 0; index < fontModel.count; index++) {
+                    if (fontModel.get(index).key === root.epub.fontName) {
+                        return index
+                    }
+                }
+                return fontModel.count - 1
+            }
+        }
+    END TRAVERSE
+END AFFECT
+; RMTOOL_EPUB_FONT_328_END
+
 AFFECT /qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml
     TRAVERSE ToolbarTool#root > Component#settingsComponent > ColumnLayout#content
         LOCATE BEFORE ALL

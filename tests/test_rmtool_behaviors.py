@@ -4009,8 +4009,12 @@ class FontUiTests(unittest.TestCase):
             "verified", "已实机验证", "测试"
         )
         migration = _rmkit_cn.LegacySystemFontMigration("none", "无需迁移")
+        epub_status = _rmkit_cn.EpubFontSlotStatus(
+            "ready", "当前固件支持一个 EPUB 自定义字体槽位。"
+        )
 
-        def list_fonts(_client, remote_dir):
+        def list_fonts(_client, remote_dir, *, epub_slot_target=""):
+            self.assertEqual(epub_slot_target, "")
             if remote_dir == rmtool.DEFAULT_FONT_DIR:
                 return (repository_font,)
             if remote_dir == rmtool.LEGACY_DEFAULT_FONT_DIR:
@@ -4023,20 +4027,26 @@ class FontUiTests(unittest.TestCase):
             _rmkit_cn, "get_font_mirror_verification", return_value=verification
         ), mock.patch.object(
             _rmkit_cn, "get_legacy_system_font_migration", return_value=migration
-        ) as get_migration:
+        ) as get_migration, mock.patch.object(
+            _rmkit_cn, "get_epub_font_slot_status", return_value=epub_status
+        ) as get_epub_status:
             inventory = _tab_toolbox.FontTab._load_font_inventory(
                 client, rmtool.DEFAULT_FONT_DIR
             )
 
-        self.assertEqual(inventory, ((repository_font, legacy_font), verification, migration))
+        self.assertEqual(
+            inventory,
+            ((repository_font, legacy_font), verification, migration, epub_status),
+        )
         self.assertEqual(
             list_user_fonts.call_args_list,
             [
-                mock.call(client, rmtool.DEFAULT_FONT_DIR),
-                mock.call(client, rmtool.LEGACY_DEFAULT_FONT_DIR),
+                mock.call(client, rmtool.DEFAULT_FONT_DIR, epub_slot_target=""),
+                mock.call(client, rmtool.LEGACY_DEFAULT_FONT_DIR, epub_slot_target=""),
             ],
         )
         get_migration.assert_called_once_with(client, rmtool.LEGACY_DEFAULT_FONT_DIR)
+        get_epub_status.assert_called_once_with(client)
 
     def test_font_inventory_displays_device_verification_level(self):
         widget = rmtool.FontTab(
@@ -4158,6 +4168,79 @@ class FontUiTests(unittest.TestCase):
         self.assertEqual(widget.set_active_button.text(), "重新应用系统字体")
         self.assertFalse(widget.delete_button.isEnabled())
 
+    def test_epub_font_action_requires_supported_328_and_marks_inventory(self):
+        widget = rmtool.FontTab(
+            FakeConnectionClient(connected=True), rmtool._default_config()
+        )
+        self.addCleanup(widget.deleteLater)
+        epub = _rmkit_cn.UserFont(
+            "reader.ttf",
+            "Reader Family",
+            f"{rmtool.DEFAULT_FONT_DIR}reader.ttf",
+            False,
+            True,
+        )
+
+        widget._apply_font_inventory(
+            (epub,),
+            select_filename="reader.ttf",
+            epub_status=_rmkit_cn.EpubFontSlotStatus(
+                "unsupported", "仅精确支持已收录的 3.28 固件。"
+            ),
+        )
+        self.assertEqual(widget.font_table.item(0, 2).text(), "EPUB 字体")
+        self.assertEqual(widget.epub_font_button.text(), "从 EPUB 字体菜单移除")
+        self.assertFalse(widget.epub_font_button.isEnabled())
+        self.assertFalse(widget.delete_button.isEnabled())
+
+        widget._apply_font_inventory(
+            (epub,),
+            select_filename="reader.ttf",
+            epub_status=_rmkit_cn.EpubFontSlotStatus(
+                "ready", "当前固件支持一个 EPUB 自定义字体槽位。", epub.remote_path
+            ),
+        )
+        self.assertTrue(widget.epub_font_button.isEnabled())
+
+    def test_epub_font_action_uses_add_and_remove_backends(self):
+        client = FakeConnectionClient(connected=True)
+        widget = rmtool.FontTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        status = _rmkit_cn.EpubFontSlotStatus(
+            "ready", "当前固件支持一个 EPUB 自定义字体槽位。"
+        )
+        font = _rmkit_cn.UserFont(
+            "reader.ttf",
+            "Reader Family",
+            f"{rmtool.DEFAULT_FONT_DIR}reader.ttf",
+            False,
+        )
+
+        widget._apply_font_inventory(
+            (font,), select_filename="reader.ttf", epub_status=status
+        )
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=True
+        ) as confirm, mock.patch.object(widget, "_start_font_worker") as start_worker:
+            widget._toggle_selected_epub_font()
+        self.assertIs(start_worker.call_args.args[0], _rmkit_cn.set_epub_font_slot)
+        self.assertIn("阅读增强 revision 5", confirm.call_args.args[2])
+        self.assertEqual(
+            start_worker.call_args.args[1:4],
+            (client, posixpath.normpath(rmtool.DEFAULT_FONT_DIR), "reader.ttf"),
+        )
+
+        epub = _rmkit_cn.replace(font, epub=True)
+        widget._apply_font_inventory(
+            (epub,), select_filename="reader.ttf", epub_status=status
+        )
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=True
+        ), mock.patch.object(widget, "_start_font_worker") as start_worker:
+            widget._toggle_selected_epub_font()
+        self.assertIs(start_worker.call_args.args[0], _rmkit_cn.remove_epub_font_slot)
+        self.assertEqual(start_worker.call_args.args[1:], (client,))
+
     def test_disconnect_invalidates_in_flight_inventory_result(self):
         client = FakeConnectionClient(connected=False)
         widget = rmtool.FontTab(client, rmtool._default_config())
@@ -4227,6 +4310,7 @@ class FontUiTests(unittest.TestCase):
                 (),
                 _rmkit_cn.FontMirrorVerification("unverified", "未实机验证", "测试"),
                 _rmkit_cn.LegacySystemFontMigration("none", "无需迁移"),
+                _rmkit_cn.EpubFontSlotStatus("unsupported", "不支持"),
             )
         )
 
@@ -4261,6 +4345,7 @@ class FontUiTests(unittest.TestCase):
                 (),
                 _rmkit_cn.FontMirrorVerification("unverified", "未实机验证", "测试"),
                 _rmkit_cn.LegacySystemFontMigration("none", "无需迁移"),
+                _rmkit_cn.EpubFontSlotStatus("unsupported", "不支持"),
             )
         )
 

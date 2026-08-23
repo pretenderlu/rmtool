@@ -365,6 +365,7 @@ class FontsRefreshQuietTests(unittest.TestCase):
                     "unverified", "未实机验证", "测试"
                 ),
                 _rmkit_cn.LegacySystemFontMigration("none", "无需迁移"),
+                _rmkit_cn.EpubFontSlotStatus("unsupported", "不支持"),
             )
         )
 
@@ -400,6 +401,7 @@ class FontsRefreshQuietTests(unittest.TestCase):
                     "unverified", "未实机验证", "测试"
                 ),
                 _rmkit_cn.LegacySystemFontMigration("none", "无需迁移"),
+                _rmkit_cn.EpubFontSlotStatus("unsupported", "不支持"),
             )
         )
 
@@ -420,6 +422,7 @@ class FontsRefreshQuietTests(unittest.TestCase):
                 (),
                 _rmkit_cn.FontMirrorVerification("unverified", "未实机验证", "测试"),
                 _rmkit_cn.LegacySystemFontMigration("none", "无需迁移"),
+                _rmkit_cn.EpubFontSlotStatus("unsupported", "不支持"),
             )
         )
 
@@ -455,6 +458,7 @@ class FontsRefreshQuietTests(unittest.TestCase):
                         "unverified", "未实机验证", "测试"
                     ),
                     _rmkit_cn.LegacySystemFontMigration("none", "无需迁移"),
+                    _rmkit_cn.EpubFontSlotStatus("unsupported", "不支持"),
                 )
             )
             # After the quiet refresh finishes, the queued manual refresh runs
