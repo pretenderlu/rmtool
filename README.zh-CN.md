@@ -71,10 +71,10 @@ rmtool 管理的固件专用资源均使用两个固定来源。客户端默认�
 
 | 资源 | GitHub（默认） | 腾讯云 COS 备用（中国大陆） |
 | --- | --- | --- |
-| 原生界面汉化 | [COS 根目录](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/) | [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/tag/localization-assets) |
-| 独立简体中文 | [`native-chinese/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/) | [`native-chinese-assets`](https://github.com/pretenderlu/rmtool/releases/tag/native-chinese-assets) |
-| 拼音输入法 | [`pinyin-input/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input/) | [`pinyin-input-assets`](https://github.com/pretenderlu/rmtool/releases/tag/pinyin-input-assets) |
-| 阅读增强 | [`reading-enhancements/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/) | [`reading-enhancements-assets`](https://github.com/pretenderlu/rmtool/releases/tag/reading-enhancements-assets) |
+| 原生界面汉化 | [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/tag/localization-assets) | [COS 根目录](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/) |
+| 独立简体中文 | [`native-chinese-assets`](https://github.com/pretenderlu/rmtool/releases/tag/native-chinese-assets) | [`native-chinese/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/) |
+| 拼音输入法 | [`pinyin-input-assets`](https://github.com/pretenderlu/rmtool/releases/tag/pinyin-input-assets) | [`pinyin-input/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input/) |
+| 阅读增强 | [`reading-enhancements-assets`](https://github.com/pretenderlu/rmtool/releases/tag/reading-enhancements-assets) | [`reading-enhancements/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/) |
 
 ## 连接设备
 
@@ -223,7 +223,7 @@ Paper Pure、reMarkable 1 和 reMarkable 2 不在统一阅读增强包的覆盖�
 - **壁纸目标不可用**：不同固件拥有的壁纸文件不同。点击“重新扫描”，改选有预览且未标记“当前设备不存在”的目标。
 - **上传文档后设备端没显示**：回到文档中心重启 xochitl，或手动重启设备。
 - **“导出为 PDF”不可用**：只能单选包含 `.rm` 或 `.note` 笔迹资源的文档；该功能只渲染可解析笔迹，不会合并原 PDF/EPUB 页面、键入文本或其他非笔迹内容。
-- **汉化按钮不可用**：先点击“检测状态”。rmtool 可依次使用 COS、GitHub、已验证缓存或内置基础清单，但内部固件版本与设备原始 `reMarkable_fr.qm` 的 SHA-256 必须命中同一清单项。完全离线安装时，还需要已有通过校验的包缓存，或从本地导入匹配的汉化包。
+- **汉化按钮不可用**：先点击“检测状态”。rmtool 可依次使用 GitHub、腾讯云 COS、已验证缓存或内置基础清单，但内部固件版本与设备原始 `reMarkable_fr.qm` 的 SHA-256 必须命中同一清单项。完全离线安装时，还需要已有通过校验的包缓存，或从本地导入匹配的汉化包。
 - **无法安装阅读增强**：先点击“检测状态”。设备型号、固件、架构和原始 xochitl 哈希必须精确命中上表中的一项；被修改的载荷或混合 Xovi 布局会阻止部署。若检测到 Vellum，请先让 rmtool 只卸载其已验证的历史功能包，再按官方说明卸载 Vellum，重新检测后安装。
 - **停用后阅读增强仍暂时有效**：这是正常现象，rmtool 不会强制结束当前 xochitl 进程。请从设备菜单完整重启，恢复原生界面。
 - **AppLoad/KOReader 安装按钮不可用**：先在 KOReader 页面点击“检测状态”。这里只接受精确匹配的正式版固件，全部 3.28 测试版均被排除。旧版 KOReader 目录可以迁移，但 Vellum/Xovi 混合运行时或已经存在旧版完整备份时，仍会为安全起见拒绝修改。

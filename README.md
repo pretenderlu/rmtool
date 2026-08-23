@@ -72,10 +72,10 @@ All firmware-specific resources managed by rmtool use two fixed sources. The cli
 
 | Resource | GitHub (default) | Tencent COS fallback (mainland China) |
 | --- | --- | --- |
-| Chinese localization | [COS root](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/) | [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/tag/localization-assets) |
-| Native Simplified Chinese | [`native-chinese/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/) | [`native-chinese-assets`](https://github.com/pretenderlu/rmtool/releases/tag/native-chinese-assets) |
-| Pinyin input | [`pinyin-input/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input/) | [`pinyin-input-assets`](https://github.com/pretenderlu/rmtool/releases/tag/pinyin-input-assets) |
-| Reading enhancements | [`reading-enhancements/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/) | [`reading-enhancements-assets`](https://github.com/pretenderlu/rmtool/releases/tag/reading-enhancements-assets) |
+| Chinese localization | [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/tag/localization-assets) | [COS root](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/) |
+| Native Simplified Chinese | [`native-chinese-assets`](https://github.com/pretenderlu/rmtool/releases/tag/native-chinese-assets) | [`native-chinese/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/) |
+| Pinyin input | [`pinyin-input-assets`](https://github.com/pretenderlu/rmtool/releases/tag/pinyin-input-assets) | [`pinyin-input/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input/) |
+| Reading enhancements | [`reading-enhancements-assets`](https://github.com/pretenderlu/rmtool/releases/tag/reading-enhancements-assets) | [`reading-enhancements/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/) |
 
 ## Connecting a device
 
@@ -151,12 +151,12 @@ Before each upload, the target file is copied to `.backup` in the same directory
 
 Release packages do not embed firmware-specific `.qm` files. After you choose "Device Toolbox > System Localization > Check Status", rmtool:
 
-1. Retrieves the manifest from the [Tencent COS mainland mirror](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/manifest.json) first, then the fixed GitHub `localization-assets` release. If both are unavailable or invalid, it uses a previously validated cache and finally the baseline manifest bundled with the application.
+1. Retrieves the manifest from the fixed GitHub [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/download/localization-assets/manifest.json) release first, then the [Tencent COS mainland mirror](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/manifest.json). If both are unavailable or invalid, it uses a previously validated cache and finally the baseline manifest bundled with the application.
 2. Matches the exact 14-digit internal firmware version from `/etc/version`.
 3. Calculates the SHA-256 of the device's original French carrier file, `reMarkable_fr.qm`, and uses it to select the correct hardware payload. Platform names such as `chiappa`, `ferrari`, `tatsu`, `rm1`, and `rm2` are display labels only; they are not used to guess compatibility.
 4. Verifies the download size and SHA-256. Nothing is written to the device if the firmware, original French file, or checksum does not match.
 
-The normal workflow is to click "Enable Chinese" and let rmtool download and install the exact matching package automatically. Package downloads try the Tencent COS mirror before GitHub, and every response must match the manifest's exact size and SHA-256 before it can replace the cache. If the network is unreliable, use "Get Localization Package" to save the matching file or copy its COS direct URL, then import it with "Load Local Localization Package". Local files must pass the same checks for the connected device. A verified import only enters the computer-side cache; "Enable Chinese" still performs the existing guarded deployment. Firmware-specific `.qm` payloads are never bundled in rmtool releases.
+The normal workflow is to click "Enable Chinese" and let rmtool download and install the exact matching package automatically. Package downloads try GitHub first and fall back to the Tencent COS mirror, and every response must match the manifest's exact size and SHA-256 before it can replace the cache. If the network is unreliable, use "Get Localization Package" to save the matching file or copy a direct URL, then import it with "Load Local Localization Package". Local files must pass the same checks for the connected device. A verified import only enters the computer-side cache; "Enable Chinese" still performs the existing guarded deployment. Firmware-specific `.qm` payloads are never bundled in rmtool releases.
 
 #### Current localization support matrix
 
@@ -230,7 +230,7 @@ Reading enhancements, native Simplified Chinese, and Pinyin input share one rmto
 - **Wallpaper target unavailable**: Different firmware versions provide different wallpaper files. Click "Rescan" and choose a target that has a preview and is not marked as missing from the current device.
 - **Uploaded document does not appear on the device**: Return to the document center and restart xochitl, or restart the device manually.
 - **"Export to PDF" is unavailable**: Select exactly one document containing `.rm` or `.note` handwriting resources. Export renders only parseable handwriting and does not merge original PDF/EPUB pages, typed text, or other non-handwriting content.
-- **Localization buttons are disabled**: Click "Check Status" first. rmtool can use COS, GitHub, a validated cache, or its bundled baseline catalog, but the internal firmware version plus the SHA-256 of the original `reMarkable_fr.qm` must match the same manifest entry. Installing without network access also requires a validated cached package or a matching package imported from disk.
+- **Localization buttons are disabled**: Click "Check Status" first. rmtool can use GitHub, Tencent COS, a validated cache, or its bundled baseline catalog, but the internal firmware version plus the SHA-256 of the original `reMarkable_fr.qm` must match the same manifest entry. Installing without network access also requires a validated cached package or a matching package imported from disk.
 - **Reading enhancements cannot be installed**: Click "Check Status" first. The model, firmware, architecture, and stock xochitl hash must match one exact row above. Modified or mixed Xovi layouts are blocked. If Vellum is detected, first let rmtool remove only its verified historical feature packages, then follow the official Vellum uninstall instructions and detect again.
 - **Reading enhancements still work immediately after disabling**: This is expected because rmtool does not kill the running xochitl process. Restart the tablet from its device menu to return to the stock interface.
 - **AppLoad/KOReader installation is unavailable**: Click "Check Status" on the KOReader page. Only exact production-firmware matches are accepted; all 3.28 beta builds are excluded. A previous KOReader directory can be migrated, but mixed Vellum/Xovi runtimes or an already existing legacy backup still block mutation for safety.

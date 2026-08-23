@@ -7,9 +7,9 @@ outside these entries is ever read, so PC-side secrets (for example the
 plaintext device passwords in ``devices.json``) cannot enter a bundle, and
 every remote command is read-only with a hard output cap.
 
-The only privacy-sensitive entry (the xochitl unit journal, which can contain
-document names) is flagged ``optional``; the preview dialog lets the user
-exclude it before saving.
+The entries most likely to contain local paths, document names, or font names
+are flagged ``optional``; the preview dialog lets the user exclude them before
+saving.
 """
 
 from __future__ import annotations
@@ -139,7 +139,11 @@ def _decode(data: str) -> str:
 
 
 def _collect_pc_log_tail(log_path: Optional[Path]) -> CollectedItem:
-    item = DiagItem("pc/rmtool-log-tail.txt", "rmtool 本机日志（末段）")
+    item = DiagItem(
+        "pc/rmtool-log-tail.txt",
+        "rmtool 本机日志（末段，可能包含本地路径、文档名或字体名）",
+        optional=True,
+    )
     if log_path is None or not log_path.is_file():
         return CollectedItem(item, error="日志文件不存在")
     data = log_path.read_bytes()[-PC_LOG_TAIL_BYTES:]
