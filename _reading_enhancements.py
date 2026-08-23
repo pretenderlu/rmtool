@@ -853,6 +853,7 @@ def get_status(
                 "package-revision-1",
                 "package-revision-2",
                 "package-revision-3",
+                "package-revision-4",
                 "verified-device-trial",
             }:
                 detail = (

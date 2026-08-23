@@ -2402,7 +2402,7 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         if state is _reading_enhancements.ReadingEnhancementsState.MIGRATION_AVAILABLE:
             self.install_button.setText("迁移到阅读增强")
         elif state is _reading_enhancements.ReadingEnhancementsState.REPAIR_AVAILABLE:
-            self.install_button.setText("修复阅读增强")
+            self.install_button.setText("修复并更新")
         elif state is _reading_enhancements.ReadingEnhancementsState.INSTALLED_DISABLED:
             self.install_button.setText("重新启用")
         else:
@@ -2584,7 +2584,7 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         action = (
             "迁移已验证的旧版点击翻页/快速黑白功能"
             if migration
-            else "原子替换已验证的缺陷包"
+            else "修复并更新已验证的阅读增强"
             if repair
             else "安装当前固件对应的阅读增强"
         )
@@ -2597,7 +2597,7 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             confirm_text=(
                 "迁移到阅读增强"
                 if migration
-                else "修复阅读增强"
+                else "修复并更新"
                 if repair
                 else "安装阅读增强"
             ),
