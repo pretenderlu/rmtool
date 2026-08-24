@@ -402,14 +402,42 @@ class FontTab(QtWidgets.QWidget):
     def _update_action_buttons(self):
         connected = self.ssh_client.is_connected() and not self._busy
         selected = self._selected_device_font()
+        epub_supported = (
+            self._epub_font_status is not None
+            and self._epub_font_status.supported
+        )
+        assigned_slots = (
+            tuple(
+                slot
+                for slot in self._epub_font_status.slots
+                if slot.target_path
+            )
+            if epub_supported
+            else ()
+        )
+        selected_slot = next(
+            (
+                slot
+                for slot in assigned_slots
+                if selected and slot.target_path == selected.remote_path
+            ),
+            None,
+        )
         self.set_active_button.setText(
             "重新应用系统字体" if selected and selected.active else "设为系统字体"
         )
-        self.epub_font_button.setText(
-            "从 EPUB 字体菜单移除"
-            if selected and selected.epub
-            else "添加到 EPUB 字体菜单"
-        )
+        if selected_slot is not None and selected is not None:
+            expected_label = posixpath.splitext(selected.filename)[0]
+            epub_action = (
+                "从 EPUB 字体菜单移除"
+                if selected_slot.label == expected_label
+                else "更新 EPUB 字体名称"
+            )
+        elif len(assigned_slots) >= len(_rmkit_cn.EPUB_FONT_SLOT_NUMBERS):
+            epub_action = "EPUB 字体已满（3/3）"
+        else:
+            epub_action = f"添加为 EPUB 第 {len(assigned_slots) + 1} 项"
+        self.epub_font_button.setText(epub_action)
         self.refresh_button.setEnabled(connected)
         self.select_button.setEnabled(not self._busy)
         self.upload_button.setEnabled(
@@ -421,8 +449,11 @@ class FontTab(QtWidgets.QWidget):
         self.epub_font_button.setEnabled(
             connected
             and selected is not None
-            and self._epub_font_status is not None
-            and self._epub_font_status.supported
+            and epub_supported
+            and (
+                selected_slot is not None
+                or len(assigned_slots) < len(_rmkit_cn.EPUB_FONT_SLOT_NUMBERS)
+            )
         )
         self.delete_button.setEnabled(
             connected
@@ -582,7 +613,7 @@ class FontTab(QtWidgets.QWidget):
             for font in _rmkit_cn.list_user_fonts(
                 ssh_client,
                 font_dir,
-                epub_slot_target=epub_status.target_path,
+                epub_slots=epub_status.slots,
             )
         }
         return (
@@ -631,8 +662,10 @@ class FontTab(QtWidgets.QWidget):
             roles = []
             if font.active:
                 roles.append("当前系统字体")
-            if font.epub:
-                roles.append("EPUB 字体")
+            if font.epub_slots:
+                roles.append(
+                    "EPUB 顺序 " + "、".join(str(number) for number in font.epub_slots)
+                )
             values = (font.filename, font.family, " / ".join(roles) or "已上传")
             for column, value in enumerate(values):
                 self.font_table.setItem(row, column, QtWidgets.QTableWidgetItem(value))
@@ -785,9 +818,9 @@ class FontTab(QtWidgets.QWidget):
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
-            f"将旧版系统字体设置迁移到新的 /data 字体镜像。"
-            f"用户字体 {migration.filename} 会继续保留在 /home，设备不会自动重启。"
-            "是否继续？",
+            f"将旧版系统字体设置迁移到当前格式。"
+            f"用户字体文件 {migration.filename} 仍会保留。"
+            "迁移完成后需手动重启设备才会完整生效，是否继续？",
             confirm_text="迁移旧版字体设置",
             cancel_text="取消",
         ):
@@ -850,14 +883,20 @@ class FontTab(QtWidgets.QWidget):
         status = self._epub_font_status
         if not selected or status is None or not status.supported:
             return
-        removing = selected.epub
-        action = "从 EPUB 字体菜单移除" if removing else "添加到 EPUB 字体菜单"
+        selected_slot = next(
+            (slot for slot in status.slots if slot.target_path == selected.remote_path),
+            None,
+        )
+        expected_label = posixpath.splitext(selected.filename)[0]
+        removing = (
+            selected_slot is not None and selected_slot.label == expected_label
+        )
+        action = self.epub_font_button.text()
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
-            f"{action} {selected.filename}。字体文件仍保留在 /home，"
-            "需先在设备工具中安装或更新到阅读增强 revision 5，"
-            "操作完成后再手动重启设备，EPUB 字体菜单才会更新。是否继续？",
+            f"{action}：{selected.filename}。操作完成后需手动重启设备，"
+            "EPUB 字体菜单才会更新。是否继续？",
             confirm_text=action,
             cancel_text="取消",
         ):
@@ -868,31 +907,26 @@ class FontTab(QtWidgets.QWidget):
             else _rmkit_cn.set_epub_font_slot
         )
         args = (
-            (self.ssh_client,)
-            if removing
-            else (
-                self.ssh_client,
-                posixpath.dirname(selected.remote_path),
-                selected.filename,
-            )
+            self.ssh_client,
+            posixpath.dirname(selected.remote_path),
+            selected.filename,
         )
         self._start_font_worker(
             fn,
             *args,
             pending=(
-                "正在移除 EPUB 字体槽位…"
+                "正在移除并整理 EPUB 字体顺序…"
                 if removing
-                else "正在设置并验证 EPUB 字体槽位…"
+                else "正在更新并验证 EPUB 字体菜单…"
             ),
             on_success=lambda _: self._refresh_fonts(
                 select_remote_path=selected.remote_path,
                 select_filename=selected.filename,
                 success=(
-                    "已从 EPUB 字体菜单移除。请确认阅读增强为 revision 5，"
-                    "再在准备好后点击“重启生效”。"
+                    "已从 EPUB 字体菜单移除，后续字体顺序已自动前移。"
+                    "请在准备好后点击“重启生效”。"
                     if removing
-                    else "已添加到 EPUB 字体菜单。请确认阅读增强已安装或更新至 "
-                    "revision 5，再在准备好后点击“重启生效”。"
+                    else "EPUB 字体菜单已更新。请在准备好后点击“重启生效”。"
                 ),
             ),
             error_prefix="EPUB 字体菜单更新失败",

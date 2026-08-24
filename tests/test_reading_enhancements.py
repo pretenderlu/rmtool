@@ -59,7 +59,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
             len({(item.release_version, item.platform) for item in self.catalog}),
             14,
         )
-        self.assertTrue(all(item.package_revision == 5 for item in self.catalog))
+        self.assertTrue(all(item.package_revision == 6 for item in self.catalog))
         self.assertTrue(all(item.offline_verified for item in self.catalog))
         self.assertEqual(
             {
@@ -139,6 +139,28 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         for package in self.catalog:
             _runtime, current = reading._shared_specs(package)
             predecessor = reading._known_revision_four_feature(package, current)
+            self.assertEqual(
+                (predecessor.sha256, predecessor.size),
+                expected["3.27" if package.release_version.startswith("3.27.") else "3.28"],
+            )
+            self.assertEqual(predecessor.feature_id, current.feature_id)
+            self.assertEqual(predecessor.package_id, current.package_id)
+            self.assertEqual(predecessor.runtime_path, current.runtime_path)
+
+    def test_revision_five_predecessor_is_exact_and_variant_bounded(self):
+        expected = {
+            "3.27": (
+                "e526a2e8a7a3ac6199abc6cef591b6f77df0c52f2e6d73774b1a313e5b2b6ef4",
+                48147,
+            ),
+            "3.28": (
+                "12f4241ac5e0644e52c7959c806a214aa08fabe9eb600a6da1bf1e3404913f72",
+                49477,
+            ),
+        }
+        for package in self.catalog:
+            _runtime, current = reading._shared_specs(package)
+            predecessor = reading._known_revision_five_feature(package, current)
             self.assertEqual(
                 (predecessor.sha256, predecessor.size),
                 expected["3.27" if package.release_version.startswith("3.27.") else "3.28"],
@@ -362,6 +384,10 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                     (
                         "settings-component-defect",
                         reading._known_defective_feature(package, feature),
+                    ),
+                    (
+                        "package-revision-5",
+                        reading._known_revision_five_feature(package, feature),
                     ),
                     (
                         "package-revision-4",
@@ -858,6 +884,53 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
             ),
         ):
             status = reading.get_status(ssh, (self.package,))
+
+        self.assertEqual(
+            status.state, reading.ReadingEnhancementsState.REPAIR_AVAILABLE
+        )
+        self.assertIn("旧版阅读增强，可安全更新", status.detail)
+        self.assertNotIn("设置页缺陷包", status.detail)
+
+    def test_revision_five_reports_safe_update_without_defect_wording(self):
+        package = next(
+            item for item in self.catalog if item.release_version.startswith("3.28.")
+        )
+        identity = tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        runtime, feature = reading._shared_specs(package)
+        predecessor = reading._known_revision_five_feature(package, feature)
+        inspection = shared.SharedInspection(
+            {reading.FEATURE_ID: self._state(predecessor, True)}, True, True
+        )
+        ssh = Mock()
+        ssh.file_exists.return_value = True
+        with patch.object(
+            reading.tap, "get_device_identity", return_value=identity
+        ), patch.object(
+            reading,
+            "_trusted_context",
+            return_value=(
+                runtime,
+                {reading.FEATURE_ID: feature},
+                (),
+                feature,
+            ),
+        ), patch.object(
+            reading.shared, "has_shared_artifacts", return_value=True
+        ), patch.object(
+            reading,
+            "_inspection_for_migration",
+            return_value=(
+                inspection,
+                {reading.FEATURE_ID: predecessor},
+                {reading.FEATURE_ID: "package-revision-5"},
+            ),
+        ):
+            status = reading.get_status(ssh, (package,))
 
         self.assertEqual(
             status.state, reading.ReadingEnhancementsState.REPAIR_AVAILABLE

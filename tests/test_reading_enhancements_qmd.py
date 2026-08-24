@@ -112,9 +112,16 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
             "opacity: enabled ? 1 : 0.5",
             "RMTOOL_EPUB_FONT_328_START",
             "file:///home/root/.local/share/rmtool/epub-fonts/slot-1.ttf",
+            "file:///home/root/.local/share/rmtool/epub-fonts/slot-2.ttf",
+            "file:///home/root/.local/share/rmtool/epub-fonts/slot-3.ttf",
+            "file:///home/root/.local/share/rmtool/epub-fonts/slot-1.label",
+            "file:///home/root/.local/share/rmtool/epub-fonts/slot-3.label",
+            "XMLHttpRequest.DONE",
             "FontLoader.Ready",
-            "rmtoolEpubFont.name",
-            "fontModel.insert(fontModel.count - 1",
+            "key: loader.name",
+            "value: label",
+            'fontModel.setProperty(existing, "value", label)',
+            "rmtoolEpubInsertIndex",
             "return fontModel.count - 1",
             "LOCATE AFTER ListModel#fontModel",
         ):
@@ -333,11 +340,23 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
                     ).read_text(encoding="utf-8")
                     self.assertLess(
                         font_menu.index("id: fontModel"),
-                        font_menu.index("id: rmtoolEpubFont"),
+                        font_menu.index("id: rmtoolEpubFont1"),
                         target_id,
                     )
                     self.assertEqual(
-                        font_menu.count("key: rmtoolEpubFont.name"), 1, target_id
+                        font_menu.count("key: loader.name"), 1, target_id
+                    )
+                    for slot_number in (1, 2, 3):
+                        self.assertIn(
+                            f"id: rmtoolEpubFont{slot_number}", font_menu, target_id
+                        )
+                        self.assertIn(
+                            f"slot-{slot_number}.ttf", font_menu, target_id
+                        )
+                    self.assertIn(
+                        'fontModel.setProperty(existing, "value", label)',
+                        font_menu,
+                        target_id,
                     )
                     self.assertIn("return fontModel.count - 1", font_menu)
 

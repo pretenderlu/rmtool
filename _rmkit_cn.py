@@ -13,6 +13,7 @@ import shlex
 import stat
 import tempfile
 from typing import Optional, Union
+import unicodedata
 from urllib import request
 from xml.etree import ElementTree
 from xml.sax.saxutils import escape
@@ -119,6 +120,9 @@ SYSTEM_FONT_VALIDATION_ARTIFACTS = (
 )
 EPUB_FONT_SLOT_DIR = "/home/root/.local/share/rmtool/epub-fonts"
 EPUB_FONT_SLOT_PATH = f"{EPUB_FONT_SLOT_DIR}/slot-1.ttf"
+EPUB_FONT_SLOT_NUMBERS = (1, 2, 3)
+EPUB_FONT_LABEL_SUFFIX = ".label"
+EPUB_FONT_LABEL_MAX_BYTES = 1024
 SYSTEM_FONT_MATCH_ENV = (
     "HOME=/nonexistent XDG_CONFIG_HOME=/nonexistent "
     "FONTCONFIG_FILE=/etc/fonts/fonts.conf"
@@ -152,6 +156,20 @@ class UserFont:
     remote_path: str
     active: bool
     epub: bool = False
+    epub_slots: tuple[int, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.epub_slots and not self.epub:
+            object.__setattr__(self, "epub", True)
+        elif self.epub and not self.epub_slots:
+            object.__setattr__(self, "epub_slots", (1,))
+
+
+@dataclass(frozen=True)
+class EpubFontSlot:
+    number: int
+    target_path: str = ""
+    label: str = ""
 
 
 @dataclass(frozen=True)
@@ -159,10 +177,25 @@ class EpubFontSlotStatus:
     state: str
     detail: str
     target_path: str = ""
+    slots: tuple[EpubFontSlot, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.slots:
+            slots = tuple(
+                EpubFontSlot(number, self.target_path if number == 1 else "")
+                for number in EPUB_FONT_SLOT_NUMBERS
+            )
+            object.__setattr__(self, "slots", slots)
+        elif not self.target_path:
+            object.__setattr__(self, "target_path", self.slots[0].target_path)
 
     @property
     def supported(self) -> bool:
         return self.state == "ready"
+
+    @property
+    def target_paths(self) -> tuple[str, ...]:
+        return tuple(slot.target_path for slot in self.slots if slot.target_path)
 
 
 @dataclass(frozen=True)
@@ -1712,26 +1745,380 @@ def _ui_font_match_paths(ssh_client) -> tuple[str, ...]:
     return tuple(dict.fromkeys(paths))
 
 
-def _epub_font_slot_target_from_sftp(sftp) -> str:
+def _epub_font_slot_number(slot_number: int) -> int:
+    if slot_number not in EPUB_FONT_SLOT_NUMBERS:
+        raise RuntimeError("EPUB 字体槽位只能选择 1、2 或 3。")
+    return slot_number
+
+
+def _epub_font_slot_path(slot_number: int) -> str:
+    return f"{EPUB_FONT_SLOT_DIR}/slot-{_epub_font_slot_number(slot_number)}.ttf"
+
+
+def _epub_font_label_path(slot_number: int) -> str:
+    return (
+        f"{EPUB_FONT_SLOT_DIR}/slot-{_epub_font_slot_number(slot_number)}"
+        f"{EPUB_FONT_LABEL_SUFFIX}"
+    )
+
+
+def _validated_epub_font_label(label: str) -> str:
+    if (
+        not label.strip()
+        or any(
+            unicodedata.category(character)[0] == "C"
+            or unicodedata.category(character) in {"Zl", "Zp"}
+            for character in label
+        )
+    ):
+        raise RuntimeError("字体文件名无法生成有效的 EPUB 菜单名称。")
     try:
-        attributes = sftp.lstat(EPUB_FONT_SLOT_PATH)
+        encoded = label.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise RuntimeError("字体文件名无法生成有效的 EPUB 菜单名称。") from exc
+    if len(encoded) > EPUB_FONT_LABEL_MAX_BYTES:
+        raise RuntimeError("字体文件名无法生成有效的 EPUB 菜单名称。")
+    return label
+
+
+def _epub_font_label(filename: str) -> str:
+    return _validated_epub_font_label(posixpath.splitext(filename)[0])
+
+
+def _read_epub_font_label_from_sftp(sftp, path: str) -> str:
+    attributes = sftp.lstat(path)
+    if not stat.S_ISREG(attributes.st_mode):
+        raise RuntimeError("EPUB 字体名称文件不是普通文件。")
+    with sftp.open(path, "rb") as remote_file:
+        data = remote_file.read(EPUB_FONT_LABEL_MAX_BYTES + 1)
+    if len(data) > EPUB_FONT_LABEL_MAX_BYTES:
+        raise RuntimeError("EPUB 字体名称文件过大。")
+    try:
+        label = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError("EPUB 字体名称文件不是有效的 UTF-8 文本。") from exc
+    try:
+        _validated_epub_font_label(label)
+    except RuntimeError as exc:
+        raise RuntimeError("EPUB 字体名称文件内容无效。") from exc
+    if label.encode("utf-8") != data:
+        raise RuntimeError("EPUB 字体名称文件内容无效。")
+    return label
+
+
+def _epub_font_slot_from_sftp(sftp, slot_number: int) -> EpubFontSlot:
+    slot_number = _epub_font_slot_number(slot_number)
+    slot_path = _epub_font_slot_path(slot_number)
+    label_path = _epub_font_label_path(slot_number)
+    try:
+        attributes = sftp.lstat(slot_path)
     except IOError:
-        return ""
+        attributes = None
+    try:
+        label_attributes = sftp.lstat(label_path)
+    except IOError:
+        label_attributes = None
+    if attributes is None:
+        if label_attributes is not None:
+            raise RuntimeError(f"EPUB 字体槽位 {slot_number} 缺少软链接但残留名称文件。")
+        return EpubFontSlot(slot_number)
     if not stat.S_ISLNK(attributes.st_mode):
-        raise RuntimeError("EPUB 字体槽位已被非软链接文件占用。")
-    target = posixpath.normpath(sftp.readlink(EPUB_FONT_SLOT_PATH))
-    if not posixpath.isabs(target):
-        raise RuntimeError("EPUB 字体槽位不是 rmtool 创建的绝对软链接。")
+        raise RuntimeError(f"EPUB 字体槽位 {slot_number} 已被非软链接文件占用。")
+    raw_target = sftp.readlink(slot_path)
+    target = posixpath.normpath(raw_target)
+    if not posixpath.isabs(raw_target) or raw_target != target:
+        raise RuntimeError(f"EPUB 字体槽位 {slot_number} 不是 rmtool 创建的规范绝对软链接。")
     directory = posixpath.dirname(target)
     filename = posixpath.basename(target)
     _user_font_path(directory, filename)
     _require_top_level_regular_font(sftp, directory, filename)
+    if label_attributes is None:
+        if slot_number != 1:
+            raise RuntimeError(f"EPUB 字体槽位 {slot_number} 缺少名称文件。")
+        label = ""
+    else:
+        label = _read_epub_font_label_from_sftp(sftp, label_path)
+    return EpubFontSlot(slot_number, target, label)
+
+
+def _epub_font_slots_from_sftp(sftp) -> tuple[EpubFontSlot, ...]:
+    slots = tuple(
+        _epub_font_slot_from_sftp(sftp, slot_number)
+        for slot_number in EPUB_FONT_SLOT_NUMBERS
+    )
+    targets = [slot.target_path for slot in slots if slot.target_path]
+    if len(targets) != len(set(targets)):
+        raise RuntimeError("同一个字体文件被重复分配到多个 EPUB 字体槽位。")
+    return slots
+
+
+def _epub_font_link_at(sftp, path: str) -> Optional[str]:
+    try:
+        attributes = sftp.lstat(path)
+    except IOError:
+        return None
+    if not stat.S_ISLNK(attributes.st_mode):
+        raise RuntimeError("EPUB 字体事务路径被非软链接文件占用。")
+    target = sftp.readlink(path)
+    if not posixpath.isabs(target) or posixpath.normpath(target) != target:
+        raise RuntimeError("EPUB 字体事务路径不是规范绝对软链接。")
     return target
 
 
-def _epub_font_slot_target(ssh_client) -> str:
+def _epub_font_label_at(sftp, path: str) -> Optional[str]:
+    try:
+        sftp.lstat(path)
+    except IOError:
+        return None
+    return _read_epub_font_label_from_sftp(sftp, path)
+
+
+def _epub_font_transaction_paths(slot_number: int, token: str) -> tuple[str, ...]:
+    slot_path = _epub_font_slot_path(slot_number)
+    label_path = _epub_font_label_path(slot_number)
+    return (
+        slot_path,
+        label_path,
+        f"{slot_path}.rmtool-{token}.tmp",
+        f"{label_path}.rmtool-{token}.tmp",
+        f"{slot_path}.rmtool-{token}.bak",
+        f"{label_path}.rmtool-{token}.bak",
+    )
+
+
+def _restore_epub_font_component_from_sftp(
+    sftp,
+    *,
+    before: str,
+    desired: str,
+    active_path: str,
+    temporary_path: str,
+    backup_path: str,
+    read_value,
+) -> None:
+    _remove_sftp_path_if_present(sftp, temporary_path)
+    active = read_value(sftp, active_path)
+    backup = read_value(sftp, backup_path)
+    if backup is not None:
+        if not before or backup != before:
+            raise RuntimeError("EPUB 字体事务备份与操作前状态不一致。")
+        if active is not None:
+            if active not in {before, desired}:
+                raise RuntimeError("EPUB 字体事务路径在回滚期间发生未知变化。")
+            _remove_sftp_path_if_present(sftp, active_path)
+        sftp.rename(backup_path, active_path)
+    elif before:
+        if active != before:
+            raise RuntimeError("EPUB 字体事务备份缺失，无法恢复。")
+    elif active is not None:
+        if active != desired:
+            raise RuntimeError("EPUB 字体事务路径在回滚期间发生未知变化。")
+        _remove_sftp_path_if_present(sftp, active_path)
+
+
+def _restore_epub_font_sequence(
+    ssh_client,
+    before_slots: tuple[EpubFontSlot, ...],
+    desired_slots: tuple[EpubFontSlot, ...],
+    transaction_paths: tuple[tuple[str, ...], ...],
+) -> None:
+    last_error: Optional[Exception] = None
+    for _attempt in range(2):
+        try:
+            with ssh_client.sftp_session() as sftp:
+                for before, desired, paths in zip(
+                    before_slots, desired_slots, transaction_paths, strict=True
+                ):
+                    (
+                        slot_path,
+                        label_path,
+                        link_temporary,
+                        label_temporary,
+                        link_backup,
+                        label_backup,
+                    ) = paths
+                    _restore_epub_font_component_from_sftp(
+                        sftp,
+                        before=before.target_path,
+                        desired=desired.target_path,
+                        active_path=slot_path,
+                        temporary_path=link_temporary,
+                        backup_path=link_backup,
+                        read_value=_epub_font_link_at,
+                    )
+                    _restore_epub_font_component_from_sftp(
+                        sftp,
+                        before=before.label,
+                        desired=desired.label,
+                        active_path=label_path,
+                        temporary_path=label_temporary,
+                        backup_path=label_backup,
+                        read_value=_epub_font_label_at,
+                    )
+            if _epub_font_slots(ssh_client) == before_slots:
+                return
+            last_error = RuntimeError("EPUB 字体序列恢复后校验失败。")
+        except Exception as exc:
+            last_error = exc
+    raise RuntimeError(f"EPUB 字体序列恢复失败：{last_error}") from last_error
+
+
+def _cleanup_epub_font_transaction(
+    ssh_client, transaction_paths: tuple[tuple[str, ...], ...]
+) -> None:
+    remaining = tuple(path for paths in transaction_paths for path in paths[2:])
+    last_error: Optional[Exception] = None
+    for _attempt in range(2):
+        failed = []
+        try:
+            with ssh_client.sftp_session() as sftp:
+                for path in remaining:
+                    try:
+                        _remove_sftp_path_if_present(sftp, path)
+                    except Exception as exc:
+                        last_error = exc
+                        failed.append(path)
+        except Exception as exc:
+            last_error = exc
+            continue
+        if not failed:
+            return
+        remaining = tuple(failed)
+    raise RuntimeError(f"EPUB 字体事务文件清理失败：{last_error}") from last_error
+
+
+def _packed_epub_font_slots(
+    entries: tuple[tuple[str, str], ...]
+) -> tuple[EpubFontSlot, ...]:
+    return tuple(
+        EpubFontSlot(
+            slot_number,
+            entries[slot_number - 1][0],
+            entries[slot_number - 1][1],
+        )
+        if slot_number <= len(entries)
+        else EpubFontSlot(slot_number)
+        for slot_number in EPUB_FONT_SLOT_NUMBERS
+    )
+
+
+def _mutate_epub_font_sequence(
+    ssh_client,
+    before_slots: tuple[EpubFontSlot, ...],
+    desired_slots: tuple[EpubFontSlot, ...],
+) -> tuple[EpubFontSlot, ...]:
+    if desired_slots == before_slots:
+        return before_slots
+    token = os.urandom(6).hex()
+    transaction_paths = tuple(
+        _epub_font_transaction_paths(slot_number, token)
+        for slot_number in EPUB_FONT_SLOT_NUMBERS
+    )
+    local_labels: list[str] = []
+    mutation_started = False
+    ssh_client.exec_checked(f"mkdir -p {shlex.quote(EPUB_FONT_SLOT_DIR)}")
+    try:
+        for before, desired, paths in zip(
+            before_slots, desired_slots, transaction_paths, strict=True
+        ):
+            if not desired.target_path:
+                continue
+            if not desired.label:
+                if (
+                    desired.number != 1
+                    or before.target_path != desired.target_path
+                    or before.label
+                ):
+                    raise RuntimeError("只有原有的 EPUB 第 1 项可以暂时缺少名称文件。")
+                continue
+            _validated_epub_font_label(desired.label)
+            with tempfile.NamedTemporaryFile(delete=False) as local_label:
+                local_label.write(desired.label.encode("utf-8"))
+                local_labels.append(local_label.name)
+            ssh_client.transfer_file(local_labels[-1], paths[3])
+            ssh_client.exec_checked(f"chmod 0644 {shlex.quote(paths[3])}")
+
+        with ssh_client.sftp_session() as sftp:
+            for desired, paths in zip(desired_slots, transaction_paths, strict=True):
+                if not desired.target_path:
+                    continue
+                sftp.symlink(desired.target_path, paths[2])
+                if _epub_font_link_at(sftp, paths[2]) != desired.target_path:
+                    raise RuntimeError("EPUB 字体临时软链接校验失败。")
+                if desired.label and _epub_font_label_at(sftp, paths[3]) != desired.label:
+                    raise RuntimeError("EPUB 字体临时名称文件校验失败。")
+
+            current_slots = _epub_font_slots_from_sftp(sftp)
+            if current_slots != before_slots:
+                raise RuntimeError("EPUB 字体序列在操作期间发生变化，已停止更新。")
+            mutation_started = True
+            for current, paths in zip(current_slots, transaction_paths, strict=True):
+                if current.target_path:
+                    sftp.rename(paths[0], paths[4])
+                if current.label:
+                    sftp.rename(paths[1], paths[5])
+            for desired, paths in zip(desired_slots, transaction_paths, strict=True):
+                if not desired.target_path:
+                    continue
+                sftp.rename(paths[2], paths[0])
+                if desired.label:
+                    sftp.rename(paths[3], paths[1])
+
+        if _epub_font_slots(ssh_client) != desired_slots:
+            raise RuntimeError("EPUB 字体序列写入后校验失败。")
+    except Exception as exc:
+        try:
+            if mutation_started:
+                _restore_epub_font_sequence(
+                    ssh_client,
+                    before_slots,
+                    desired_slots,
+                    transaction_paths,
+                )
+            else:
+                _cleanup_epub_font_transaction(ssh_client, transaction_paths)
+        except Exception as rollback_exc:
+            raise RuntimeError(f"{exc} 自动回滚未完整完成：{rollback_exc}") from exc
+        raise
+    finally:
+        for local_label in local_labels:
+            Path(local_label).unlink(missing_ok=True)
+    _cleanup_epub_font_transaction(ssh_client, transaction_paths)
+    return desired_slots
+
+
+def _epub_font_slot_target_from_sftp(sftp, slot_number: int = 1) -> str:
+    return _epub_font_slot_from_sftp(sftp, slot_number).target_path
+
+
+def _epub_font_slot_targets_from_sftp(sftp) -> tuple[str, ...]:
+    return tuple(
+        slot.target_path
+        for slot in _epub_font_slots_from_sftp(sftp)
+        if slot.target_path
+    )
+
+
+def _epub_font_slots(ssh_client) -> tuple[EpubFontSlot, ...]:
     with ssh_client.sftp_session() as sftp:
-        return _epub_font_slot_target_from_sftp(sftp)
+        return _epub_font_slots_from_sftp(sftp)
+
+
+def _epub_font_slot_targets(ssh_client) -> tuple[str, ...]:
+    return tuple(
+        slot.target_path for slot in _epub_font_slots(ssh_client) if slot.target_path
+    )
+
+
+def _epub_font_slot_target(ssh_client, slot_number: int = 1) -> str:
+    with ssh_client.sftp_session() as sftp:
+        return _epub_font_slot_target_from_sftp(sftp, slot_number)
+
+
+def _epub_font_ready_status(
+    detail: str, slots: tuple[EpubFontSlot, ...]
+) -> EpubFontSlotStatus:
+    return EpubFontSlotStatus("ready", detail, slots=slots)
 
 
 def get_epub_font_slot_status(ssh_client) -> EpubFontSlotStatus:
@@ -1753,13 +2140,13 @@ def get_epub_font_slot_status(ssh_client) -> EpubFontSlotStatus:
             "仅精确支持已收录的 3.28 固件，当前设备不能修改 EPUB 字体菜单。",
         )
     try:
-        target = _epub_font_slot_target(ssh_client)
+        slots = _epub_font_slots(ssh_client)
     except Exception as exc:
         return EpubFontSlotStatus("invalid", str(exc))
-    return EpubFontSlotStatus(
-        "ready",
-        "当前固件支持一个 EPUB 自定义字体槽位；需安装或更新阅读增强 revision 5。",
-        target,
+    assigned = sum(bool(slot.target_path) for slot in slots)
+    return _epub_font_ready_status(
+        f"当前已使用 {assigned}/3 个 EPUB 字体位置。",
+        slots,
     )
 
 
@@ -1773,93 +2160,69 @@ def _require_epub_font_slot_support(ssh_client) -> EpubFontSlotStatus:
 def set_epub_font_slot(
     ssh_client, remote_dir: str, filename: str
 ) -> EpubFontSlotStatus:
-    """Atomically point the trusted 3.28 EPUB slot at one uploaded font."""
+    """Append or explicitly relabel one trusted 3.28 EPUB font."""
     status = _require_epub_font_slot_support(ssh_client)
     directory, remote_path = _user_font_path(remote_dir, filename)
+    label = _epub_font_label(filename)
     with ssh_client.sftp_session() as sftp:
         _require_top_level_regular_font(sftp, directory, filename)
-    if status.target_path == remote_path:
-        return status
+    assigned = tuple(slot for slot in status.slots if slot.target_path)
+    selected_slot = next(
+        (slot for slot in assigned if slot.target_path == remote_path), None
+    )
+    if selected_slot is not None:
+        if selected_slot.label == label:
+            return status
+        desired_slots = tuple(
+            EpubFontSlot(slot.number, slot.target_path, label)
+            if slot.target_path == remote_path
+            else slot
+            for slot in status.slots
+        )
+        detail = f"EPUB 字体第 {selected_slot.number} 项名称已更新。"
+    else:
+        if len(assigned) >= len(EPUB_FONT_SLOT_NUMBERS):
+            raise RuntimeError(
+                "EPUB 字体菜单已满（3/3）。请先移除一个已分配字体。"
+            )
+        entries = tuple(
+            (slot.target_path, slot.label)
+            for slot in assigned
+        ) + ((remote_path, label),)
+        desired_slots = _packed_epub_font_slots(entries)
+        detail = f"已添加为 EPUB 字体第 {len(entries)} 项。"
 
-    token = os.urandom(6).hex()
-    temporary = f"{EPUB_FONT_SLOT_PATH}.rmtool-{token}.tmp"
-    backup = f"{EPUB_FONT_SLOT_PATH}.rmtool-{token}.bak"
-    backup_created = False
-    installed = False
-    ssh_client.exec_checked(f"mkdir -p {shlex.quote(EPUB_FONT_SLOT_DIR)}")
-    try:
-        with ssh_client.sftp_session() as sftp:
-            sftp.symlink(remote_path, temporary)
-            if not stat.S_ISLNK(sftp.lstat(temporary).st_mode):
-                raise RuntimeError("EPUB 字体临时软链接创建失败。")
-            if posixpath.normpath(sftp.readlink(temporary)) != remote_path:
-                raise RuntimeError("EPUB 字体临时软链接校验失败。")
-            try:
-                current = sftp.lstat(EPUB_FONT_SLOT_PATH)
-            except IOError:
-                current = None
-            if current is not None:
-                if not stat.S_ISLNK(current.st_mode):
-                    raise RuntimeError("EPUB 字体槽位已被非软链接文件占用。")
-                sftp.rename(EPUB_FONT_SLOT_PATH, backup)
-                backup_created = True
-            sftp.rename(temporary, EPUB_FONT_SLOT_PATH)
-            installed = True
-        verified = _epub_font_slot_target(ssh_client)
-        if verified != remote_path:
-            raise RuntimeError("EPUB 字体槽位写入后校验失败。")
-        if backup_created:
-            with ssh_client.sftp_session() as sftp:
-                sftp.remove(backup)
-            backup_created = False
-        return EpubFontSlotStatus("ready", "EPUB 字体槽位已更新。", remote_path)
-    except Exception as exc:
-        rollback_errors = []
-        try:
-            with ssh_client.sftp_session() as sftp:
-                if installed:
-                    _remove_sftp_path_if_present(sftp, EPUB_FONT_SLOT_PATH)
-                if backup_created:
-                    sftp.rename(backup, EPUB_FONT_SLOT_PATH)
-                    backup_created = False
-                _remove_sftp_path_if_present(sftp, temporary)
-        except Exception as rollback_exc:
-            rollback_errors.append(f"EPUB 字体槽位恢复失败：{rollback_exc}")
-        if rollback_errors:
-            raise RuntimeError(f"{exc} 自动回滚未完整完成：{'；'.join(rollback_errors)}") from exc
-        raise
+    updated_slots = _mutate_epub_font_sequence(
+        ssh_client, status.slots, desired_slots
+    )
+    return _epub_font_ready_status(detail, updated_slots)
 
 
-def remove_epub_font_slot(ssh_client) -> EpubFontSlotStatus:
-    """Atomically remove the trusted 3.28 EPUB font slot."""
+def remove_epub_font_slot(
+    ssh_client, remote_dir: str, filename: str
+) -> EpubFontSlotStatus:
+    """Remove one assigned EPUB font and compact the remaining order."""
     status = _require_epub_font_slot_support(ssh_client)
-    if not status.target_path:
+    _directory, remote_path = _user_font_path(remote_dir, filename)
+    assigned = tuple(slot for slot in status.slots if slot.target_path)
+    selected_slot = next(
+        (slot for slot in assigned if slot.target_path == remote_path), None
+    )
+    if selected_slot is None:
         return status
-    backup = f"{EPUB_FONT_SLOT_PATH}.rmtool-{os.urandom(6).hex()}.bak"
-    moved = False
-    try:
-        with ssh_client.sftp_session() as sftp:
-            current = sftp.lstat(EPUB_FONT_SLOT_PATH)
-            if not stat.S_ISLNK(current.st_mode):
-                raise RuntimeError("EPUB 字体槽位已被非软链接文件占用。")
-            sftp.rename(EPUB_FONT_SLOT_PATH, backup)
-            moved = True
-        if _epub_font_slot_target(ssh_client):
-            raise RuntimeError("EPUB 字体槽位移除后校验失败。")
-        with ssh_client.sftp_session() as sftp:
-            sftp.remove(backup)
-        moved = False
-        return EpubFontSlotStatus("ready", "EPUB 字体槽位已移除。")
-    except Exception as exc:
-        if moved:
-            try:
-                with ssh_client.sftp_session() as sftp:
-                    sftp.rename(backup, EPUB_FONT_SLOT_PATH)
-            except Exception as rollback_exc:
-                raise RuntimeError(
-                    f"{exc} 自动回滚未完整完成：EPUB 字体槽位恢复失败：{rollback_exc}"
-                ) from exc
-        raise
+    entries = tuple(
+        (slot.target_path, slot.label)
+        for slot in assigned
+        if slot.target_path != remote_path
+    )
+    desired_slots = _packed_epub_font_slots(entries)
+    updated_slots = _mutate_epub_font_sequence(
+        ssh_client, status.slots, desired_slots
+    )
+    return _epub_font_ready_status(
+        f"已移除 EPUB 字体第 {selected_slot.number} 项，后续字体顺序已前移。",
+        updated_slots,
+    )
 
 
 def list_user_fonts(
@@ -1867,6 +2230,7 @@ def list_user_fonts(
     remote_dir: str,
     *,
     epub_slot_target: str = "",
+    epub_slots: tuple[EpubFontSlot, ...] = (),
 ) -> tuple[UserFont, ...]:
     """List manageable top-level user fonts without traversing subdirectories."""
     directory = _normalize_user_font_dir(remote_dir)
@@ -1881,13 +2245,19 @@ def list_user_fonts(
         except Exception:
             logging.warning("Could not identify font family for %s", remote_path)
             family = "无法识别"
+        assigned_slots = tuple(
+            slot.number for slot in epub_slots if slot.target_path == remote_path
+        )
+        if not assigned_slots and remote_path == epub_slot_target:
+            assigned_slots = (1,)
         fonts.append(
             UserFont(
                 filename=entry.filename,
                 family=family,
                 remote_path=remote_path,
                 active=remote_path in matched_paths,
-                epub=remote_path == epub_slot_target,
+                epub=bool(assigned_slots),
+                epub_slots=assigned_slots,
             )
         )
     return tuple(fonts)
@@ -1911,7 +2281,7 @@ def upload_user_font(
         raise RuntimeError(
             "上传目标正被系统字体配置使用。请改用其他文件名，或先切换系统字体。"
         )
-    if remote_path == _epub_font_slot_target(ssh_client):
+    if remote_path in _epub_font_slot_targets(ssh_client):
         raise RuntimeError(
             "上传目标正作为 EPUB 字体使用。请改用其他文件名，或先从 EPUB 字体菜单移除。"
         )
@@ -1929,7 +2299,7 @@ def upload_user_font(
                     raise RuntimeError(
                         "上传目标在操作期间成为系统字体，已停止上传。"
                     )
-                if remote_path == _epub_font_slot_target_from_sftp(sftp):
+                if remote_path in _epub_font_slot_targets_from_sftp(sftp):
                     raise RuntimeError(
                         "上传目标在操作期间成为 EPUB 字体，已停止上传。"
                     )
@@ -2067,7 +2437,7 @@ def delete_user_font(ssh_client, remote_dir: str, filename: str) -> None:
     active_before = _ui_font_match_paths(ssh_client)
     if remote_path in active_before:
         raise RuntimeError("当前系统字体不能删除，请先切换到其他字体。")
-    if remote_path == _epub_font_slot_target(ssh_client):
+    if remote_path in _epub_font_slot_targets(ssh_client):
         raise RuntimeError("当前 EPUB 字体不能删除，请先从 EPUB 字体菜单移除。")
     backup_path = f"{remote_path}.rmtool-delete-{os.urandom(6).hex()}.bak"
     moved = False
@@ -2078,7 +2448,7 @@ def delete_user_font(ssh_client, remote_dir: str, filename: str) -> None:
                 _require_top_level_regular_font(sftp, directory, filename)
                 if remote_path in _ui_font_match_paths(ssh_client):
                     raise RuntimeError("当前系统字体不能删除，请先切换到其他字体。")
-                if remote_path == _epub_font_slot_target_from_sftp(sftp):
+                if remote_path in _epub_font_slot_targets_from_sftp(sftp):
                     raise RuntimeError(
                         "当前 EPUB 字体不能删除，请先从 EPUB 字体菜单移除。"
                     )
