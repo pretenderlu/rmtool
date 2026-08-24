@@ -4010,11 +4010,11 @@ class FontUiTests(unittest.TestCase):
         )
         migration = _rmkit_cn.LegacySystemFontMigration("none", "无需迁移")
         epub_status = _rmkit_cn.EpubFontSlotStatus(
-            "ready", "当前固件支持一个 EPUB 自定义字体槽位。"
+            "ready", "当前固件支持 3 个 EPUB 自定义字体槽位。"
         )
 
-        def list_fonts(_client, remote_dir, *, epub_slot_target=""):
-            self.assertEqual(epub_slot_target, "")
+        def list_fonts(_client, remote_dir, *, epub_slots=()):
+            self.assertEqual(epub_slots, epub_status.slots)
             if remote_dir == rmtool.DEFAULT_FONT_DIR:
                 return (repository_font,)
             if remote_dir == rmtool.LEGACY_DEFAULT_FONT_DIR:
@@ -4041,8 +4041,8 @@ class FontUiTests(unittest.TestCase):
         self.assertEqual(
             list_user_fonts.call_args_list,
             [
-                mock.call(client, rmtool.DEFAULT_FONT_DIR, epub_slot_target=""),
-                mock.call(client, rmtool.LEGACY_DEFAULT_FONT_DIR, epub_slot_target=""),
+                mock.call(client, rmtool.DEFAULT_FONT_DIR, epub_slots=epub_status.slots),
+                mock.call(client, rmtool.LEGACY_DEFAULT_FONT_DIR, epub_slots=epub_status.slots),
             ],
         )
         get_migration.assert_called_once_with(client, rmtool.LEGACY_DEFAULT_FONT_DIR)
@@ -4120,7 +4120,13 @@ class FontUiTests(unittest.TestCase):
             start_worker.call_args.args[1:3],
             (client, rmtool.LEGACY_DEFAULT_FONT_DIR),
         )
-        self.assertIn("不会自动重启", confirm.call_args.args[2])
+        confirmation = confirm.call_args.args[2]
+        self.assertIn("用户字体文件 legacy.ttf 仍会保留", confirmation)
+        self.assertIn("手动重启", confirmation)
+        self.assertNotIn("revision", confirmation)
+        self.assertNotIn("阅读增强", confirmation)
+        self.assertNotIn("/home", confirmation)
+        self.assertNotIn("/data", confirmation)
 
     def test_disconnect_clears_legacy_migration_action(self):
         client = FakeConnectionClient(connected=True)
@@ -4179,6 +4185,7 @@ class FontUiTests(unittest.TestCase):
             f"{rmtool.DEFAULT_FONT_DIR}reader.ttf",
             False,
             True,
+            (2,),
         )
 
         widget._apply_font_inventory(
@@ -4188,18 +4195,26 @@ class FontUiTests(unittest.TestCase):
                 "unsupported", "仅精确支持已收录的 3.28 固件。"
             ),
         )
-        self.assertEqual(widget.font_table.item(0, 2).text(), "EPUB 字体")
-        self.assertEqual(widget.epub_font_button.text(), "从 EPUB 字体菜单移除")
+        self.assertEqual(widget.font_table.item(0, 2).text(), "EPUB 顺序 2")
+        self.assertEqual(widget.epub_font_button.text(), "添加为 EPUB 第 1 项")
         self.assertFalse(widget.epub_font_button.isEnabled())
         self.assertFalse(widget.delete_button.isEnabled())
+        self.assertFalse(hasattr(widget, "epub_slot_combo"))
 
         widget._apply_font_inventory(
             (epub,),
             select_filename="reader.ttf",
             epub_status=_rmkit_cn.EpubFontSlotStatus(
-                "ready", "当前固件支持一个 EPUB 自定义字体槽位。", epub.remote_path
+                "ready",
+                "当前固件支持 3 个 EPUB 自定义字体槽位。",
+                slots=(
+                    _rmkit_cn.EpubFontSlot(1),
+                    _rmkit_cn.EpubFontSlot(2, epub.remote_path, "reader"),
+                    _rmkit_cn.EpubFontSlot(3),
+                ),
             ),
         )
+        self.assertEqual(widget.epub_font_button.text(), "从 EPUB 字体菜单移除")
         self.assertTrue(widget.epub_font_button.isEnabled())
 
     def test_epub_font_action_uses_add_and_remove_backends(self):
@@ -4207,7 +4222,7 @@ class FontUiTests(unittest.TestCase):
         widget = rmtool.FontTab(client, rmtool._default_config())
         self.addCleanup(widget.deleteLater)
         status = _rmkit_cn.EpubFontSlotStatus(
-            "ready", "当前固件支持一个 EPUB 自定义字体槽位。"
+            "ready", "当前固件支持 3 个 EPUB 自定义字体槽位。"
         )
         font = _rmkit_cn.UserFont(
             "reader.ttf",
@@ -4224,22 +4239,130 @@ class FontUiTests(unittest.TestCase):
         ) as confirm, mock.patch.object(widget, "_start_font_worker") as start_worker:
             widget._toggle_selected_epub_font()
         self.assertIs(start_worker.call_args.args[0], _rmkit_cn.set_epub_font_slot)
-        self.assertIn("阅读增强 revision 5", confirm.call_args.args[2])
+        confirmation = confirm.call_args.args[2]
+        self.assertIn("手动重启", confirmation)
+        self.assertNotIn("revision", confirmation)
+        self.assertNotIn("阅读增强", confirmation)
+        self.assertNotIn("/home", confirmation)
         self.assertEqual(
             start_worker.call_args.args[1:4],
             (client, posixpath.normpath(rmtool.DEFAULT_FONT_DIR), "reader.ttf"),
         )
+        with mock.patch.object(widget, "_refresh_fonts") as refresh:
+            start_worker.call_args.kwargs["on_success"](None)
+        success = refresh.call_args.kwargs["success"]
+        self.assertIn("重启生效", success)
+        self.assertNotIn("revision", success)
+        self.assertNotIn("阅读增强", success)
+        self.assertNotIn("/home", success)
 
-        epub = _rmkit_cn.replace(font, epub=True)
+        epub = _rmkit_cn.replace(font, epub=True, epub_slots=(1,))
+        status = _rmkit_cn.EpubFontSlotStatus(
+            "ready",
+            "当前固件支持 3 个 EPUB 自定义字体槽位。",
+            slots=(
+                _rmkit_cn.EpubFontSlot(1, epub.remote_path, "reader"),
+                _rmkit_cn.EpubFontSlot(2),
+                _rmkit_cn.EpubFontSlot(3),
+            ),
+        )
         widget._apply_font_inventory(
             (epub,), select_filename="reader.ttf", epub_status=status
         )
         with mock.patch.object(
             _tab_toolbox, "ask_confirmation", return_value=True
-        ), mock.patch.object(widget, "_start_font_worker") as start_worker:
+        ) as confirm, mock.patch.object(widget, "_start_font_worker") as start_worker:
             widget._toggle_selected_epub_font()
         self.assertIs(start_worker.call_args.args[0], _rmkit_cn.remove_epub_font_slot)
-        self.assertEqual(start_worker.call_args.args[1:], (client,))
+        confirmation = confirm.call_args.args[2]
+        self.assertIn("手动重启", confirmation)
+        self.assertNotIn("revision", confirmation)
+        self.assertNotIn("阅读增强", confirmation)
+        self.assertNotIn("/home", confirmation)
+        self.assertEqual(
+            start_worker.call_args.args[1:4],
+            (client, posixpath.normpath(rmtool.DEFAULT_FONT_DIR), "reader.ttf"),
+        )
+        with mock.patch.object(widget, "_refresh_fonts") as refresh:
+            start_worker.call_args.kwargs["on_success"](None)
+        success = refresh.call_args.kwargs["success"]
+        self.assertIn("顺序已自动前移", success)
+        self.assertIn("重启生效", success)
+        self.assertNotIn("revision", success)
+        self.assertNotIn("阅读增强", success)
+        self.assertNotIn("/home", success)
+
+    def test_epub_font_action_distinguishes_append_relabel_and_capacity(self):
+        widget = rmtool.FontTab(
+            FakeConnectionClient(connected=True), rmtool._default_config()
+        )
+        self.addCleanup(widget.deleteLater)
+        first = _rmkit_cn.UserFont(
+            "中文字体.ttf",
+            "First",
+            f"{rmtool.DEFAULT_FONT_DIR}中文字体.ttf",
+            False,
+            True,
+            (1,),
+        )
+        second = _rmkit_cn.UserFont(
+            "second.ttf",
+            "Second",
+            f"{rmtool.DEFAULT_FONT_DIR}second.ttf",
+            False,
+        )
+        legacy_status = _rmkit_cn.EpubFontSlotStatus(
+            "ready",
+            "支持",
+            slots=(
+                _rmkit_cn.EpubFontSlot(1, first.remote_path, ""),
+                _rmkit_cn.EpubFontSlot(2),
+                _rmkit_cn.EpubFontSlot(3),
+            ),
+        )
+
+        widget._apply_font_inventory(
+            (first, second), select_filename="中文字体.ttf", epub_status=legacy_status
+        )
+        self.assertEqual(widget.epub_font_button.text(), "更新 EPUB 字体名称")
+        self.assertTrue(widget.epub_font_button.isEnabled())
+
+        widget.font_table.selectRow(1)
+        self.assertEqual(widget.epub_font_button.text(), "添加为 EPUB 第 2 项")
+        self.assertTrue(widget.epub_font_button.isEnabled())
+
+        third = _rmkit_cn.UserFont(
+            "third.ttf",
+            "Third",
+            f"{rmtool.DEFAULT_FONT_DIR}third.ttf",
+            False,
+            True,
+            (2,),
+        )
+        fourth = _rmkit_cn.UserFont(
+            "fourth.ttf",
+            "Fourth",
+            f"{rmtool.DEFAULT_FONT_DIR}fourth.ttf",
+            False,
+            True,
+            (3,),
+        )
+        full_status = _rmkit_cn.EpubFontSlotStatus(
+            "ready",
+            "当前已使用 3/3 个 EPUB 字体位置。",
+            slots=(
+                _rmkit_cn.EpubFontSlot(1, first.remote_path, "中文字体"),
+                _rmkit_cn.EpubFontSlot(2, third.remote_path, "third"),
+                _rmkit_cn.EpubFontSlot(3, fourth.remote_path, "fourth"),
+            ),
+        )
+        widget._apply_font_inventory(
+            (first, second, third, fourth),
+            select_filename="second.ttf",
+            epub_status=full_status,
+        )
+        self.assertEqual(widget.epub_font_button.text(), "EPUB 字体已满（3/3）")
+        self.assertFalse(widget.epub_font_button.isEnabled())
 
     def test_disconnect_invalidates_in_flight_inventory_result(self):
         client = FakeConnectionClient(connected=False)

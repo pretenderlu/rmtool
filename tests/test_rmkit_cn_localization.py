@@ -17,11 +17,21 @@ import _tap_page_turn as tap
 
 
 class FakeSFTP:
-    def __init__(self, files, file_modes=None, file_owners=None, symlinks=None):
+    def __init__(
+        self,
+        files,
+        file_modes=None,
+        file_owners=None,
+        symlinks=None,
+        after_rename=None,
+        before_remove=None,
+    ):
         self.files = files
         self.file_modes = file_modes or {}
         self.file_owners = file_owners or {}
         self.symlinks = symlinks if symlinks is not None else {}
+        self.after_rename = after_rename
+        self.before_remove = before_remove
 
     def _attributes(self, path):
         uid, gid = self.file_owners.get(path, (0, 0))
@@ -61,14 +71,20 @@ class FakeSFTP:
             if target in self.files or target in self.symlinks:
                 raise IOError(target)
             self.symlinks[target] = self.symlinks.pop(source)
+            if self.after_rename:
+                self.after_rename()
             return
         if source not in self.files:
             raise IOError(source)
         if target in self.files:
             raise IOError(target)
         self.files[target] = self.files.pop(source)
+        if self.after_rename:
+            self.after_rename()
 
     def remove(self, path):
+        if (path in self.symlinks or path in self.files) and self.before_remove:
+            self.before_remove()
         if path in self.symlinks:
             del self.symlinks[path]
             return
@@ -106,6 +122,8 @@ class FakeSSH:
         fail_cache_count=0,
         root_free_bytes=1024 * 1024 * 1024,
         fail_exec_once_contains=(),
+        fail_rename_after_at=None,
+        fail_remove_before_at=None,
         file_modes=None,
         file_owners=None,
         symlinks=None,
@@ -129,12 +147,16 @@ class FakeSSH:
         self.fail_cache_count = fail_cache_count
         self.root_free_bytes = root_free_bytes
         self.fail_exec_once_contains = list(fail_exec_once_contains)
+        self.fail_rename_after_at = fail_rename_after_at
+        self.fail_remove_before_at = fail_remove_before_at
         self.file_modes = dict(file_modes or {})
         self.file_owners = dict(file_owners or {})
         self.symlinks = dict(symlinks or {})
         if cjk_available:
             self.cjk_files.add(self.active_font)
         self.transfer_count = 0
+        self.rename_count = 0
+        self.remove_count = 0
         self.close_count = 0
         self.events = []
         self.xochitl_active = True
@@ -147,7 +169,19 @@ class FakeSSH:
             self.file_modes,
             self.file_owners,
             self.symlinks,
+            self._after_rename,
+            self._before_remove,
         )
+
+    def _after_rename(self):
+        self.rename_count += 1
+        if self.rename_count == self.fail_rename_after_at:
+            raise IOError("simulated rename response failure")
+
+    def _before_remove(self):
+        self.remove_count += 1
+        if self.remove_count == self.fail_remove_before_at:
+            raise IOError("simulated remove failure")
 
     def exec_checked(self, command):
         self.events.append(("exec", command))
@@ -1244,92 +1278,367 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(ssh.events, [])
         self.assertEqual(ssh.symlinks, {})
 
-    def test_epub_font_slot_add_status_inventory_remove_and_delete_protection(self):
+    def test_epub_font_slots_add_labels_inventory_remove_and_delete_protection(self):
         font_dir = "/home/root/.local/share/rmtool/fonts"
-        target = f"{font_dir}/reader.ttf"
-        ssh = FakeSSH({target: b"reader"}, device_font_family="Reader Family")
-
-        with patch.object(
-            tap, "get_device_identity", return_value=self._trusted_328_identity()
-        ):
-            added = _rmkit_cn.set_epub_font_slot(ssh, font_dir, "reader.ttf")
-            status = _rmkit_cn.get_epub_font_slot_status(ssh)
-            fonts = _rmkit_cn.list_user_fonts(
-                ssh, font_dir, epub_slot_target=status.target_path
-            )
-            with self.assertRaisesRegex(RuntimeError, "当前 EPUB 字体不能删除"):
-                _rmkit_cn.delete_user_font(ssh, font_dir, "reader.ttf")
-            removed = _rmkit_cn.remove_epub_font_slot(ssh)
-
-        self.assertEqual(added.target_path, target)
-        self.assertEqual(status.target_path, target)
-        self.assertTrue(status.supported)
-        self.assertTrue(fonts[0].epub)
-        self.assertNotIn(_rmkit_cn.EPUB_FONT_SLOT_PATH, ssh.symlinks)
-        self.assertEqual(removed.target_path, "")
-        self.assertEqual(ssh.files[target], b"reader")
-        commands = "\n".join(value for kind, value in ssh.events if kind == "exec")
-        self.assertNotIn("restart xochitl", commands)
-        self.assertNotIn("reboot", commands)
-
-    def test_epub_font_slot_replaces_only_a_verified_symlink(self):
-        font_dir = "/home/root/.local/share/rmtool/fonts"
-        first = f"{font_dir}/first.ttf"
-        second = f"{font_dir}/second.otf"
+        targets = tuple(
+            f"{font_dir}/{name}"
+            for name in ("霞鹜文楷.ttf", "飞花宋体.otf", "reader.ttf", "fourth.ttf")
+        )
         ssh = FakeSSH(
-            {first: b"first", second: b"second"},
-            symlinks={_rmkit_cn.EPUB_FONT_SLOT_PATH: first},
+            dict(zip(targets, (b"one", b"two", b"three", b"four"))),
+            device_font_family="Reader Family",
         )
 
         with patch.object(
             tap, "get_device_identity", return_value=self._trusted_328_identity()
         ):
+            for filename in ("霞鹜文楷.ttf", "飞花宋体.otf", "reader.ttf"):
+                _rmkit_cn.set_epub_font_slot(ssh, font_dir, filename)
+            status = _rmkit_cn.get_epub_font_slot_status(ssh)
+            fonts = _rmkit_cn.list_user_fonts(ssh, font_dir, epub_slots=status.slots)
+            with self.assertRaisesRegex(RuntimeError, "当前 EPUB 字体不能删除"):
+                _rmkit_cn.delete_user_font(ssh, font_dir, "飞花宋体.otf")
+            with self.assertRaisesRegex(RuntimeError, "已满（3/3）"):
+                _rmkit_cn.set_epub_font_slot(ssh, font_dir, "fourth.ttf")
+            removed = _rmkit_cn.remove_epub_font_slot(
+                ssh, font_dir, "飞花宋体.otf"
+            )
+
+        self.assertEqual(status.target_paths, targets[:3])
+        self.assertIn("3/3", status.detail)
+        for detail in (status.detail, removed.detail):
+            self.assertNotIn("revision", detail)
+            self.assertNotIn("阅读增强", detail)
+            self.assertNotIn("/home", detail)
+        self.assertEqual(
+            tuple(slot.label for slot in status.slots),
+            ("霞鹜文楷", "飞花宋体", "reader"),
+        )
+        self.assertTrue(status.supported)
+        self.assertEqual(
+            {font.filename: font.epub_slots for font in fonts},
+            {
+                "fourth.ttf": (),
+                "reader.ttf": (3,),
+                "飞花宋体.otf": (2,),
+                "霞鹜文楷.ttf": (1,),
+            },
+        )
+        self.assertEqual(
+            removed.slots,
+            (
+                _rmkit_cn.EpubFontSlot(1, targets[0], "霞鹜文楷"),
+                _rmkit_cn.EpubFontSlot(2, targets[2], "reader"),
+                _rmkit_cn.EpubFontSlot(3),
+            ),
+        )
+        self.assertEqual(
+            ssh.symlinks[_rmkit_cn._epub_font_slot_path(2)], targets[2]
+        )
+        self.assertNotIn(_rmkit_cn._epub_font_slot_path(3), ssh.symlinks)
+        self.assertNotIn(_rmkit_cn._epub_font_label_path(3), ssh.files)
+        self.assertEqual(ssh.files[targets[1]], b"two")
+        commands = "\n".join(value for kind, value in ssh.events if kind == "exec")
+        self.assertNotIn("restart xochitl", commands)
+        self.assertNotIn("reboot", commands)
+
+    def test_epub_font_legacy_slot_one_without_label_is_read_only_until_reapplied(self):
+        font_dir = "/home/root/.local/share/rmtool/fonts"
+        target = f"{font_dir}/中文字体.ttf"
+        ssh = FakeSSH(
+            {target: b"font"}, symlinks={_rmkit_cn.EPUB_FONT_SLOT_PATH: target}
+        )
+
+        with patch.object(
+            tap, "get_device_identity", return_value=self._trusted_328_identity()
+        ):
+            status = _rmkit_cn.get_epub_font_slot_status(ssh)
+            self.assertEqual(status.slots[0].label, "")
+            self.assertNotIn(_rmkit_cn._epub_font_label_path(1), ssh.files)
+            updated = _rmkit_cn.set_epub_font_slot(ssh, font_dir, "中文字体.ttf")
+
+        self.assertEqual(updated.slots[0].label, "中文字体")
+        self.assertEqual(
+            ssh.files[_rmkit_cn._epub_font_label_path(1)], "中文字体".encode()
+        )
+
+    def test_epub_font_add_compacts_existing_gap_only_after_explicit_action(self):
+        font_dir = "/home/root/.local/share/rmtool/fonts"
+        first = f"{font_dir}/first.ttf"
+        second = f"{font_dir}/second.otf"
+        ssh = FakeSSH(
+            {
+                first: b"first",
+                second: b"second",
+                _rmkit_cn._epub_font_label_path(3): "保留名称".encode(),
+            },
+            symlinks={_rmkit_cn._epub_font_slot_path(3): first},
+        )
+
+        with patch.object(
+            tap, "get_device_identity", return_value=self._trusted_328_identity()
+        ):
+            status = _rmkit_cn.get_epub_font_slot_status(ssh)
+            self.assertNotIn(_rmkit_cn._epub_font_slot_path(1), ssh.symlinks)
             result = _rmkit_cn.set_epub_font_slot(ssh, font_dir, "second.otf")
 
-        self.assertEqual(result.target_path, second)
-        self.assertEqual(ssh.symlinks, {_rmkit_cn.EPUB_FONT_SLOT_PATH: second})
+        self.assertEqual(status.slots[2].target_path, first)
+        self.assertEqual(result.target_paths, (first, second))
+        self.assertEqual(
+            ssh.symlinks,
+            {
+                _rmkit_cn._epub_font_slot_path(1): first,
+                _rmkit_cn._epub_font_slot_path(2): second,
+            },
+        )
+        self.assertEqual(
+            ssh.files[_rmkit_cn._epub_font_label_path(1)], "保留名称".encode()
+        )
+        self.assertEqual(ssh.files[_rmkit_cn._epub_font_label_path(2)], b"second")
         self.assertFalse(any(".rmtool-" in path for path in ssh.symlinks))
 
-    def test_epub_font_slot_replace_rolls_back_on_post_write_verification_failure(self):
+    def test_epub_font_append_preserves_legacy_slot_one_without_label(self):
+        font_dir = "/home/root/.local/share/rmtool/fonts"
+        first = f"{font_dir}/legacy.ttf"
+        second = f"{font_dir}/second.ttf"
+        ssh = FakeSSH(
+            {first: b"first", second: b"second"},
+            symlinks={_rmkit_cn._epub_font_slot_path(1): first},
+        )
+
+        with patch.object(
+            tap, "get_device_identity", return_value=self._trusted_328_identity()
+        ):
+            result = _rmkit_cn.set_epub_font_slot(ssh, font_dir, "second.ttf")
+
+        self.assertEqual(result.slots[0], _rmkit_cn.EpubFontSlot(1, first, ""))
+        self.assertEqual(result.slots[1].target_path, second)
+        self.assertNotIn(_rmkit_cn._epub_font_label_path(1), ssh.files)
+        self.assertEqual(ssh.files[_rmkit_cn._epub_font_label_path(2)], b"second")
+
+    def test_epub_font_remove_compacts_without_relabeling_remaining_fonts(self):
+        font_dir = "/home/root/.local/share/rmtool/fonts"
+        targets = tuple(
+            f"{font_dir}/{name}.ttf" for name in ("first", "second", "third")
+        )
+        labels = ("保留甲", "移除乙", "保留丙")
+        ssh = FakeSSH(
+            {
+                **dict.fromkeys(targets, b"font"),
+                **{
+                    _rmkit_cn._epub_font_label_path(number): label.encode()
+                    for number, label in enumerate(labels, start=1)
+                },
+            },
+            symlinks={
+                _rmkit_cn._epub_font_slot_path(number): target
+                for number, target in enumerate(targets, start=1)
+            },
+        )
+
+        with patch.object(
+            tap, "get_device_identity", return_value=self._trusted_328_identity()
+        ):
+            result = _rmkit_cn.remove_epub_font_slot(
+                ssh, font_dir, "second.ttf"
+            )
+
+        self.assertEqual(
+            result.slots,
+            (
+                _rmkit_cn.EpubFontSlot(1, targets[0], labels[0]),
+                _rmkit_cn.EpubFontSlot(2, targets[2], labels[2]),
+                _rmkit_cn.EpubFontSlot(3),
+            ),
+        )
+        self.assertEqual(
+            ssh.files[_rmkit_cn._epub_font_label_path(1)], labels[0].encode()
+        )
+        self.assertEqual(
+            ssh.files[_rmkit_cn._epub_font_label_path(2)], labels[2].encode()
+        )
+
+    def test_epub_font_append_rolls_back_on_post_write_verification_failure(self):
         font_dir = "/home/root/.local/share/rmtool/fonts"
         first = f"{font_dir}/first.ttf"
         second = f"{font_dir}/second.ttf"
         ssh = FakeSSH(
-            {first: b"first", second: b"second"},
+            {
+                first: b"first",
+                second: b"second",
+                _rmkit_cn._epub_font_label_path(1): b"first",
+            },
             symlinks={_rmkit_cn.EPUB_FONT_SLOT_PATH: first},
+        )
+        before = (
+            _rmkit_cn.EpubFontSlot(1, first, "first"),
+            _rmkit_cn.EpubFontSlot(2),
+            _rmkit_cn.EpubFontSlot(3),
         )
 
         with patch.object(
             tap, "get_device_identity", return_value=self._trusted_328_identity()
         ), patch.object(
             _rmkit_cn,
-            "_epub_font_slot_target_from_sftp",
-            side_effect=(first, RuntimeError("verification failed")),
+            "_epub_font_slots",
+            side_effect=(before, RuntimeError("verification failed"), before),
         ), self.assertRaisesRegex(RuntimeError, "verification failed"):
             _rmkit_cn.set_epub_font_slot(ssh, font_dir, "second.ttf")
 
         self.assertEqual(ssh.symlinks, {_rmkit_cn.EPUB_FONT_SLOT_PATH: first})
+        self.assertEqual(ssh.files[_rmkit_cn._epub_font_label_path(1)], b"first")
         self.assertFalse(any(".rmtool-" in path for path in ssh.symlinks))
+        self.assertFalse(any(".rmtool-" in path for path in ssh.files))
 
     def test_epub_font_slot_remove_rolls_back_on_post_write_verification_failure(self):
         font_dir = "/home/root/.local/share/rmtool/fonts"
         target = f"{font_dir}/reader.ttf"
         ssh = FakeSSH(
-            {target: b"reader"},
+            {target: b"reader", _rmkit_cn._epub_font_label_path(1): b"reader"},
             symlinks={_rmkit_cn.EPUB_FONT_SLOT_PATH: target},
+        )
+        before = (
+            _rmkit_cn.EpubFontSlot(1, target, "reader"),
+            _rmkit_cn.EpubFontSlot(2),
+            _rmkit_cn.EpubFontSlot(3),
         )
 
         with patch.object(
             tap, "get_device_identity", return_value=self._trusted_328_identity()
         ), patch.object(
             _rmkit_cn,
-            "_epub_font_slot_target_from_sftp",
-            side_effect=(target, RuntimeError("verification failed")),
+            "_epub_font_slots",
+            side_effect=(before, RuntimeError("verification failed"), before),
         ), self.assertRaisesRegex(RuntimeError, "verification failed"):
-            _rmkit_cn.remove_epub_font_slot(ssh)
+            _rmkit_cn.remove_epub_font_slot(ssh, font_dir, "reader.ttf")
 
         self.assertEqual(ssh.symlinks, {_rmkit_cn.EPUB_FONT_SLOT_PATH: target})
+        self.assertEqual(ssh.files[_rmkit_cn._epub_font_label_path(1)], b"reader")
         self.assertFalse(any(".rmtool-" in path for path in ssh.symlinks))
+        self.assertFalse(any(".rmtool-" in path for path in ssh.files))
+
+    def test_epub_font_append_rolls_back_ambiguous_rename_failures(self):
+        font_dir = "/home/root/.local/share/rmtool/fonts"
+        first = f"{font_dir}/first.ttf"
+        second = f"{font_dir}/second.ttf"
+        label_path = _rmkit_cn._epub_font_label_path(1)
+        for failure_at in range(1, 7):
+            with self.subTest(failure_at=failure_at):
+                ssh = FakeSSH(
+                    {first: b"first", second: b"second", label_path: b"first"},
+                    symlinks={_rmkit_cn.EPUB_FONT_SLOT_PATH: first},
+                    fail_rename_after_at=failure_at,
+                )
+                with patch.object(
+                    tap, "get_device_identity", return_value=self._trusted_328_identity()
+                ), self.assertRaisesRegex(IOError, "rename response failure"):
+                    _rmkit_cn.set_epub_font_slot(ssh, font_dir, "second.ttf")
+
+                self.assertEqual(
+                    ssh.symlinks, {_rmkit_cn.EPUB_FONT_SLOT_PATH: first}
+                )
+                self.assertEqual(ssh.files[label_path], b"first")
+                self.assertFalse(any(".rmtool-" in path for path in ssh.symlinks))
+                self.assertFalse(any(".rmtool-" in path for path in ssh.files))
+
+    def test_epub_font_transaction_cleanup_retries_without_leaving_backups(self):
+        font_dir = "/home/root/.local/share/rmtool/fonts"
+        first = f"{font_dir}/first.ttf"
+        second = f"{font_dir}/second.ttf"
+        ssh = FakeSSH(
+            {
+                first: b"first",
+                second: b"second",
+                _rmkit_cn._epub_font_label_path(1): b"first",
+            },
+            symlinks={_rmkit_cn._epub_font_slot_path(1): first},
+            fail_remove_before_at=1,
+        )
+
+        with patch.object(
+            tap, "get_device_identity", return_value=self._trusted_328_identity()
+        ):
+            result = _rmkit_cn.set_epub_font_slot(ssh, font_dir, "second.ttf")
+
+        self.assertEqual(result.target_paths, (first, second))
+        self.assertFalse(any(".rmtool-" in path for path in ssh.symlinks))
+        self.assertFalse(any(".rmtool-" in path for path in ssh.files))
+
+    def test_epub_font_slot_remove_rolls_back_ambiguous_rename_failures(self):
+        font_dir = "/home/root/.local/share/rmtool/fonts"
+        targets = tuple(
+            f"{font_dir}/{name}.ttf" for name in ("first", "second", "third")
+        )
+        before_symlinks = {
+            _rmkit_cn._epub_font_slot_path(number): target
+            for number, target in enumerate(targets, start=1)
+        }
+        before_labels = {
+            _rmkit_cn._epub_font_label_path(number): name.encode()
+            for number, name in enumerate(("first", "second", "third"), start=1)
+        }
+        for failure_at in range(1, 11):
+            with self.subTest(failure_at=failure_at):
+                ssh = FakeSSH(
+                    {
+                        **dict.fromkeys(targets, b"font"),
+                        **before_labels,
+                    },
+                    symlinks=before_symlinks,
+                    fail_rename_after_at=failure_at,
+                )
+                with patch.object(
+                    tap, "get_device_identity", return_value=self._trusted_328_identity()
+                ), self.assertRaisesRegex(IOError, "rename response failure"):
+                    _rmkit_cn.remove_epub_font_slot(
+                        ssh, font_dir, "second.ttf"
+                    )
+
+                self.assertEqual(ssh.symlinks, before_symlinks)
+                for path, value in before_labels.items():
+                    self.assertEqual(ssh.files[path], value)
+                self.assertFalse(any(".rmtool-" in path for path in ssh.symlinks))
+                self.assertFalse(any(".rmtool-" in path for path in ssh.files))
+
+    def test_epub_font_slot_inventory_rejects_duplicate_targets_and_bad_labels(self):
+        font_dir = "/home/root/.local/share/rmtool/fonts"
+        target = f"{font_dir}/reader.ttf"
+        ssh = FakeSSH(
+            {
+                target: b"reader",
+                _rmkit_cn._epub_font_label_path(1): b"reader",
+                _rmkit_cn._epub_font_label_path(2): b"\xff",
+            },
+            symlinks={
+                _rmkit_cn._epub_font_slot_path(1): target,
+                _rmkit_cn._epub_font_slot_path(2): target,
+            },
+        )
+
+        with patch.object(
+            tap, "get_device_identity", return_value=self._trusted_328_identity()
+        ):
+            status = _rmkit_cn.get_epub_font_slot_status(ssh)
+
+        self.assertEqual(status.state, "invalid")
+        self.assertTrue(
+            "UTF-8" in status.detail or "重复分配" in status.detail,
+            status.detail,
+        )
+
+        ssh = FakeSSH(
+            {
+                target: b"reader",
+                _rmkit_cn._epub_font_label_path(1): "reader\u2028spoof".encode(),
+            },
+            symlinks={_rmkit_cn._epub_font_slot_path(1): target},
+        )
+        with patch.object(
+            tap, "get_device_identity", return_value=self._trusted_328_identity()
+        ):
+            status = _rmkit_cn.get_epub_font_slot_status(ssh)
+        self.assertEqual(status.state, "invalid")
+        self.assertIn("名称文件内容无效", status.detail)
 
     def test_upload_rechecks_epub_slot_before_replacing_existing_font(self):
         font_dir = "/home/root/.local/share/rmtool/fonts"
@@ -1337,9 +1646,9 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         ssh = FakeSSH({target: b"old"})
 
         with patch.object(
-            _rmkit_cn,
-            "_epub_font_slot_target_from_sftp",
-            side_effect=("", target),
+            _rmkit_cn, "_epub_font_slot_targets", return_value=()
+        ), patch.object(
+            _rmkit_cn, "_epub_font_slot_targets_from_sftp", return_value=(target,)
         ), self.assertRaisesRegex(RuntimeError, "操作期间成为 EPUB 字体"):
             _rmkit_cn.upload_user_font(
                 ssh,
@@ -1357,9 +1666,9 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         ssh = FakeSSH({target: b"reader"})
 
         with patch.object(
-            _rmkit_cn,
-            "_epub_font_slot_target_from_sftp",
-            side_effect=("", target),
+            _rmkit_cn, "_epub_font_slot_targets", return_value=()
+        ), patch.object(
+            _rmkit_cn, "_epub_font_slot_targets_from_sftp", return_value=(target,)
         ), self.assertRaisesRegex(RuntimeError, "当前 EPUB 字体不能删除"):
             _rmkit_cn.delete_user_font(ssh, font_dir, "reader.ttf")
 

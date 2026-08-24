@@ -245,7 +245,15 @@ def _compile_and_validate(*, qmd_tool: Path, qmldiff: Path, source: Path, target
             raise RuntimeError(f"structure assertion {target['id']} missing MainView fast-mono hook")
     else:
         font_menu = (replay / QREX_FILES[4]).read_text(encoding="utf-8")
-        for marker in ("rmtoolEpubFont", "fontModel.insert(fontModel.count - 1"):
+        for marker in (
+            "rmtoolEpubFont1",
+            "rmtoolEpubFont3",
+            "slot-1.label",
+            "slot-3.ttf",
+            'fontModel.setProperty(existing, "value", label)',
+            "key: loader.name",
+            "value: label",
+        ):
             if marker not in font_menu:
                 raise RuntimeError(
                     f"structure assertion {target['id']} missing EPUB font marker {marker}"
