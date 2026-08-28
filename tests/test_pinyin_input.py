@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 import _pinyin_input as pinyin
 import _fast_mono_reading as fast
 import _native_chinese as native
+import _reading_enhancements as reading
 import _tap_page_turn as tap
 import _xovi_standalone as shared
 
@@ -258,11 +259,17 @@ class PinyinInputTests(unittest.TestCase):
         )
         self.assertEqual(pinyin._known_shared_predecessor_specs(other), ())
 
-    def test_peer_context_contains_all_four_features(self):
+    def test_peer_context_contains_all_supported_features(self):
         runtime, trusted, legacies = pinyin._trusted_shared_context(self.identity())
         self.assertEqual(
             set(trusted),
-            {"tap-page-turn", "fast-mono-reading", "native-chinese", pinyin.FEATURE_ID},
+            {
+                "tap-page-turn",
+                "fast-mono-reading",
+                "native-chinese",
+                pinyin.FEATURE_ID,
+                reading.FEATURE_ID,
+            },
         )
         self.assertEqual(
             {item.feature.feature_id for item in legacies},

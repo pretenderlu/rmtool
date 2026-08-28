@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 
 import _native_chinese as native
 import _pinyin_input as pinyin
+import _reading_enhancements as reading
 import _fast_mono_reading as fast
 import _rmkit_cn
 import _tap_page_turn as tap
@@ -314,6 +315,7 @@ class NativeChineseTests(unittest.TestCase):
                 {
                     native.FEATURE_ID,
                     pinyin.FEATURE_ID,
+                    reading.FEATURE_ID,
                     "tap-page-turn",
                     "fast-mono-reading",
                 },
@@ -323,6 +325,53 @@ class NativeChineseTests(unittest.TestCase):
                 {"tap-page-turn", "fast-mono-reading"},
             )
             shared.assert_feature_layout(runtime, trusted.values())
+
+    def test_sibling_status_trusts_only_known_reading_enhancements_revisions(self):
+        identity = self.identity()
+        native_package = native.select_package(native._trusted_catalog(), identity)
+        pinyin_package = pinyin.select_package(pinyin._trusted_catalog(), identity)
+        reading_package = reading.select_package(reading._trusted_catalog(), identity)
+        runtime, trusted, _legacies = tap._trusted_shared_context(identity)
+        current = trusted[reading.FEATURE_ID]
+        predecessor = next(
+            feature
+            for reason, feature in reading._known_shared_predecessor_specs(
+                reading_package, current
+            )
+            if reason == "package-revision-5"
+        )
+        expected = shared.SharedInspection({}, False, False)
+
+        for probe, package in (
+            (native._inspect_shared_revision, native_package),
+            (pinyin._inspect_shared_revision, pinyin_package),
+        ):
+            for accepted in (current, predecessor):
+                def inspect(_ssh, _runtime, candidate, **_kwargs):
+                    if candidate[reading.FEATURE_ID] == accepted:
+                        return expected
+                    raise RuntimeError("not this exact reading revision")
+
+                with self.subTest(
+                    probe=probe.__module__, reading_sha256=accepted.sha256
+                ), patch.object(shared, "inspect_shared", side_effect=inspect):
+                    result = probe(Mock(), runtime, trusted, package)
+                self.assertIs(result[0], expected)
+                self.assertEqual(result[1][reading.FEATURE_ID], accepted)
+
+            forged = replace(predecessor, sha256="0" * 64)
+
+            def accept_only_forged(_ssh, _runtime, candidate, **_kwargs):
+                if candidate[reading.FEATURE_ID] == forged:
+                    return expected
+                raise RuntimeError("untrusted reading hash")
+
+            with self.subTest(
+                probe=probe.__module__, reading_sha256=forged.sha256
+            ), patch.object(
+                shared, "inspect_shared", side_effect=accept_only_forged
+            ), self.assertRaisesRegex(RuntimeError, "untrusted reading hash"):
+                probe(Mock(), runtime, trusted, package)
 
     def test_manifest_rejects_unknown_path_and_changed_url_order(self):
         document = json.loads(native.BUNDLED_MANIFEST.read_text(encoding="utf-8"))

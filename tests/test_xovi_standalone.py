@@ -11,6 +11,7 @@ import _fast_mono_reading as fast
 import _appload as appload
 import _native_chinese as native
 import _pinyin_input as pinyin
+import _reading_enhancements as reading
 import _tap_page_turn as tap
 import _xovi_standalone as shared
 
@@ -267,6 +268,8 @@ class SharedXoviTests(unittest.TestCase):
                         expected_features.add("native-chinese")
                     if pinyin.select_package(pinyin._trusted_catalog(), identity):
                         expected_features.add("pinyin-input")
+                    if reading.select_package(reading._trusted_catalog(), identity):
+                        expected_features.add(reading.FEATURE_ID)
                     if appload.app_asset(identity):
                         expected_features.update(("appload", "koreader"))
                     self.assertEqual(
@@ -874,6 +877,7 @@ class SharedXoviTests(unittest.TestCase):
                 "fast-mono-reading",
                 "native-chinese",
                 "pinyin-input",
+                reading.FEATURE_ID,
                 "appload",
                 "koreader",
             },

@@ -438,17 +438,19 @@ def _inspect_shared_revision(
             for item in _known_shared_predecessor_specs(package)
         )
     }
+    identity = tap.DeviceIdentity(
+        package.firmware,
+        package.platform,
+        package.architecture,
+        package.xochitl_sha256,
+    )
+    revisions.update(tap._reading_enhancement_revisions(identity, trusted))
     try:
         import _native_chinese as native
 
         peer = native.select_package(
             native._trusted_catalog(),
-            tap.DeviceIdentity(
-                package.firmware,
-                package.platform,
-                package.architecture,
-                package.xochitl_sha256,
-            ),
+            identity,
         )
         if peer is not None and native.FEATURE_ID in trusted:
             revisions[native.FEATURE_ID] = tuple(

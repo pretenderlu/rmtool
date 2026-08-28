@@ -717,6 +717,18 @@ def _trusted_shared_context(identity: DeviceIdentity):
     except ImportError:
         pass
     try:
+        import _reading_enhancements as reading
+
+        peer = reading.select_package(reading._trusted_catalog(), identity)
+        if peer is not None:
+            peer_runtime, peer_feature = reading._shared_specs(peer)
+            if runtime is not None and peer_runtime != runtime:
+                raise RuntimeError("点击翻页与阅读增强的内置运行资源不一致。")
+            runtime = runtime or peer_runtime
+            trusted[peer_feature.feature_id] = peer_feature
+    except ImportError:
+        pass
+    try:
         import _appload as appload
 
         peer_runtime, peer_features = appload.trusted_specs(identity)
@@ -733,6 +745,19 @@ def _trusted_shared_context(identity: DeviceIdentity):
         raise RuntimeError("内置点击翻页清单没有当前设备的精确包。")
     _xovi_standalone.assert_feature_layout(runtime, trusted.values())
     return runtime, trusted, tuple(legacies)
+
+
+def _reading_enhancement_revisions(identity, trusted):
+    try:
+        import _reading_enhancements as reading
+    except ImportError:
+        return {}
+    current = trusted.get(reading.FEATURE_ID)
+    package = reading.select_package(reading._trusted_catalog(), identity)
+    if current is None or package is None:
+        return {}
+    predecessors = reading._known_shared_predecessor_specs(package, current)
+    return {reading.FEATURE_ID: predecessors} if predecessors else {}
 
 
 def _trusted_shared_context_from_marker(ssh_client):
