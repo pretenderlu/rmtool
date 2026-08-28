@@ -63,6 +63,7 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
             "/qml/device/view/settings/Settings.qml",
             "/qml/device/view/documentview/SceneViewGestures.qml",
             "/qml/device/view/documentview/DocumentView.qml",
+            "/qml/device/view/documentview/Pages.qml",
             "/qml/device/view/documentview/FormatFont.qml",
             "/qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml",
         ):
@@ -91,6 +92,14 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
             "forceClearNow",
             "interval: 500",
             "tocModel",
+            "rmtoolTableOfContentsItem",
+            "rmtoolTableOfContentsAvailable",
+            "function rmtoolOpenTableOfContents()",
+            "function rmtoolRequestTableOfContents()",
+            "root.requestTableOfContents(true)",
+            "toolbar.selectLastTool()",
+            "documentView.rmtoolRequestTableOfContents()",
+            "tableOfContentsLoader.active = true",
             "onCurrentPageChanged",
             "onRmtoolReadingDocumentIdChanged",
             "const documentId = root.rmtoolReadingDocumentId",
@@ -150,6 +159,54 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
         )[1]
         self.assertNotIn("normalizedInterval(", document_source)
         self.assertNotIn("E:\\", source)
+
+    def test_table_of_contents_shortcut_delegates_to_the_stock_pages_loader(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        pages_patch = source.split(
+            "AFFECT /qml/device/view/documentview/Pages.qml", 1
+        )[1].split("END AFFECT", 1)[0]
+        menu_patch = source.split(
+            "AFFECT /qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml", 1
+        )[1].split("END AFFECT", 1)[0]
+        document_patch = source.split(
+            "AFFECT /qml/device/view/documentview/DocumentView.qml", 1
+        )[1].split("END AFFECT", 1)[0]
+
+        self.assertIn("TRAVERSE Background#pages", pages_patch)
+        self.assertIn("document?.fileType === Document.Pdf", pages_patch)
+        self.assertIn("!documentView.tocModel.length", pages_patch)
+        self.assertIn("!documentView.rmtoolTocLoading", pages_patch)
+        self.assertIn('reportPageAction("Table of Content")', pages_patch)
+        self.assertIn("documentView.rmtoolRequestTableOfContents()", pages_patch)
+        self.assertIn("tableOfContentsLoader.active = true", pages_patch)
+        self.assertNotIn("TableOfContent {", pages_patch)
+        self.assertNotIn("modelData", pages_patch)
+
+        self.assertIn('label: "目录"', menu_patch)
+        self.assertIn('iconSource: "qrc:/ark/icons/list"', menu_patch)
+        self.assertIn("rmtoolMasterEnabled", menu_patch)
+        self.assertIn("rmtoolTableOfContentsAvailable", menu_patch)
+        self.assertIn("rmtoolOpenTableOfContents()", menu_patch)
+
+        self.assertIn(
+            "readonly property bool rmtoolTableOfContentsAvailable: rmtoolReadingAvailable",
+            document_patch,
+        )
+        self.assertIn("document.fileType === Document.Pdf", document_patch)
+        self.assertIn("document.fileType === Document.Ebook", document_patch)
+        self.assertIn("rmtoolTocLoading || (tocModel && tocModel.length > 0)", document_patch)
+        self.assertIn('if ("requestTableOfContents" in root)', document_patch)
+        self.assertIn("root.requestTableOfContents(true)", document_patch)
+        self.assertIn("LibraryController.loadTableOfContents(document.id)", document_patch)
+        self.assertIn("openOverview()", document_patch)
+        self.assertIn("toolbar.selectLastTool()", document_patch)
+        self.assertIn("pages.rmtoolOpenTableOfContents()", document_patch)
+        self.assertRegex(
+            document_patch,
+            r"function\s+rmtoolOpenTableOfContents\(\)\s*\{\s*"
+            r"openOverview\(\)\s*toolbar\.selectLastTool\(\)\s*"
+            r"pages\.rmtoolOpenTableOfContents\(\)\s*\}",
+        )
 
     def test_release_source_uses_the_exact_settings_root_selector(self):
         builder = _load_builder()
@@ -294,6 +351,9 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
                 document = (replay / "qml/device/view/documentview/DocumentView.qml").read_text(
                     encoding="utf-8"
                 )
+                pages = (
+                    replay / "qml/device/view/documentview/Pages.qml"
+                ).read_text(encoding="utf-8")
                 menu = (
                     replay / "qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml"
                 ).read_text(encoding="utf-8")
@@ -311,6 +371,16 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
                 self.assertIn("rmtoolHasUsableToc", document)
                 self.assertIn("forceClearNow", document)
                 self.assertIn("onRmtoolReadingDocumentIdChanged", document)
+                self.assertIn("rmtoolTableOfContentsAvailable", document)
+                self.assertIn("root.requestTableOfContents(true)", document)
+                self.assertIn("toolbar.selectLastTool()", document)
+                self.assertIn("pages.rmtoolOpenTableOfContents()", document)
+                self.assertRegex(
+                    document,
+                    r"function\s+rmtoolOpenTableOfContents\(\)\s*\{\s*"
+                    r"openOverview\(\)\s*toolbar\.selectLastTool\(\)\s*"
+                    r"pages\.rmtoolOpenTableOfContents\(\)\s*\}",
+                )
                 self.assertRegex(
                     document,
                     r"readonly property\s+bool\s+rmtoolReadingAvailable:\s*!!document\s*&&\s*!notePage",
@@ -318,6 +388,11 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
                 self.assertIn("rmtoolTapPageTurnToggle", menu)
                 self.assertIn("rmtoolFastMonoToggle", menu)
                 self.assertIn("rmtoolCleanupSelector", menu)
+                self.assertIn("rmtoolTableOfContentsItem", menu)
+                self.assertIn('reportPageAction("Table of Content")', pages)
+                self.assertIn("documentView.rmtoolRequestTableOfContents()", pages)
+                self.assertIn("tableOfContentsLoader.active = true", pages)
+                self.assertEqual(pages.count("TableOfContent {"), 1, target_id)
                 if release.startswith("3.27."):
                     self.assertIn("rmtoolSettingsRoot._selectedIndex = page", settings)
                     self.assertIn("rmtoolSettingsRoot.highlightedIndex = page", settings)

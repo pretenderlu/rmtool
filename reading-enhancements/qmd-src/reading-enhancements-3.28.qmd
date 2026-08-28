@@ -418,6 +418,17 @@ AFFECT /qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml
     TRAVERSE ToolbarTool#root > Component#settingsComponent > ColumnLayout#content
         LOCATE BEFORE ALL
         INSERT {
+            ArkControls.FoldoutItem {
+                id: rmtoolTableOfContentsItem
+                objectName: "rmtoolTableOfContentsItem"
+                iconSource: "qrc:/ark/icons/list"
+                label: "目录"
+                visible: (root.toolbar.rmtoolDocumentView?.rmtoolMasterEnabled ?? false)
+                    && (root.toolbar.rmtoolDocumentView?.rmtoolTableOfContentsAvailable ?? false)
+                Layout.fillWidth: true
+                onClicked: root.toolbar.rmtoolDocumentView.rmtoolOpenTableOfContents()
+            }
+
             ArkControls.FoldoutToggle {
                 id: rmtoolTapPageTurnToggle
                 objectName: "rmtoolTapPageTurnToggle"
@@ -593,6 +604,23 @@ AFFECT /qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml
     END TRAVERSE
 END AFFECT
 
+AFFECT /qml/device/view/documentview/Pages.qml
+    TRAVERSE Background#pages
+        LOCATE BEFORE ALL
+        INSERT {
+            function rmtoolOpenTableOfContents() {
+                reportPageAction("Table of Content")
+                if (document?.fileType === Document.Pdf
+                    && !documentView.tocModel.length
+                    && !documentView.rmtoolTocLoading) {
+                    documentView.rmtoolRequestTableOfContents()
+                }
+                tableOfContentsLoader.active = true
+            }
+        }
+    END TRAVERSE
+END AFFECT
+
 AFFECT /qml/device/view/documentview/SceneViewGestures.qml
     TRAVERSE TouchArea#touchArea
         LOCATE BEFORE TouchAreaClickFilter#touchClick
@@ -677,12 +705,19 @@ AFFECT /qml/device/view/documentview/DocumentView.qml
             property int rmtoolCleanupLastPage: -1
             property int rmtoolCleanupLastBoundary: -1
             property string rmtoolCleanupLastDocumentId: ""
+            property bool rmtoolLegacyTocLoading: false
             readonly property bool rmtoolReadingAvailable: !!document
                 && !notePage
                 && (document.fileType === Document.Pdf
                     || document.fileType === Document.Ebook)
             readonly property bool rmtoolFastMonoReadingAvailable: rmtoolReadingAvailable
                 && EPFramebuffer.hasCapability(EPFramebuffer.Capability.Color)
+            readonly property bool rmtoolTocLoading: ("tocLoading" in root)
+                ? root.tocLoading : rmtoolLegacyTocLoading
+            readonly property bool rmtoolTableOfContentsAvailable: rmtoolReadingAvailable
+                && (document.fileType === Document.Pdf
+                    || (document.fileType === Document.Ebook
+                        && (rmtoolTocLoading || (tocModel && tocModel.length > 0))))
 
             readonly property string rmtoolReadingDocumentId: document && document.id !== undefined
                 && document.id !== null ? document.id.toString() : ""
@@ -694,7 +729,30 @@ AFFECT /qml/device/view/documentview/DocumentView.qml
                 && rmtoolReadingAvailable
 
             Component.onCompleted: rmtoolReadReadingSettings()
-            onRmtoolReadingDocumentIdChanged: rmtoolReadReadingSettings()
+            onRmtoolReadingDocumentIdChanged: {
+                rmtoolLegacyTocLoading = !("tocLoading" in root)
+                    && rmtoolReadingAvailable
+                    && document.fileType === Document.Ebook
+                rmtoolReadReadingSettings()
+            }
+
+            function rmtoolRequestTableOfContents() {
+                if (!document || rmtoolTocLoading) {
+                    return
+                }
+                if ("requestTableOfContents" in root) {
+                    root.requestTableOfContents(true)
+                    return
+                }
+                rmtoolLegacyTocLoading = true
+                LibraryController.loadTableOfContents(document.id)
+            }
+
+            function rmtoolOpenTableOfContents() {
+                openOverview()
+                toolbar.selectLastTool()
+                pages.rmtoolOpenTableOfContents()
+            }
 
             function rmtoolDocumentKey(key) {
                 if (!rmtoolReadingDocumentId) {
@@ -880,6 +938,7 @@ AFFECT /qml/device/view/documentview/DocumentView.qml
                 }
 
                 function onTocModelChanged() {
+                    root.rmtoolLegacyTocLoading = false
                     root.rmtoolCleanupLastBoundary = root.rmtoolTocBoundaryForPage(
                         root.currentPage)
                 }
