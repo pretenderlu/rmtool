@@ -31,6 +31,7 @@ QREX_FILES = (
     "qml/device/view/documentview/DocumentView.qml",
     "qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml",
     "qml/device/view/documentview/FormatFont.qml",
+    "qml/device/view/documentview/Pages.qml",
 )
 EPUB_FONT_328_START = "; RMTOOL_EPUB_FONT_328_START"
 EPUB_FONT_328_END = "; RMTOOL_EPUB_FONT_328_END"
@@ -198,6 +199,7 @@ def _compile_and_validate(*, qmd_tool: Path, qmldiff: Path, source: Path, target
     gestures = (replay / QREX_FILES[1]).read_text(encoding="utf-8")
     document = (replay / QREX_FILES[2]).read_text(encoding="utf-8")
     menu = (replay / QREX_FILES[3]).read_text(encoding="utf-8")
+    pages = (replay / QREX_FILES[5]).read_text(encoding="utf-8")
     for text, markers in (
         (settings, ("rmtoolReadingEnhancementsPage", "RmtoolReadingEnhancements")),
         (gestures, ("rmtoolTapPageDirection",)),
@@ -207,13 +209,47 @@ def _compile_and_validate(*, qmd_tool: Path, qmldiff: Path, source: Path, target
                 "rmtoolHasUsableToc",
                 "forceClearNow",
                 "onRmtoolReadingDocumentIdChanged",
+                "rmtoolTableOfContentsAvailable",
+                "root.requestTableOfContents(true)",
+                "toolbar.selectLastTool()",
+                "pages.rmtoolOpenTableOfContents()",
             ),
         ),
-        (menu, ("rmtoolTapPageTurnToggle", "rmtoolFastMonoToggle", "rmtoolCleanupSelector")),
+        (
+            menu,
+            (
+                "rmtoolTableOfContentsItem",
+                "rmtoolTapPageTurnToggle",
+                "rmtoolFastMonoToggle",
+                "rmtoolCleanupSelector",
+            ),
+        ),
+        (
+            pages,
+            (
+                "function rmtoolOpenTableOfContents()",
+                'reportPageAction("Table of Content")',
+                "documentView.rmtoolRequestTableOfContents()",
+                "tableOfContentsLoader.active = true",
+            ),
+        ),
     ):
         for marker in markers:
             if marker not in text:
                 raise RuntimeError(f"structure assertion {target['id']} missing {marker}")
+    if not re.search(
+        r"function\s+rmtoolOpenTableOfContents\(\)\s*\{\s*"
+        r"openOverview\(\)\s*toolbar\.selectLastTool\(\)\s*"
+        r"pages\.rmtoolOpenTableOfContents\(\)\s*\}",
+        document,
+    ):
+        raise RuntimeError(
+            f"structure assertion {target['id']} changed the TOC wrapper call order"
+        )
+    if pages.count("TableOfContent {") != 1:
+        raise RuntimeError(
+            f"structure assertion {target['id']} did not preserve the stock TOC loader"
+        )
     if not re.search(
         r"readonly property\s+bool\s+rmtoolReadingAvailable:\s*!!document\s*&&\s*!notePage",
         document,

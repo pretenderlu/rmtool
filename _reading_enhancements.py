@@ -30,7 +30,7 @@ BUNDLED_MANIFEST = Path(__file__).with_name("reading-enhancements") / "manifest.
 
 QMD_PAYLOAD_PATH = "exthome/qt-resource-rebuilder/reading-enhancements.qmd"
 FEATURE_ID = "reading-enhancements"
-PACKAGE_REVISION = 6
+PACKAGE_REVISION = 7
 MAX_MANIFEST_BYTES = tap.MAX_MANIFEST_BYTES
 MAX_PACKAGE_BYTES = tap.MAX_PACKAGE_BYTES
 MAX_UNPACKED_BYTES = tap.MAX_UNPACKED_BYTES
@@ -107,6 +107,19 @@ _REVISION_5_QMD = {
     "3.28": (
         "12f4241ac5e0644e52c7959c806a214aa08fabe9eb600a6da1bf1e3404913f72",
         49477,
+    ),
+}
+
+# Revision 6 expanded the 3.28 EPUB integration to three named font slots.
+# Revision 7 adds the stock table-of-contents shortcut for PDF and EPUB.
+_REVISION_6_QMD = {
+    "3.27": (
+        "e526a2e8a7a3ac6199abc6cef591b6f77df0c52f2e6d73774b1a313e5b2b6ef4",
+        48147,
+    ),
+    "3.28": (
+        "1cecbf4e386f46d57ecf3ac9af1a7fd2ac208b7461cc730113dc744ef25d6f7f",
+        54042,
     ),
 }
 
@@ -599,6 +612,14 @@ def _known_revision_five_feature(package, current):
     return replace(current, sha256=predecessor[0], size=predecessor[1])
 
 
+def _known_revision_six_feature(package, current):
+    variant = "3.27" if package.release_version.startswith("3.27.") else "3.28"
+    predecessor = _REVISION_6_QMD.get(variant)
+    if predecessor is None:
+        return None
+    return replace(current, sha256=predecessor[0], size=predecessor[1])
+
+
 def _known_device_trial_feature(package, current):
     predecessor = _VERIFIED_DEVICE_TRIALS.get((package.platform, package.firmware))
     if predecessor is None:
@@ -618,6 +639,7 @@ def _known_shared_predecessor_specs(package, current):
             "settings-navigation-defect",
             _known_navigation_defective_feature(package, current),
         ),
+        ("package-revision-6", _known_revision_six_feature(package, current)),
         ("package-revision-5", _known_revision_five_feature(package, current)),
         ("package-revision-4", _known_revision_four_feature(package, current)),
         ("package-revision-3", _known_revision_three_feature(package, current)),
@@ -879,6 +901,7 @@ def get_status(
                 "package-revision-3",
                 "package-revision-4",
                 "package-revision-5",
+                "package-revision-6",
                 "verified-device-trial",
             }:
                 detail = (
