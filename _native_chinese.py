@@ -499,6 +499,9 @@ def _inspect_shared_revision(
             for item in _known_shared_predecessor_specs(package)
         )
     }
+    revisions.update(
+        tap._reading_enhancement_revisions(_package_identity(package), trusted)
+    )
     try:
         import _pinyin_input as pinyin
 

@@ -611,6 +611,28 @@ def _known_device_trial_feature(package, current):
     )
 
 
+def _known_shared_predecessor_specs(package, current):
+    candidates = (
+        ("settings-component-defect", _known_defective_feature(package, current)),
+        (
+            "settings-navigation-defect",
+            _known_navigation_defective_feature(package, current),
+        ),
+        ("package-revision-5", _known_revision_five_feature(package, current)),
+        ("package-revision-4", _known_revision_four_feature(package, current)),
+        ("package-revision-3", _known_revision_three_feature(package, current)),
+        ("package-revision-2", _known_revision_two_feature(package, current)),
+        ("package-revision-1", _known_revision_one_feature(package, current)),
+    )
+    predecessors = []
+    seen = {current}
+    for reason, predecessor in candidates:
+        if predecessor is not None and predecessor not in seen:
+            predecessors.append((reason, predecessor))
+            seen.add(predecessor)
+    return tuple(predecessors)
+
+
 def _trusted_context(identity: DeviceIdentity, package: ReadingEnhancementsPackage):
     runtime, peers, legacies = tap._trusted_shared_context(identity)
     peer_runtime, feature = _shared_specs(package)
@@ -697,32 +719,10 @@ def _legacy_specs_for_identity(identity, current=()):
 
 def _inspection_for_migration(ssh_client, runtime, trusted, package):
     """Accept current trust plus narrowly recognized predecessor payloads."""
-    defective = _known_defective_feature(package, trusted[FEATURE_ID])
-    navigation_defective = _known_navigation_defective_feature(
+    predecessors = _known_shared_predecessor_specs(
         package, trusted[FEATURE_ID]
     )
-    predecessors = []
     revision_map = {}
-    if defective is not None:
-        predecessors.append(("settings-component-defect", defective))
-    if navigation_defective is not None:
-        predecessors.append(("settings-navigation-defect", navigation_defective))
-    # Newest predecessors first: revision 5 down to revision 1.
-    revision_five = _known_revision_five_feature(package, trusted[FEATURE_ID])
-    if revision_five is not None and revision_five != trusted[FEATURE_ID]:
-        predecessors.append(("package-revision-5", revision_five))
-    revision_four = _known_revision_four_feature(package, trusted[FEATURE_ID])
-    if revision_four is not None and revision_four != trusted[FEATURE_ID]:
-        predecessors.append(("package-revision-4", revision_four))
-    revision_three = _known_revision_three_feature(package, trusted[FEATURE_ID])
-    if revision_three is not None and revision_three != trusted[FEATURE_ID]:
-        predecessors.append(("package-revision-3", revision_three))
-    revision_two = _known_revision_two_feature(package, trusted[FEATURE_ID])
-    if revision_two is not None and revision_two != trusted[FEATURE_ID]:
-        predecessors.append(("package-revision-2", revision_two))
-    revision_one = _known_revision_one_feature(package, trusted[FEATURE_ID])
-    if revision_one is not None and revision_one != trusted[FEATURE_ID]:
-        predecessors.append(("package-revision-1", revision_one))
     try:
         import _fast_mono_reading as fast
 

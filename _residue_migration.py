@@ -10,6 +10,7 @@ from typing import Dict
 import _fast_mono_reading as fast
 import _native_chinese as native
 import _pinyin_input as pinyin
+import _reading_enhancements as reading
 import _tap_page_turn as tap
 import _xovi_standalone
 
@@ -19,6 +20,7 @@ FEATURE_LABELS = {
     "fast-mono-reading": "快速黑白阅读",
     "native-chinese": "独立简体中文",
     "pinyin-input": "拼音输入",
+    "reading-enhancements": "阅读增强",
     "appload": "AppLoad/KOReader",
 }
 
@@ -50,6 +52,7 @@ def _providers() -> Dict[str, object]:
         "fast-mono-reading": fast,
         "native-chinese": native,
         "pinyin-input": pinyin,
+        "reading-enhancements": reading,
     }
 
 

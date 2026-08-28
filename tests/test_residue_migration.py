@@ -9,6 +9,7 @@ import rmtool  # noqa: F401  (must load before tab modules)
 import _fast_mono_reading as fast
 import _native_chinese as native
 import _pinyin_input as pinyin
+import _reading_enhancements as reading
 import _residue_migration
 import _tap_page_turn as tap
 import _xovi_standalone as shared
@@ -238,6 +239,7 @@ class ResidueMigrationTests(unittest.TestCase):
             "fast-mono-reading": fast,
             "native-chinese": native,
             "pinyin-input": pinyin,
+            "reading-enhancements": reading,
         }
         with (
             mock.patch.object(_residue_migration, "inspect_residue", return_value=report),
@@ -252,7 +254,7 @@ class ResidueMigrationTests(unittest.TestCase):
                 mock.patch.object(
                     module, "download_package", return_value=Path("archive.tar.gz")
                 ).start()
-            # tap/fast own an extractor; native/pinyin fall back to tap's.
+            # tap/fast/reading own extractors; native/pinyin fall back to tap's.
             mock.patch.object(
                 tap,
                 "extract_verified_package",
@@ -260,6 +262,11 @@ class ResidueMigrationTests(unittest.TestCase):
             ).start()
             mock.patch.object(
                 fast,
+                "extract_verified_package",
+                side_effect=lambda _a, _p, dest: Path("extracted") / Path(dest).name,
+            ).start()
+            mock.patch.object(
+                reading,
                 "extract_verified_package",
                 side_effect=lambda _a, _p, dest: Path("extracted") / Path(dest).name,
             ).start()
@@ -297,6 +304,7 @@ class ResidueMigrationTests(unittest.TestCase):
             "fast-mono-reading": fast,
             "native-chinese": native,
             "pinyin-input": pinyin,
+            "reading-enhancements": reading,
         }
         with (
             mock.patch.object(_residue_migration, "inspect_residue", return_value=report),
@@ -318,6 +326,11 @@ class ResidueMigrationTests(unittest.TestCase):
             ).start()
             mock.patch.object(
                 fast,
+                "extract_verified_package",
+                side_effect=lambda _a, _p, dest: Path("extracted") / Path(dest).name,
+            ).start()
+            mock.patch.object(
+                reading,
                 "extract_verified_package",
                 side_effect=lambda _a, _p, dest: Path("extracted") / Path(dest).name,
             ).start()
