@@ -10,13 +10,13 @@
       "xochitl_sha256": "4646e0aef1cef2b3417889073ad5faba9259ae6b41f68326e75ef9a5c520c322",
       "offline_verified": true,
       "device_verified": false,
-      "package_revision": 8,
-      "asset": "rmtool-reading-enhancements-chiappa-20260506100933-3.27.1.0.tar.gz",
-      "sha256": "7d1e6223d89d86f0059be37244105775dd8884791ad77caa094d11903dcb8dc1",
-      "size": 3848863,
+      "package_revision": 12,
+      "asset": "rmtool-note-enhancements-chiappa-20260506100933-3.27.1.0.tar.gz",
+      "sha256": "9b6e7371e527772d5b40127105c95246006445f5efbee7210242cffa2f6fd34d",
+      "size": 3847084,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets/rmtool-reading-enhancements-chiappa-20260506100933-3.27.1.0.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/rmtool-reading-enhancements-chiappa-20260506100933-3.27.1.0.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets/rmtool-note-enhancements-chiappa-20260506100933-3.27.1.0.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/rmtool-note-enhancements-chiappa-20260506100933-3.27.1.0.tar.gz"
       ],
       "files": [
         {
@@ -50,9 +50,9 @@
           "mode": 420
         },
         {
-          "path": "exthome/qt-resource-rebuilder/reading-enhancements.qmd",
-          "sha256": "dde14dc76ab7ba0039472b338ac3c4589b81c5be15fa582c06fb60e03a90344c",
-          "size": 51289,
+          "path": "exthome/qt-resource-rebuilder/note-enhancements.qmd",
+          "sha256": "572f1a2376811c5e152392fa9258354097f3242fb30a5bff9a4bd971d556a1bb",
+          "size": 41797,
           "mode": 420
         },
         {
@@ -78,13 +78,13 @@
       "xochitl_sha256": "29b9896b07f59636d910d8a740f6562c502f676a1a70f8814459229d25cc5288",
       "offline_verified": true,
       "device_verified": false,
-      "package_revision": 8,
-      "asset": "rmtool-reading-enhancements-ferrari-20260506100933-3.27.1.0.tar.gz",
-      "sha256": "35306df13fa639d9c257a1416adb798527505481e782c29977578ad17739fc12",
-      "size": 3852542,
+      "package_revision": 12,
+      "asset": "rmtool-note-enhancements-ferrari-20260506100933-3.27.1.0.tar.gz",
+      "sha256": "46756a74f281ee2a3f015c04124f57ed5c601605a73d3b8f1e52109058d2049a",
+      "size": 3850514,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets/rmtool-reading-enhancements-ferrari-20260506100933-3.27.1.0.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/rmtool-reading-enhancements-ferrari-20260506100933-3.27.1.0.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets/rmtool-note-enhancements-ferrari-20260506100933-3.27.1.0.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/rmtool-note-enhancements-ferrari-20260506100933-3.27.1.0.tar.gz"
       ],
       "files": [
         {
@@ -118,9 +118,9 @@
           "mode": 420
         },
         {
-          "path": "exthome/qt-resource-rebuilder/reading-enhancements.qmd",
-          "sha256": "dde14dc76ab7ba0039472b338ac3c4589b81c5be15fa582c06fb60e03a90344c",
-          "size": 51289,
+          "path": "exthome/qt-resource-rebuilder/note-enhancements.qmd",
+          "sha256": "572f1a2376811c5e152392fa9258354097f3242fb30a5bff9a4bd971d556a1bb",
+          "size": 41797,
           "mode": 420
         },
         {
@@ -145,14 +145,14 @@
       "architecture": "aarch64",
       "xochitl_sha256": "227a9bfe928ef5d164359e490d97648ffca40a5de13f07a9eb57a618a403f084",
       "offline_verified": true,
-      "device_verified": true,
-      "package_revision": 8,
-      "asset": "rmtool-reading-enhancements-chiappa-20260612085811-3.27.3.0.tar.gz",
-      "sha256": "afd456309eaa3904651993533761bf7b5b2a2e516a0fe45b89885dd6a3909163",
-      "size": 3848684,
+      "device_verified": false,
+      "package_revision": 12,
+      "asset": "rmtool-note-enhancements-chiappa-20260612085811-3.27.3.0.tar.gz",
+      "sha256": "e8f54bbd4590e2e8dc258a907c059e7c07d4ec0ee64187d2538959c279eeef8a",
+      "size": 3846857,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets/rmtool-reading-enhancements-chiappa-20260612085811-3.27.3.0.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/rmtool-reading-enhancements-chiappa-20260612085811-3.27.3.0.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets/rmtool-note-enhancements-chiappa-20260612085811-3.27.3.0.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/rmtool-note-enhancements-chiappa-20260612085811-3.27.3.0.tar.gz"
       ],
       "files": [
         {
@@ -186,9 +186,9 @@
           "mode": 420
         },
         {
-          "path": "exthome/qt-resource-rebuilder/reading-enhancements.qmd",
-          "sha256": "dde14dc76ab7ba0039472b338ac3c4589b81c5be15fa582c06fb60e03a90344c",
-          "size": 51289,
+          "path": "exthome/qt-resource-rebuilder/note-enhancements.qmd",
+          "sha256": "572f1a2376811c5e152392fa9258354097f3242fb30a5bff9a4bd971d556a1bb",
+          "size": 41797,
           "mode": 420
         },
         {
@@ -214,13 +214,13 @@
       "xochitl_sha256": "9749880daa2f10844e77b560ec0ecddd1634d43eb328af637c7026edf3ef120e",
       "offline_verified": true,
       "device_verified": false,
-      "package_revision": 8,
-      "asset": "rmtool-reading-enhancements-ferrari-20260612085811-3.27.3.0.tar.gz",
-      "sha256": "19081d6293119f235120c5cc19242e62f9b21655b5b257ec4ec730ba6b169de6",
-      "size": 3852824,
+      "package_revision": 12,
+      "asset": "rmtool-note-enhancements-ferrari-20260612085811-3.27.3.0.tar.gz",
+      "sha256": "f42e1cb93a6c99eba4f117f4d3b351f21004c08e0ded2564b60b62d63c9f3244",
+      "size": 3850797,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets/rmtool-reading-enhancements-ferrari-20260612085811-3.27.3.0.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/rmtool-reading-enhancements-ferrari-20260612085811-3.27.3.0.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets/rmtool-note-enhancements-ferrari-20260612085811-3.27.3.0.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/rmtool-note-enhancements-ferrari-20260612085811-3.27.3.0.tar.gz"
       ],
       "files": [
         {
@@ -254,9 +254,9 @@
           "mode": 420
         },
         {
-          "path": "exthome/qt-resource-rebuilder/reading-enhancements.qmd",
-          "sha256": "dde14dc76ab7ba0039472b338ac3c4589b81c5be15fa582c06fb60e03a90344c",
-          "size": 51289,
+          "path": "exthome/qt-resource-rebuilder/note-enhancements.qmd",
+          "sha256": "572f1a2376811c5e152392fa9258354097f3242fb30a5bff9a4bd971d556a1bb",
+          "size": 41797,
           "mode": 420
         },
         {
@@ -282,13 +282,13 @@
       "xochitl_sha256": "9e3e0372a15da25b148ac17667feb566014440e079c3e3ee504112d556ad2e10",
       "offline_verified": true,
       "device_verified": false,
-      "package_revision": 8,
-      "asset": "rmtool-reading-enhancements-chiappa-20260629074044-3.28.0.162.tar.gz",
-      "sha256": "4de4b006de677a0655811f5e222b57884ed60f24d5a2866483669625acb725df",
-      "size": 3857620,
+      "package_revision": 12,
+      "asset": "rmtool-note-enhancements-chiappa-20260629074044-3.28.0.162.tar.gz",
+      "sha256": "d5fcf13395e5f828368d846963d6c901cf26d659803969d1e181353993606227",
+      "size": 3854847,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets/rmtool-reading-enhancements-chiappa-20260629074044-3.28.0.162.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/rmtool-reading-enhancements-chiappa-20260629074044-3.28.0.162.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets/rmtool-note-enhancements-chiappa-20260629074044-3.28.0.162.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/rmtool-note-enhancements-chiappa-20260629074044-3.28.0.162.tar.gz"
       ],
       "files": [
         {
@@ -322,9 +322,9 @@
           "mode": 420
         },
         {
-          "path": "exthome/qt-resource-rebuilder/reading-enhancements.qmd",
-          "sha256": "03293b8f0550b4e86b10fbf01f1446b18fb60947ed6388587f9d9dcb861b81d0",
-          "size": 57184,
+          "path": "exthome/qt-resource-rebuilder/note-enhancements.qmd",
+          "sha256": "d4c3c9696a31fb17c391a30739e177ff43ad30999160b4a7df9527b4cf35bc70",
+          "size": 41719,
           "mode": 420
         },
         {
@@ -350,13 +350,13 @@
       "xochitl_sha256": "10082aeb857c69c3f404ab189d7403318ba97d0c169e756ae9a5b3532b248a4a",
       "offline_verified": true,
       "device_verified": false,
-      "package_revision": 8,
-      "asset": "rmtool-reading-enhancements-ferrari-20260629074044-3.28.0.162.tar.gz",
-      "sha256": "90a962743823c1ee91c5794bbb48f23dff0ce88f109ab5fff83dfa92a275fd42",
-      "size": 3885014,
+      "package_revision": 12,
+      "asset": "rmtool-note-enhancements-ferrari-20260629074044-3.28.0.162.tar.gz",
+      "sha256": "c78638333e1d29f67eff8524b1574b69ab906165e80fcd258872f806f60d0fbe",
+      "size": 3881902,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets/rmtool-reading-enhancements-ferrari-20260629074044-3.28.0.162.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/rmtool-reading-enhancements-ferrari-20260629074044-3.28.0.162.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets/rmtool-note-enhancements-ferrari-20260629074044-3.28.0.162.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/rmtool-note-enhancements-ferrari-20260629074044-3.28.0.162.tar.gz"
       ],
       "files": [
         {
@@ -390,9 +390,9 @@
           "mode": 420
         },
         {
-          "path": "exthome/qt-resource-rebuilder/reading-enhancements.qmd",
-          "sha256": "03293b8f0550b4e86b10fbf01f1446b18fb60947ed6388587f9d9dcb861b81d0",
-          "size": 57184,
+          "path": "exthome/qt-resource-rebuilder/note-enhancements.qmd",
+          "sha256": "d4c3c9696a31fb17c391a30739e177ff43ad30999160b4a7df9527b4cf35bc70",
+          "size": 41719,
           "mode": 420
         },
         {
@@ -418,13 +418,13 @@
       "xochitl_sha256": "08171df6296b99d04b3694b337bd0ce911e6a93356955961a37de9dd93a0394d",
       "offline_verified": true,
       "device_verified": false,
-      "package_revision": 8,
-      "asset": "rmtool-reading-enhancements-chiappa-20260702125656-3.28.0.163.tar.gz",
-      "sha256": "415c843f1fbbfcb251f7e51dce78921dc1ffb3714fd14c1f5f584f3aa418a083",
-      "size": 3857558,
+      "package_revision": 12,
+      "asset": "rmtool-note-enhancements-chiappa-20260702125656-3.28.0.163.tar.gz",
+      "sha256": "2a7c375bcc1f624d771487254c8686f9cd28eace39fa1416c809b28c39844af4",
+      "size": 3854787,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets/rmtool-reading-enhancements-chiappa-20260702125656-3.28.0.163.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/rmtool-reading-enhancements-chiappa-20260702125656-3.28.0.163.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets/rmtool-note-enhancements-chiappa-20260702125656-3.28.0.163.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/rmtool-note-enhancements-chiappa-20260702125656-3.28.0.163.tar.gz"
       ],
       "files": [
         {
@@ -458,9 +458,9 @@
           "mode": 420
         },
         {
-          "path": "exthome/qt-resource-rebuilder/reading-enhancements.qmd",
-          "sha256": "4ba71b466de622f2d0d3167e38ccdc2d9e1bf3841338997c79a9c1f1f24f70ef",
-          "size": 57224,
+          "path": "exthome/qt-resource-rebuilder/note-enhancements.qmd",
+          "sha256": "d4c3c9696a31fb17c391a30739e177ff43ad30999160b4a7df9527b4cf35bc70",
+          "size": 41719,
           "mode": 420
         },
         {
@@ -486,13 +486,13 @@
       "xochitl_sha256": "3a9e18483b73f43016fb25b451e3ece0efba7aa1cc92e080771e138ce6bbca98",
       "offline_verified": true,
       "device_verified": false,
-      "package_revision": 8,
-      "asset": "rmtool-reading-enhancements-chiappa-20260702125656-3.28.0.164.tar.gz",
-      "sha256": "74b570d39d3c2310f8c3f2d4fe6e20c8bebdd2ed7c3989add17ce570f2e661c8",
-      "size": 3858269,
+      "package_revision": 12,
+      "asset": "rmtool-note-enhancements-chiappa-20260702125656-3.28.0.164.tar.gz",
+      "sha256": "16a9de1c26c8e26fe731897ff62ee94b24e03c47604e9a92dbd325e4868d55b0",
+      "size": 3855448,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets/rmtool-reading-enhancements-chiappa-20260702125656-3.28.0.164.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/rmtool-reading-enhancements-chiappa-20260702125656-3.28.0.164.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets/rmtool-note-enhancements-chiappa-20260702125656-3.28.0.164.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/rmtool-note-enhancements-chiappa-20260702125656-3.28.0.164.tar.gz"
       ],
       "files": [
         {
@@ -526,9 +526,9 @@
           "mode": 420
         },
         {
-          "path": "exthome/qt-resource-rebuilder/reading-enhancements.qmd",
-          "sha256": "4ba71b466de622f2d0d3167e38ccdc2d9e1bf3841338997c79a9c1f1f24f70ef",
-          "size": 57224,
+          "path": "exthome/qt-resource-rebuilder/note-enhancements.qmd",
+          "sha256": "d4c3c9696a31fb17c391a30739e177ff43ad30999160b4a7df9527b4cf35bc70",
+          "size": 41719,
           "mode": 420
         },
         {
@@ -554,13 +554,13 @@
       "xochitl_sha256": "113bf7ea62ad171ea03c77c1f90e0666bcff163242a22ebca84372533b270c1c",
       "offline_verified": true,
       "device_verified": false,
-      "package_revision": 8,
-      "asset": "rmtool-reading-enhancements-ferrari-20260702125656-3.28.0.164.tar.gz",
-      "sha256": "1a031f5d0c1f448e5bb3d2e1dcee4d1076cfc12cb32f37b43c3bb1a628517a3d",
-      "size": 3860874,
+      "package_revision": 12,
+      "asset": "rmtool-note-enhancements-ferrari-20260702125656-3.28.0.164.tar.gz",
+      "sha256": "6405544b3ce816f65ce25c70decc215053d808e7165a478121fb1daaa9f92275",
+      "size": 3857733,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets/rmtool-reading-enhancements-ferrari-20260702125656-3.28.0.164.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/rmtool-reading-enhancements-ferrari-20260702125656-3.28.0.164.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets/rmtool-note-enhancements-ferrari-20260702125656-3.28.0.164.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/rmtool-note-enhancements-ferrari-20260702125656-3.28.0.164.tar.gz"
       ],
       "files": [
         {
@@ -594,9 +594,9 @@
           "mode": 420
         },
         {
-          "path": "exthome/qt-resource-rebuilder/reading-enhancements.qmd",
-          "sha256": "4ba71b466de622f2d0d3167e38ccdc2d9e1bf3841338997c79a9c1f1f24f70ef",
-          "size": 57224,
+          "path": "exthome/qt-resource-rebuilder/note-enhancements.qmd",
+          "sha256": "d4c3c9696a31fb17c391a30739e177ff43ad30999160b4a7df9527b4cf35bc70",
+          "size": 41719,
           "mode": 420
         },
         {
@@ -622,13 +622,13 @@
       "xochitl_sha256": "49f60572e830f6c4f20d800a56d644cdf53cd65a8e240b2b27106cce55040f89",
       "offline_verified": true,
       "device_verified": false,
-      "package_revision": 8,
-      "asset": "rmtool-reading-enhancements-ferrari-20260702125656-3.28.0.163.tar.gz",
-      "sha256": "91a64030abbbcbda93e5454b5d2845edaca1ea4db63886ca4766ce1271494360",
-      "size": 3860808,
+      "package_revision": 12,
+      "asset": "rmtool-note-enhancements-ferrari-20260702125656-3.28.0.163.tar.gz",
+      "sha256": "c8b279f1c744de89dc720f3a103b75ec23ecb67981cd5f5ef8770cb26ac8c404",
+      "size": 3857641,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets/rmtool-reading-enhancements-ferrari-20260702125656-3.28.0.163.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/rmtool-reading-enhancements-ferrari-20260702125656-3.28.0.163.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets/rmtool-note-enhancements-ferrari-20260702125656-3.28.0.163.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/rmtool-note-enhancements-ferrari-20260702125656-3.28.0.163.tar.gz"
       ],
       "files": [
         {
@@ -662,9 +662,9 @@
           "mode": 420
         },
         {
-          "path": "exthome/qt-resource-rebuilder/reading-enhancements.qmd",
-          "sha256": "4ba71b466de622f2d0d3167e38ccdc2d9e1bf3841338997c79a9c1f1f24f70ef",
-          "size": 57224,
+          "path": "exthome/qt-resource-rebuilder/note-enhancements.qmd",
+          "sha256": "d4c3c9696a31fb17c391a30739e177ff43ad30999160b4a7df9527b4cf35bc70",
+          "size": 41719,
           "mode": 420
         },
         {
@@ -690,13 +690,13 @@
       "xochitl_sha256": "5748eed3bb804c8d3000e833ba472750428b6a82bc09b2bc7b5cf01847336bc7",
       "offline_verified": true,
       "device_verified": false,
-      "package_revision": 8,
-      "asset": "rmtool-reading-enhancements-chiappa-20260806095513-3.28.0.166.tar.gz",
-      "sha256": "e447f5b3b72cee410de8b95a90f3d421ddc33d4018a2d46bda64bf847a203534",
-      "size": 3857600,
+      "package_revision": 12,
+      "asset": "rmtool-note-enhancements-chiappa-20260806095513-3.28.0.166.tar.gz",
+      "sha256": "6bfefc1b439e5bf2370254f77257f2265e0fca84ddea61827b8d8e0597b37fbb",
+      "size": 3854815,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets/rmtool-reading-enhancements-chiappa-20260806095513-3.28.0.166.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/rmtool-reading-enhancements-chiappa-20260806095513-3.28.0.166.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets/rmtool-note-enhancements-chiappa-20260806095513-3.28.0.166.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/rmtool-note-enhancements-chiappa-20260806095513-3.28.0.166.tar.gz"
       ],
       "files": [
         {
@@ -730,9 +730,9 @@
           "mode": 420
         },
         {
-          "path": "exthome/qt-resource-rebuilder/reading-enhancements.qmd",
-          "sha256": "4ba71b466de622f2d0d3167e38ccdc2d9e1bf3841338997c79a9c1f1f24f70ef",
-          "size": 57224,
+          "path": "exthome/qt-resource-rebuilder/note-enhancements.qmd",
+          "sha256": "d4c3c9696a31fb17c391a30739e177ff43ad30999160b4a7df9527b4cf35bc70",
+          "size": 41719,
           "mode": 420
         },
         {
@@ -758,13 +758,13 @@
       "xochitl_sha256": "6361610111c381ce730a8bfcc889bd933ef5fef173563a9156e435233714e7ee",
       "offline_verified": true,
       "device_verified": false,
-      "package_revision": 8,
-      "asset": "rmtool-reading-enhancements-chiappa-20260806095513-3.28.0.169.tar.gz",
-      "sha256": "f7d347bf80f6b8d67ac2a45b17a48a791b69b916602f32055d8cdb4c7647e898",
-      "size": 3857515,
+      "package_revision": 12,
+      "asset": "rmtool-note-enhancements-chiappa-20260806095513-3.28.0.169.tar.gz",
+      "sha256": "f7c47e3fbda0c1da441b68cafda1062a35b0423c6f48a0e118a84e26a2af9b99",
+      "size": 3854753,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets/rmtool-reading-enhancements-chiappa-20260806095513-3.28.0.169.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/rmtool-reading-enhancements-chiappa-20260806095513-3.28.0.169.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets/rmtool-note-enhancements-chiappa-20260806095513-3.28.0.169.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/rmtool-note-enhancements-chiappa-20260806095513-3.28.0.169.tar.gz"
       ],
       "files": [
         {
@@ -798,9 +798,9 @@
           "mode": 420
         },
         {
-          "path": "exthome/qt-resource-rebuilder/reading-enhancements.qmd",
-          "sha256": "4ba71b466de622f2d0d3167e38ccdc2d9e1bf3841338997c79a9c1f1f24f70ef",
-          "size": 57224,
+          "path": "exthome/qt-resource-rebuilder/note-enhancements.qmd",
+          "sha256": "d4c3c9696a31fb17c391a30739e177ff43ad30999160b4a7df9527b4cf35bc70",
+          "size": 41719,
           "mode": 420
         },
         {
@@ -826,13 +826,13 @@
       "xochitl_sha256": "43a9d5d0acc5b998264c16586e11b848f3b83d2d63b5fd322b09c0977d94d3d4",
       "offline_verified": true,
       "device_verified": false,
-      "package_revision": 8,
-      "asset": "rmtool-reading-enhancements-ferrari-20260806095513-3.28.0.169.tar.gz",
-      "sha256": "cebbb527bbc2af9f8ecc90b951aabe1c188288be50764c01774363eeac7ce6f5",
-      "size": 3861012,
+      "package_revision": 12,
+      "asset": "rmtool-note-enhancements-ferrari-20260806095513-3.28.0.169.tar.gz",
+      "sha256": "9ad25cbb0201626289298c6f3db40d3d6eef94527a64a363a19eebd4e142cdf3",
+      "size": 3857830,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets/rmtool-reading-enhancements-ferrari-20260806095513-3.28.0.169.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/rmtool-reading-enhancements-ferrari-20260806095513-3.28.0.169.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets/rmtool-note-enhancements-ferrari-20260806095513-3.28.0.169.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/rmtool-note-enhancements-ferrari-20260806095513-3.28.0.169.tar.gz"
       ],
       "files": [
         {
@@ -866,9 +866,9 @@
           "mode": 420
         },
         {
-          "path": "exthome/qt-resource-rebuilder/reading-enhancements.qmd",
-          "sha256": "4ba71b466de622f2d0d3167e38ccdc2d9e1bf3841338997c79a9c1f1f24f70ef",
-          "size": 57224,
+          "path": "exthome/qt-resource-rebuilder/note-enhancements.qmd",
+          "sha256": "d4c3c9696a31fb17c391a30739e177ff43ad30999160b4a7df9527b4cf35bc70",
+          "size": 41719,
           "mode": 420
         },
         {
@@ -894,13 +894,13 @@
       "xochitl_sha256": "8726b4fce55a9154a5014956e5204401ce881d752c1ff3813adb622a68aac2f9",
       "offline_verified": true,
       "device_verified": false,
-      "package_revision": 8,
-      "asset": "rmtool-reading-enhancements-ferrari-20260806095513-3.28.0.166.tar.gz",
-      "sha256": "b891882594ac169dcf4baf7b9a1a801b91795cebd9d26a0bdda64bb7b7eb64f1",
-      "size": 3860574,
+      "package_revision": 12,
+      "asset": "rmtool-note-enhancements-ferrari-20260806095513-3.28.0.166.tar.gz",
+      "sha256": "fb9e762b0e6e915b05eb4385fc9a8a7f9f56192de88fbb921af6f0a7b453ecbc",
+      "size": 3857455,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets/rmtool-reading-enhancements-ferrari-20260806095513-3.28.0.166.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/rmtool-reading-enhancements-ferrari-20260806095513-3.28.0.166.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets/rmtool-note-enhancements-ferrari-20260806095513-3.28.0.166.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/rmtool-note-enhancements-ferrari-20260806095513-3.28.0.166.tar.gz"
       ],
       "files": [
         {
@@ -934,9 +934,9 @@
           "mode": 420
         },
         {
-          "path": "exthome/qt-resource-rebuilder/reading-enhancements.qmd",
-          "sha256": "4ba71b466de622f2d0d3167e38ccdc2d9e1bf3841338997c79a9c1f1f24f70ef",
-          "size": 57224,
+          "path": "exthome/qt-resource-rebuilder/note-enhancements.qmd",
+          "sha256": "d4c3c9696a31fb17c391a30739e177ff43ad30999160b4a7df9527b4cf35bc70",
+          "size": 41719,
           "mode": 420
         },
         {

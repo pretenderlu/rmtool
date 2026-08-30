@@ -10,7 +10,7 @@ A desktop GUI management tool for reMarkable devices
 
 </div>
 
-rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, and reMarkable 2 devices over local root SSH. It provides multi-device connections, a dashboard, wallpaper and document management, KOReader library management, font upload, time management, device controls, native Chinese UI localization, offline Pinyin input, exact-build reading enhancements for color devices, the
+rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, and reMarkable 2 devices over local root SSH. It provides multi-device connections, a dashboard, wallpaper and document management, KOReader library management, font upload, time management, device controls, native Chinese UI localization, offline Pinyin input, and exact-build reading and note enhancements for color devices, the
 classic offline-verified tap-to-turn plugin for Paper Pure, reMarkable 1,
 and reMarkable 2, plus a one-click read-only diagnostic bundle for support. Device operations do not depend on reMarkable cloud services. Release builds include baseline trusted manifests for these firmware-specific features, enabling offline support discovery and verified cache reuse. Payloads are not bundled and still require a network download or an existing validated cache.
 
@@ -76,6 +76,7 @@ All firmware-specific resources managed by rmtool use two fixed sources. The cli
 | Native Simplified Chinese | [`native-chinese-assets`](https://github.com/pretenderlu/rmtool/releases/tag/native-chinese-assets) | [`native-chinese/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/) |
 | Pinyin input | [`pinyin-input-assets`](https://github.com/pretenderlu/rmtool/releases/tag/pinyin-input-assets) | [`pinyin-input/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input/) |
 | Reading enhancements | [`reading-enhancements-assets`](https://github.com/pretenderlu/rmtool/releases/tag/reading-enhancements-assets) | [`reading-enhancements/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/) |
+| Note enhancements | [`note-enhancements-assets`](https://github.com/pretenderlu/rmtool/releases/tag/note-enhancements-assets) | [`note-enhancements/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/) |
 
 ## Connecting a device
 
@@ -111,6 +112,7 @@ The main files are:
 - `remarkable_tool.log`: rotating runtime log.
 - `cache/localization/`: validated localization manifests and firmware-package cache.
 - `cache/reading-enhancements/`: validated reading-enhancements manifest and package cache.
+- `cache/note-enhancements/`: validated note-enhancements manifest and package cache.
 - `cache/pinyin-input/`: validated offline Pinyin package cache.
 - `cache/official/`: verified AppLoad and KOReader archives downloaded directly from their official GitHub Releases.
 
@@ -127,6 +129,7 @@ The main files are:
 - **Time management**: Sync the computer's time, inspect system time, hardware clock, and timezone, or set the timezone to `Asia/Shanghai`.
 - **Device control**: Restart the device, enable Wi-Fi SSH, and increase frontlight brightness on devices with the `rm_frontlight` interface while installing a persistence service.
 - **Reading enhancements**: On exact supported Paper Pro and Paper Pro Move 3.27/3.28 builds, add one native Settings page for global tap-to-turn, fast monochrome, and forced-refresh controls. Each PDF/EPUB also keeps independent switches and a per-book refresh strategy in its reading menu.
+- **Note enhancements**: On exact supported Paper Pro and Paper Pro Move 3.27/3.28 builds, control color-settlement refreshes while handwriting. Device Settings provide the global default, while each notebook can independently choose a 5/10/30-second pen-up delay or page-turn-only settlement.
 - **Offline Pinyin input**: Adds an on-device Pinyin candidate bar for the system soft keyboard and physical keyboard. Prediction stays local and shares rmtool's existing Xovi runtime with other plugins.
 - **Theme and logs**: Light and dark themes are persisted. The bottom log panel supports level filtering, pause, automatic scrolling, clearing, and opening the log file.
 
@@ -212,7 +215,13 @@ After installation and a manual device restart, first authorize the required fea
 
 Installation, migration, repair, and removal are intentionally separated from activation. rmtool writes and validates the persistent configuration, closes SSH, and never restarts xochitl or reboots the device automatically. Use the device menu to perform a full restart afterward. The launcher checks the device and every runtime file on each boot and falls back to stock xochitl if any check fails.
 
-Reading enhancements, native Simplified Chinese, and Pinyin input share one rmtool-owned Xovi/QRR runtime while retaining separate feature state. Vellum/AppLoader and unmanaged Xovi layouts block installation to prevent mixed runtimes. Firmware-specific resources are fetched from the fixed `reading-enhancements-assets` GitHub release first and the Tencent COS mirror second, with exact size and SHA-256 verification plus validated-cache fallback. The legacy migration/cleanup action can replace verified historical tap-to-turn and fast-monochrome packages with the current exact package while preserving peer features. rmtool does not uninstall Vellum itself; follow the [official Vellum CLI instructions](https://github.com/vellum-dev/vellum-cli#usage) after verified legacy package cleanup.
+Reading enhancements, note enhancements, native Simplified Chinese, and Pinyin input share one rmtool-owned Xovi/QRR runtime while retaining separate feature state. Vellum/AppLoader and unmanaged Xovi layouts block installation to prevent mixed runtimes. Firmware-specific resources are fetched from the fixed GitHub release first and the Tencent COS mirror second, with exact size and SHA-256 verification plus validated-cache fallback. The legacy migration/cleanup action can replace verified historical tap-to-turn and fast-monochrome packages with the current exact package while preserving peer features. rmtool does not uninstall Vellum itself; follow the [official Vellum CLI instructions](https://github.com/vellum-dev/vellum-cli#usage) after verified legacy package cleanup.
+
+### Note enhancements
+
+Note Enhancements targets color handwriting on Paper Pro and Paper Pro Move. After installation, `Settings > Note enhancements` provides a master switch and global defaults; each notebook can override them from its own settings menu. **Delayed refresh after pen-up** settles color 5, 10, or 30 seconds after writing stops. **Refresh on page turn only** keeps fast writing feedback on the current page and settles when the page or document changes. The two enhanced policies are mutually exclusive, and disabling the enhancement restores the stock approximately one-second pen-up refresh.
+
+The exact-package matrix covers the fourteen currently supported Paper Pro and Paper Pro Move 3.27 stable and 3.28 beta targets. Move 3.27.3 has passed real-device installation, reboot, global settings, per-notebook settings, and policy-switching tests; the remaining targets are verified offline against official firmware. Installation, update, disable, and cleanup preserve the other verified shared-Xovi features and never reboot the device automatically.
 
 ## Usage recommendations
 
@@ -221,7 +230,7 @@ Reading enhancements, native Simplified Chinese, and Pinyin input share one rmto
 3. After uploading documents, you can restart xochitl immediately when prompted. If you skip it, new documents may not appear yet.
 4. Document deletion cannot be undone. PDF export only works for one document containing `.rm` or `.note` handwriting data, and the result excludes the original PDF/EPUB background and non-handwriting content.
 5. Font and localization changes are device-level modifications. Restart the device when prompted after they finish.
-6. After installing, migrating, repairing, or disabling reading enhancements, wait for rmtool to close SSH, then restart from the device menu. Do not combine deployment with an immediate remote xochitl restart.
+6. After installing, migrating, repairing, or disabling reading or note enhancements, wait for rmtool to close SSH, then restart from the device menu. Do not combine deployment with an immediate remote xochitl restart.
 
 ## Troubleshooting
 
@@ -233,6 +242,7 @@ Reading enhancements, native Simplified Chinese, and Pinyin input share one rmto
 - **Localization buttons are disabled**: Click "Check Status" first. rmtool can use GitHub, Tencent COS, a validated cache, or its bundled baseline catalog, but the internal firmware version plus the SHA-256 of the original `reMarkable_fr.qm` must match the same manifest entry. Installing without network access also requires a validated cached package or a matching package imported from disk.
 - **Reading enhancements cannot be installed**: Click "Check Status" first. The model, firmware, architecture, and stock xochitl hash must match one exact row above. Modified or mixed Xovi layouts are blocked. If Vellum is detected, first let rmtool remove only its verified historical feature packages, then follow the official Vellum uninstall instructions and detect again.
 - **Reading enhancements still work immediately after disabling**: This is expected because rmtool does not kill the running xochitl process. Restart the tablet from its device menu to return to the stock interface.
+- **Note enhancements cannot be installed**: Click "Check Status" first. Only exact supported Paper Pro and Paper Pro Move firmware builds are accepted; unknown, modified, or mixed Xovi layouts are rejected. Restart from the device menu after installation, update, or disable.
 - **AppLoad/KOReader installation is unavailable**: Click "Check Status" on the KOReader page. Only exact production-firmware matches are accepted; all 3.28 beta builds are excluded. A previous KOReader directory can be migrated, but mixed Vellum/Xovi runtimes or an already existing legacy backup still block mutation for safety.
 - **macOS cannot create its configuration**: Make sure the current user can create and write `~/Library/Application Support/rmtool/`.
 - **Diagnostic information is needed**: Click the log button in the lower-left corner, filter by level, or choose "Open Log File". Before sharing a log, check it for private information such as the device address.
@@ -264,7 +274,7 @@ On Windows, after installing dependencies, you can also double-click `rmtool.bat
 ## Development and release checks
 
 ```bash
-python -m compileall -q rmtool.py _dialogs.py _diagnostics.py _fast_mono_reading.py _log_viewer.py _package_download.py _pinyin_input.py _residue_migration.py _reading_enhancements.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tools tests
+python -m compileall -q rmtool.py _dialogs.py _diagnostics.py _fast_mono_reading.py _log_viewer.py _note_enhancements.py _package_download.py _pinyin_input.py _residue_migration.py _reading_enhancements.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tools tests
 python -m unittest discover -s tests -v
 git diff --check
 actionlint .github/workflows/release.yml .github/workflows/sync-localization-assets.yml .github/workflows/sync-feature-assets.yml
@@ -284,7 +294,7 @@ Fixed resource Releases are validated by GitHub Actions but are published to the
 .\publish-cos.ps1
 ```
 
-The command downloads all five fixed Releases into a temporary directory, applies the same strict manifest and payload checks used by Actions, uploads only changed payloads, publishes every manifest last, and verifies every object through the public COS endpoint. The temporary directory is removed even when publishing fails.
+The command downloads all seven fixed Releases into a temporary directory, applies the same strict manifest and payload checks used by Actions, uploads only changed payloads, publishes every manifest last, and verifies every object through the public COS endpoint. The temporary directory is removed even when publishing fails.
 
 ## Contributing, license, and credits
 

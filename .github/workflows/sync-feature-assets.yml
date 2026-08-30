@@ -11,6 +11,7 @@ on:
       - native-chinese/manifest.json
       - pinyin-input/manifest.json
       - reading-enhancements/manifest.json
+      - note-enhancements/manifest.json
       - tools/publish_resources.py
       - .github/workflows/sync-feature-assets.yml
 
@@ -42,7 +43,8 @@ jobs:
             "fast-mono-reading:fast-mono-reading-assets" \
             "native-chinese:native-chinese-assets" \
             "pinyin-input:pinyin-input-assets" \
-            "reading-enhancements:reading-enhancements-assets"
+            "reading-enhancements:reading-enhancements-assets" \
+            "note-enhancements:note-enhancements-assets"
           do
             name="${item%%:*}"
             tag="${item#*:}"
@@ -60,4 +62,5 @@ jobs:
             --resource fast-mono-reading \
             --resource native-chinese \
             --resource pinyin-input \
-            --resource reading-enhancements
+            --resource reading-enhancements \
+            --resource note-enhancements

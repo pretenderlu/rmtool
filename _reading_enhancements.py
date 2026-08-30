@@ -30,7 +30,7 @@ BUNDLED_MANIFEST = Path(__file__).with_name("reading-enhancements") / "manifest.
 
 QMD_PAYLOAD_PATH = "exthome/qt-resource-rebuilder/reading-enhancements.qmd"
 FEATURE_ID = "reading-enhancements"
-PACKAGE_REVISION = 7
+PACKAGE_REVISION = 8
 MAX_MANIFEST_BYTES = tap.MAX_MANIFEST_BYTES
 MAX_PACKAGE_BYTES = tap.MAX_PACKAGE_BYTES
 MAX_UNPACKED_BYTES = tap.MAX_UNPACKED_BYTES
@@ -45,94 +45,68 @@ _PAYLOAD_PATHS = _REQUIRED_PATHS | {
     "LICENSE.xovi",
 }
 
-# Revision 1 was published in v1.12.1. Keep its exact QMD bytes as a
-# read-only predecessor so upgrades preserve the shared runtime and settings.
-_REVISION_1_QMD = {
-    "3.27": (
-        "7c3a384e1cd4f2be7b94aadce82b30c31ca81a49ed482a300e63bf83fce67fe7",
-        28715,
-    ),
-    "3.28": (
-        "e6d6ef9260c4bc6cfffc375d4485e3ec33eea36fd6725790c7e2483da16c74ec",
-        27761,
-    ),
+# Only package revisions shipped by a tagged rmtool release are accepted as
+# predecessors. Revisions 2 and 5, device canaries, and defect test builds were
+# never public and deliberately remain untrusted.
+_PUBLISHED_REVISION_QMDS = {
+    1: {
+        "3.27": (
+            "7c3a384e1cd4f2be7b94aadce82b30c31ca81a49ed482a300e63bf83fce67fe7",
+            28715,
+        ),
+        "3.28": (
+            "e6d6ef9260c4bc6cfffc375d4485e3ec33eea36fd6725790c7e2483da16c74ec",
+            27761,
+        ),
+    },
+    3: {
+        "3.27": (
+            "622c17f90cb6f08552ac3ce412a37fc56c8f24fc4a52bb1fa0cdfb5057fb6532",
+            47548,
+        ),
+        "3.28": (
+            "10ef980eb3bc66cf94087ab096e660a5d3519fad1b383513ca7ed0db09f48a7a",
+            46594,
+        ),
+    },
+    4: {
+        "3.27": (
+            "d8b2a21d75eb4f1c26e67446a6519360aa2d690c7ae91f83c744c83152ba9e28",
+            48148,
+        ),
+        "3.28": (
+            "aadec3d2ec54c408a8f64c8f046bd5973ead1ba6e7e4a3c91cb38404d174b164",
+            47194,
+        ),
+    },
+    6: {
+        "3.27": (
+            "e526a2e8a7a3ac6199abc6cef591b6f77df0c52f2e6d73774b1a313e5b2b6ef4",
+            48147,
+        ),
+        "3.28": (
+            "1cecbf4e386f46d57ecf3ac9af1a7fd2ac208b7461cc730113dc744ef25d6f7f",
+            54042,
+        ),
+    },
+    7: {
+        "3.27": (
+            "59501fe8bacbf8ca0f9716262b43fecd154c33c7dc1982f1b56e9761562d3803",
+            51289,
+        ),
+        "3.28.0.162": (
+            "36b809ab3b29f64d76a976c3b6321324b36ccb036c453e7eecf4cf0c18efd566",
+            57184,
+        ),
+        "3.28": (
+            "65d36fa86f1db0378e2c729553089d71b7655cbda39608a612f366e170de3611",
+            57224,
+        ),
+    },
 }
-
-# Revision 2 was used by the first per-book test build. Its DocumentView
-# called a settings-page helper outside that helper's QML scope.
-_REVISION_2_QMD = {
-    "3.27": (
-        "9f965de55f94e767cd64d9c57aab6c3ed5b2322054d7441f1e25c258ea343d97",
-        47040,
-    ),
-    "3.28": (
-        "9ffbc98e5241a1f4e893408d41c8b6680ecb86c0d1cc06aafe5c56fad9488906",
-        46086,
-    ),
-}
-
-# Revision 3 shipped from v1.12.1 through v1.13.1. Its settings page kept
-# conditional panels at full opacity when disabled; revision 4 grays them.
-_REVISION_3_QMD = {
-    "3.27": (
-        "622c17f90cb6f08552ac3ce412a37fc56c8f24fc4a52bb1fa0cdfb5057fb6532",
-        47548,
-    ),
-    "3.28": (
-        "10ef980eb3bc66cf94087ab096e660a5d3519fad1b383513ca7ed0db09f48a7a",
-        46594,
-    ),
-}
-
-# Revision 4 shipped in v1.14.1. Revision 5 adds the 3.28-only EPUB custom
-# font slot while preserving the unified reading-enhancements runtime.
-_REVISION_4_QMD = {
-    "3.27": (
-        "d8b2a21d75eb4f1c26e67446a6519360aa2d690c7ae91f83c744c83152ba9e28",
-        48148,
-    ),
-    "3.28": (
-        "aadec3d2ec54c408a8f64c8f046bd5973ead1ba6e7e4a3c91cb38404d174b164",
-        47194,
-    ),
-}
-
-# Revision 5 shipped the first 3.28-only EPUB font slot. Revision 6 expands
-# that exact integration to three named slots without changing 3.27 behavior.
-_REVISION_5_QMD = {
-    "3.27": (
-        "e526a2e8a7a3ac6199abc6cef591b6f77df0c52f2e6d73774b1a313e5b2b6ef4",
-        48147,
-    ),
-    "3.28": (
-        "12f4241ac5e0644e52c7959c806a214aa08fabe9eb600a6da1bf1e3404913f72",
-        49477,
-    ),
-}
-
-# Revision 6 expanded the 3.28 EPUB integration to three named font slots.
-# Revision 7 adds the stock table-of-contents shortcut for PDF and EPUB.
-_REVISION_6_QMD = {
-    "3.27": (
-        "e526a2e8a7a3ac6199abc6cef591b6f77df0c52f2e6d73774b1a313e5b2b6ef4",
-        48147,
-    ),
-    "3.28": (
-        "1cecbf4e386f46d57ecf3ac9af1a7fd2ac208b7461cc730113dc744ef25d6f7f",
-        54042,
-    ),
-}
-
-# Exact Paper Pro 3.28.0.169 canary installed before the revisioned package
-# existed. Its local package ID differs, so keep this one-off trust record in
-# the reading feature instead of weakening the shared predecessor validator.
-_VERIFIED_DEVICE_TRIALS = {
-    ("ferrari", "20260806095513"): (
-        "local-ferrari-20260806095513-reading-enhancements",
-        "6e24a580961b1283d16009bcf22a94dfa397b0af1ec0062b06d41169ae4d367b",
-        26193,
-    ),
-}
+_PUBLISHED_PREDECESSOR_REASONS = frozenset(
+    f"package-revision-{revision}" for revision in _PUBLISHED_REVISION_QMDS
+)
 
 ALLOWED_TARGETS = {
     (
@@ -219,55 +193,6 @@ ALLOWED_TARGETS = {
         "aarch64",
         "6361610111c381ce730a8bfcc889bd933ef5fef173563a9156e435233714e7ee",
     ): ("3.28.0.169", "beta", True, False),
-}
-
-# Exact QMDs from the unpublished first build.  They inserted the settings
-# page inside Component#general and made Settings.qml invalid at runtime.
-# Keep only these known hashes so affected test installs can be repaired
-# without accepting arbitrary same-id payloads.
-_KNOWN_SETTINGS_COMPONENT_DEFECTS = {
-    "3.27.1.0": (
-        "0cdfcff0c43e1cc87eb0e956b808c6e588d5dec0791d878bbc6bf7012ed2fa77",
-        27749,
-    ),
-    "3.27.3.0": (
-        "0cdfcff0c43e1cc87eb0e956b808c6e588d5dec0791d878bbc6bf7012ed2fa77",
-        27749,
-    ),
-    "3.28.0.162": (
-        "b87d847492ef5efaaf81dfcae6294ed2db61db335d79484a668f2f6fa968b361",
-        26891,
-    ),
-    "3.28.0.163": (
-        "b87d847492ef5efaaf81dfcae6294ed2db61db335d79484a668f2f6fa968b361",
-        26891,
-    ),
-    "3.28.0.164": (
-        "b87d847492ef5efaaf81dfcae6294ed2db61db335d79484a668f2f6fa968b361",
-        26891,
-    ),
-    "3.28.0.166": (
-        "b87d847492ef5efaaf81dfcae6294ed2db61db335d79484a668f2f6fa968b361",
-        26891,
-    ),
-    "3.28.0.169": (
-        "b87d847492ef5efaaf81dfcae6294ed2db61db335d79484a668f2f6fa968b361",
-        26891,
-    ),
-}
-
-# The syntax-fixed 3.27 build updated _selectedIndex but left the native
-# highlightedIndex timer staged on the previous page. Only this exact QMD is
-# accepted for repair; the equivalent 3.28 build uses _selectedPage and is valid.
-_KNOWN_327_SETTINGS_NAVIGATION_DEFECTS = {
-    "3.27.1.0": (
-        "0b4ae3ac2682c452cb17fc964d108c4194a59aeb9d55f9ef2c6ddf8582679c66",
-        28634,
-    ),
-    "3.27.3.0": (
-        "0b4ae3ac2682c452cb17fc964d108c4194a59aeb9d55f9ef2c6ddf8582679c66",
-        28634,
-    ),
 }
 
 PayloadFile = tap.PayloadFile
@@ -558,99 +483,26 @@ def _shared_specs(package: ReadingEnhancementsPackage):
     return shared.specs_from_package(package, FEATURE_ID, QMD_PAYLOAD_PATH)
 
 
-def _known_defective_feature(package, current):
-    defect = _KNOWN_SETTINGS_COMPONENT_DEFECTS.get(package.release_version)
-    if defect is None:
+def _known_published_revision_feature(package, current, revision):
+    fingerprints = _PUBLISHED_REVISION_QMDS.get(revision)
+    if fingerprints is None:
         return None
-    return replace(current, sha256=defect[0], size=defect[1])
-
-
-def _known_navigation_defective_feature(package, current):
-    defect = _KNOWN_327_SETTINGS_NAVIGATION_DEFECTS.get(package.release_version)
-    if defect is None:
-        return None
-    return replace(current, sha256=defect[0], size=defect[1])
-
-
-def _known_revision_one_feature(package, current):
     variant = "3.27" if package.release_version.startswith("3.27.") else "3.28"
-    predecessor = _REVISION_1_QMD.get(variant)
+    predecessor = fingerprints.get(package.release_version, fingerprints.get(variant))
     if predecessor is None:
         return None
     return replace(current, sha256=predecessor[0], size=predecessor[1])
-
-
-def _known_revision_two_feature(package, current):
-    variant = "3.27" if package.release_version.startswith("3.27.") else "3.28"
-    predecessor = _REVISION_2_QMD.get(variant)
-    if predecessor is None:
-        return None
-    return replace(current, sha256=predecessor[0], size=predecessor[1])
-
-
-def _known_revision_three_feature(package, current):
-    variant = "3.27" if package.release_version.startswith("3.27.") else "3.28"
-    predecessor = _REVISION_3_QMD.get(variant)
-    if predecessor is None:
-        return None
-    return replace(current, sha256=predecessor[0], size=predecessor[1])
-
-
-def _known_revision_four_feature(package, current):
-    variant = "3.27" if package.release_version.startswith("3.27.") else "3.28"
-    predecessor = _REVISION_4_QMD.get(variant)
-    if predecessor is None:
-        return None
-    return replace(current, sha256=predecessor[0], size=predecessor[1])
-
-
-def _known_revision_five_feature(package, current):
-    variant = "3.27" if package.release_version.startswith("3.27.") else "3.28"
-    predecessor = _REVISION_5_QMD.get(variant)
-    if predecessor is None:
-        return None
-    return replace(current, sha256=predecessor[0], size=predecessor[1])
-
-
-def _known_revision_six_feature(package, current):
-    variant = "3.27" if package.release_version.startswith("3.27.") else "3.28"
-    predecessor = _REVISION_6_QMD.get(variant)
-    if predecessor is None:
-        return None
-    return replace(current, sha256=predecessor[0], size=predecessor[1])
-
-
-def _known_device_trial_feature(package, current):
-    predecessor = _VERIFIED_DEVICE_TRIALS.get((package.platform, package.firmware))
-    if predecessor is None:
-        return None
-    return replace(
-        current,
-        package_id=predecessor[0],
-        sha256=predecessor[1],
-        size=predecessor[2],
-    )
 
 
 def _known_shared_predecessor_specs(package, current):
-    candidates = (
-        ("settings-component-defect", _known_defective_feature(package, current)),
-        (
-            "settings-navigation-defect",
-            _known_navigation_defective_feature(package, current),
-        ),
-        ("package-revision-6", _known_revision_six_feature(package, current)),
-        ("package-revision-5", _known_revision_five_feature(package, current)),
-        ("package-revision-4", _known_revision_four_feature(package, current)),
-        ("package-revision-3", _known_revision_three_feature(package, current)),
-        ("package-revision-2", _known_revision_two_feature(package, current)),
-        ("package-revision-1", _known_revision_one_feature(package, current)),
-    )
     predecessors = []
     seen = {current}
-    for reason, predecessor in candidates:
+    for revision in reversed(tuple(_PUBLISHED_REVISION_QMDS)):
+        predecessor = _known_published_revision_feature(
+            package, current, revision
+        )
         if predecessor is not None and predecessor not in seen:
-            predecessors.append((reason, predecessor))
+            predecessors.append((f"package-revision-{revision}", predecessor))
             seen.add(predecessor)
     return tuple(predecessors)
 
@@ -782,22 +634,6 @@ def _inspection_for_migration(ssh_client, runtime, trusted, package):
         )
         return inspection, installed, selected
     except RuntimeError as current_error:
-        device_trial = _known_device_trial_feature(package, trusted[FEATURE_ID])
-        if device_trial is not None:
-            trial_trusted = dict(trusted)
-            trial_trusted[FEATURE_ID] = device_trial
-            try:
-                inspection = shared.inspect_shared(
-                    ssh_client,
-                    runtime,
-                    trial_trusted,
-                    check_lower=True,
-                )
-                return inspection, trial_trusted, {
-                    FEATURE_ID: "verified-device-trial"
-                }
-            except RuntimeError:
-                pass
         try:
             import _fast_mono_reading as fast
 
@@ -893,40 +729,21 @@ def get_status(
             ssh_client, runtime, trusted, package
         )
         record = inspection.states.get(FEATURE_ID)
-        if FEATURE_ID in selected_predecessors:
-            predecessor = selected_predecessors[FEATURE_ID]
-            if predecessor in {
-                "package-revision-1",
-                "package-revision-2",
-                "package-revision-3",
-                "package-revision-4",
-                "package-revision-5",
-                "package-revision-6",
-                "verified-device-trial",
-            }:
-                detail = (
-                    "检测到旧版阅读增强，可安全更新到当前版本；"
-                    "其他共享功能和阅读设置会保留。"
-                )
-            elif predecessor in (
-                "settings-component-defect",
-                "settings-navigation-defect",
-            ):
-                detail = (
-                    "检测到已知的设置页缺陷包，可原子替换为修复版；"
-                    "其他共享功能会保留。"
-                )
-            else:
-                raise RuntimeError("阅读增强旧版识别结果无效。")
+        predecessor = selected_predecessors.get(FEATURE_ID)
+        if predecessor in _PUBLISHED_PREDECESSOR_REASONS:
+            revision = predecessor.rsplit("-", 1)[-1]
             return ReadingEnhancementsStatus(
                 ReadingEnhancementsState.REPAIR_AVAILABLE,
                 identity,
                 package,
                 available,
-                detail,
+                f"检测到已公开的阅读增强旧版（revision {revision}），可安全更新；"
+                "其他共享功能和阅读设置会保留。",
                 True,
                 True,
             )
+        if FEATURE_ID in selected_predecessors:
+            raise RuntimeError("阅读增强旧版识别结果无效。")
         if record is None:
             old = {"tap-page-turn", "fast-mono-reading"} & set(inspection.states)
             if old:

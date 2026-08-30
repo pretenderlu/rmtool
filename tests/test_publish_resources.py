@@ -217,9 +217,13 @@ class PublishResourcesTests(unittest.TestCase):
                 and "github.com/pretenderlu/rmtool/releases/tag/" in line
                 and "myqcloud.com" in line
             ]
-            self.assertEqual(len(resource_rows), 4, filename)
+            self.assertEqual(len(resource_rows), 5, filename)
             for row in resource_rows:
                 self.assertLess(row.index("github.com"), row.index("myqcloud.com"))
+            self.assertTrue(
+                any("note-enhancements-assets" in row for row in resource_rows),
+                filename,
+            )
         english = (publisher.ROOT / "README.md").read_text(encoding="utf-8")
         chinese = (publisher.ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
         self.assertNotIn("Tencent COS mirror before GitHub", english)
@@ -388,6 +392,7 @@ class PublishResourcesTests(unittest.TestCase):
                 "native-chinese",
                 "pinyin-input",
                 "reading-enhancements",
+                "note-enhancements",
             ),
         )
         reading = publisher.RESOURCES["reading-enhancements"]
@@ -398,6 +403,16 @@ class PublishResourcesTests(unittest.TestCase):
             (
                 f"{publisher.COS_PUBLIC_BASE_URL}/reading-enhancements",
                 "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets",
+            ),
+        )
+        note = publisher.RESOURCES["note-enhancements"]
+        self.assertEqual(note.tag, "note-enhancements-assets")
+        self.assertEqual(note.object_prefix, "note-enhancements")
+        self.assertEqual(
+            note.url_bases,
+            (
+                f"{publisher.COS_PUBLIC_BASE_URL}/note-enhancements",
+                "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets",
             ),
         )
         wrapper = (publisher.ROOT / "publish-cos.ps1").read_text(encoding="utf-8")

@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 import _pinyin_input as pinyin
 import _fast_mono_reading as fast
 import _native_chinese as native
+import _note_enhancements as note
 import _reading_enhancements as reading
 import _tap_page_turn as tap
 import _xovi_standalone as shared
@@ -269,6 +270,7 @@ class PinyinInputTests(unittest.TestCase):
                 "native-chinese",
                 pinyin.FEATURE_ID,
                 reading.FEATURE_ID,
+                note.FEATURE_ID,
             },
         )
         self.assertEqual(
@@ -374,6 +376,57 @@ class PinyinInputTests(unittest.TestCase):
             elif predecessor.reason == "preload_metadata_unchecked":
                 self.assertIn("所有权", status.detail)
             validate.assert_called_once_with(ssh, package)
+
+    def test_status_marks_exact_pre_upgrade_external_marker_as_repairable(self):
+        package = next(
+            item
+            for item in pinyin._trusted_catalog()
+            if item.platform == "ferrari" and item.release_version == "3.28.0.169"
+        )
+        identity = tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        runtime, feature = pinyin._shared_specs(package)
+        inspection = shared.SharedInspection(
+            {
+                pinyin.FEATURE_ID: shared.SharedFeatureState(
+                    feature,
+                    True,
+                    "12345678-1234-1234-1234-123456789abc:1:1",
+                )
+            },
+            True,
+            True,
+        )
+        ssh = Mock()
+        with patch.object(tap, "get_device_identity", return_value=identity), patch.object(
+            shared, "recovery_sentinel_present", return_value=False
+        ), patch.object(shared, "has_shared_artifacts", return_value=True), patch.object(
+            pinyin, "_has_external_payload", return_value=True
+        ), patch.object(shared, "read_shared_identity", return_value=(
+            identity.firmware,
+            identity.platform,
+            identity.architecture,
+            identity.xochitl_sha256,
+        )), patch.object(
+            pinyin,
+            "_trusted_shared_context",
+            return_value=(runtime, {pinyin.FEATURE_ID: feature}, ()),
+        ), patch.object(
+            pinyin,
+            "_inspect_shared_revision",
+            return_value=(inspection, {pinyin.FEATURE_ID: feature}, None),
+        ), patch.object(
+            pinyin, "_validate_external_payload", return_value=True
+        ):
+            status = pinyin.get_status(ssh, (package,))
+
+        self.assertEqual(status.state, pinyin.PinyinInputState.OUTDATED)
+        self.assertIn("固件升级前", status.detail)
+        self.assertIn("可直接修复更新", status.detail)
 
     def test_revision_probe_accepts_only_current_or_known_predecessors(self):
         package = self.package()

@@ -78,6 +78,7 @@ jobs:
             --add-data "$root/native-chinese/manifest.json:native-chinese" \
             --add-data "$root/pinyin-input/manifest.json:pinyin-input" \
             --add-data "$root/reading-enhancements/manifest.json:reading-enhancements" \
+            --add-data "$root/note-enhancements/manifest.json:note-enhancements" \
             --distpath dist \
             --workpath build/macos \
             --specpath build \

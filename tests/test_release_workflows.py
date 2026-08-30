@@ -19,12 +19,14 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("--resource localization", localization)
         self.assertIn("name: Verify Feature Assets", features)
         self.assertIn("reading-enhancements/manifest.json", features)
+        self.assertIn("note-enhancements/manifest.json", features)
         for name in (
             "tap-page-turn-assets",
             "fast-mono-reading-assets",
             "native-chinese-assets",
             "pinyin-input-assets",
             "reading-enhancements-assets",
+            "note-enhancements-assets",
         ):
             self.assertIn(name, features)
         for name in (
@@ -33,6 +35,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
             "native-chinese",
             "pinyin-input",
             "reading-enhancements",
+            "note-enhancements",
         ):
             self.assertIn(f"--resource {name}", features)
 
@@ -53,6 +56,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("native-chinese/manifest.json:native-chinese", workflow)
         self.assertIn("pinyin-input/manifest.json:pinyin-input", workflow)
         self.assertIn("reading-enhancements/manifest.json:reading-enhancements", workflow)
+        self.assertIn("note-enhancements/manifest.json:note-enhancements", workflow)
         for name in (
             "rmtool-windows-x64.zip",
             "rmtool-windows-x64-onefile.exe",
