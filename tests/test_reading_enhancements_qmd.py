@@ -114,6 +114,7 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
             "ArkControls.FoldoutToggle",
             "ArkControls.FoldoutItem",
             "stackView.push(rmtoolCleanupOptions)",
+            'label: "刷新页数"',
             "每 15 次翻页",
             "按章节",
             # Conditional settings panels must gray out when disabled
@@ -135,6 +136,12 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
             "LOCATE AFTER ListModel#fontModel",
         ):
             self.assertIn(marker, source, marker)
+        self.assertLess(
+            source.index('label: "强制刷新"'),
+            source.index('label: "刷新页数"'),
+        )
+        self.assertNotIn('label: "刷新方式"', source)
+        self.assertNotIn("└", source)
         self.assertEqual(source.count("opacity: enabled ? 1 : 0.5"), 5)
 
         self.assertIn("Settings.rawValue(\"RmtoolReadingEnhancements\",", source)

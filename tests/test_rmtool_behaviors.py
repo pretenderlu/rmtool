@@ -1270,7 +1270,7 @@ class WallpaperUiTests(unittest.TestCase):
         toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
         self.addCleanup(toolbox.deleteLater)
 
-        self.assertEqual(toolbox.tool_table.rowCount(), 8)
+        self.assertEqual(toolbox.tool_table.rowCount(), 9)
         self.assertEqual(
             [
                 toolbox.tool_table.item(row, 0).text()
@@ -1280,6 +1280,7 @@ class WallpaperUiTests(unittest.TestCase):
                 "原生简体中文",
                 "拼音输入法",
                 "阅读增强",
+                "笔记增强",
                 "点击翻页（RM1/RM2/Paper Pure）",
                 "时间管理",
                 "设备控制",
@@ -1345,6 +1346,10 @@ class WallpaperUiTests(unittest.TestCase):
             "检测到旧版阅读功能，可迁移"
         )
         self.assertEqual(toolbox.tool_table.item(2, 1).text(), "可迁移")
+        toolbox.reading_enhancements_section.status_label.setText(
+            "检测到旧版阅读增强，可安全更新到当前版本"
+        )
+        self.assertEqual(toolbox.tool_table.item(2, 1).text(), "可更新")
 
     def test_reading_enhancements_exposes_user_facing_explanation(self):
         section = _tab_toolbox.ReadingEnhancementsSection(
@@ -1378,6 +1383,7 @@ class WallpaperUiTests(unittest.TestCase):
             ("native", toolbox.native_chinese_section),
             ("pinyin", toolbox.pinyin_input_section),
             ("reading", toolbox.reading_enhancements_section),
+            ("note", toolbox.note_enhancements_section),
             ("tap", toolbox.tap_page_turn_section),
         ):
             def start(*, on_done, show_errors, current_name=name):
@@ -1394,10 +1400,10 @@ class WallpaperUiTests(unittest.TestCase):
         # so detect-all skips it without starting a detection.
         toolbox.detect_all_button.click()
         self.assertEqual(calls, [("native", False)])
-        self.assertEqual(toolbox.detect_all_button.text(), "正在检测 1/4")
+        self.assertEqual(toolbox.detect_all_button.text(), "正在检测 1/5")
         self.assertFalse(toolbox.detect_all_button.isEnabled())
 
-        for expected in ("pinyin", "reading"):
+        for expected in ("pinyin", "reading", "note"):
             pending.pop(0)()
             self.assertEqual(calls[-1], (expected, False))
 
@@ -1408,6 +1414,7 @@ class WallpaperUiTests(unittest.TestCase):
                 ("native", False),
                 ("pinyin", False),
                 ("reading", False),
+                ("note", False),
             ],
         )
         self.assertEqual(toolbox.detect_all_button.text(), "检测全部插件")

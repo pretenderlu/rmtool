@@ -507,10 +507,44 @@ def _has_external_payload(ssh_client) -> bool:
     return ssh_client.file_exists(REMOTE_BASE) or ssh_client.file_exists(REMOTE_MARKER)
 
 
-def _validate_external_payload(ssh_client, package: PinyinInputPackage) -> None:
-    _xovi_standalone._validate_owned_tree(
-        ssh_client, REMOTE_BASE, _external_specs(package), "拼音输入法服务"
-    )
+def _validate_external_payload(ssh_client, package: PinyinInputPackage) -> bool:
+    try:
+        _xovi_standalone._validate_owned_tree(
+            ssh_client, REMOTE_BASE, _external_specs(package), "拼音输入法服务"
+        )
+        return False
+    except RuntimeError as current_error:
+        compatible = tuple(
+            item
+            for item in _trusted_catalog()
+            if item != package
+            and (
+                item.firmware,
+                item.platform,
+                item.architecture,
+            )
+            == (
+                package.firmware,
+                package.platform,
+                package.architecture,
+            )
+            and all(item.file(path) == package.file(path) for path in REMOTE_FILE_MAP)
+        )
+        matches = []
+        for candidate in compatible:
+            try:
+                _xovi_standalone._validate_owned_tree(
+                    ssh_client,
+                    REMOTE_BASE,
+                    _external_specs(candidate),
+                    "拼音输入法服务",
+                )
+            except RuntimeError:
+                continue
+            matches.append(candidate)
+        if len(matches) == 1:
+            return True
+        raise current_error
 
 
 def _assert_no_rmkit_ime(ssh_client) -> None:
@@ -602,14 +636,22 @@ def get_status(
             return PinyinInputStatus(state, identity, package, installed=False, emergency_disabled=emergency)
         if package is None:
             raise RuntimeError("当前固件没有精确匹配的拼音输入法包。")
+        external_outdated = False
         if record.enabled:
             if not external_exists:
                 raise RuntimeError("拼音服务文件缺失。")
-            _validate_external_payload(ssh_client, package)
+            external_outdated = (
+                _validate_external_payload(ssh_client, package) is True
+            )
         elif external_exists:
             raise RuntimeError("拼音功能已停用，但服务目录仍有残留。")
-        if outdated:
+        if outdated or external_outdated:
+            reason = outdated or "firmware_identity_marker"
             detail = {
+                "firmware_identity_marker": (
+                    "已精确验证为固件升级前的拼音服务标记，实际文件完整且与当前包一致，"
+                    "可直接修复更新"
+                ),
                 "keyboard_label_owned_by_pinyin": (
                     "已精确验证为仍由拼音功能修改键盘名称的旧版拼音包，"
                     "需与原生中文补丁一并更新，可直接修复更新"
@@ -629,7 +671,7 @@ def get_status(
                 "missing_rcc": (
                     "已精确验证为缺少中文键盘布局资源的首版拼音包，可直接修复更新"
                 ),
-            }[outdated]
+            }[reason]
             return PinyinInputStatus(
                 PinyinInputState.OUTDATED,
                 identity,
@@ -690,12 +732,16 @@ def enable(
                     ssh_client, runtime, trusted, package, check_lower=True
                 )
             had_previous = _has_external_payload(ssh_client)
+            external_outdated = False
             if had_previous:
-                _validate_external_payload(ssh_client, package)
+                external_outdated = (
+                    _validate_external_payload(ssh_client, package) is True
+                )
             installed = inspection.states.get(FEATURE_ID) if inspection else None
             if (
                 had_previous
                 and not outdated
+                and not external_outdated
                 and installed is not None
                 and installed.enabled
                 and installed.spec == feature

@@ -10,7 +10,7 @@
 
 </div>
 
-rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Paper Pure、reMarkable 1 和 reMarkable 2，提供多设备连接、仪表盘、壁纸、文档、KOReader 书库管理、字体、时间、设备控制、原生界面中文、离线拼音输入，彩色设备按固件精确匹配的阅读增强，Paper Pure、reMarkable 1 和
+rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Paper Pure、reMarkable 1 和 reMarkable 2，提供多设备连接、仪表盘、壁纸、文档、KOReader 书库管理、字体、时间、设备控制、原生界面中文、离线拼音输入，以及彩色设备按固件精确匹配的阅读增强和笔记增强，Paper Pure、reMarkable 1 和
 reMarkable 2 的经典离线验证点击翻页插件，以及一键只读诊断日志导出。设备操作不依赖 reMarkable 云服务；发布包内置这些固件功能的基础可信清单，可离线识别支持情况并复用已验证缓存。固件专用载荷不会打包进应用，仍需联网下载或使用已有的有效缓存。
 
 > [!WARNING]
@@ -75,6 +75,7 @@ rmtool 管理的固件专用资源均使用两个固定来源。客户端默认�
 | 独立简体中文 | [`native-chinese-assets`](https://github.com/pretenderlu/rmtool/releases/tag/native-chinese-assets) | [`native-chinese/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/) |
 | 拼音输入法 | [`pinyin-input-assets`](https://github.com/pretenderlu/rmtool/releases/tag/pinyin-input-assets) | [`pinyin-input/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input/) |
 | 阅读增强 | [`reading-enhancements-assets`](https://github.com/pretenderlu/rmtool/releases/tag/reading-enhancements-assets) | [`reading-enhancements/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/) |
+| 笔记增强 | [`note-enhancements-assets`](https://github.com/pretenderlu/rmtool/releases/tag/note-enhancements-assets) | [`note-enhancements/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/) |
 
 ## 连接设备
 
@@ -110,6 +111,7 @@ rmtool 按运行平台将状态保存在以下目录：
 - `remarkable_tool.log`：滚动运行日志。
 - `cache/localization/`：已校验的汉化清单和固件包缓存。
 - `cache/reading-enhancements/`：已校验的阅读增强清单和固件包缓存。
+- `cache/note-enhancements/`：已校验的笔记增强清单和固件包缓存。
 - `cache/pinyin-input/`：已校验的离线拼音输入法包缓存。
 - `cache/official/`：直接从 AppLoad 与 KOReader 官方 GitHub Release 下载并校验的缓存。
 
@@ -126,6 +128,7 @@ rmtool 按运行平台将状态保存在以下目录：
 - **时间管理**：同步电脑时间、查看系统时间/硬件时钟/时区，或设置为 `Asia/Shanghai`。
 - **设备控制**：重启设备、开启 Wi-Fi SSH，以及为具有 `rm_frontlight` 前光接口的设备提升亮度并安装持久化服务。
 - **阅读增强**：在精确支持的 Paper Pro 与 Paper Pro Move 3.27/3.28 固件上，增加一个原生设置页，统一控制点击翻页、快速黑白和强制刷新；每本 PDF/EPUB 还可在阅读菜单中保存独立开关和刷新策略。
+- **笔记增强**：在精确支持的 Paper Pro 与 Paper Pro Move 3.27/3.28 固件上控制彩色笔迹的沉淀刷新。设备设置保存全局默认，每本笔记可单独选择提笔后等待 5/10/30 秒刷新，或仅在翻页时刷新。
 - **离线拼音输入**：为系统软键盘和实体键盘增加设备端拼音候选栏，预测与词库完全留在本机，并与其他插件共享 rmtool 现有 Xovi 运行时。
 - **主题与日志**：亮色/暗色主题会持久化；底部日志面板支持级别过滤、暂停、自动滚动、清屏和打开日志文件。
 
@@ -205,7 +208,13 @@ Move 3.27.3 已完成真机安装、重启、设置页导航和功能测试；�
 
 Paper Pure、reMarkable 1 和 reMarkable 2 不在统一阅读增强包的覆盖范围内。这些设备会在工具箱中看到按设备显示的**点击翻页**入口（仅当连接的设备有精确点击翻页包且没有阅读增强包时出现），用于管理经典点击翻页插件：安装、停用、固件残留清理和本地资源包加载。这些设备上的全部点击翻页目标都只有离线验证、尚未在实机部署，界面会在每次安装前明确说明。
 
-阅读增强、原生简体中文和拼音输入统一共享 rmtool 自有 Xovi/QRR 运行时，同时保留各自的功能状态。检测到 Vellum/AppLoader 或非托管 Xovi 时会阻止安装，避免混合运行时。固件资源优先从固定的 `reading-enhancements-assets` GitHub Release 获取，失败后回退腾讯云 COS 镜像，并执行精确大小、SHA-256 校验和已验证缓存回退。“旧版插件迁移/清理”可把已验证的历史点击翻页、快速黑白包替换为当前固件精确包，同时保留同伴功能。rmtool 不会自行卸载 Vellum；清理已验证旧包后，请按 [Vellum CLI 官方卸载说明](https://github.com/vellum-dev/vellum-cli#usage) 操作。
+阅读增强、笔记增强、原生简体中文和拼音输入统一共享 rmtool 自有 Xovi/QRR 运行时，同时保留各自的功能状态。检测到 Vellum/AppLoader 或非托管 Xovi 时会阻止安装，避免混合运行时。固件资源优先从对应的固定 GitHub Release 获取，失败后回退腾讯云 COS 镜像，并执行精确大小、SHA-256 校验和已验证缓存回退。“旧版插件迁移/清理”可把已验证的历史点击翻页、快速黑白包替换为当前固件精确包，同时保留同伴功能。rmtool 不会自行卸载 Vellum；清理已验证旧包后，请按 [Vellum CLI 官方卸载说明](https://github.com/vellum-dev/vellum-cli#usage) 操作。
+
+### 笔记增强
+
+笔记增强面向 Paper Pro 与 Paper Pro Move 的彩色手写场景。安装后，设备的“设置 > 笔记增强”提供总开关和全局默认策略；每本笔记的设置菜单可单独覆盖。选择“提笔后延迟刷新”时，可在停止书写 5、10 或 30 秒后完成彩色沉淀刷新；选择“仅翻页刷新”时，当前页保持快速书写反馈，并在翻页或离开文档时完成刷新。两种策略互斥，关闭增强后恢复系统原生约 1 秒的提笔刷新。
+
+插件精确覆盖 Paper Pro 与 Paper Pro Move 当前支持的 14 个 3.27 正式版和 3.28 测试版目标。Move 3.27.3 已完成安装、重启、全局设置、单笔记设置和策略切换实机验证；其余目标完成官方固件离线验证。笔记增强与阅读增强、独立简体中文、拼音输入共享同一套 rmtool Xovi 运行时，安装、更新、停用和清理都会保留其他已验证功能，且不会自动重启设备。
 
 ## 使用建议
 
@@ -214,7 +223,7 @@ Paper Pure、reMarkable 1 和 reMarkable 2 不在统一阅读增强包的覆盖�
 3. 文档上传完成后，可按提示立即重启 xochitl；跳过时，新文档可能暂时不显示。
 4. 删除文档不可撤销；导出 PDF 只对包含 `.rm` 或 `.note` 笔迹数据的单个文档可用，结果不包含原 PDF/EPUB 底图或非笔迹内容。
 5. 字体和汉化属于设备级修改，完成后按提示重启设备。
-6. 安装、迁移、修复或停用阅读增强后，等待 rmtool 关闭 SSH，再从设备菜单重启；不要把部署和远程立即重启 xochitl 放在同一个操作中。
+6. 安装、迁移、修复或停用阅读增强或笔记增强后，等待 rmtool 关闭 SSH，再从设备菜单重启；不要把部署和远程立即重启 xochitl 放在同一个操作中。
 
 ## 常见问题
 
@@ -226,6 +235,7 @@ Paper Pure、reMarkable 1 和 reMarkable 2 不在统一阅读增强包的覆盖�
 - **汉化按钮不可用**：先点击“检测状态”。rmtool 可依次使用 GitHub、腾讯云 COS、已验证缓存或内置基础清单，但内部固件版本与设备原始 `reMarkable_fr.qm` 的 SHA-256 必须命中同一清单项。完全离线安装时，还需要已有通过校验的包缓存，或从本地导入匹配的汉化包。
 - **无法安装阅读增强**：先点击“检测状态”。设备型号、固件、架构和原始 xochitl 哈希必须精确命中上表中的一项；被修改的载荷或混合 Xovi 布局会阻止部署。若检测到 Vellum，请先让 rmtool 只卸载其已验证的历史功能包，再按官方说明卸载 Vellum，重新检测后安装。
 - **停用后阅读增强仍暂时有效**：这是正常现象，rmtool 不会强制结束当前 xochitl 进程。请从设备菜单完整重启，恢复原生界面。
+- **无法安装笔记增强**：先点击“检测状态”。只有精确匹配的 Paper Pro 或 Paper Pro Move 固件可以安装；未知、被修改或混合的 Xovi 布局会被拒绝。安装、更新或停用后请从设备菜单完整重启。
 - **AppLoad/KOReader 安装按钮不可用**：先在 KOReader 页面点击“检测状态”。这里只接受精确匹配的正式版固件，全部 3.28 测试版均被排除。旧版 KOReader 目录可以迁移，但 Vellum/Xovi 混合运行时或已经存在旧版完整备份时，仍会为安全起见拒绝修改。
 - **macOS 无法创建配置**：确认当前用户可以创建并写入 `~/Library/Application Support/rmtool/`。
 - **需要诊断信息**：点击左下角日志按钮，按级别筛选，或选择“打开日志文件”。分享日志前请检查其中是否含设备地址等隐私信息。
@@ -257,7 +267,7 @@ Windows 也可在依赖安装完成后双击 `rmtool.bat`，通过 `pythonw.exe`
 ## 开发与发布检查
 
 ```bash
-python -m compileall -q rmtool.py _dialogs.py _diagnostics.py _fast_mono_reading.py _log_viewer.py _package_download.py _pinyin_input.py _residue_migration.py _reading_enhancements.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tools tests
+python -m compileall -q rmtool.py _dialogs.py _diagnostics.py _fast_mono_reading.py _log_viewer.py _note_enhancements.py _package_download.py _pinyin_input.py _residue_migration.py _reading_enhancements.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tools tests
 python -m unittest discover -s tests -v
 git diff --check
 actionlint .github/workflows/release.yml .github/workflows/sync-localization-assets.yml .github/workflows/sync-feature-assets.yml
@@ -277,7 +287,7 @@ Windows x64 本地构建运行：
 .\publish-cos.ps1
 ```
 
-命令会将五个固定 Release 下载到临时目录，复用 Actions 的清单与载荷校验规则，只上传发生变化的载荷，在全部载荷成功后统一写入清单，最后从 COS 公网地址逐字节回读验证。无论成功或失败，临时目录都会自动清理。
+命令会将七个固定 Release 下载到临时目录，复用 Actions 的清单与载荷校验规则，只上传发生变化的载荷，在全部载荷成功后统一写入清单，最后从 COS 公网地址逐字节回读验证。无论成功或失败，临时目录都会自动清理。
 
 ## 贡献、许可与致谢
 

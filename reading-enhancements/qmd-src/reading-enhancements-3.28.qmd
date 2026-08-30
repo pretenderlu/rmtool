@@ -590,7 +590,7 @@ AFFECT /qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml
                     && (root.toolbar.rmtoolDocumentView?.rmtoolGlobalCleanupEnabled ?? false)
                     && (root.toolbar.rmtoolDocumentView?.rmtoolCleanupEnabled ?? false)
                 Layout.fillWidth: true
-                label: "刷新方式"
+                label: "刷新页数"
                 description: {
                     const view = root.toolbar.rmtoolDocumentView
                     if (view?.rmtoolCleanupByChapter) {

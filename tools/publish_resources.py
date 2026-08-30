@@ -112,6 +112,25 @@ RESOURCES = {
                 "https://github.com/pretenderlu/rmtool/releases/download/reading-enhancements-assets",
             ),
         ),
+        Resource(
+            "note-enhancements",
+            "note-enhancements-assets",
+            ROOT / "note-enhancements" / "manifest.json",
+            "note-enhancements",
+            "rmtool-note-enhancements-",
+            frozenset(
+                {
+                    "offline_verified",
+                    "device_verified",
+                    "package_revision",
+                    "urls",
+                }
+            ),
+            (
+                f"{COS_PUBLIC_BASE_URL}/note-enhancements",
+                "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets",
+            ),
+        ),
     )
 }
 
@@ -313,12 +332,17 @@ def _validate_feature(resource: Resource, release_dir: Path) -> Bundle:
             "native-chinese",
             "pinyin-input",
             "reading-enhancements",
+            "note-enhancements",
         } and (
             type(package.get("offline_verified")) is not bool
             or type(package.get("device_verified")) is not bool
         ):
             raise RuntimeError(f"Invalid {resource.name} verification metadata.")
-        if resource.name in {"fast-mono-reading", "reading-enhancements"} and (
+        if resource.name in {
+            "fast-mono-reading",
+            "reading-enhancements",
+            "note-enhancements",
+        } and (
             type(package.get("package_revision")) is not int
             or package["package_revision"] <= 0
         ):

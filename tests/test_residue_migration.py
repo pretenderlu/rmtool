@@ -8,6 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import rmtool  # noqa: F401  (must load before tab modules)
 import _fast_mono_reading as fast
 import _native_chinese as native
+import _note_enhancements as note
 import _pinyin_input as pinyin
 import _reading_enhancements as reading
 import _residue_migration
@@ -240,6 +241,7 @@ class ResidueMigrationTests(unittest.TestCase):
             "native-chinese": native,
             "pinyin-input": pinyin,
             "reading-enhancements": reading,
+            "note-enhancements": note,
         }
         with (
             mock.patch.object(_residue_migration, "inspect_residue", return_value=report),
@@ -267,6 +269,11 @@ class ResidueMigrationTests(unittest.TestCase):
             ).start()
             mock.patch.object(
                 reading,
+                "extract_verified_package",
+                side_effect=lambda _a, _p, dest: Path("extracted") / Path(dest).name,
+            ).start()
+            mock.patch.object(
+                note,
                 "extract_verified_package",
                 side_effect=lambda _a, _p, dest: Path("extracted") / Path(dest).name,
             ).start()
@@ -305,6 +312,7 @@ class ResidueMigrationTests(unittest.TestCase):
             "native-chinese": native,
             "pinyin-input": pinyin,
             "reading-enhancements": reading,
+            "note-enhancements": note,
         }
         with (
             mock.patch.object(_residue_migration, "inspect_residue", return_value=report),
@@ -331,6 +339,11 @@ class ResidueMigrationTests(unittest.TestCase):
             ).start()
             mock.patch.object(
                 reading,
+                "extract_verified_package",
+                side_effect=lambda _a, _p, dest: Path("extracted") / Path(dest).name,
+            ).start()
+            mock.patch.object(
+                note,
                 "extract_verified_package",
                 side_effect=lambda _a, _p, dest: Path("extracted") / Path(dest).name,
             ).start()

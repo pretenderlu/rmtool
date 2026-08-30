@@ -1,0 +1,754 @@
+; Shared note-enhancements source for Paper Pro and Move 3.27/3.28.
+; The build step derives the 3.27 Settings navigation boundary.
+
+AFFECT /qml/device/view/settings/Settings.qml
+    TRAVERSE ?#settingsSidebar
+        LOCATE BEFORE ALL
+        INSERT {
+            property var rmtoolNoteSettingsRoot: parent
+
+            function rmtoolNoteSelectedPage() {
+                return ("_selectedPage" in rmtoolNoteSettingsRoot)
+                    ? rmtoolNoteSettingsRoot._selectedPage
+                    : rmtoolNoteSettingsRoot._selectedIndex
+            }
+
+            function rmtoolSelectNotePage(page) {
+                if ("_selectedPage" in rmtoolNoteSettingsRoot) {
+                    rmtoolNoteSettingsRoot._selectedPage = page
+                } else {
+                    rmtoolNoteSettingsRoot._selectedIndex = page
+                }
+            }
+        }
+    END TRAVERSE
+
+    TRAVERSE ?#settingsSidebar > ColumnLayout#settingsColumn
+        LOCATE AFTER ALL
+        INSERT {
+            ArkControls.SidebarItem {
+                id: rmtoolNoteEnhancementsSidebarItem
+                objectName: "rmtoolNoteEnhancementsSidebarItem"
+                type: ArkTokens.Sidebar.primary
+                text: showLabels ? "笔记增强" : ""
+                iconSource: "qrc:/ark/icons/notebook"
+                highlighted: settingsSidebar.rmtoolNoteSelectedPage() === 1002
+                focusPolicy: Qt.StrongFocus
+                Layout.fillWidth: true
+                onTriggered: {
+                    settingsSidebar.rmtoolSelectNotePage(1002)
+                    sidebarTimer.running = true
+                }
+            }
+        }
+    END TRAVERSE
+
+    TRAVERSE ?#payloadLoader
+        REBUILD sourceComponent
+            LOCATE AFTER STREAM /{/
+            INSERT STREAM /if (settingsSidebar.rmtoolNoteSelectedPage() === 1002) return rmtoolNoteEnhancements;/
+        END REBUILD
+    END TRAVERSE
+
+    TRAVERSE Item#root
+        LOCATE BEFORE Component#general
+        INSERT {
+            Component {
+                id: rmtoolNoteEnhancements
+
+                Item {
+                    id: rmtoolNotePage
+                    objectName: "rmtoolNoteEnhancementsPage"
+
+                    readonly property string group: "RmtoolNoteEnhancements"
+                    readonly property var delayChoices: [5, 10, 30]
+                    property bool masterEnabled: true
+                    property bool delayedColorRefreshEnabled: false
+                    property int delaySeconds: 10
+                    property string settlementPolicy: "idle"
+
+                    function readBool(key, fallback) {
+                        const value = Settings.rawValue(group, key)
+                        return value === undefined || value === null ? fallback : !!value
+                    }
+
+                    function normalizedDelay(value) {
+                        const number = Number(value)
+                        return delayChoices.indexOf(number) >= 0 ? number : 10
+                    }
+
+                    function normalizedPolicy(value) {
+                        return value === "page" ? "page" : "idle"
+                    }
+
+                    function readSettings() {
+                        masterEnabled = readBool("masterEnabled", true)
+                        delayedColorRefreshEnabled = readBool(
+                            "delayedColorRefreshEnabled", false)
+                        delaySeconds = normalizedDelay(
+                            Settings.rawValue(group, "delaySeconds"))
+                        settlementPolicy = normalizedPolicy(
+                            Settings.rawValue(group, "settlementPolicy"))
+                    }
+
+                    function writeBool(key, value) {
+                        Settings.setRawValue(group, key, !!value)
+                        readSettings()
+                    }
+
+                    function writeDelay(value) {
+                        Settings.setRawValue(group, "delaySeconds", normalizedDelay(value))
+                        readSettings()
+                    }
+
+                    function writePolicy(value) {
+                        Settings.setRawValue(group, "settlementPolicy", normalizedPolicy(value))
+                        readSettings()
+                    }
+
+                    function stepDelay(delta) {
+                        const index = delayChoices.indexOf(delaySeconds)
+                        const next = Math.max(
+                            0, Math.min(delayChoices.length - 1, index + delta))
+                        writeDelay(delayChoices[next])
+                    }
+
+                    Component.onCompleted: readSettings()
+
+                    ScrollArea {
+                        id: rmtoolNoteScroll
+                        anchors.fill: parent
+                        contentWidth: width
+                        contentHeight: rmtoolNoteWrapper.childrenRect.height
+                            + ArkControls.Values.platform.spacing.x2large
+                        enableScrollbar: true
+                        permanentScrollbar: true
+                        scrollbarTopMargin: rmtoolNoteHeader.y
+
+                        Item {
+                            id: rmtoolNoteWrapper
+                            implicitWidth: rmtoolNoteScroll.width
+
+                            ArkControls.PlaceholderBar {
+                                id: rmtoolNotePlaceholder
+                                width: parent.width
+                            }
+
+                            ArkControls.Title {
+                                id: rmtoolNoteHeader
+                                type: ArkControls.Title.Large
+                                anchors {
+                                    top: rmtoolNotePlaceholder.bottom
+                                    left: parent.left
+                                    leftMargin: ArkControls.Values.margin.horizontal.large
+                                    right: parent.right
+                                    rightMargin: ArkControls.Values.margin.horizontal.large
+                                }
+                                text: "笔记增强"
+                            }
+
+                            ColumnLayout {
+                                anchors {
+                                    top: rmtoolNoteHeader.bottom
+                                    topMargin: ArkControls.Values.platform.spacing.x2large
+                                    left: parent.left
+                                    leftMargin: ArkControls.Values.margin.horizontal.large
+                                    right: parent.right
+                                    rightMargin: ArkControls.Values.margin.horizontal.large
+                                }
+                                spacing: ArkControls.Values.platform.spacing.x2large
+
+                                ArkControls.Panel {
+                                    Layout.fillWidth: true
+                                    label: "启用笔记增强"
+                                    description: "关闭后恢复系统原生笔记行为，已保存的设置会保留。"
+                                    action: ArkToggleWrapper {
+                                        checked: rmtoolNotePage.masterEnabled
+                                        extendedMouseArea.onPressed: rmtoolNotePage.writeBool(
+                                            "masterEnabled", !rmtoolNotePage.masterEnabled)
+                                    }
+                                }
+
+                                ArkControls.Panel {
+                                    Layout.fillWidth: true
+                                    label: "延迟彩色刷新"
+                                    description: "减少彩色书写提笔后的频繁闪烁；最终显色会相应延后。"
+                                    enabled: rmtoolNotePage.masterEnabled
+                                    opacity: enabled ? 1 : 0.5
+                                    action: ArkToggleWrapper {
+                                        checked: rmtoolNotePage.delayedColorRefreshEnabled
+                                        extendedMouseArea.onPressed: rmtoolNotePage.writeBool(
+                                            "delayedColorRefreshEnabled",
+                                            !rmtoolNotePage.delayedColorRefreshEnabled)
+                                    }
+                                }
+
+                                ArkControls.Panel {
+                                    Layout.fillWidth: true
+                                    label: "仅翻页刷新"
+                                    description: "书写时保留临时显色，在翻页或离开笔记时完成最终渲染。"
+                                    enabled: rmtoolNotePage.masterEnabled
+                                        && rmtoolNotePage.delayedColorRefreshEnabled
+                                        && rmtoolNotePage.settlementPolicy === "page"
+                                    opacity: enabled ? 1 : 0.5
+                                    action: ArkToggleWrapper {
+                                        checked: rmtoolNotePage.settlementPolicy === "page"
+                                        extendedMouseArea.onPressed: rmtoolNotePage.writePolicy(
+                                            "idle")
+                                    }
+                                }
+
+                                ArkControls.Panel {
+                                    Layout.fillWidth: true
+                                    label: "提笔后延迟刷新"
+                                    description: "每次提笔后重新计时，停止书写达到所选时间后完成彩色渲染。"
+                                    enabled: rmtoolNotePage.masterEnabled
+                                        && rmtoolNotePage.delayedColorRefreshEnabled
+                                        && rmtoolNotePage.settlementPolicy === "idle"
+                                    opacity: enabled ? 1 : 0.5
+                                    action: ArkToggleWrapper {
+                                        checked: rmtoolNotePage.settlementPolicy === "idle"
+                                        extendedMouseArea.onPressed: rmtoolNotePage.writePolicy(
+                                            "page")
+                                    }
+                                }
+
+                                ArkControls.Panel {
+                                    id: rmtoolColorDelayPanel
+                                    Layout.fillWidth: true
+                                    label: "空闲等待时间"
+                                    description: "停止书写 %1 秒后完成彩色沉淀刷新。"
+                                        .arg(rmtoolNotePage.delaySeconds)
+                                    visible: rmtoolNotePage.masterEnabled
+                                        && rmtoolNotePage.delayedColorRefreshEnabled
+                                        && rmtoolNotePage.settlementPolicy === "idle"
+                                    enabled: rmtoolNotePage.masterEnabled
+                                        && rmtoolNotePage.delayedColorRefreshEnabled
+                                        && rmtoolNotePage.settlementPolicy === "idle"
+                                    opacity: enabled ? 1 : 0.5
+                                    showAttachment: true
+                                    attachment: RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: ArkControls.Values.spacing.medium
+
+                                        ArkControls.Button {
+                                            text: "-"
+                                            type: ArkTokens.Button.secondary
+                                            enabled: rmtoolColorDelayPanel.enabled
+                                                && rmtoolNotePage.delaySeconds > 5
+                                            onClicked: rmtoolNotePage.stepDelay(-1)
+                                        }
+
+                                        ArkControls.Button {
+                                            text: rmtoolNotePage.delaySeconds + " 秒"
+                                            type: ArkTokens.Button.secondary
+                                            enabled: rmtoolColorDelayPanel.enabled
+                                        }
+
+                                        ArkControls.Button {
+                                            text: "+"
+                                            type: ArkTokens.Button.secondary
+                                            enabled: rmtoolColorDelayPanel.enabled
+                                                && rmtoolNotePage.delaySeconds < 30
+                                            onClicked: rmtoolNotePage.stepDelay(1)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    END TRAVERSE
+END AFFECT
+
+AFFECT /qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml
+    TRAVERSE ToolbarTool#root > Component#settingsComponent > ColumnLayout#content
+        LOCATE BEFORE ALL
+        INSERT {
+            ArkControls.FoldoutToggle {
+                id: rmtoolNoteDelayToggle
+                objectName: "rmtoolNoteDelayToggle"
+                label: "延迟彩色刷新"
+                visible: (root.toolbar.rmtoolNoteDocumentView?.rmtoolNoteEnhancementsAvailable
+                    ?? false)
+                    && (root.toolbar.rmtoolNoteDocumentView?.rmtoolNoteMasterEnabled
+                        ?? false)
+                checked: root.toolbar.rmtoolNoteDocumentView
+                    ?.rmtoolNoteDocumentDelayEnabled ?? false
+                Layout.fillWidth: true
+                onClicked: {
+                    const view = root.toolbar.rmtoolNoteDocumentView
+                    view.rmtoolSetNoteDocumentDelayEnabled(
+                        !view.rmtoolNoteDocumentDelayEnabled)
+                    view.showNotification({
+                        message: view.rmtoolNoteDocumentDelayEnabled
+                            ? "本笔记已启用延迟彩色刷新"
+                            : "本笔记已关闭延迟彩色刷新"
+                    })
+                }
+            }
+
+            ArkControls.FoldoutToggle {
+                id: rmtoolNotePageOnlyToggle
+                objectName: "rmtoolNotePageOnlyToggle"
+                label: "仅翻页刷新"
+                visible: (root.toolbar.rmtoolNoteDocumentView?.rmtoolNoteEnhancementsAvailable
+                    ?? false)
+                    && (root.toolbar.rmtoolNoteDocumentView?.rmtoolNoteMasterEnabled
+                        ?? false)
+                    && (root.toolbar.rmtoolNoteDocumentView
+                        ?.rmtoolNoteDocumentDelayEnabled ?? false)
+                checked: root.toolbar.rmtoolNoteDocumentView
+                    ?.rmtoolNoteDocumentSettlementPolicy === "page"
+                enabled: checked
+                opacity: enabled ? 1 : 0.5
+                Layout.fillWidth: true
+                onPressed: {
+                    const view = root.toolbar.rmtoolNoteDocumentView
+                    view.rmtoolSetNoteDocumentSettlementPolicy("idle")
+                }
+            }
+
+            ArkControls.FoldoutToggle {
+                id: rmtoolNoteIdleToggle
+                objectName: "rmtoolNoteIdleToggle"
+                label: "提笔后延迟刷新"
+                visible: (root.toolbar.rmtoolNoteDocumentView?.rmtoolNoteEnhancementsAvailable
+                    ?? false)
+                    && (root.toolbar.rmtoolNoteDocumentView?.rmtoolNoteMasterEnabled
+                        ?? false)
+                    && (root.toolbar.rmtoolNoteDocumentView
+                        ?.rmtoolNoteDocumentDelayEnabled ?? false)
+                checked: root.toolbar.rmtoolNoteDocumentView
+                    ?.rmtoolNoteDocumentSettlementPolicy === "idle"
+                enabled: checked
+                opacity: enabled ? 1 : 0.5
+                Layout.fillWidth: true
+                onPressed: {
+                    const view = root.toolbar.rmtoolNoteDocumentView
+                    view.rmtoolSetNoteDocumentSettlementPolicy("page")
+                }
+            }
+
+            Component {
+                id: rmtoolNoteDelayOptions
+
+                ColumnLayout {
+                    spacing: 0
+
+                    ArkControls.FoldoutItem {
+                        label: "5 秒"
+                        selected: root.toolbar.rmtoolNoteDocumentView
+                            ?.rmtoolNoteDocumentDelaySeconds === 5
+                        Layout.fillWidth: true
+                        onClicked: {
+                            root.toolbar.rmtoolNoteDocumentView
+                                .rmtoolSetNoteDocumentDelaySeconds(5)
+                            stackView.popCurrentItem()
+                        }
+                    }
+
+                    ArkControls.FoldoutItem {
+                        label: "10 秒"
+                        selected: root.toolbar.rmtoolNoteDocumentView
+                            ?.rmtoolNoteDocumentDelaySeconds === 10
+                        Layout.fillWidth: true
+                        onClicked: {
+                            root.toolbar.rmtoolNoteDocumentView
+                                .rmtoolSetNoteDocumentDelaySeconds(10)
+                            stackView.popCurrentItem()
+                        }
+                    }
+
+                    ArkControls.FoldoutItem {
+                        label: "30 秒"
+                        selected: root.toolbar.rmtoolNoteDocumentView
+                            ?.rmtoolNoteDocumentDelaySeconds === 30
+                        Layout.fillWidth: true
+                        onClicked: {
+                            root.toolbar.rmtoolNoteDocumentView
+                                .rmtoolSetNoteDocumentDelaySeconds(30)
+                            stackView.popCurrentItem()
+                        }
+                    }
+                }
+            }
+
+            ArkControls.FoldoutItem {
+                id: rmtoolNoteDelaySelector
+                objectName: "rmtoolNoteDelaySelector"
+                label: "空闲等待时间"
+                description: (root.toolbar.rmtoolNoteDocumentView
+                    ?.rmtoolNoteDocumentDelaySeconds ?? 10) + " 秒"
+                visible: (root.toolbar.rmtoolNoteDocumentView?.rmtoolNoteEnhancementsAvailable
+                    ?? false)
+                    && (root.toolbar.rmtoolNoteDocumentView?.rmtoolNoteMasterEnabled
+                        ?? false)
+                    && (root.toolbar.rmtoolNoteDocumentView
+                        ?.rmtoolNoteDocumentDelayEnabled ?? false)
+                    && root.toolbar.rmtoolNoteDocumentView
+                        ?.rmtoolNoteDocumentSettlementPolicy !== "page"
+                Layout.fillWidth: true
+                onClicked: stackView.push(rmtoolNoteDelayOptions)
+            }
+        }
+    END TRAVERSE
+END AFFECT
+
+AFFECT /qml/device/view/documentview/DocumentView.qml
+    TRAVERSE FocusScope#root
+        LOCATE BEFORE ALL
+        INSERT {
+            property bool rmtoolNoteMasterEnabled: true
+            property bool rmtoolNoteDocumentDelayEnabled: false
+            property int rmtoolNoteDocumentDelaySeconds: 10
+            property string rmtoolNoteDocumentSettlementPolicy: "idle"
+            readonly property bool rmtoolNoteEnhancementsAvailable: !!document
+                && document.fileType === Document.Notebook
+            readonly property string rmtoolNoteDocumentId: document
+                && document.id !== undefined && document.id !== null
+                ? document.id.toString() : ""
+
+            onRmtoolNoteDocumentIdChanged: rmtoolReadNoteSettings()
+
+            function rmtoolNoteDocumentKey(key) {
+                if (!rmtoolNoteEnhancementsAvailable || !rmtoolNoteDocumentId) {
+                    return ""
+                }
+                return "documents/" + rmtoolNoteDocumentId + "/" + key
+            }
+
+            function rmtoolNoteReadBool(key, fallback) {
+                const value = Settings.rawValue("RmtoolNoteEnhancements", key)
+                return value === undefined || value === null ? fallback : !!value
+            }
+
+            function rmtoolNoteNormalizedDelay(value) {
+                const number = Number(value)
+                return number === 5 || number === 10 || number === 30 ? number : 10
+            }
+
+            function rmtoolNoteNormalizedPolicy(value) {
+                return value === "page" ? "page" : "idle"
+            }
+
+            function rmtoolNoteReadScopedBool(key, fallback) {
+                const scopedKey = rmtoolNoteDocumentKey(key)
+                return scopedKey ? rmtoolNoteReadBool(scopedKey, fallback) : fallback
+            }
+
+            function rmtoolNoteReadScopedDelay(key, fallback) {
+                const scopedKey = rmtoolNoteDocumentKey(key)
+                if (!scopedKey) {
+                    return rmtoolNoteNormalizedDelay(fallback)
+                }
+                const value = Settings.rawValue("RmtoolNoteEnhancements", scopedKey)
+                return value === undefined || value === null
+                    ? rmtoolNoteNormalizedDelay(fallback)
+                    : rmtoolNoteNormalizedDelay(value)
+            }
+
+            function rmtoolNoteReadScopedPolicy(key, fallback) {
+                const scopedKey = rmtoolNoteDocumentKey(key)
+                if (!scopedKey) {
+                    return rmtoolNoteNormalizedPolicy(fallback)
+                }
+                const value = Settings.rawValue("RmtoolNoteEnhancements", scopedKey)
+                return value === undefined || value === null
+                    ? rmtoolNoteNormalizedPolicy(fallback)
+                    : rmtoolNoteNormalizedPolicy(value)
+            }
+
+            function rmtoolReadNoteSettings() {
+                const globalDelayEnabled = rmtoolNoteReadBool(
+                    "delayedColorRefreshEnabled", false)
+                const globalDelaySeconds = rmtoolNoteNormalizedDelay(
+                    Settings.rawValue("RmtoolNoteEnhancements", "delaySeconds"))
+                const globalPolicy = rmtoolNoteNormalizedPolicy(
+                    Settings.rawValue("RmtoolNoteEnhancements", "settlementPolicy"))
+                rmtoolNoteMasterEnabled = rmtoolNoteReadBool("masterEnabled", true)
+                rmtoolNoteDocumentDelayEnabled = rmtoolNoteReadScopedBool(
+                    "delayedColorRefreshEnabled", globalDelayEnabled)
+                rmtoolNoteDocumentDelaySeconds = rmtoolNoteReadScopedDelay(
+                    "delaySeconds", globalDelaySeconds)
+                rmtoolNoteDocumentSettlementPolicy = rmtoolNoteReadScopedPolicy(
+                    "settlementPolicy", globalPolicy)
+            }
+
+            function rmtoolNoteWriteDocumentValue(key, value) {
+                const scopedKey = rmtoolNoteDocumentKey(key)
+                if (!scopedKey) {
+                    return
+                }
+                Settings.setRawValue("RmtoolNoteEnhancements", scopedKey, value)
+                rmtoolReadNoteSettings()
+                sceneView?.rmtoolNoteSettingsChanged()
+            }
+
+            function rmtoolSetNoteDocumentDelayEnabled(value) {
+                rmtoolNoteWriteDocumentValue("delayedColorRefreshEnabled", !!value)
+            }
+
+            function rmtoolSetNoteDocumentDelaySeconds(value) {
+                rmtoolNoteWriteDocumentValue(
+                    "delaySeconds", rmtoolNoteNormalizedDelay(value))
+            }
+
+            function rmtoolSetNoteDocumentSettlementPolicy(value) {
+                rmtoolNoteWriteDocumentValue(
+                    "settlementPolicy", rmtoolNoteNormalizedPolicy(value))
+            }
+
+            Connections {
+                target: root
+                Component.onCompleted: root.rmtoolReadNoteSettings()
+
+                function onVisibleChanged() {
+                    if (root.visible) {
+                        root.rmtoolReadNoteSettings()
+                    }
+                }
+            }
+        }
+    END TRAVERSE
+
+    TRAVERSE FocusScope#root
+        REBUILD onInSuspendChanged
+            LOCATE AFTER STREAM /{/
+            INSERT {
+                if (inSuspend) {
+                    sceneView?.rmtoolSettlePendingColor()
+                }
+            }
+        END REBUILD
+    END TRAVERSE
+
+    TRAVERSE FocusScope#root > Item#_uiContainer > Toolbar#toolbar
+        LOCATE BEFORE ALL
+        INSERT {
+            property var rmtoolNoteDocumentView: root
+        }
+    END TRAVERSE
+END AFFECT
+
+AFFECT /qml/device/view/documentview/DeviceSceneView.qml
+    TRAVERSE FocusScope#root
+        LOCATE BEFORE ALL
+        INSERT {
+            function rmtoolSettlePendingColor() {
+                viewportUpdateTimer.rmtoolSettlePending()
+            }
+
+            function rmtoolNoteSettingsChanged() {
+                viewportUpdateTimer.rmtoolNoteSettingsChanged()
+            }
+        }
+
+        REBUILD close
+            LOCATE BEFORE ALL
+            INSERT {
+                viewportUpdateTimer.rmtoolSettlePending()
+            }
+        END REBUILD
+
+        REBUILD goToPageId
+            LOCATE BEFORE ALL
+            INSERT {
+                viewportUpdateTimer.rmtoolSettlePending()
+            }
+        END REBUILD
+    END TRAVERSE
+
+    TRAVERSE ?#viewportUpdateTimer
+        LOCATE BEFORE ALL
+        INSERT {
+            property rect rmtoolPendingDirtyRect: Qt.rect(0, 0, 0, 0)
+            property bool rmtoolHasPendingDirty: false
+            property bool rmtoolAwaitingStockFinalize: false
+
+            function rmtoolNoteDocumentKey(key) {
+                if (!root.document || root.document.fileType !== Document.Notebook
+                    || root.document.id === undefined || root.document.id === null) {
+                    return ""
+                }
+                return "documents/" + root.document.id.toString() + "/" + key
+            }
+
+            function rmtoolNoteNormalizedDelay(value) {
+                const number = Number(value)
+                return number === 5 || number === 10 || number === 30 ? number : 10
+            }
+
+            function rmtoolNoteNormalizedPolicy(value) {
+                return value === "page" ? "page" : "idle"
+            }
+
+            function rmtoolNoteFeatureEnabled() {
+                const group = "RmtoolNoteEnhancements"
+                const master = Settings.rawValue(group, "masterEnabled")
+                const globalFeature = Settings.rawValue(
+                    group, "delayedColorRefreshEnabled")
+                const featureKey = rmtoolNoteDocumentKey("delayedColorRefreshEnabled")
+                if (!featureKey) {
+                    return false
+                }
+                const documentFeature = featureKey
+                    ? Settings.rawValue(group, featureKey) : undefined
+                const feature = documentFeature === undefined || documentFeature === null
+                    ? globalFeature === true : !!documentFeature
+                return master !== false && feature
+            }
+
+            function rmtoolNoteCanDeferStroke() {
+                return rmtoolNoteFeatureEnabled()
+                    && documentViewTools.isWritingTool(documentViewTools.activePen.tool)
+            }
+
+            function rmtoolNoteSettlementPolicy() {
+                const group = "RmtoolNoteEnhancements"
+                const globalPolicy = rmtoolNoteNormalizedPolicy(
+                    Settings.rawValue(group, "settlementPolicy"))
+                const policyKey = rmtoolNoteDocumentKey("settlementPolicy")
+                const documentPolicy = policyKey
+                    ? Settings.rawValue(group, policyKey) : undefined
+                return documentPolicy === undefined || documentPolicy === null
+                    ? globalPolicy : rmtoolNoteNormalizedPolicy(documentPolicy)
+            }
+
+            function rmtoolNoteRefreshInterval() {
+                if (!rmtoolNoteFeatureEnabled()) {
+                    return 1000
+                }
+                const group = "RmtoolNoteEnhancements"
+                const globalSeconds = rmtoolNoteNormalizedDelay(
+                    Settings.rawValue(group, "delaySeconds"))
+                const delayKey = rmtoolNoteDocumentKey("delaySeconds")
+                const documentSeconds = delayKey
+                    ? Settings.rawValue(group, delayKey) : undefined
+                const seconds = documentSeconds === undefined || documentSeconds === null
+                    ? globalSeconds : rmtoolNoteNormalizedDelay(documentSeconds)
+                return seconds * 1000 - 1000
+            }
+
+            function rmtoolQueueDirty(dirtyRect) {
+                if (!rmtoolHasPendingDirty) {
+                    rmtoolPendingDirtyRect = dirtyRect
+                    rmtoolHasPendingDirty = true
+                    return
+                }
+                const x = Math.min(rmtoolPendingDirtyRect.x, dirtyRect.x)
+                const y = Math.min(rmtoolPendingDirtyRect.y, dirtyRect.y)
+                const right = Math.max(
+                    rmtoolPendingDirtyRect.x + rmtoolPendingDirtyRect.width,
+                    dirtyRect.x + dirtyRect.width)
+                const bottom = Math.max(
+                    rmtoolPendingDirtyRect.y + rmtoolPendingDirtyRect.height,
+                    dirtyRect.y + dirtyRect.height)
+                rmtoolPendingDirtyRect = Qt.rect(x, y, right - x, bottom - y)
+            }
+
+            function rmtoolSettlePending() {
+                if (!rmtoolHasPendingDirty && !rmtoolAwaitingStockFinalize) {
+                    return
+                }
+                viewportUpdateTimer.stop()
+                if (rmtoolHasPendingDirty) {
+                    root.viewport?.markDirty(rmtoolPendingDirtyRect)
+                }
+                rmtoolHasPendingDirty = false
+                rmtoolPendingDirtyRect = Qt.rect(0, 0, 0, 0)
+                rmtoolAwaitingStockFinalize = false
+                inputSurface.clearFramebuffer()
+                root.viewport?.requestRepaintDirty()
+            }
+
+            function rmtoolSubmitPending() {
+                if (!rmtoolHasPendingDirty) {
+                    return false
+                }
+                root.viewport?.markDirty(rmtoolPendingDirtyRect)
+                rmtoolHasPendingDirty = false
+                rmtoolPendingDirtyRect = Qt.rect(0, 0, 0, 0)
+                rmtoolAwaitingStockFinalize = true
+                return true
+            }
+
+            function rmtoolNoteSettingsChanged() {
+                if (!rmtoolNoteFeatureEnabled()) {
+                    viewportUpdateTimer.interval = 1000
+                    if (rmtoolSubmitPending()) {
+                        viewportUpdateTimer.restart()
+                    }
+                    return
+                }
+                if (!rmtoolHasPendingDirty) {
+                    return
+                }
+                if (rmtoolNoteSettlementPolicy() === "page") {
+                    if (rmtoolAwaitingStockFinalize) {
+                        viewportUpdateTimer.interval = 1000
+                        viewportUpdateTimer.restart()
+                    } else {
+                        viewportUpdateTimer.stop()
+                    }
+                } else {
+                    viewportUpdateTimer.interval = rmtoolNoteRefreshInterval()
+                    viewportUpdateTimer.restart()
+                }
+            }
+        }
+
+        REPLACE interval WITH {
+            interval: 1000
+        }
+
+        REBUILD markDirtyAndRestart
+            LOCATE BEFORE ALL
+            INSERT {
+                if (viewportUpdateTimer.rmtoolNoteCanDeferStroke()) {
+                    viewportUpdateTimer.rmtoolQueueDirty(dirtyRect)
+                    if (viewportUpdateTimer.rmtoolNoteSettlementPolicy() === "page") {
+                        viewportUpdateTimer.stop()
+                    } else {
+                        viewportUpdateTimer.interval = viewportUpdateTimer
+                            .rmtoolNoteRefreshInterval()
+                        viewportUpdateTimer.restart()
+                    }
+                    return
+                } else {
+                    viewportUpdateTimer.interval = 1000
+                    viewportUpdateTimer.rmtoolSubmitPending()
+                }
+            }
+        END REBUILD
+
+        REBUILD onTriggered
+            LOCATE AFTER STREAM /{/
+            INSERT {
+                if (viewportUpdateTimer.rmtoolAwaitingStockFinalize
+                    && (viewportUpdateTimer.rmtoolNoteSettlementPolicy() === "page"
+                        || !viewportUpdateTimer.rmtoolHasPendingDirty)) {
+                    if (strokeHandler.timeSincePenUp() >= 100) {
+                        viewportUpdateTimer.rmtoolAwaitingStockFinalize = false
+                    }
+                } else if (viewportUpdateTimer.rmtoolHasPendingDirty) {
+                    if (viewportUpdateTimer.rmtoolNoteSettlementPolicy() === "page") {
+                        viewportUpdateTimer.stop()
+                        return
+                    }
+                    if (strokeHandler.timeSincePenUp() < 100) {
+                        viewportUpdateTimer.restart()
+                        return
+                    }
+                    if (viewportUpdateTimer.rmtoolSubmitPending()) {
+                        viewportUpdateTimer.interval = 1000
+                        viewportUpdateTimer.restart()
+                    }
+                    return
+                }
+            }
+        END REBUILD
+    END TRAVERSE
+END AFFECT

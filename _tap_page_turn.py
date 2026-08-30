@@ -729,6 +729,18 @@ def _trusted_shared_context(identity: DeviceIdentity):
     except ImportError:
         pass
     try:
+        import _note_enhancements as note
+
+        peer = note.select_package(note._trusted_catalog(), identity)
+        if peer is not None:
+            peer_runtime, peer_feature = note._shared_specs(peer)
+            if runtime is not None and peer_runtime != runtime:
+                raise RuntimeError("点击翻页与笔记增强的内置运行资源不一致。")
+            runtime = runtime or peer_runtime
+            trusted[peer_feature.feature_id] = peer_feature
+    except ImportError:
+        pass
+    try:
         import _appload as appload
 
         peer_runtime, peer_features = appload.trusted_specs(identity)

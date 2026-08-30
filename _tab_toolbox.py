@@ -15,6 +15,7 @@ import _package_download
 import _rmkit_cn
 import _legacy_vellum
 import _native_chinese
+import _note_enhancements
 import _pinyin_input
 import _reading_enhancements
 import _residue_migration
@@ -106,6 +107,27 @@ def _install_reading_enhancements(
 def _cleanup_reading_enhancements(ssh_client, state_dir: str):
     catalog = _reading_enhancements.load_catalog(state_dir, refresh=True)
     return _reading_enhancements.cleanup_legacy(ssh_client, catalog)
+
+
+def _note_enhancements_status(ssh_client, state_dir: str):
+    catalog = _note_enhancements.load_catalog(state_dir, refresh=True)
+    return _note_enhancements.get_status(ssh_client, catalog)
+
+
+def _install_note_enhancements(
+    ssh_client,
+    package,
+    state_dir: str,
+    migrate: bool,
+):
+    archive = _note_enhancements.download_package(package, state_dir)
+    operation = _note_enhancements.migrate if migrate else _note_enhancements.install
+    return operation(ssh_client, package, archive)
+
+
+def _cleanup_note_enhancements(ssh_client, state_dir: str):
+    catalog = _note_enhancements.load_catalog(state_dir, refresh=True)
+    return _note_enhancements.cleanup_legacy(ssh_client, catalog)
 
 
 def select_font_file(parent: QtWidgets.QWidget) -> Optional[str]:
@@ -2308,23 +2330,47 @@ class PinyinInputSection(QtWidgets.QWidget):
 class ReadingEnhancementsSection(QtWidgets.QWidget):
     """Combined browser entry for the native reading-enhancement package."""
 
-    def __init__(self, ssh_client: SSHClientWrapper, parent=None):
+    def __init__(
+        self,
+        ssh_client: SSHClientWrapper,
+        parent=None,
+        *,
+        backend=_reading_enhancements,
+        state_type=_reading_enhancements.ReadingEnhancementsState,
+        status_loader=_reading_enhancements_status,
+        installer=_install_reading_enhancements,
+        cleaner=_cleanup_reading_enhancements,
+        feature_name="阅读增强",
+        description=(
+            "为 PDF 和 EPUB 阅读提供点击翻页、快速黑白阅读和翻页清残影。"
+            "日常开关由设备的“设置 > 阅读增强”页面控制。"
+        ),
+        explanation=(
+            "阅读增强只作用于 PDF 和 EPUB 阅读页，包含点击翻页、快速黑白阅读和翻页清残影。"
+            "安装或迁移完成后请手动重启设备，再到“设置 > 阅读增强”开启需要的开关。"
+            "快速黑白阅读每次重启后默认关闭。"
+        ),
+    ):
         super().__init__(parent)
         self.ssh_client = ssh_client
+        self.backend = backend
+        self.state_type = state_type
+        self.status_loader = status_loader
+        self.installer = installer
+        self.cleaner = cleaner
+        self.feature_name = feature_name
+        self.explanation = explanation
         self.thread_pool = QtCore.QThreadPool.globalInstance()
-        self._status: Optional[_reading_enhancements.ReadingEnhancementsStatus] = None
+        self._status = None
         self._busy = False
         self._other_packages_count = 0
 
-        title = QtWidgets.QLabel("阅读增强")
+        title = QtWidgets.QLabel(feature_name)
         title.setObjectName("toolboxFeatureTitle")
-        detail = QtWidgets.QLabel(
-            "为 PDF 和 EPUB 阅读提供点击翻页、快速黑白阅读和翻页清残影。"
-            "日常开关由设备的“设置 > 阅读增强”页面控制。"
-        )
+        detail = QtWidgets.QLabel(description)
         detail.setWordWrap(True)
 
-        self.catalog_label = QtWidgets.QLabel("当前固件阅读增强包：检测后显示")
+        self.catalog_label = QtWidgets.QLabel(f"当前固件{feature_name}包：检测后显示")
         self.catalog_label.setObjectName("readingEnhancementsCatalog")
         self.catalog_label.setWordWrap(True)
         self.catalog_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
@@ -2350,7 +2396,7 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         self.status_label.setWordWrap(True)
 
         self.detect_button = QtWidgets.QPushButton("检测状态")
-        self.install_button = QtWidgets.QPushButton("安装阅读增强")
+        self.install_button = QtWidgets.QPushButton(f"安装{feature_name}")
         self.install_button.setProperty("btnRole", "primary")
         self.disable_button = QtWidgets.QPushButton("停用")
         self.cleanup_legacy_button = QtWidgets.QPushButton("清理旧版")
@@ -2403,7 +2449,9 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
     def _on_connection_changed(self, connected: bool):
         if not connected:
             self._status = None
-            self.catalog_label.setText("当前固件阅读增强包：检测后显示")
+            self.catalog_label.setText(
+                f"当前固件{self.feature_name}包：检测后显示"
+            )
             self.other_packages_button.setChecked(False)
             self._other_packages_count = 0
             self.other_packages_button.setText("其他固件版本")
@@ -2428,19 +2476,20 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         connected = self.ssh_client.is_connected() and not self._busy
         state = self._status.state if self._status else None
         install_states = (
-            _reading_enhancements.ReadingEnhancementsState.NOT_INSTALLED,
-            _reading_enhancements.ReadingEnhancementsState.INSTALLED_DISABLED,
-            _reading_enhancements.ReadingEnhancementsState.MIGRATION_AVAILABLE,
-            _reading_enhancements.ReadingEnhancementsState.REPAIR_AVAILABLE,
+            self.state_type.NOT_INSTALLED,
+            self.state_type.INSTALLED_DISABLED,
+            self.state_type.MIGRATION_AVAILABLE,
+            self.state_type.REPAIR_AVAILABLE,
         )
-        if state is _reading_enhancements.ReadingEnhancementsState.MIGRATION_AVAILABLE:
-            self.install_button.setText("迁移到阅读增强")
-        elif state is _reading_enhancements.ReadingEnhancementsState.REPAIR_AVAILABLE:
+        states = self.state_type
+        if state is states.MIGRATION_AVAILABLE:
+            self.install_button.setText(f"迁移到{self.feature_name}")
+        elif state is states.REPAIR_AVAILABLE:
             self.install_button.setText("修复并更新")
-        elif state is _reading_enhancements.ReadingEnhancementsState.INSTALLED_DISABLED:
+        elif state is states.INSTALLED_DISABLED:
             self.install_button.setText("重新启用")
         else:
-            self.install_button.setText("安装阅读增强")
+            self.install_button.setText(f"安装{self.feature_name}")
         self.detect_button.setEnabled(connected)
         self.install_button.setEnabled(
             connected
@@ -2454,11 +2503,11 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             and self._status.recovery_available
             and state
             not in (
-                _reading_enhancements.ReadingEnhancementsState.NOT_INSTALLED,
-                _reading_enhancements.ReadingEnhancementsState.INCOMPATIBLE,
-                _reading_enhancements.ReadingEnhancementsState.MIGRATION_AVAILABLE,
-                _reading_enhancements.ReadingEnhancementsState.INSTALLED_DISABLED,
-                _reading_enhancements.ReadingEnhancementsState.BROKEN,
+                states.NOT_INSTALLED,
+                states.INCOMPATIBLE,
+                states.MIGRATION_AVAILABLE,
+                states.INSTALLED_DISABLED,
+                states.BROKEN,
             )
         )
         self.cleanup_legacy_button.setEnabled(
@@ -2467,8 +2516,8 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             and self._status.cleanup_available
             and state
             in (
-                _reading_enhancements.ReadingEnhancementsState.MIGRATION_AVAILABLE,
-                _reading_enhancements.ReadingEnhancementsState.REPAIR_AVAILABLE,
+                states.MIGRATION_AVAILABLE,
+                states.REPAIR_AVAILABLE,
             )
         )
         self.explain_button.setEnabled(True)
@@ -2476,10 +2525,13 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
     def _apply_status(self, status):
         self._status = status
         if status.package is None:
-            self.catalog_label.setText("当前固件阅读增强包：没有精确匹配版本")
+            self.catalog_label.setText(
+                f"当前固件{self.feature_name}包：没有精确匹配版本"
+            )
         else:
             self.catalog_label.setText(
-                "当前固件阅读增强包：\n" + self._package_display_text(status.package)
+                f"当前固件{self.feature_name}包：\n"
+                + self._package_display_text(status.package)
             )
 
         other_packages = tuple(
@@ -2504,25 +2556,17 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             self.other_packages_button.hide()
         self.other_packages_label.hide()
 
+        states = type(status.state)
         messages = {
-            _reading_enhancements.ReadingEnhancementsState.INCOMPATIBLE:
-                "当前设备没有精确匹配的阅读增强包",
-            _reading_enhancements.ReadingEnhancementsState.NOT_INSTALLED:
-                "尚未安装阅读增强",
-            _reading_enhancements.ReadingEnhancementsState.MIGRATION_AVAILABLE:
-                "检测到旧版阅读功能，可迁移",
-            _reading_enhancements.ReadingEnhancementsState.REPAIR_AVAILABLE:
-                "检测到已知缺陷版本，可安全修复",
-            _reading_enhancements.ReadingEnhancementsState.INSTALLED_DISABLED:
-                "阅读增强已安装，当前未启用",
-            _reading_enhancements.ReadingEnhancementsState.ENABLE_PENDING_REBOOT:
-                "阅读增强已部署，等待手动重启后生效",
-            _reading_enhancements.ReadingEnhancementsState.ENABLED:
-                "阅读增强已启用",
-            _reading_enhancements.ReadingEnhancementsState.DISABLE_PENDING_REBOOT:
-                "阅读增强已停用，等待手动重启后完成",
-            _reading_enhancements.ReadingEnhancementsState.BROKEN:
-                "检测到不完整或不可验证的阅读增强状态",
+            states.INCOMPATIBLE: f"当前设备没有精确匹配的{self.feature_name}包",
+            states.NOT_INSTALLED: f"尚未安装{self.feature_name}",
+            states.MIGRATION_AVAILABLE: f"检测到旧版{self.feature_name}，可迁移",
+            states.REPAIR_AVAILABLE: "检测到已知缺陷版本，可安全修复",
+            states.INSTALLED_DISABLED: f"{self.feature_name}已安装，当前未启用",
+            states.ENABLE_PENDING_REBOOT: f"{self.feature_name}已部署，等待手动重启后生效",
+            states.ENABLED: f"{self.feature_name}已启用",
+            states.DISABLE_PENDING_REBOOT: f"{self.feature_name}已停用，等待手动重启后完成",
+            states.BROKEN: f"检测到不完整或不可验证的{self.feature_name}状态",
         }
         message = messages[status.state]
         if status.detail:
@@ -2567,12 +2611,18 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             if sip.isdeleted(self):
                 if close_connection:
                     self.ssh_client.close()
-                logging.error("Reading-enhancements operation failed after tab close: %s", exc)
+                logging.error(
+                    "%s operation failed after tab close: %s",
+                    self.backend.FEATURE_ID,
+                    exc,
+                )
                 return
             if isinstance(exc, _package_download.PackageDownloadError):
                 # Download failed before any device change; keep the session.
                 self._set_busy(False, "资源包下载失败，可手动加载后重试")
-                logging.error("Reading-enhancements package download failed: %s", exc)
+                logging.error(
+                    "%s package download failed: %s", self.backend.FEATURE_ID, exc
+                )
                 if show_errors:
                     _show_package_download_error(self, exc, retry=self._install)
                 if on_done is not None:
@@ -2581,7 +2631,7 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             if close_connection:
                 self.ssh_client.close()
             self._set_busy(False, "操作失败，设备不会被自动重启；请检查日志后重试")
-            logging.error("Reading-enhancements operation failed: %s", exc)
+            logging.error("%s operation failed: %s", self.backend.FEATURE_ID, exc)
             if show_errors:
                 show_error(
                     self,
@@ -2601,10 +2651,10 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
 
     def _start_status_detection(self, *, on_done=None, show_errors: bool = True):
         self._start_worker(
-            _reading_enhancements_status,
+            self.status_loader,
             self.ssh_client,
             str(_rmtool.app_state_dir()),
-            pending="正在获取清单并核对阅读增强包与设备状态…",
+            pending=f"正在获取清单并核对{self.feature_name}包与设备状态…",
             on_done=on_done,
             show_errors=show_errors,
         )
@@ -2613,52 +2663,53 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
     def _install(self):
         if not self._status or not self._status.package:
             return
-        migration = self._status.state is _reading_enhancements.ReadingEnhancementsState.MIGRATION_AVAILABLE
-        repair = self._status.state is _reading_enhancements.ReadingEnhancementsState.REPAIR_AVAILABLE
+        migration = self._status.state is self.state_type.MIGRATION_AVAILABLE
+        repair = self._status.state is self.state_type.REPAIR_AVAILABLE
         action = (
-            "迁移已验证的旧版点击翻页/快速黑白功能"
+            f"迁移已验证的旧版{self.feature_name}"
             if migration
-            else "修复并更新已验证的阅读增强"
+            else f"修复并更新已验证的{self.feature_name}"
             if repair
-            else "安装当前固件对应的阅读增强"
+            else f"安装当前固件对应的{self.feature_name}"
         )
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
             f"将{action}，完成后 SSH 会话会关闭。"
-            "本次不会自动重启设备；请手动重启后，在“设置 > 阅读增强”中重新开启需要的开关。"
+            f"本次不会自动重启设备；请手动重启后，在“设置 > {self.feature_name}”中"
+            "重新开启需要的开关。"
             "迁移不会沿用旧版开关状态。是否继续？",
             confirm_text=(
-                "迁移到阅读增强"
+                f"迁移到{self.feature_name}"
                 if migration
                 else "修复并更新"
                 if repair
-                else "安装阅读增强"
+                else f"安装{self.feature_name}"
             ),
             cancel_text="取消",
         ):
             return
         self._start_worker(
-            _install_reading_enhancements,
+            self.installer,
             self.ssh_client,
             self._status.package,
             str(_rmtool.app_state_dir()),
             migration,
             pending=(
-                "正在验证旧版并迁移到阅读增强…"
+                f"正在验证旧版并迁移到{self.feature_name}…"
                 if migration
                 else "正在校验并原子替换缺陷包…"
                 if repair
-                else "正在下载、校验并部署阅读增强…"
+                else f"正在下载、校验并部署{self.feature_name}…"
             ),
             success=(
-                "阅读增强已迁移并通过校验，SSH 会话已关闭。\n"
+                f"{self.feature_name}已迁移并通过校验，SSH 会话已关闭。\n"
                 if migration
-                else "阅读增强已修复并通过校验，SSH 会话已关闭。\n"
+                else f"{self.feature_name}已修复并通过校验，SSH 会话已关闭。\n"
                 if repair
-                else "阅读增强已部署并通过校验，SSH 会话已关闭。\n"
+                else f"{self.feature_name}已部署并通过校验，SSH 会话已关闭。\n"
             )
-            + "请手动重启设备，然后在“设置 > 阅读增强”中开启需要的开关。",
+            + f"请手动重启设备，然后在“设置 > {self.feature_name}”中开启需要的开关。",
             close_connection=True,
         )
 
@@ -2669,18 +2720,18 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
-            "将停用阅读增强并保留其他已验证的 rmtool 功能。"
+            f"将停用{self.feature_name}并保留其他已验证的 rmtool 功能。"
             "本次不会自动重启设备，完成后请手动重启使修改生效。是否继续？",
-            confirm_text="停用阅读增强",
+            confirm_text=f"停用{self.feature_name}",
             cancel_text="取消",
         ):
             return
         self._start_worker(
-            _reading_enhancements.disable,
+            self.backend.disable,
             self.ssh_client,
             self._status.available_packages,
-            pending="正在安全停用阅读增强并保留其他功能…",
-            success="阅读增强已停用，SSH 会话已关闭。\n请手动重启设备使修改生效。",
+            pending=f"正在安全停用{self.feature_name}并保留其他功能…",
+            success=f"{self.feature_name}已停用，SSH 会话已关闭。\n请手动重启设备使修改生效。",
             close_connection=True,
         )
 
@@ -2690,14 +2741,14 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             return
         state = self._status.state
         if state not in (
-            _reading_enhancements.ReadingEnhancementsState.MIGRATION_AVAILABLE,
-            _reading_enhancements.ReadingEnhancementsState.REPAIR_AVAILABLE,
+            self.state_type.MIGRATION_AVAILABLE,
+            self.state_type.REPAIR_AVAILABLE,
         ):
             return
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
-            "将清理已逐文件验证的旧版阅读插件，并保留其他已验证的 rmtool 功能。"
+            f"将清理已逐文件验证的旧版{self.feature_name}，并保留其他已验证的 rmtool 功能。"
             "清理完成后 SSH 会话会关闭；请重新连接设备，再进行全新安装。"
             "本次不会自动重启设备。是否继续？",
             confirm_text="清理旧版",
@@ -2705,13 +2756,13 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         ):
             return
         self._start_worker(
-            _cleanup_reading_enhancements,
+            self.cleaner,
             self.ssh_client,
             str(_rmtool.app_state_dir()),
-            pending="正在再次验证并原子清理旧版阅读插件…",
+            pending=f"正在再次验证并原子清理旧版{self.feature_name}…",
             success=(
-                "已清理旧版阅读插件，SSH 会话已关闭。\n"
-                "请重新连接设备后，再进行全新安装当前固件对应的阅读增强。"
+                f"已清理旧版{self.feature_name}，SSH 会话已关闭。\n"
+                f"请重新连接设备后，再进行全新安装当前固件对应的{self.feature_name}。"
             ),
             close_connection=True,
         )
@@ -2719,10 +2770,34 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
     def _show_explanation(self):
         show_info(
             self,
-            "阅读增强",
-            "阅读增强只作用于 PDF 和 EPUB 阅读页，包含点击翻页、快速黑白阅读和翻页清残影。"
-            "安装或迁移完成后请手动重启设备，再到“设置 > 阅读增强”开启需要的开关。"
-            "快速黑白阅读每次重启后默认关闭。",
+            self.feature_name,
+            self.explanation,
+        )
+
+
+class NoteEnhancementsSection(ReadingEnhancementsSection):
+    """Independent browser entry for color-device note enhancements."""
+
+    def __init__(self, ssh_client: SSHClientWrapper, parent=None):
+        super().__init__(
+            ssh_client,
+            parent,
+            backend=_note_enhancements,
+            state_type=_note_enhancements.NoteEnhancementsState,
+            status_loader=_note_enhancements_status,
+            installer=_install_note_enhancements,
+            cleaner=_cleanup_note_enhancements,
+            feature_name="笔记增强",
+            description=(
+                "为 Paper Pro 和 Move 的彩色笔记提供延迟刷新控制，减少提笔后的频繁闪烁。"
+                "设备设置提供全局默认，每本笔记也可单独调整。"
+            ),
+            explanation=(
+                "笔记增强提供延迟彩色刷新：可选择停止书写 5、10 或 30 秒后完成"
+                "彩色沉淀刷新。“设置 > 笔记增强”保存全局授权和默认值；"
+                "每本笔记的设置菜单可单独覆盖开关和等待时间。关闭总开关或功能开关"
+                "会恢复系统原生 1 秒刷新；安装完成后需手动重启设备。"
+            ),
         )
 
 
@@ -3701,6 +3776,7 @@ class ToolboxTab(QtWidgets.QWidget):
         self.native_chinese_section = NativeChineseSection(ssh_client)
         self.pinyin_input_section = PinyinInputSection(ssh_client)
         self.reading_enhancements_section = ReadingEnhancementsSection(ssh_client)
+        self.note_enhancements_section = NoteEnhancementsSection(ssh_client)
         self.tap_page_turn_section = TapPageTurnSection(ssh_client)
         self.diagnostics_section = DiagnosticsSection(ssh_client)
         self.legacy_plugin_section = LegacyPluginMigrationSection(ssh_client)
@@ -3708,6 +3784,7 @@ class ToolboxTab(QtWidgets.QWidget):
             self.native_chinese_section,
             self.pinyin_input_section,
             self.reading_enhancements_section,
+            self.note_enhancements_section,
             self.tap_page_turn_section,
         )
         self._device_identity = None
@@ -3737,6 +3814,13 @@ class ToolboxTab(QtWidgets.QWidget):
                 "keywords": "阅读 点击翻页 手势 黑白 刷新 残影 PDF EPUB",
                 "section": self.reading_enhancements_section,
                 "status": self.reading_enhancements_section.status_label,
+            },
+            {
+                "title": "笔记增强",
+                "category": "笔记增强",
+                "keywords": "笔记 书写 彩色 提笔 刷新 闪烁 延迟 Paper Pro Move",
+                "section": self.note_enhancements_section,
+                "status": self.note_enhancements_section.status_label,
             },
             {
                 "title": "点击翻页（RM1/RM2/Paper Pure）",
@@ -3784,7 +3868,9 @@ class ToolboxTab(QtWidgets.QWidget):
 
         self.category_combo = QtWidgets.QComboBox()
         self.category_combo.setObjectName("toolboxCategoryFilter")
-        self.category_combo.addItems(("全部分类", "中文与输入", "阅读增强", "设备维护"))
+        self.category_combo.addItems(
+            ("全部分类", "中文与输入", "阅读增强", "笔记增强", "设备维护")
+        )
 
         self.detect_all_button = QtWidgets.QPushButton("检测全部插件")
         self.detect_all_button.setObjectName("toolboxDetectAllButton")
@@ -3958,6 +4044,8 @@ class ToolboxTab(QtWidgets.QWidget):
         text = text.strip()
         if any(word in text for word in ("失败", "不完整", "被修改", "需要修复", "残留")):
             return "需处理"
+        if any(word in text for word in ("可安全更新", "可安全修复", "修复并更新")):
+            return "可更新"
         if "可迁移" in text:
             return "可迁移"
         if any(word in text for word in ("不兼容", "没有精确匹配", "当前设备没有")):

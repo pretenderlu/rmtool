@@ -222,6 +222,8 @@ def _compile_and_validate(*, qmd_tool: Path, qmldiff: Path, source: Path, target
                 "rmtoolTapPageTurnToggle",
                 "rmtoolFastMonoToggle",
                 "rmtoolCleanupSelector",
+                'label: "强制刷新"',
+                'label: "刷新页数"',
             ),
         ),
         (
@@ -237,6 +239,14 @@ def _compile_and_validate(*, qmd_tool: Path, qmldiff: Path, source: Path, target
         for marker in markers:
             if marker not in text:
                 raise RuntimeError(f"structure assertion {target['id']} missing {marker}")
+    if menu.index('label: "强制刷新"') > menu.index('label: "刷新页数"'):
+        raise RuntimeError(
+            f"structure assertion {target['id']} changed the cleanup menu hierarchy"
+        )
+    if "└" in menu:
+        raise RuntimeError(
+            f"structure assertion {target['id']} retained the temporary tree glyph"
+        )
     if not re.search(
         r"function\s+rmtoolOpenTableOfContents\(\)\s*\{\s*"
         r"openOverview\(\)\s*toolbar\.selectLastTool\(\)\s*"

@@ -101,6 +101,153 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 package.download_urls[1], f"{reading.COS_URL}/{package.asset}"
             )
 
+    def test_only_tagged_package_revisions_are_trusted(self):
+        self.assertEqual(
+            reading._PUBLISHED_REVISION_QMDS,
+            {
+                1: {
+                    "3.27": (
+                        "7c3a384e1cd4f2be7b94aadce82b30c31ca81a49ed482a300e63bf83fce67fe7",
+                        28715,
+                    ),
+                    "3.28": (
+                        "e6d6ef9260c4bc6cfffc375d4485e3ec33eea36fd6725790c7e2483da16c74ec",
+                        27761,
+                    ),
+                },
+                3: {
+                    "3.27": (
+                        "622c17f90cb6f08552ac3ce412a37fc56c8f24fc4a52bb1fa0cdfb5057fb6532",
+                        47548,
+                    ),
+                    "3.28": (
+                        "10ef980eb3bc66cf94087ab096e660a5d3519fad1b383513ca7ed0db09f48a7a",
+                        46594,
+                    ),
+                },
+                4: {
+                    "3.27": (
+                        "d8b2a21d75eb4f1c26e67446a6519360aa2d690c7ae91f83c744c83152ba9e28",
+                        48148,
+                    ),
+                    "3.28": (
+                        "aadec3d2ec54c408a8f64c8f046bd5973ead1ba6e7e4a3c91cb38404d174b164",
+                        47194,
+                    ),
+                },
+                6: {
+                    "3.27": (
+                        "e526a2e8a7a3ac6199abc6cef591b6f77df0c52f2e6d73774b1a313e5b2b6ef4",
+                        48147,
+                    ),
+                    "3.28": (
+                        "1cecbf4e386f46d57ecf3ac9af1a7fd2ac208b7461cc730113dc744ef25d6f7f",
+                        54042,
+                    ),
+                },
+                7: {
+                    "3.27": (
+                        "59501fe8bacbf8ca0f9716262b43fecd154c33c7dc1982f1b56e9761562d3803",
+                        51289,
+                    ),
+                    "3.28.0.162": (
+                        "36b809ab3b29f64d76a976c3b6321324b36ccb036c453e7eecf4cf0c18efd566",
+                        57184,
+                    ),
+                    "3.28": (
+                        "65d36fa86f1db0378e2c729553089d71b7655cbda39608a612f366e170de3611",
+                        57224,
+                    ),
+                },
+            },
+        )
+        self.assertEqual(
+            reading._PUBLISHED_PREDECESSOR_REASONS,
+            {
+                "package-revision-1",
+                "package-revision-3",
+                "package-revision-4",
+                "package-revision-6",
+                "package-revision-7",
+            },
+        )
+        for package in self.catalog:
+            _runtime, current = reading._shared_specs(package)
+            self.assertEqual(
+                tuple(
+                    reason
+                    for reason, _feature in reading._known_shared_predecessor_specs(
+                        package, current
+                    )
+                ),
+                (
+                    "package-revision-7",
+                    "package-revision-6",
+                    "package-revision-4",
+                    "package-revision-3",
+                    "package-revision-1",
+                ),
+            )
+
+    def test_tagged_revisions_report_safe_update(self):
+        ssh = Mock()
+        for reason, predecessor in reading._known_shared_predecessor_specs(
+            self.package, self.feature
+        ):
+            inspection = shared.SharedInspection(
+                {reading.FEATURE_ID: self._state(predecessor, True)}, True, True
+            )
+            with self.subTest(reason=reason), patch.object(
+                reading.tap, "get_device_identity", return_value=self.identity
+            ), patch.object(
+                reading,
+                "_trusted_context",
+                return_value=(self.runtime, self._trusted(), (), self.feature),
+            ), patch.object(
+                reading.shared, "has_shared_artifacts", return_value=True
+            ), patch.object(
+                reading,
+                "_inspection_for_migration",
+                return_value=(
+                    inspection,
+                    {reading.FEATURE_ID: predecessor},
+                    {reading.FEATURE_ID: reason},
+                ),
+            ):
+                status = reading.get_status(ssh, (self.package,))
+
+            self.assertEqual(
+                status.state, reading.ReadingEnhancementsState.REPAIR_AVAILABLE
+            )
+            self.assertIn(reason.rsplit("-", 1)[-1], status.detail)
+            self.assertTrue(status.cleanup_available)
+
+    def test_unpublished_revision_reason_fails_closed(self):
+        inspection = shared.SharedInspection(
+            {reading.FEATURE_ID: self._state(self.feature, True)}, True, True
+        )
+        with patch.object(
+            reading.tap, "get_device_identity", return_value=self.identity
+        ), patch.object(
+            reading,
+            "_trusted_context",
+            return_value=(self.runtime, self._trusted(), (), self.feature),
+        ), patch.object(
+            reading.shared, "has_shared_artifacts", return_value=True
+        ), patch.object(
+            reading,
+            "_inspection_for_migration",
+            return_value=(
+                inspection,
+                self._trusted(),
+                {reading.FEATURE_ID: "package-revision-5"},
+            ),
+        ):
+            status = reading.get_status(Mock(), (self.package,))
+
+        self.assertEqual(status.state, reading.ReadingEnhancementsState.BROKEN)
+        self.assertIn("旧版识别结果无效", status.detail)
+
     def test_manifest_rejects_changed_url_order_and_extra_fields(self):
         document = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
         changed_url = json.loads(json.dumps(document))
@@ -110,356 +257,6 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         for changed in (changed_url, extra_field):
             with self.subTest(changed=changed), self.assertRaises(RuntimeError):
                 reading.parse_manifest(json.dumps(changed).encode(), require_local_match=False)
-
-    def test_revision_six_qmd_predecessor_constants_are_exact(self):
-        self.assertEqual(
-            reading._REVISION_6_QMD,
-            {
-                "3.27": (
-                    "e526a2e8a7a3ac6199abc6cef591b6f77df0c52f2e6d73774b1a313e5b2b6ef4",
-                    48147,
-                ),
-                "3.28": (
-                    "1cecbf4e386f46d57ecf3ac9af1a7fd2ac208b7461cc730113dc744ef25d6f7f",
-                    54042,
-                ),
-            },
-        )
-
-    def test_revision_three_predecessor_is_exact_and_variant_bounded(self):
-        expected = {
-            "3.27": (
-                "622c17f90cb6f08552ac3ce412a37fc56c8f24fc4a52bb1fa0cdfb5057fb6532",
-                47548,
-            ),
-            "3.28": (
-                "10ef980eb3bc66cf94087ab096e660a5d3519fad1b383513ca7ed0db09f48a7a",
-                46594,
-            ),
-        }
-        for package in self.catalog:
-            _runtime, current = reading._shared_specs(package)
-            predecessor = reading._known_revision_three_feature(package, current)
-            self.assertEqual(
-                (predecessor.sha256, predecessor.size),
-                expected["3.27" if package.release_version.startswith("3.27.") else "3.28"],
-            )
-            self.assertEqual(predecessor.feature_id, current.feature_id)
-            self.assertEqual(predecessor.package_id, current.package_id)
-            self.assertEqual(predecessor.runtime_path, current.runtime_path)
-
-    def test_revision_four_predecessor_is_exact_and_variant_bounded(self):
-        expected = {
-            "3.27": (
-                "d8b2a21d75eb4f1c26e67446a6519360aa2d690c7ae91f83c744c83152ba9e28",
-                48148,
-            ),
-            "3.28": (
-                "aadec3d2ec54c408a8f64c8f046bd5973ead1ba6e7e4a3c91cb38404d174b164",
-                47194,
-            ),
-        }
-        for package in self.catalog:
-            _runtime, current = reading._shared_specs(package)
-            predecessor = reading._known_revision_four_feature(package, current)
-            self.assertEqual(
-                (predecessor.sha256, predecessor.size),
-                expected["3.27" if package.release_version.startswith("3.27.") else "3.28"],
-            )
-            self.assertEqual(predecessor.feature_id, current.feature_id)
-            self.assertEqual(predecessor.package_id, current.package_id)
-            self.assertEqual(predecessor.runtime_path, current.runtime_path)
-
-    def test_revision_five_predecessor_is_exact_and_variant_bounded(self):
-        expected = {
-            "3.27": (
-                "e526a2e8a7a3ac6199abc6cef591b6f77df0c52f2e6d73774b1a313e5b2b6ef4",
-                48147,
-            ),
-            "3.28": (
-                "12f4241ac5e0644e52c7959c806a214aa08fabe9eb600a6da1bf1e3404913f72",
-                49477,
-            ),
-        }
-        for package in self.catalog:
-            _runtime, current = reading._shared_specs(package)
-            predecessor = reading._known_revision_five_feature(package, current)
-            self.assertEqual(
-                (predecessor.sha256, predecessor.size),
-                expected["3.27" if package.release_version.startswith("3.27.") else "3.28"],
-            )
-            self.assertEqual(predecessor.feature_id, current.feature_id)
-            self.assertEqual(predecessor.package_id, current.package_id)
-            self.assertEqual(predecessor.runtime_path, current.runtime_path)
-
-    def test_revision_six_predecessor_is_exact_and_variant_bounded(self):
-        expected = {
-            "3.27": (
-                "e526a2e8a7a3ac6199abc6cef591b6f77df0c52f2e6d73774b1a313e5b2b6ef4",
-                48147,
-            ),
-            "3.28": (
-                "1cecbf4e386f46d57ecf3ac9af1a7fd2ac208b7461cc730113dc744ef25d6f7f",
-                54042,
-            ),
-        }
-        for package in self.catalog:
-            _runtime, current = reading._shared_specs(package)
-            predecessor = reading._known_revision_six_feature(package, current)
-            self.assertEqual(
-                (predecessor.sha256, predecessor.size),
-                expected["3.27" if package.release_version.startswith("3.27.") else "3.28"],
-            )
-            self.assertEqual(predecessor.feature_id, current.feature_id)
-            self.assertEqual(predecessor.package_id, current.package_id)
-            self.assertEqual(predecessor.runtime_path, current.runtime_path)
-
-    def test_known_defective_predecessors_are_exact_and_release_bounded(self):
-        expected = {
-            "3.27.1.0": ("0cdfcff0c43e1cc87eb0e956b808c6e588d5dec0791d878bbc6bf7012ed2fa77", 27749),
-            "3.27.3.0": ("0cdfcff0c43e1cc87eb0e956b808c6e588d5dec0791d878bbc6bf7012ed2fa77", 27749),
-            "3.28.0.162": ("b87d847492ef5efaaf81dfcae6294ed2db61db335d79484a668f2f6fa968b361", 26891),
-            "3.28.0.163": ("b87d847492ef5efaaf81dfcae6294ed2db61db335d79484a668f2f6fa968b361", 26891),
-            "3.28.0.164": ("b87d847492ef5efaaf81dfcae6294ed2db61db335d79484a668f2f6fa968b361", 26891),
-            "3.28.0.166": ("b87d847492ef5efaaf81dfcae6294ed2db61db335d79484a668f2f6fa968b361", 26891),
-            "3.28.0.169": ("b87d847492ef5efaaf81dfcae6294ed2db61db335d79484a668f2f6fa968b361", 26891),
-        }
-        for package in self.catalog:
-            _runtime, current = reading._shared_specs(package)
-            predecessor = reading._known_defective_feature(package, current)
-            self.assertEqual(
-                (predecessor.sha256, predecessor.size), expected[package.release_version]
-            )
-            self.assertEqual(predecessor.feature_id, current.feature_id)
-            self.assertEqual(predecessor.package_id, current.package_id)
-            self.assertEqual(predecessor.runtime_path, current.runtime_path)
-
-        unknown = reading._known_defective_feature(
-            reading.replace(self.package, release_version="3.28.0.170"), self.feature
-        )
-        self.assertIsNone(unknown)
-
-        navigation_hash = (
-            "0b4ae3ac2682c452cb17fc964d108c4194a59aeb9d55f9ef2c6ddf8582679c66",
-            28634,
-        )
-        for package in self.catalog:
-            _runtime, current = reading._shared_specs(package)
-            predecessor = reading._known_navigation_defective_feature(package, current)
-            if package.release_version.startswith("3.27."):
-                self.assertEqual(
-                    (predecessor.sha256, predecessor.size), navigation_hash
-                )
-            else:
-                self.assertIsNone(predecessor)
-
-    def test_revision_one_predecessor_is_exact_and_variant_bounded(self):
-        expected = {
-            "3.27": (
-                "7c3a384e1cd4f2be7b94aadce82b30c31ca81a49ed482a300e63bf83fce67fe7",
-                28715,
-            ),
-            "3.28": (
-                "e6d6ef9260c4bc6cfffc375d4485e3ec33eea36fd6725790c7e2483da16c74ec",
-                27761,
-            ),
-        }
-        for package in self.catalog:
-            _runtime, current = reading._shared_specs(package)
-            predecessor = reading._known_revision_one_feature(package, current)
-            self.assertEqual(
-                (predecessor.sha256, predecessor.size),
-                expected["3.27" if package.release_version.startswith("3.27.") else "3.28"],
-            )
-            self.assertEqual(predecessor.feature_id, current.feature_id)
-            self.assertEqual(predecessor.package_id, current.package_id)
-            self.assertEqual(predecessor.runtime_path, current.runtime_path)
-
-    def test_revision_two_predecessor_is_exact_and_variant_bounded(self):
-        expected = {
-            "3.27": (
-                "9f965de55f94e767cd64d9c57aab6c3ed5b2322054d7441f1e25c258ea343d97",
-                47040,
-            ),
-            "3.28": (
-                "9ffbc98e5241a1f4e893408d41c8b6680ecb86c0d1cc06aafe5c56fad9488906",
-                46086,
-            ),
-        }
-        for package in self.catalog:
-            _runtime, current = reading._shared_specs(package)
-            predecessor = reading._known_revision_two_feature(package, current)
-            self.assertEqual(
-                (predecessor.sha256, predecessor.size),
-                expected["3.27" if package.release_version.startswith("3.27.") else "3.28"],
-            )
-            self.assertEqual(predecessor.feature_id, current.feature_id)
-            self.assertEqual(predecessor.package_id, current.package_id)
-            self.assertEqual(predecessor.runtime_path, current.runtime_path)
-
-    def test_verified_device_trial_is_exact_and_identity_bounded(self):
-        package = next(
-            item
-            for item in self.catalog
-            if item.platform == "ferrari" and item.release_version == "3.28.0.169"
-        )
-        _runtime, current = reading._shared_specs(package)
-        predecessor = reading._known_device_trial_feature(package, current)
-        self.assertEqual(
-            (
-                predecessor.package_id,
-                predecessor.sha256,
-                predecessor.size,
-                predecessor.runtime_path,
-            ),
-            (
-                "local-ferrari-20260806095513-reading-enhancements",
-                "6e24a580961b1283d16009bcf22a94dfa397b0af1ec0062b06d41169ae4d367b",
-                26193,
-                current.runtime_path,
-            ),
-        )
-        chiappa = reading.replace(package, platform="chiappa")
-        other_firmware = reading.replace(package, firmware="20260806095514")
-        self.assertIsNone(reading._known_device_trial_feature(chiappa, current))
-        self.assertIsNone(
-            reading._known_device_trial_feature(other_firmware, current)
-        )
-
-    def test_exact_device_trial_is_inspected_after_normal_revisions_fail(self):
-        package = next(
-            item
-            for item in self.catalog
-            if item.platform == "ferrari" and item.release_version == "3.28.0.169"
-        )
-        runtime, current = reading._shared_specs(package)
-        trial = reading._known_device_trial_feature(package, current)
-        trusted = {reading.FEATURE_ID: current}
-        inspection = shared.SharedInspection(
-            {reading.FEATURE_ID: self._state(trial)}, True, True
-        )
-        with patch.object(
-            reading.shared,
-            "inspect_shared_revisions",
-            side_effect=RuntimeError("current mismatch"),
-        ), patch.object(
-            reading.shared, "inspect_shared", return_value=inspection
-        ) as inspect:
-            result = reading._inspection_for_migration(
-                Mock(), runtime, trusted, package
-            )
-
-        self.assertEqual(
-            result,
-            (
-                inspection,
-                {reading.FEATURE_ID: trial},
-                {reading.FEATURE_ID: "verified-device-trial"},
-            ),
-        )
-        inspect.assert_called_once_with(
-            unittest.mock.ANY,
-            runtime,
-            {reading.FEATURE_ID: trial},
-            check_lower=True,
-        )
-
-    def test_inspection_offers_only_the_exact_settings_defect_predecessor(self):
-        defective = reading._known_defective_feature(self.package, self.feature)
-        inspection = shared.SharedInspection(
-            {reading.FEATURE_ID: self._state(defective)}, True, True
-        )
-        installed = {reading.FEATURE_ID: defective}
-        selected = {reading.FEATURE_ID: "settings-component-defect"}
-        with patch.object(
-            reading.shared,
-            "inspect_shared_revisions",
-            return_value=(inspection, installed, selected),
-        ) as inspect:
-            result = reading._inspection_for_migration(
-                Mock(), self.runtime, self._trusted(), self.package
-            )
-        self.assertEqual(result, (inspection, installed, selected))
-        revisions = inspect.call_args.args[3]
-        self.assertEqual(
-            revisions,
-            {
-                reading.FEATURE_ID: (
-                    ("settings-component-defect", defective),
-                    (
-                        "settings-navigation-defect",
-                        reading._known_navigation_defective_feature(
-                            self.package, self.feature
-                        ),
-                    ),
-                    ("package-revision-6", reading._known_revision_six_feature(
-                        self.package, self.feature
-                    )),
-                    ("package-revision-4", reading._known_revision_four_feature(
-                        self.package, self.feature
-                    )),
-                    ("package-revision-3", reading._known_revision_three_feature(
-                        self.package, self.feature
-                    )),
-                    ("package-revision-2", reading._known_revision_two_feature(
-                        self.package, self.feature
-                    )),
-                    ("package-revision-1", reading._known_revision_one_feature(
-                        self.package, self.feature
-                    )),
-                )
-            },
-        )
-
-    def test_328_does_not_trust_the_navigation_predecessor(self):
-        package = next(
-            item for item in self.catalog if item.release_version.startswith("3.28.")
-        )
-        runtime, feature = reading._shared_specs(package)
-        trusted = {reading.FEATURE_ID: feature}
-        inspection = shared.SharedInspection({}, False, True)
-        with patch.object(
-            reading.shared,
-            "inspect_shared_revisions",
-            return_value=(inspection, trusted, {}),
-        ) as inspect:
-            reading._inspection_for_migration(Mock(), runtime, trusted, package)
-        revisions = inspect.call_args.args[3]
-        self.assertEqual(
-            revisions,
-            {
-                reading.FEATURE_ID: (
-                    (
-                        "settings-component-defect",
-                        reading._known_defective_feature(package, feature),
-                    ),
-                    (
-                        "package-revision-6",
-                        reading._known_revision_six_feature(package, feature),
-                    ),
-                    (
-                        "package-revision-5",
-                        reading._known_revision_five_feature(package, feature),
-                    ),
-                    (
-                        "package-revision-4",
-                        reading._known_revision_four_feature(package, feature),
-                    ),
-                    (
-                        "package-revision-3",
-                        reading._known_revision_three_feature(package, feature),
-                    ),
-                    (
-                        "package-revision-2",
-                        reading._known_revision_two_feature(package, feature),
-                    ),
-                    (
-                        "package-revision-1",
-                        reading._known_revision_one_feature(package, feature),
-                    ),
-                )
-            },
-        )
 
     def test_download_uses_cos_then_github_and_validates_cache(self):
         payload = b"trusted archive"
@@ -780,322 +577,6 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
             reading.disable(ssh, (self.package,))
         disable.assert_called_once()
 
-    def test_known_defective_package_reports_repair_and_replaces_atomically(self):
-        defects = (
-            (
-                "settings-component-defect",
-                reading._known_defective_feature(self.package, self.feature),
-            ),
-            (
-                "settings-navigation-defect",
-                reading._known_navigation_defective_feature(
-                    self.package, self.feature
-                ),
-            ),
-        )
-        for reason, defective in defects:
-            with self.subTest(reason=reason):
-                self.assertIsNotNone(defective)
-                defective_trusted = {reading.FEATURE_ID: defective}
-                inspection = shared.SharedInspection(
-                    {reading.FEATURE_ID: self._state(defective, True)}, True, True
-                )
-                ssh = Mock()
-                ssh.file_exists.return_value = True
-                context = (self.runtime, self._trusted(), (), self.feature)
-                selected = {reading.FEATURE_ID: reason}
-                with patch.object(reading.tap, "get_device_identity", return_value=self.identity), patch.object(
-                    reading, "_trusted_context", return_value=context
-                ), patch.object(reading.shared, "has_shared_artifacts", return_value=True), patch.object(
-                    reading, "_inspection_for_migration",
-                    return_value=(inspection, defective_trusted, selected),
-                ):
-                    status = reading.get_status(ssh, (self.package,))
-                self.assertEqual(
-                    status.state, reading.ReadingEnhancementsState.REPAIR_AVAILABLE
-                )
-                self.assertIn("设置页缺陷包", status.detail)
-                self.assertTrue(status.recovery_available)
-
-                calls = []
-                result = reading.ReadingEnhancementsStatus(
-                    reading.ReadingEnhancementsState.ENABLE_PENDING_REBOOT,
-                    self.identity,
-                    self.package,
-                )
-                with patch.object(reading.tap, "get_device_identity", return_value=self.identity), patch.object(
-                    reading.tap, "_preflight_device"
-                ), patch.object(reading, "_trusted_context", return_value=context), patch.object(
-                    reading.shared, "has_shared_artifacts", return_value=True
-                ), patch.object(reading, "extract_verified_package", return_value=Path("fixed")), patch.object(
-                    reading, "_inspection_for_migration",
-                    return_value=(inspection, defective_trusted, selected),
-                ), patch.object(reading.tap, "_xochitl_process_token", return_value=self.process), patch.object(
-                    reading.shared, "replace_shared_features", side_effect=lambda *args, **kwargs: calls.append((args, kwargs))
-                ), patch.object(reading, "get_status", return_value=result):
-                    reading.install(ssh, self.package, "fixed.tar.gz")
-                self.assertEqual(len(calls), 1)
-                self.assertEqual(calls[0][0][2][reading.FEATURE_ID], defective)
-                self.assertEqual(calls[0][0][4][reading.FEATURE_ID], self.feature)
-                self.assertEqual(
-                    calls[0][0][5][reading.FEATURE_ID].spec, self.feature
-                )
-
-    def test_revision_one_reports_safe_update_without_defect_wording(self):
-        predecessor = reading._known_revision_one_feature(
-            self.package, self.feature
-        )
-        inspection = shared.SharedInspection(
-            {reading.FEATURE_ID: self._state(predecessor, True)}, True, True
-        )
-        ssh = Mock()
-        ssh.file_exists.return_value = True
-        with patch.object(
-            reading.tap, "get_device_identity", return_value=self.identity
-        ), patch.object(
-            reading,
-            "_trusted_context",
-            return_value=(self.runtime, self._trusted(), (), self.feature),
-        ), patch.object(
-            reading.shared, "has_shared_artifacts", return_value=True
-        ), patch.object(
-            reading,
-            "_inspection_for_migration",
-            return_value=(
-                inspection,
-                {reading.FEATURE_ID: predecessor},
-                {reading.FEATURE_ID: "package-revision-1"},
-            ),
-        ):
-            status = reading.get_status(ssh, (self.package,))
-
-        self.assertEqual(
-            status.state, reading.ReadingEnhancementsState.REPAIR_AVAILABLE
-        )
-        self.assertIn("旧版阅读增强，可安全更新", status.detail)
-        self.assertNotIn("设置页缺陷包", status.detail)
-
-    def test_revision_two_reports_safe_update_without_defect_wording(self):
-        predecessor = reading._known_revision_two_feature(
-            self.package, self.feature
-        )
-        inspection = shared.SharedInspection(
-            {reading.FEATURE_ID: self._state(predecessor, True)}, True, True
-        )
-        ssh = Mock()
-        ssh.file_exists.return_value = True
-        with patch.object(
-            reading.tap, "get_device_identity", return_value=self.identity
-        ), patch.object(
-            reading,
-            "_trusted_context",
-            return_value=(self.runtime, self._trusted(), (), self.feature),
-        ), patch.object(
-            reading.shared, "has_shared_artifacts", return_value=True
-        ), patch.object(
-            reading,
-            "_inspection_for_migration",
-            return_value=(
-                inspection,
-                {reading.FEATURE_ID: predecessor},
-                {reading.FEATURE_ID: "package-revision-2"},
-            ),
-        ):
-            status = reading.get_status(ssh, (self.package,))
-
-        self.assertEqual(
-            status.state, reading.ReadingEnhancementsState.REPAIR_AVAILABLE
-        )
-        self.assertIn("旧版阅读增强，可安全更新", status.detail)
-        self.assertNotIn("设置页缺陷包", status.detail)
-
-    def test_revision_four_reports_safe_update_without_defect_wording(self):
-        predecessor = reading._known_revision_four_feature(
-            self.package, self.feature
-        )
-        inspection = shared.SharedInspection(
-            {reading.FEATURE_ID: self._state(predecessor, True)}, True, True
-        )
-        ssh = Mock()
-        ssh.file_exists.return_value = True
-        with patch.object(
-            reading.tap, "get_device_identity", return_value=self.identity
-        ), patch.object(
-            reading,
-            "_trusted_context",
-            return_value=(self.runtime, self._trusted(), (), self.feature),
-        ), patch.object(
-            reading.shared, "has_shared_artifacts", return_value=True
-        ), patch.object(
-            reading,
-            "_inspection_for_migration",
-            return_value=(
-                inspection,
-                {reading.FEATURE_ID: predecessor},
-                {reading.FEATURE_ID: "package-revision-4"},
-            ),
-        ):
-            status = reading.get_status(ssh, (self.package,))
-
-        self.assertEqual(
-            status.state, reading.ReadingEnhancementsState.REPAIR_AVAILABLE
-        )
-        self.assertIn("旧版阅读增强，可安全更新", status.detail)
-        self.assertNotIn("设置页缺陷包", status.detail)
-
-    def test_revision_five_reports_safe_update_without_defect_wording(self):
-        package = next(
-            item for item in self.catalog if item.release_version.startswith("3.28.")
-        )
-        identity = tap.DeviceIdentity(
-            package.firmware,
-            package.platform,
-            package.architecture,
-            package.xochitl_sha256,
-        )
-        runtime, feature = reading._shared_specs(package)
-        predecessor = reading._known_revision_five_feature(package, feature)
-        inspection = shared.SharedInspection(
-            {reading.FEATURE_ID: self._state(predecessor, True)}, True, True
-        )
-        ssh = Mock()
-        ssh.file_exists.return_value = True
-        with patch.object(
-            reading.tap, "get_device_identity", return_value=identity
-        ), patch.object(
-            reading,
-            "_trusted_context",
-            return_value=(
-                runtime,
-                {reading.FEATURE_ID: feature},
-                (),
-                feature,
-            ),
-        ), patch.object(
-            reading.shared, "has_shared_artifacts", return_value=True
-        ), patch.object(
-            reading,
-            "_inspection_for_migration",
-            return_value=(
-                inspection,
-                {reading.FEATURE_ID: predecessor},
-                {reading.FEATURE_ID: "package-revision-5"},
-            ),
-        ):
-            status = reading.get_status(ssh, (package,))
-
-        self.assertEqual(
-            status.state, reading.ReadingEnhancementsState.REPAIR_AVAILABLE
-        )
-        self.assertIn("旧版阅读增强，可安全更新", status.detail)
-        self.assertNotIn("设置页缺陷包", status.detail)
-
-    def test_revision_six_reports_safe_update_without_defect_wording(self):
-        predecessor = reading._known_revision_six_feature(
-            self.package, self.feature
-        )
-        inspection = shared.SharedInspection(
-            {reading.FEATURE_ID: self._state(predecessor, True)}, True, True
-        )
-        ssh = Mock()
-        ssh.file_exists.return_value = True
-        with patch.object(
-            reading.tap, "get_device_identity", return_value=self.identity
-        ), patch.object(
-            reading,
-            "_trusted_context",
-            return_value=(self.runtime, self._trusted(), (), self.feature),
-        ), patch.object(
-            reading.shared, "has_shared_artifacts", return_value=True
-        ), patch.object(
-            reading,
-            "_inspection_for_migration",
-            return_value=(
-                inspection,
-                {reading.FEATURE_ID: predecessor},
-                {reading.FEATURE_ID: "package-revision-6"},
-            ),
-        ):
-            status = reading.get_status(ssh, (self.package,))
-
-        self.assertEqual(
-            status.state, reading.ReadingEnhancementsState.REPAIR_AVAILABLE
-        )
-        self.assertIn("旧版阅读增强，可安全更新", status.detail)
-        self.assertNotIn("设置页缺陷包", status.detail)
-
-    def test_known_defective_package_can_be_disabled_and_marker_normalized(self):
-        defective = reading._known_defective_feature(self.package, self.feature)
-        inspection = shared.SharedInspection(
-            {reading.FEATURE_ID: self._state(defective, True)}, True, True
-        )
-        status = reading.ReadingEnhancementsStatus(
-            reading.ReadingEnhancementsState.REPAIR_AVAILABLE,
-            self.identity,
-            self.package,
-            (self.package,),
-            recovery_available=True,
-        )
-        result = reading.ReadingEnhancementsStatus(
-            reading.ReadingEnhancementsState.DISABLE_PENDING_REBOOT,
-            self.identity,
-            self.package,
-        )
-        defective_trusted = {reading.FEATURE_ID: defective}
-        with patch.object(reading, "get_status", side_effect=(status, result)), patch.object(
-            reading, "_trusted_context", return_value=(self.runtime, self._trusted(), (), self.feature)
-        ), patch.object(
-            reading, "_inspection_for_migration",
-            return_value=(inspection, defective_trusted, {reading.FEATURE_ID: "settings-component-defect"}),
-        ), patch.object(reading.shared, "disable_shared") as disable:
-            self.assertIs(reading.disable(Mock(), (self.package,)), result)
-        disable.assert_called_once_with(
-            unittest.mock.ANY,
-            self.runtime,
-            reading.FEATURE_ID,
-            defective_trusted,
-            replacement_spec=self.feature,
-        )
-
-    def test_shared_transaction_replaces_same_id_defective_qmd(self):
-        defective = reading._known_defective_feature(self.package, self.feature)
-        current_trusted = {reading.FEATURE_ID: defective}
-        target_trusted = self._trusted()
-        current = shared.SharedInspection(
-            {reading.FEATURE_ID: self._state(defective)}, True, True
-        )
-        final = shared.SharedInspection(
-            {reading.FEATURE_ID: self._state(self.feature)}, True, True
-        )
-        target_states = {reading.FEATURE_ID: self._state(self.feature)}
-        ssh = Mock()
-        ssh.exec_checked.return_value = ""
-        with patch.object(
-            shared, "_operation_lock", lambda _ssh: contextlib.nullcontext()
-        ), patch.object(shared, "_assert_managed_dropins"), patch.object(
-            shared, "has_shared_artifacts", return_value=True
-        ), patch.object(
-            shared, "inspect_shared", side_effect=(current, final)
-        ) as inspect, patch.object(shared, "_stage_shared") as stage, patch.object(
-            shared, "shared_transaction_script", return_value="#!/bin/sh\n:"
-        ), patch.object(shared, "_upload_bytes"):
-            result = shared.replace_shared_features(
-                ssh,
-                self.runtime,
-                current_trusted,
-                self.runtime,
-                target_trusted,
-                target_states,
-                {reading.FEATURE_ID: Path("fixed")},
-            )
-        self.assertIs(result, final)
-        self.assertEqual(inspect.call_args_list[0].args[2], current_trusted)
-        self.assertEqual(inspect.call_args_list[1].args[2], target_trusted)
-        self.assertEqual(stage.call_args.args[2], target_states)
-        self.assertEqual(
-            stage.call_args.args[3], {reading.FEATURE_ID: Path("fixed")}
-        )
-
     def test_transaction_template_has_fault_rollback_and_no_restart(self):
         script = shared.shared_transaction_script(
             "/data/rmtool/xovi-standalone.staging-token",
@@ -1331,73 +812,6 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
             self.runtime,
             {"fast-mono-reading": fast_spec},
             {"fast-mono-reading"},
-        )
-
-    def test_cleanup_legacy_repair_removes_all_verified_old_reading_features(self):
-        old_reading = reading._known_revision_one_feature(
-            self.package, self.feature
-        )
-        tap_spec = shared.SharedFeatureSpec(
-            "tap-page-turn", "tap", "tap.qmd",
-            "exthome/qt-resource-rebuilder/tap.qmd", "a" * 64, 1, 0o644
-        )
-        fast_spec = shared.SharedFeatureSpec(
-            "fast-mono-reading", "fast", "fast.qmd",
-            "exthome/qt-resource-rebuilder/fast.qmd", "b" * 64, 1, 0o644
-        )
-        status = reading.ReadingEnhancementsStatus(
-            reading.ReadingEnhancementsState.REPAIR_AVAILABLE,
-            self.identity,
-            self.package,
-            (self.package,),
-            cleanup_available=True,
-        )
-        final = reading.ReadingEnhancementsStatus(
-            reading.ReadingEnhancementsState.NOT_INSTALLED,
-            self.identity,
-            self.package,
-        )
-        inspection = shared.SharedInspection(
-            {
-                reading.FEATURE_ID: self._state(old_reading, True),
-                tap_spec.feature_id: self._state(tap_spec, True),
-                fast_spec.feature_id: self._state(fast_spec, False),
-            },
-            True,
-            True,
-        )
-        installed = {
-            reading.FEATURE_ID: old_reading,
-            tap_spec.feature_id: tap_spec,
-            fast_spec.feature_id: fast_spec,
-        }
-        ssh = Mock()
-        with patch.object(
-            reading, "get_status", side_effect=(status, final)
-        ), patch.object(
-            reading,
-            "_trusted_context",
-            return_value=(self.runtime, installed, (), self.feature),
-        ), patch.object(
-            reading, "_validated_legacy_standalone", return_value=()
-        ), patch.object(
-            reading.shared, "has_shared_artifacts", return_value=True
-        ), patch.object(
-            reading,
-            "_inspection_for_migration",
-            return_value=(
-                inspection,
-                installed,
-                {reading.FEATURE_ID: "package-revision-1"},
-            ),
-        ), patch.object(reading.shared, "remove_shared_features") as remove:
-            result = reading.cleanup_legacy(ssh, (self.package,))
-        self.assertIs(result, final)
-        remove.assert_called_once_with(
-            ssh,
-            self.runtime,
-            installed,
-            {reading.FEATURE_ID, tap_spec.feature_id, fast_spec.feature_id},
         )
 
     def test_target_state_validation_happens_before_stage(self):
