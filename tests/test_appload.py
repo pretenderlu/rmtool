@@ -8,6 +8,7 @@ from unittest import mock
 
 import _appload
 import _tap_page_turn as tap
+import _xovi_standalone as shared
 
 
 class OfficialAssetTests(unittest.TestCase):
@@ -129,6 +130,59 @@ class DisableOrderTests(unittest.TestCase):
         ):
             _appload.disable(ssh)
         self.assertEqual(order, ["disable", "shims"])
+
+
+class StatusTests(unittest.TestCase):
+    def test_predecessor_launcher_is_offered_as_repairable(self):
+        package = next(
+            item for item in tap._trusted_catalog() if item.channel == "stable"
+        )
+        identity = tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        feature = mock.Mock(feature_id=_appload.FEATURE_ID)
+        inspection = shared.SharedInspection(
+            {
+                _appload.FEATURE_ID: shared.SharedFeatureState(
+                    feature, True, "old-process"
+                )
+            },
+            False,
+            True,
+            launcher_update_available=True,
+        )
+        ssh = mock.Mock()
+        with (
+            mock.patch.object(_appload.tap, "get_device_identity", return_value=identity),
+            mock.patch.object(_appload.shared, "has_shared_artifacts", return_value=True),
+            mock.patch.object(
+                _appload.shared,
+                "read_shared_identity",
+                return_value=(
+                    identity.firmware,
+                    identity.platform,
+                    identity.architecture,
+                    identity.xochitl_sha256,
+                ),
+            ),
+            mock.patch.object(
+                _appload.tap,
+                "_trusted_shared_context",
+                return_value=(mock.Mock(), {_appload.FEATURE_ID: feature}, ()),
+            ),
+            mock.patch.object(
+                _appload.shared, "inspect_shared", return_value=inspection
+            ),
+            mock.patch.object(_appload, "_extension_active") as active,
+        ):
+            status = _appload.get_status(ssh)
+
+        self.assertEqual(status.state, _appload.AppLoadState.REPAIRABLE)
+        self.assertIn("可直接修复", status.detail)
+        active.assert_not_called()
 
 
 if __name__ == "__main__":

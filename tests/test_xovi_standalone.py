@@ -84,6 +84,7 @@ class SharedXoviTests(unittest.TestCase):
         startup_pending=False,
         pending_mode=0o600,
         pending_size=0,
+        legacy_unmatched_qmd_glob=False,
     ):
         layout = layout or shared.SHARED_LAYOUT
         identity = tap.DeviceIdentity(
@@ -110,6 +111,7 @@ class SharedXoviTests(unittest.TestCase):
             enabled,
             recovery_sentinel=not legacy_launcher,
             startup_guard=(not legacy_launcher and layout == shared.SHARED_LAYOUT),
+            legacy_unmatched_qmd_glob=legacy_unmatched_qmd_glob,
             layout=layout,
         ).encode()
         if dev_launcher:
@@ -296,6 +298,99 @@ class SharedXoviTests(unittest.TestCase):
         self.assertIn('set -- "$BASE"/extensions.d/*.so', first)
         self.assertIn('*) stock ;;', first)
         self.assertIn("qmd_count", first)
+        self.assertIn('[ -e "$qmd" ] || [ -L "$qmd" ] || continue', first)
+        self.assertIn('[ "$qmd_count" -eq 2 ]', first)
+
+    def test_appload_only_launcher_accepts_an_empty_qmd_directory(self):
+        package = next(
+            item for item in tap._trusted_catalog()
+            if item.channel == "stable"
+        )
+        identity = tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        runtime, _trusted, _legacies = tap._trusted_shared_context(identity)
+        feature = appload._appload_feature(identity)
+
+        self.assertFalse(any(
+            item.runtime_path.endswith(".qmd") for item in feature.files
+        ))
+        launcher = shared.shared_launcher(runtime, (feature,))
+
+        self.assertIn('[ -e "$qmd" ] || [ -L "$qmd" ] || continue', launcher)
+        self.assertIn('[ -f "$qmd" ] && [ ! -L "$qmd" ] || stock', launcher)
+        self.assertIn('__rmtool_no_qmd__', launcher)
+        self.assertIn('[ "$qmd_count" -eq 0 ]', launcher)
+
+    def test_appload_only_predecessor_launcher_is_repairable(self):
+        old_tap, old_fast = next(
+            pair for pair in self.contexts()
+            if pair[0].channel == "stable"
+        )
+        ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+            old_tap,
+            old_fast,
+            feature_ids=(appload.FEATURE_ID,),
+            visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+            legacy_unmatched_qmd_glob=True,
+        )
+
+        inspection = shared.inspect_shared(ssh, runtime, trusted)
+
+        self.assertEqual(set(inspection.states), {appload.FEATURE_ID})
+        self.assertTrue(inspection.launcher_update_available)
+
+    def test_enable_rewrites_a_verified_predecessor_launcher(self):
+        package = next(
+            item for item in tap._trusted_catalog()
+            if item.channel == "stable"
+        )
+        identity = tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        runtime, trusted, legacies = tap._trusted_shared_context(identity)
+        feature = trusted[appload.FEATURE_ID]
+        state = shared.SharedFeatureState(feature, True, self.TOKEN)
+        inspection = shared.SharedInspection(
+            {feature.feature_id: state},
+            False,
+            True,
+            launcher_update_available=True,
+        )
+        final = shared.SharedInspection({feature.feature_id: state}, False, True)
+        ssh = Mock()
+        ssh.exec_checked.return_value = ""
+        stage = Mock(return_value=("1" * 64, "2" * 64))
+        with (
+            patch.object(shared, "has_shared_artifacts", return_value=True),
+            patch.object(shared, "inspect_shared", side_effect=(inspection, final)),
+            patch.object(shared, "validate_legacy", return_value=False),
+            patch.object(shared, "_process_token", return_value=self.TOKEN),
+            patch.object(shared, "_stage_shared", stage),
+            patch.object(
+                shared,
+                "shared_transaction_script",
+                return_value="#!/bin/sh\n:",
+            ),
+            patch.object(shared, "_upload_bytes"),
+        ):
+            result = shared._enable_shared_locked(
+                ssh,
+                runtime,
+                feature,
+                Path("unused"),
+                trusted,
+                legacies,
+            )
+
+        self.assertIs(result, final)
+        stage.assert_called_once()
 
     def test_non_resource_launchers_do_not_change_environment_contract(self):
         tap_package, fast_package = next(iter(self.contexts()))

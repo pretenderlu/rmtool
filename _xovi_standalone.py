@@ -159,6 +159,7 @@ class SharedInspection:
     # tolerant firmware-residue path, after the runtime and every payload
     # anchor already verified byte-exact against the trusted manifests.
     legacy_templates: bool = False
+    launcher_update_available: bool = False
 
 
 _COMMON_ARCHIVE_PATHS = (
@@ -319,6 +320,7 @@ def shared_launcher(
     *,
     recovery_sentinel: bool = True,
     startup_guard: bool = True,
+    legacy_unmatched_qmd_glob: bool = False,
     layout: StandaloneLayout = SHARED_LAYOUT,
 ) -> str:
     enabled = tuple(sorted(enabled, key=lambda value: value.feature_id))
@@ -351,6 +353,10 @@ def shared_launcher(
         if item.runtime_path.endswith(".qmd")
     )
     qmd_cases = "|".join(qmd_names) or "__rmtool_no_qmd__"
+    qmd_glob_guard = (
+        "" if legacy_unmatched_qmd_glob
+        else '    [ -e "$qmd" ] || [ -L "$qmd" ] || continue\n'
+    )
     extension_paths = tuple(sorted({
         "extensions.d/qt-resource-rebuilder.so",
         *(
@@ -548,7 +554,7 @@ set -- "$BASE"/extensions.d/*.so
 {extension_check}
 qmd_count=0
 for qmd in "$BASE"/{SHARED_QRR_HOME}/*.qmd; do
-    [ -f "$qmd" ] && [ ! -L "$qmd" ] || stock
+{qmd_glob_guard}    [ -f "$qmd" ] && [ ! -L "$qmd" ] || stock
     case "${{qmd##*/}}" in
         {qmd_cases}) ;;
         *) stock ;;
@@ -1140,7 +1146,9 @@ def _inspect_shared(
     )
     launcher_sha = hashlib.sha256(launcher_text.encode()).hexdigest()
     legacy_templates = False
+    launcher_update_available = False
     if marker != _marker_document(runtime, states, launcher_sha, dropin_sha):
+        launcher_update_available = True
         candidates = (
             shared_launcher(
                 runtime,
@@ -1154,6 +1162,28 @@ def _inspect_shared(
                 layout=layout,
                 recovery_sentinel=False,
                 startup_guard=False,
+            ),
+            shared_launcher(
+                runtime,
+                enabled,
+                layout=layout,
+                startup_guard=layout == SHARED_LAYOUT,
+                legacy_unmatched_qmd_glob=True,
+            ),
+            shared_launcher(
+                runtime,
+                enabled,
+                layout=layout,
+                startup_guard=False,
+                legacy_unmatched_qmd_glob=True,
+            ),
+            shared_launcher(
+                runtime,
+                enabled,
+                layout=layout,
+                recovery_sentinel=False,
+                startup_guard=False,
+                legacy_unmatched_qmd_glob=True,
             ),
         )
         for candidate in candidates:
@@ -1271,6 +1301,7 @@ def _inspect_shared(
         startup_pending,
         layout,
         legacy_templates,
+        launcher_update_available,
     )
 
 
@@ -2104,6 +2135,7 @@ def _enable_shared_locked(
         and installed_state.enabled
         and installed_state.spec == feature
         and inspection.layout == SHARED_LAYOUT
+        and not inspection.launcher_update_available
     ):
         return inspection
     current = _process_token(ssh_client)

@@ -113,7 +113,7 @@ DEVICE_ITEMS: tuple[DiagItem, ...] = (
         "device/resources.txt",
         "磁盘与内存",
         "df -h / /data /home 2>/dev/null; echo ---; "
-        "cat /proc/meminfo 2>/dev/null | head -5; echo ---; uptime",
+        "cat /proc/meminfo 2>/dev/null | head -n 5; echo ---; uptime",
     ),
 )
 
