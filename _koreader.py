@@ -404,6 +404,7 @@ def install_managed(
                 f"""
 set -eu
 TARGET={shlex.quote(APPLOAD_INSTALL_DIR)}
+TARGET_PARENT={shlex.quote(posixpath.dirname(APPLOAD_INSTALL_DIR))}
 PRESERVED={shlex.quote(PRESERVED_INSTALL_DIR)}
 STAGE={shlex.quote(stage)}
 ARCHIVE={shlex.quote(remote_archive)}
@@ -434,6 +435,17 @@ chown -R root:root "$STAGE/koreader"
 [ -f "$STAGE/koreader/external.manifest.json" ] && [ ! -L "$STAGE/koreader/external.manifest.json" ]
 [ "$(cat "$STAGE/koreader/git-rev")" = {shlex.quote(asset.version)} ]
 for item in {executable_paths}; do [ -x "$STAGE/$item" ] || {{ echo "non-executable official file: $item" >&2; exit 1; }}; done
+for directory in /home/root/xovi /home/root/xovi/exthome "$TARGET_PARENT"; do
+    if [ -L "$directory" ]; then
+        echo "unsafe KOReader target parent" >&2
+        exit 1
+    fi
+    if [ ! -e "$directory" ]; then mkdir "$directory"; fi
+    if [ ! -d "$directory" ] || [ -L "$directory" ]; then
+        echo "unsafe KOReader target parent" >&2
+        exit 1
+    fi
+done
 if [ -d "$TARGET" ]; then mv "$TARGET" "$BACKUP"; fi
 mv "$STAGE/koreader" "$TARGET"
 rmdir "$STAGE"

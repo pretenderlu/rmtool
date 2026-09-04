@@ -340,6 +340,100 @@ class DetectionTests(unittest.TestCase):
                 )
                 self.assertEqual(bundle.getmember("koreader").mode, 0o755)
 
+    def test_install_creates_safe_target_parents_after_validation_before_swap(self):
+        ssh = mock.Mock()
+        ssh.exec_command.return_value = ("", "", 1)
+        commands = []
+        identity = SimpleNamespace(architecture="aarch64")
+        asset = _appload.OfficialAsset(
+            "KOReader", "v1", "aarch64", "koreader.zip", 1, "a" * 64, "url"
+        )
+        absent = _koreader.ManagedStatus(
+            _koreader.ManagedState.NOT_INSTALLED, identity, asset
+        )
+        installed = _koreader.ManagedStatus(
+            _koreader.ManagedState.INSTALLED, identity, asset, asset.version
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app = root / "koreader"
+            app.mkdir()
+            (app / "icon.png").write_bytes(b"icon")
+            payload = root / "payload.tar.gz"
+            payload.write_bytes(b"payload")
+
+            def exec_checked(command):
+                commands.append(command)
+                if command.startswith("sha256sum "):
+                    return f"{_koreader.hashlib.sha256(payload.read_bytes()).hexdigest()}  file"
+                return ""
+
+            ssh.exec_checked.side_effect = exec_checked
+            with mock.patch.object(
+                _koreader.tap, "get_device_identity", return_value=identity
+            ), mock.patch.object(
+                _koreader._appload, "koreader_asset", return_value=asset
+            ), mock.patch.object(
+                _koreader._appload,
+                "get_status",
+                return_value=SimpleNamespace(state=_appload.AppLoadState.ENABLED),
+            ), mock.patch.object(
+                _koreader,
+                "get_managed_status",
+                side_effect=(absent, installed),
+            ), mock.patch.object(
+                _koreader._appload, "verify_official_asset", return_value=root / "x"
+            ), mock.patch.object(
+                _koreader.tap, "_preflight_device"
+            ), mock.patch.object(
+                _koreader._appload, "extract_official_zip", return_value=root
+            ), mock.patch.object(
+                _koreader, "_validate_koreader_tree", return_value=app
+            ), mock.patch.object(
+                _koreader, "_official_zip_modes", return_value={}
+            ), mock.patch.object(
+                _koreader, "_make_payload_archive", return_value=payload
+            ), mock.patch.object(
+                _koreader, "_prepare_bridge_root", return_value=root
+            ), mock.patch.object(
+                _koreader._appload, "ensure_shim_links"
+            ), mock.patch.object(
+                _koreader.tap,
+                "_trusted_shared_context",
+                return_value=(
+                    object(),
+                    {_appload.KOREADER_FEATURE_ID: object()},
+                    (),
+                ),
+            ), mock.patch.object(_koreader.shared, "enable_shared"):
+                result = _koreader.install_managed(ssh, root / "x", "unused")
+
+        self.assertEqual(result, installed)
+        transaction = next(command for command in commands if "tar -xzf" in command)
+        self.assertIn(
+            f"TARGET_PARENT={posixpath.dirname(_koreader.APPLOAD_INSTALL_DIR)}",
+            transaction,
+        )
+        self.assertIn(
+            'for directory in /home/root/xovi /home/root/xovi/exthome '
+            '"$TARGET_PARENT"',
+            transaction,
+        )
+        validate = transaction.index("non-executable official file")
+        reject_symlink = transaction.index('if [ -L "$directory" ]')
+        create_parent = transaction.index(
+            'if [ ! -e "$directory" ]; then mkdir "$directory"; fi'
+        )
+        verify_parent = transaction.index('if [ ! -d "$directory" ]')
+        backup = transaction.index('if [ -d "$TARGET" ]; then mv')
+        replace = transaction.index('mv "$STAGE/koreader" "$TARGET"')
+        self.assertLess(validate, reject_symlink)
+        self.assertLess(reject_symlink, create_parent)
+        self.assertLess(create_parent, verify_parent)
+        self.assertLess(verify_parent, backup)
+        self.assertLess(backup, replace)
+
     def test_toltec_wins_over_official(self):
         ssh = FakeSSH()
         ssh.install_official()
