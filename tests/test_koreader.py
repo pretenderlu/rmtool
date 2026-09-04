@@ -885,6 +885,40 @@ class TabStateTests(TabTestBase):
         self.assertTrue(self.tab.install_koreader_button.isEnabled())
         self.assertEqual(self.tab.install_koreader_button.text(), "修复 KOReader")
 
+    def test_repairable_appload_offers_direct_repair(self):
+        package = next(
+            item
+            for item in _appload.tap._trusted_catalog()
+            if item.channel == "stable"
+        )
+        identity = _appload.tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        app = _appload.AppLoadStatus(
+            _appload.AppLoadState.REPAIRABLE,
+            identity,
+            _appload.APPLOAD_ASSETS[identity.architecture],
+            "检测到旧版启动器，可直接修复并重新启用",
+        )
+        managed = _koreader.ManagedStatus(
+            _koreader.ManagedState.NOT_INSTALLED,
+            identity,
+            _appload.KOREADER_ASSETS[identity.architecture],
+        )
+
+        self.tab.set_connection_state(True)
+        self.tab._apply_management_status((app, managed))
+
+        self.assertTrue(self.tab.install_appload_button.isEnabled())
+        self.assertEqual(
+            self.tab.install_appload_button.text(), "修复并启用 AppLoad"
+        )
+        self.assertIn("AppLoad：可修复", self.tab.management_status_label.text())
+        self.assertFalse(self.tab.install_koreader_button.isEnabled())
+
     def test_purge_legacy_cancel_starts_no_worker(self):
         self.tab.set_connection_state(True)
         with mock.patch.object(

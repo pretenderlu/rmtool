@@ -283,6 +283,7 @@ class KOReaderTab(QtWidgets.QWidget):
             return
         app_installable = app.state in (
             _appload.AppLoadState.NOT_INSTALLED,
+            _appload.AppLoadState.REPAIRABLE,
             _appload.AppLoadState.INSTALLED_DISABLED,
             _appload.AppLoadState.DISABLE_PENDING_REBOOT,
         )
@@ -298,6 +299,11 @@ class KOReaderTab(QtWidgets.QWidget):
             _koreader.ManagedState.EXTERNAL,
         )
         self.install_appload_button.setEnabled(app_installable)
+        self.install_appload_button.setText(
+            "修复并启用 AppLoad"
+            if app.state == _appload.AppLoadState.REPAIRABLE
+            else "安装 AppLoad"
+        )
         self.install_koreader_button.setEnabled(
             app_available and managed_installable
         )
@@ -346,6 +352,7 @@ class KOReaderTab(QtWidgets.QWidget):
         labels = {
             _appload.AppLoadState.INCOMPATIBLE: "不兼容",
             _appload.AppLoadState.NOT_INSTALLED: "未安装",
+            _appload.AppLoadState.REPAIRABLE: "可修复",
             _appload.AppLoadState.ENABLE_PENDING_REBOOT: "已安装，等待手动重启",
             _appload.AppLoadState.ENABLED: "已启用",
             _appload.AppLoadState.INSTALLED_DISABLED: "已停用",

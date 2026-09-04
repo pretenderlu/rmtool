@@ -153,6 +153,7 @@ KOREADER_ICON = OfficialFile(
 class AppLoadState(Enum):
     INCOMPATIBLE = "incompatible"
     NOT_INSTALLED = "not_installed"
+    REPAIRABLE = "repairable"
     ENABLE_PENDING_REBOOT = "enable_pending_reboot"
     ENABLED = "enabled"
     INSTALLED_DISABLED = "installed_disabled"
@@ -423,6 +424,13 @@ def get_status(ssh_client) -> AppLoadStatus:
         record = inspection.states.get(FEATURE_ID)
         if record is None:
             return AppLoadStatus(AppLoadState.NOT_INSTALLED, identity, asset)
+        if inspection.launcher_update_available:
+            return AppLoadStatus(
+                AppLoadState.REPAIRABLE,
+                identity,
+                asset,
+                "检测到旧版启动器，可直接修复并重新启用",
+            )
         current = tap._xochitl_process_token(ssh_client)
         changed = current != record.process_token
         if record.enabled:

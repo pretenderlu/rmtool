@@ -48,6 +48,12 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(
             [item.name for item in optional], ["device/journal-xochitl.txt"]
         )
+        resources = next(
+            item for item in _diagnostics.DEVICE_ITEMS
+            if item.name == "device/resources.txt"
+        )
+        self.assertIn("head -n 5", resources.command)
+        self.assertNotIn("head -5", resources.command)
 
     def test_collect_caps_remote_output_and_records_failures(self):
         big = "x" * (_diagnostics.ITEM_CAP_BYTES + 4096)
