@@ -3,6 +3,7 @@
 import logging
 import os
 import posixpath
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
@@ -17,6 +18,7 @@ import _legacy_vellum
 import _native_chinese
 import _note_enhancements
 import _pinyin_input
+import _plugin_recovery
 import _reading_enhancements
 import _residue_migration
 import _tap_page_turn
@@ -3308,6 +3310,11 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         self.thread_pool = QtCore.QThreadPool.globalInstance()
         self._busy = False
         self._report = None
+        self._report_session = None
+        self._recovery_report = None
+        self._recovery_session = None
+        self._connection_generation = 0
+        self._connected = None
 
         migration_title = QtWidgets.QLabel("固件升级插件迁移")
         migration_title.setObjectName("toolboxFeatureTitle")
@@ -3320,6 +3327,12 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         self.status_label.setWordWrap(True)
         self.detect_button = QtWidgets.QPushButton("检测迁移状态")
         self.detect_button.clicked.connect(self._detect)
+        self.recovery_detect_button = QtWidgets.QPushButton("检测恢复状态")
+        self.recovery_detect_button.clicked.connect(
+            lambda: self._start_status_detection()
+        )
+        self.repair_button = QtWidgets.QPushButton("修复并重装")
+        self.repair_button.clicked.connect(self._repair)
         self.migrate_button = QtWidgets.QPushButton("迁移到当前固件")
         self.migrate_button.clicked.connect(self._migrate)
         self.cleanup_residue_button = QtWidgets.QPushButton("清理固件残留")
@@ -3347,6 +3360,12 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         layout.setSpacing(_rmtool.SUBSECTION_GAP)
         layout.addWidget(migration_title)
         layout.addWidget(self.status_label)
+        recovery_row = QtWidgets.QHBoxLayout()
+        recovery_row.setSpacing(_rmtool.SUBSECTION_GAP)
+        recovery_row.addWidget(self.recovery_detect_button)
+        recovery_row.addWidget(self.repair_button)
+        recovery_row.addStretch(1)
+        layout.addLayout(recovery_row)
         detect_row = QtWidgets.QHBoxLayout()
         detect_row.setSpacing(_rmtool.SUBSECTION_GAP)
         detect_row.addWidget(self.detect_button)
@@ -3367,14 +3386,201 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         self._on_connection_changed(self.ssh_client.is_connected())
 
     def _on_connection_changed(self, connected: bool):
+        connected = bool(connected)
+        if connected != self._connected:
+            self._connected = connected
+            self._connection_generation += 1
+            self._report = None
+            self._report_session = None
+            self._recovery_report = None
+            self._recovery_session = None
+            self._busy = False
+            self.status_label.setText(
+                "设备已连接，尚未检测恢复或迁移状态" if connected else "设备未连接"
+            )
         active = connected and not self._busy
         self.detect_button.setEnabled(active)
+        self.recovery_detect_button.setEnabled(active)
+        self.repair_button.setEnabled(
+            active and self._recovery_report is not None
+            and self._recovery_report.can_repair
+        )
         self.cleanup_button.setEnabled(active)
         self.migrate_button.setEnabled(
             active and self._report is not None and self._report.migratable
         )
         self.cleanup_residue_button.setEnabled(
             active and self._report is not None and bool(self._report.features)
+        )
+
+    def _session_token(self):
+        return self._connection_generation, getattr(self.ssh_client, "_client", None)
+
+    def _session_current(self, token):
+        generation, client = token
+        return (
+            generation == self._connection_generation
+            and client is getattr(self.ssh_client, "_client", None)
+            and self.ssh_client.is_connected()
+        )
+
+    def _run_in_session(self, session, fn, *args):
+        with self.ssh_client.operation_session():
+            if not self._session_current(session):
+                raise RuntimeError("设备连接已变化，请重新检测后操作")
+            return fn(*args)
+
+    def _close_session(self, session):
+        with getattr(self.ssh_client, "_state_lock", nullcontext()):
+            if self._session_current(session):
+                self.ssh_client.close()
+
+    def _apply_status(self, report):
+        self._recovery_report = report
+        self._recovery_session = self._session_token()
+        labels = {
+            _plugin_recovery.RecoveryState.NOT_NEEDED: "无需修复",
+            _plugin_recovery.RecoveryState.REPAIR_AVAILABLE: "可修复并重装",
+            _plugin_recovery.RecoveryState.UNSUPPORTED: "当前固件不支持自动修复，请等待精确匹配的资源包",
+            _plugin_recovery.RecoveryState.BLOCKED: (
+                "无法安全自动修复，请导出诊断日志交由维护者核对；不要手动跳过校验"
+            ),
+        }
+        lines = [labels[report.state], report.detail]
+        if report.features:
+            lines.append("涉及共享插件：" + "、".join(report.features))
+        lines.extend(report.issues)
+        if report.backup_path:
+            lines.append("原安装备份：" + report.backup_path)
+        self.status_label.setText("\n".join(line for line in lines if line))
+        self._on_connection_changed(self.ssh_client.is_connected())
+
+    def _start_worker(
+        self, fn, *args, pending: str, on_done=None, show_errors=True,
+        session=None, repairing=False,
+    ):
+        if self._busy or not self.ssh_client.is_connected():
+            if on_done is not None:
+                on_done()
+            return
+        session = self._session_token() if session is None else session
+        if not self._session_current(session):
+            if on_done is not None:
+                on_done()
+            return
+        if repairing:
+            self._report = None
+        self._busy = True
+        self._on_connection_changed(True)
+        self.status_label.setText(pending)
+
+        def execute():
+            # Check identity after acquiring the transport lock, including queued work.
+            return self._run_in_session(session, fn, *args)
+
+        worker = _rmtool.Worker(execute)
+        completed = False
+
+        def finish(report=None, exc=None):
+            nonlocal completed
+            if completed:
+                return
+            completed = True
+            try:
+                if sip.isdeleted(self) or not self._session_current(session):
+                    return
+                self._busy = False
+                self._on_connection_changed(True)
+                if exc is None:
+                    self._apply_status(report)
+                    if (
+                        repairing
+                        and report.state == _plugin_recovery.RecoveryState.NOT_NEEDED
+                        and not report.can_repair
+                        and report.backup_path
+                    ):
+                        message = (
+                            "修复并重装完成，尚未重启设备。请先按下方保护状态说明处理，"
+                            "再从设备菜单手动重启。若原有紧急停用仍保留，请重新连接，"
+                            "在“原生简体中文”中检测状态并使用“清除紧急停用”；"
+                            "校验未通过时不要解除保护。\n"
+                            + "\n".join((report.detail, *report.issues))
+                            + f"\n原安装备份保留在：{report.backup_path}"
+                        )
+                        # Close only the originating client, before opening another dialog.
+                        self._close_session(session)
+                        self.status_label.setText(message)
+                        show_info(self, _rmtool.APP_NAME, message)
+                elif isinstance(exc, _package_download.PackageDownloadError):
+                    self.status_label.setText("资源包下载失败，可手动加载后重试")
+
+                    def retry():
+                        if not sip.isdeleted(self) and self._session_current(session):
+                            self._repair()
+
+                    if show_errors:
+                        _show_package_download_error(self, exc, retry=retry)
+                else:
+                    self._recovery_report = None
+                    self._on_connection_changed(True)
+                    guidance = (
+                        "未自动重启设备。恢复的旧程序不代表已通过校验；请勿重启或解除紧急停用，"
+                        "先重新检测并保留备份，必要时导出诊断日志。"
+                        if repairing else "未自动重启设备，请重新检测；必要时导出诊断日志。"
+                    )
+                    message = f"恢复操作未完成：{exc}\n{guidance}"
+                    self.status_label.setText(message)
+                    logging.error("Plugin recovery failed: %s", exc)
+                    if show_errors:
+                        show_error(self, _rmtool.APP_NAME, message)
+            finally:
+                if on_done is not None:
+                    on_done()
+
+        worker.signals.finished.connect(lambda report: finish(report=report))
+        worker.signals.error.connect(lambda exc: finish(exc=exc))
+        try:
+            self.thread_pool.start(worker)
+        except Exception as exc:
+            finish(exc=exc)
+
+    def _start_status_detection(self, *, on_done=None, show_errors=True):
+        self._start_worker(
+            _plugin_recovery.inspect_recovery, self.ssh_client,
+            pending="正在只读检测共享插件恢复状态…",
+            on_done=on_done, show_errors=show_errors,
+        )
+
+    @require_connection
+    def _repair(self):
+        report = self._recovery_report
+        if self._busy or report is None or not report.can_repair:
+            return
+        session = self._recovery_session
+        if session is None or not self._session_current(session):
+            return
+        if not ask_confirmation(
+            self, "修复并重装",
+            "rmtool 将重新核对安装归属与当前固件，下载并校验全部所需资源包，"
+            "再隔离原安装并用受信资源包重建已知程序，不沿用损坏的旧程序。"
+            "这会影响同一共享运行时中全部已启用的插件，并保留各插件启用/停用状态。\n"
+            f"涉及插件：{'、'.join(report.features) or '以重新检测结果为准'}\n"
+            "原安装备份将保留，现有设置、字体、书籍等用户数据不会删除。"
+            "修复期间会开启紧急停用保护；完整校验成功后仅解除本次新增的保护，"
+            "原有保护保持不变，失败时保留保护。不会自动启动插件或重启设备。"
+            "完成后请按结果说明处理原有保护，再从设备菜单手动重启。是否继续？",
+            confirm_text="修复并重装", cancel_text="取消",
+            danger=True,
+        ):
+            return
+        if (
+            sip.isdeleted(self) or not self._session_current(session)
+            or report is not self._recovery_report
+        ):
+            return
+        self._start_worker(
+            _plugin_recovery.repair, self.ssh_client, _rmtool.app_state_dir(),
+            pending="正在校验资源包并修复共享插件…", session=session, repairing=True,
         )
 
     def _report_text(self, report) -> str:
@@ -3405,21 +3611,29 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
 
     @require_connection
     def _detect(self):
+        if self._busy:
+            return
+        session = self._session_token()
+        self._report = None
+        self._report_session = None
         self._busy = True
         self._on_connection_changed(True)
         self.status_label.setText("正在验证共享 Xovi 固件残留…")
-        worker = _rmtool.Worker(_residue_migration.inspect_residue, self.ssh_client)
+        worker = _rmtool.Worker(
+            self._run_in_session, session, _residue_migration.inspect_residue, self.ssh_client
+        )
 
         def on_finished(report):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(session):
                 return
             self._busy = False
             self._report = report
+            self._report_session = session
             self._on_connection_changed(self.ssh_client.is_connected())
             self.status_label.setText(self._report_text(report))
 
         def on_error(exc: Exception):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(session):
                 logging.error("Residue detection failed after tab close: %s", exc)
                 return
             self._busy = False
@@ -3434,10 +3648,14 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
 
     @require_connection
     def _migrate(self):
-        if self._report is None or not self._report.migratable:
+        if self._busy or self._report is None or not self._report.migratable:
+            return
+        report = self._report
+        session = self._report_session
+        if session is None or not self._session_current(session):
             return
         features = "、".join(
-            item.label for item in self._report.features if item.enabled
+            item.label for item in report.features if item.enabled
         )
         if not ask_confirmation(
             self,
@@ -3451,15 +3669,21 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         ):
             return
 
+        if (sip.isdeleted(self) or not self._session_current(session)
+                or self._busy or report is not self._report):
+            return
+        self._recovery_report = None
+        self._recovery_session = None
         self._busy = True
         self._on_connection_changed(True)
         self.status_label.setText("正在验证并迁移共享 Xovi 插件…")
         worker = _rmtool.Worker(
+            self._run_in_session, session,
             _residue_migration.migrate, self.ssh_client, _rmtool.app_state_dir()
         )
 
         def on_finished(report):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(session):
                 return
             self._busy = False
             self._report = None
@@ -3473,7 +3697,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             )
 
         def on_error(exc: Exception):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(session):
                 logging.error("Residue migration failed after tab close: %s", exc)
                 return
             self._busy = False
@@ -3482,7 +3706,11 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                 # Download failed before any device change; keep the session.
                 self.status_label.setText("资源包下载失败，可手动加载后重试")
                 logging.error("Residue migration package download failed: %s", exc)
-                _show_package_download_error(self, exc, retry=self._migrate)
+                def retry():
+                    if not sip.isdeleted(self) and self._session_current(session):
+                        self._migrate()
+
+                _show_package_download_error(self, exc, retry=retry)
                 return
             self.status_label.setText(f"插件迁移失败：{exc}")
             logging.error("Residue migration failed: %s", exc)
@@ -3494,9 +3722,13 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
 
     @require_connection
     def _cleanup_residue(self):
-        if self._report is None or not self._report.features:
+        if self._busy or self._report is None or not self._report.features:
             return
-        features = "、".join(item.label for item in self._report.features)
+        report = self._report
+        session = self._report_session
+        if session is None or not self._session_current(session):
+            return
+        features = "、".join(item.label for item in report.features)
         if not ask_confirmation(
             self,
             "清理固件升级残留",
@@ -3509,18 +3741,25 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         ):
             return
 
+        if (sip.isdeleted(self) or not self._session_current(session)
+                or self._busy or report is not self._report):
+            return
+        self._recovery_report = None
+        self._recovery_session = None
         self._busy = True
         self._on_connection_changed(True)
         self.status_label.setText("正在重新验证并清理共享 Xovi 固件残留…")
-        worker = _rmtool.Worker(_residue_migration.cleanup, self.ssh_client)
+        worker = _rmtool.Worker(
+            self._run_in_session, session, _residue_migration.cleanup, self.ssh_client
+        )
 
         def on_finished(_report):
-            if sip.isdeleted(self):
-                self.ssh_client.close()
+            if sip.isdeleted(self) or not self._session_current(session):
                 return
             self._busy = False
             self._report = None
             self._on_connection_changed(self.ssh_client.is_connected())
+            self._close_session(session)
             self.status_label.setText("固件升级残留已清理。")
             show_info(
                 self,
@@ -3528,10 +3767,9 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                 "已清理通过旧固件清单验证的共享 Xovi 残留。SSH 会话已关闭；"
                 "重新连接后可安装当前固件支持的功能。",
             )
-            self.ssh_client.close()
 
         def on_error(exc: Exception):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(session):
                 logging.error("Firmware residue cleanup failed after tab close: %s", exc)
                 return
             self._busy = False
@@ -3546,6 +3784,9 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
 
     @require_connection
     def _cleanup(self):
+        if self._busy:
+            return
+        session = self._session_token()
         if not ask_confirmation(
             self,
             "一键卸载旧版插件",
@@ -3559,13 +3800,19 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         ):
             return
 
+        if sip.isdeleted(self) or not self._session_current(session) or self._busy:
+            return
+        self._recovery_report = None
+        self._recovery_session = None
         self._busy = True
         self._on_connection_changed(True)
         self.cleanup_status_label.setText("正在验证并卸载 rmtool 历史 Vellum 功能包…")
-        worker = _rmtool.Worker(_legacy_vellum.remove_legacy_plugins, self.ssh_client)
+        worker = _rmtool.Worker(
+            self._run_in_session, session, _legacy_vellum.remove_legacy_plugins, self.ssh_client
+        )
 
         def on_finished(removed: tuple[str, ...]):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(session):
                 return
             self._busy = False
             self._on_connection_changed(self.ssh_client.is_connected())
@@ -3582,7 +3829,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                 show_info(self, _rmtool.APP_NAME, "没有需要卸载的 rmtool 旧版插件。")
 
         def on_error(exc: Exception):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(session):
                 logging.error("Legacy Vellum cleanup failed after tab close: %s", exc)
                 return
             self._busy = False
@@ -3807,6 +4054,7 @@ class ToolboxTab(QtWidgets.QWidget):
             self.reading_enhancements_section,
             self.note_enhancements_section,
             self.tap_page_turn_section,
+            self.legacy_plugin_section,
         )
         self._device_identity = None
         self._identity_probe_running = False
@@ -3876,9 +4124,9 @@ class ToolboxTab(QtWidgets.QWidget):
             {
                 "title": "旧版插件迁移/清理",
                 "category": "设备维护",
-                "keywords": "Vellum AppLoader Xovi 卸载 残留 迁移 固件升级",
+                "keywords": "Vellum AppLoader Xovi 卸载 残留 迁移 固件升级 修复 重装 恢复",
                 "section": self.legacy_plugin_section,
-                "status": None,
+                "status": self.legacy_plugin_section.status_label,
             },
         )
 
@@ -4032,6 +4280,21 @@ class ToolboxTab(QtWidgets.QWidget):
         content_layout.addWidget(title_label)
         content_layout.addWidget(divider)
         content_layout.addWidget(section)
+        if section in self._detectable_sections and section is not self.legacy_plugin_section:
+            recovery_link = QtWidgets.QPushButton("查看共享插件恢复")
+            recovery_link.setObjectName("pluginRecoveryLink")
+            recovery_link.clicked.connect(self._show_plugin_recovery)
+
+            def update_recovery_link(text):
+                if sip.isdeleted(recovery_link):
+                    return
+                recovery_link.setVisible(any(word in text for word in (
+                    "失败", "不完整", "不可信", "不可验证", "被修改", "残留", "SHA", "需要修复",
+                )))
+
+            section.status_label.text_changed.connect(update_recovery_link)
+            update_recovery_link(section.status_label.text())
+            content_layout.addWidget(recovery_link)
         content_layout.addStretch()
 
         scroll = QtWidgets.QScrollArea()
@@ -4063,6 +4326,14 @@ class ToolboxTab(QtWidgets.QWidget):
     @staticmethod
     def _status_summary(text: str) -> str:
         text = text.strip()
+        if text.startswith("可修复并重装"):
+            return "可修复"
+        if text.startswith("无法安全自动修复"):
+            return "已阻止"
+        if text.startswith("当前固件不支持自动修复"):
+            return "不支持"
+        if text.startswith("无需修复"):
+            return "无需修复"
         if any(word in text for word in ("失败", "不完整", "被修改", "需要修复", "残留")):
             return "需处理"
         if any(word in text for word in ("可安全更新", "可安全修复", "修复并更新")):
@@ -4082,6 +4353,16 @@ class ToolboxTab(QtWidgets.QWidget):
         if any(word in text for word in ("已启用", "已加载", "正在运行")):
             return "已启用"
         return "已检测"
+
+    def _show_plugin_recovery(self):
+        self.search_input.clear()
+        self.category_combo.setCurrentIndex(0)
+        row = next(
+            row for row, entry in enumerate(self._tool_entries)
+            if entry["section"] is self.legacy_plugin_section
+        )
+        self.tool_table.setCurrentCell(row, 0)
+        self.legacy_plugin_section._start_status_detection(show_errors=False)
 
     def _refresh_row_status(self, row: int):
         entry = self._tool_entries[row]

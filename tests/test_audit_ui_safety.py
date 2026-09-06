@@ -258,13 +258,13 @@ class UiSafetyTests(unittest.TestCase):
                 toolbox._detect_all_statuses()
                 completed = 1
                 while toolbox._detect_all_busy:
-                    self.assertLess(completed, 6)
+                    self.assertLess(completed, 7)
                     worker = self.pool.start.call_args.args[0]
                     section = toolbox._detectable_sections[toolbox._detect_all_index - 1]
                     with mock.patch.object(section, "_apply_status"):
                         worker.signals.finished.emit(None)
                     completed += 1
-                self.assertEqual(self.pool.start.call_count, 5)
+                self.assertEqual(self.pool.start.call_count, 6)
                 self.assertTrue(busy_section._busy)
                 self.assertEqual(busy_section.status_label.text(), "installing")
                 self.assertTrue(toolbox.detect_all_button.isEnabled())

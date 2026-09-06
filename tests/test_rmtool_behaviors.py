@@ -1403,6 +1403,7 @@ class WallpaperUiTests(unittest.TestCase):
             ("reading", toolbox.reading_enhancements_section),
             ("note", toolbox.note_enhancements_section),
             ("tap", toolbox.tap_page_turn_section),
+            ("recovery", toolbox.legacy_plugin_section),
         ):
             def start(*, on_done, show_errors, current_name=name):
                 calls.append((current_name, show_errors))
@@ -1418,10 +1419,10 @@ class WallpaperUiTests(unittest.TestCase):
         # so detect-all skips it without starting a detection.
         toolbox.detect_all_button.click()
         self.assertEqual(calls, [("native", False)])
-        self.assertEqual(toolbox.detect_all_button.text(), "正在检测 1/5")
+        self.assertEqual(toolbox.detect_all_button.text(), "正在检测 1/6")
         self.assertFalse(toolbox.detect_all_button.isEnabled())
 
-        for expected in ("pinyin", "reading", "note"):
+        for expected in ("pinyin", "reading", "note", "recovery"):
             pending.pop(0)()
             self.assertEqual(calls[-1], (expected, False))
 
@@ -1433,6 +1434,7 @@ class WallpaperUiTests(unittest.TestCase):
                 ("pinyin", False),
                 ("reading", False),
                 ("note", False),
+                ("recovery", False),
             ],
         )
         self.assertEqual(toolbox.detect_all_button.text(), "检测全部插件")
@@ -2060,7 +2062,10 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertEqual(section.cleanup_button.text(), "一键卸载旧版插件")
         self.assertIn("全部通过后才开始删除", ask.call_args.args[2])
         self.assertIn("不会被卸载", ask.call_args.args[2])
-        worker_cls.assert_called_once_with(_legacy_vellum.remove_legacy_plugins, client)
+        worker_cls.assert_called_once_with(
+            section._run_in_session, section._session_token(),
+            _legacy_vellum.remove_legacy_plugins, client,
+        )
         self.assertIn("rmtool-tap-page-turn", section.cleanup_status_label.text())
         self.assertIn("本体仍保留", show_info.call_args.args[2])
 
@@ -2185,7 +2190,9 @@ class WallpaperUiTests(unittest.TestCase):
         self.addCleanup(section.deleteLater)
         report = self._migration_report(migratable=False)
         section._report = report
+        section._report_session = section._session_token()
         section._on_connection_changed(True)
+        session = section._session_token()
         worker = mock.Mock()
         worker.signals = mock.Mock()
 
@@ -2203,7 +2210,9 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertIn("逐文件验证", ask.call_args.args[2])
         self.assertIn("不会在当前固件重建", ask.call_args.args[2])
         self.assertEqual(ask.call_args.kwargs["confirm_text"], "清理残留")
-        worker_cls.assert_called_once_with(_residue_migration.cleanup, client)
+        worker_cls.assert_called_once_with(
+            section._run_in_session, session, _residue_migration.cleanup, client,
+        )
         self.assertIn("共享 Xovi 残留", show_info.call_args.args[2])
         self.assertEqual(client.close_calls, 1)
 
@@ -2221,6 +2230,7 @@ class WallpaperUiTests(unittest.TestCase):
         )
 
         section._report = report
+        section._report_session = section._session_token()
         section._on_connection_changed(True)
 
         self.assertFalse(section.migrate_button.isEnabled())
@@ -2254,6 +2264,7 @@ class WallpaperUiTests(unittest.TestCase):
             self.assertIn("逐文件验证", ask.call_args.args[2])
             self.assertIn("手动重启", ask.call_args.args[2])
             worker_cls.assert_called_once_with(
+                section._run_in_session, section._session_token(),
                 _residue_migration.migrate, client, Path("state")
             )
             worker.signals.finished.connect.call_args.args[0](None)
