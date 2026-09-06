@@ -295,32 +295,13 @@ def _cache_path(state_dir: str, package: PinyinInputPackage) -> Path:
 
 
 def download_package(package: PinyinInputPackage, state_dir: str) -> Path:
-    destination = _cache_path(state_dir, package)
-    if destination.is_file():
-        data = destination.read_bytes()
-        if len(data) == package.size and hashlib.sha256(data).hexdigest() == package.sha256:
-            return destination
-    last_error: Optional[Exception] = None
-    for url in package.download_urls:
-        try:
-            data = tap._download_limited(url, MAX_PACKAGE_BYTES)
-            if len(data) != package.size or hashlib.sha256(data).hexdigest() != package.sha256:
-                raise RuntimeError("拼音输入法包与内置信任清单不匹配。")
-            tap._write_atomic(destination, data)
-            return destination
-        except Exception as exc:
-            last_error = exc
-            logging.warning("Could not download Pinyin package from %s: %s", url, exc)
-    raise _package_download.PackageDownloadError(
-        "拼音输入",
-        package.asset,
-        package.download_urls,
-        package.size,
-        package.sha256,
-        store=lambda source_path: load_local_package(
-            package, source_path, state_dir
-        ),
-    ) from last_error
+    return _package_download.download_verified_package(
+        package, _cache_path(state_dir, package), MAX_PACKAGE_BYTES,
+        feature_label="拼音输入",
+        mismatch_message="拼音输入法包与内置信任清单不匹配。",
+        log_label="Pinyin",
+        store=lambda source_path: load_local_package(package, source_path, state_dir),
+    )
 
 
 def load_local_package(
