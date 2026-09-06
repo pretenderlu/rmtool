@@ -2507,7 +2507,7 @@ def migrate_shared(
                 (residue.layout,) if residue.layout != SHARED_LAYOUT else ()
             )
             script = shared_transaction_script(
-                stage, token, migrated_layouts, enable_dropin=True
+                stage, token, migrated_layouts, enable_dropin=bool(enabled_ids)
             )
             _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
             ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")

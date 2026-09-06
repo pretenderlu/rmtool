@@ -1432,6 +1432,8 @@ class RmkitCnSection(QtWidgets.QWidget):
         success: str = "",
         error_hint: str = "若设备界面无响应，请手动重启设备。",
     ):
+        if self._busy:
+            return
         self._set_busy(True, pending)
         worker = _rmtool.Worker(fn, *args)
 
@@ -1471,6 +1473,8 @@ class RmkitCnSection(QtWidgets.QWidget):
         success_status: str,
         success_message,
     ):
+        if self._busy:
+            return
         self._set_busy(True, pending)
         worker = _rmtool.Worker(fn, *args)
 
@@ -1855,6 +1859,10 @@ class NativeChineseSection(QtWidgets.QWidget):
         on_done=None,
         show_errors: bool = True,
     ):
+        if self._busy:
+            if on_done is not None:
+                on_done()
+            return
         self._set_busy(True, pending)
         worker = _rmtool.Worker(fn, *args)
 
@@ -2199,6 +2207,10 @@ class PinyinInputSection(QtWidgets.QWidget):
         on_done=None,
         show_errors: bool = True,
     ):
+        if self._busy:
+            if on_done is not None:
+                on_done()
+            return
         self._busy = True
         self.status_label.setText(pending)
         self._update_buttons()
@@ -2590,6 +2602,10 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         on_done=None,
         show_errors: bool = True,
     ):
+        if self._busy:
+            if on_done is not None:
+                on_done()
+            return
         self._set_busy(True, pending)
         worker = _rmtool.Worker(fn, *args)
 
@@ -2962,6 +2978,7 @@ class TapPageTurnSection(QtWidgets.QWidget):
             self.disable_button.setText("卸载旧版")
         else:
             self.disable_button.setText("停用")
+        self.detect_button.setEnabled(connected)
         self.enable_button.setEnabled(
             connected
             and self._status is not None
@@ -3091,6 +3108,10 @@ class TapPageTurnSection(QtWidgets.QWidget):
         on_done=None,
         show_errors: bool = True,
     ):
+        if self._busy:
+            if on_done is not None:
+                on_done()
+            return
         self._set_busy(True, pending)
         worker = _rmtool.Worker(fn, *args)
 

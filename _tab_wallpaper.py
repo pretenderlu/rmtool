@@ -5,7 +5,9 @@ import logging
 import os
 import posixpath
 import random
+import shlex
 import tempfile
+import uuid
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Dict, List, Optional, Sequence, Set, Tuple
@@ -1067,7 +1069,7 @@ class WallpaperTab(QtWidgets.QWidget):
 
     def _blank_carousel_overlays(self) -> int:
         """Worker entry: back up originals (once), then blank every overlay."""
-        with remount_rw(self.ssh_client):
+        with self.ssh_client.operation_session(), remount_rw(self.ssh_client):
             return self._blank_carousel_overlays_locked()
 
     def _migrate_legacy_carousel_backups(self) -> None:
@@ -1095,18 +1097,20 @@ class WallpaperTab(QtWidgets.QWidget):
             )
         logging.info("Migrated %d legacy carousel backup(s)", len(legacy))
 
-    def _blank_carousel_overlays_locked(self) -> int:
+    def _blank_carousel_overlays_locked(self, wallpaper=None) -> int:
         """Blank carousel overlays; caller must hold a read-write mount."""
         try:
             entries = self.ssh_client.listdir_attr(_CAROUSEL_DIR)
-        except Exception:
-            return 0
+        except FileNotFoundError:
+            entries = []
         png_files = [
             entry.filename
             for entry in entries
             if entry.filename.lower().endswith(".png")
         ]
         if not png_files:
+            if wallpaper is not None:
+                self._replace_wallpaper_files_locked([wallpaper])
             return 0
 
         self.ssh_client.exec_checked(f"mkdir -p {_CAROUSEL_BACKUP_DIR}")
@@ -1116,20 +1120,19 @@ class WallpaperTab(QtWidgets.QWidget):
         os.close(fd)
         try:
             Image.new("RGBA", (1, 1), (0, 0, 0, 0)).save(transparent_path, format="PNG")
+            replacements = [wallpaper] if wallpaper is not None else []
             for filename in png_files:
                 remote = f"{_CAROUSEL_DIR}/{filename}"
                 backup = f"{_CAROUSEL_BACKUP_DIR}/{filename}"
                 if not self.ssh_client.file_exists(backup):
                     # Never back up an already-blanked placeholder as if it
                     # were the original artwork.
-                    try:
-                        with self.ssh_client.open_remote(remote, "rb") as remote_file:
-                            current = remote_file.read()
-                    except Exception:
-                        current = b""
-                    if current and not _is_transparent_placeholder(current):
-                        self.ssh_client.exec_checked(f"cp {remote} {backup}")
-                self.ssh_client.transfer_file(transparent_path, remote)
+                    with self.ssh_client.open_remote(remote, "rb") as remote_file:
+                        current = remote_file.read()
+                    if not current or _is_transparent_placeholder(current):
+                        backup = None
+                replacements.append((transparent_path, remote, backup))
+            self._replace_wallpaper_files_locked(replacements)
             logging.info("Blanked %d carousel overlay(s)", len(png_files))
             return len(png_files)
         finally:
@@ -1712,12 +1715,86 @@ class WallpaperTab(QtWidgets.QWidget):
         self.thread_pool.start(worker)
 
     def _do_upload_wallpaper(self, temp_path: str, wallpaper_path: str):
-        with remount_rw(self.ssh_client):
-            self.ssh_client.exec_checked(f"cp {wallpaper_path} {wallpaper_path}.backup")
-            self.ssh_client.transfer_file(temp_path, wallpaper_path)
-
+        with self.ssh_client.operation_session(), remount_rw(self.ssh_client):
+            backup = wallpaper_path + ".backup"
+            if posixpath.dirname(wallpaper_path) == _CAROUSEL_DIR:
+                backup = f"{_CAROUSEL_BACKUP_DIR}/{posixpath.basename(wallpaper_path)}"
+            replacement = (temp_path, wallpaper_path, backup)
             if wallpaper_path.endswith("suspended.png"):
-                self._blank_carousel_overlays_locked()
+                self._blank_carousel_overlays_locked(replacement)
+            else:
+                self._replace_wallpaper_files_locked([replacement])
+
+    def _replace_wallpaper_files_locked(self, replacements):
+        """Stage the whole wallpaper/overlay group before replacing live files."""
+        ssh = self.ssh_client
+        quote = shlex.quote
+        staged = []
+        attempted = []
+        directories = []
+        preserve = set()
+
+        def digest(remote):
+            hasher = hashlib.sha256()
+            with ssh.open_remote(remote, "rb") as source:
+                for chunk in iter(lambda: source.read(65536), b""):
+                    hasher.update(chunk)
+            return hasher.digest()
+
+        try:
+            for local, remote, backup in replacements:
+                # Carousel firmware scans every top-level file, even .tmp files.
+                directory = posixpath.join(
+                    posixpath.dirname(remote), ".rmtool-wallpaper-" + uuid.uuid4().hex
+                )
+                ssh.exec_checked(f"mkdir {quote(directory)}")
+                directories.append(directory)
+                incoming = directory + "/incoming"
+                original = directory + "/original"
+                old_digest = digest(remote)
+                ssh.exec_checked(f"cp -p {quote(remote)} {quote(original)}")
+                if digest(original) != old_digest:
+                    raise RuntimeError("壁纸原图备份校验失败")
+                with open(local, "rb") as source:
+                    expected = hashlib.sha256(source.read()).digest()
+                ssh.transfer_file(local, incoming)
+                if digest(incoming) != expected:
+                    raise RuntimeError("壁纸上传校验失败")
+                ssh.exec_checked(f"chmod 644 {quote(incoming)}")
+                if backup and not ssh.file_exists(backup):
+                    backup_stage = directory + "/backup"
+                    ssh.exec_checked(f"mkdir -p {quote(posixpath.dirname(backup))}")
+                    ssh.exec_checked(f"cp -p {quote(original)} {quote(backup_stage)}")
+                    if digest(backup_stage) != old_digest:
+                        raise RuntimeError("壁纸恢复备份校验失败")
+                    ssh.exec_checked(f"mv {quote(backup_stage)} {quote(backup)}")
+                staged.append((remote, incoming, original, expected, directory))
+
+            for entry in staged:
+                remote, incoming, original, expected, directory = entry
+                # Record before mv: a lost acknowledgement may follow success.
+                attempted.append(entry)
+                ssh.exec_checked(f"mv {quote(incoming)} {quote(remote)}")
+                if digest(remote) != expected:
+                    raise RuntimeError("壁纸替换后校验失败")
+        except Exception:
+            for remote, incoming, original, expected, directory in reversed(attempted):
+                try:
+                    original_digest = digest(original)
+                    ssh.exec_checked(f"mv {quote(original)} {quote(remote)}")
+                    if digest(remote) != original_digest:
+                        raise RuntimeError("壁纸回滚校验失败")
+                except Exception:
+                    preserve.add(directory)
+                    logging.exception("Wallpaper rollback failed; recovery files: %s", directory)
+            raise
+        finally:
+            for directory in directories:
+                if directory not in preserve:
+                    try:
+                        ssh.exec_checked(f"rm -rf {quote(directory)}")
+                    except Exception:
+                        logging.exception("Failed to remove wallpaper staging directory %s", directory)
 
     def _close_wallpaper_progress(self, temp_path: str):
         if hasattr(self, "_wallpaper_progress") and self._wallpaper_progress:

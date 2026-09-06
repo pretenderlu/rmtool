@@ -6,10 +6,12 @@ require_connection decorator live here to keep rmtool.py focused on UI.
 
 import inspect
 import logging
+import math
 import os
 import socket
 import stat
 import threading
+import time
 from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
@@ -275,6 +277,17 @@ class SSHClientWrapper(QtCore.QObject):
             return client
 
     @contextmanager
+    def operation_session(self) -> Iterator[None]:
+        """Serialize a multi-step operation against transfers and reconnects.
+
+        close() remains nonblocking and cancels the operation. A new connection
+        cannot replace the cancelled client until the entire context exits.
+        """
+        with self._transport_lock:
+            self.ensure_client()
+            yield
+
+    @contextmanager
     def sftp_session(self) -> Iterator[paramiko.SFTPClient]:
         with self._transport_lock:
             client = self.ensure_client()
@@ -301,22 +314,111 @@ class SSHClientWrapper(QtCore.QObject):
             return False
 
     # -- Command execution ---------------------------------------------------
-    def exec_command(self, command: str) -> Tuple[str, str, int]:
-        """Execute *command* and return ``(stdout, stderr, exit_code)``."""
+    def exec_command(
+        self, command: str, *, timeout: float = 1800
+    ) -> Tuple[str, str, int]:
+        """Return UTF-8 stdout, stderr and status, draining both streams.
+
+        The generous total deadline accommodates silent extraction, hashing and
+        installer scripts. Callers may request a longer finite deadline. Timeout
+        disconnects the session: the remote transaction's outcome is unknown,
+        so callers must not blindly retry or issue rollback on this connection.
+        """
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be positive and finite")
         with self._transport_lock:
             client = self.ensure_client()
             logging.info("Executing command: %s", command)
-            _stdin, stdout, stderr = client.exec_command(command)
-            exit_code = stdout.channel.recv_exit_status()
-            return (
-                stdout.read().decode("utf-8"),
-                stderr.read().decode("utf-8"),
-                exit_code,
-            )
+            done = threading.Event()
+            errors = []
+            result = [b"", b"", -1]
 
-    def exec_checked(self, command: str) -> str:
+            def execute():
+                streams = ()
+                stderr_reader = None
+                try:
+                    streams = client.exec_command(command)
+                    _stdin, stdout, stderr = streams
+
+                    def read_stderr():
+                        try:
+                            result[1] = stderr.read()
+                        except Exception as exc:
+                            errors.append(exc)
+                            try:
+                                stdout.channel.close()
+                            except Exception:
+                                logging.exception("Failed to close failed SSH command channel")
+
+                    # Separate readers share ONE channel/window, not concurrent
+                    # SSH sessions. Waiting for status first deadlocks on floods.
+                    stderr_reader = threading.Thread(target=read_stderr, daemon=True)
+                    stderr_reader.start()
+                    result[0] = stdout.read()
+                    stderr_reader.join()
+                    result[2] = stdout.channel.recv_exit_status()
+                except Exception as exc:
+                    errors.append(exc)
+                finally:
+                    try:
+                        if streams:
+                            close_channel = getattr(streams[1].channel, "close", None)
+                            if close_channel:
+                                try:
+                                    close_channel()
+                                except Exception:
+                                    logging.exception("Failed to close SSH command channel")
+                        for stream in streams:
+                            close = getattr(stream, "close", None)
+                            if close:
+                                try:
+                                    close()
+                                except Exception:
+                                    logging.exception("Failed to close SSH command stream")
+                        if stderr_reader is not None:
+                            stderr_reader.join(timeout=1)
+                            if stderr_reader.is_alive():
+                                errors.append(RuntimeError("SSH 错误输出读取未能停止，连接将关闭"))
+                    finally:
+                        done.set()
+
+            worker = threading.Thread(target=execute, daemon=True)
+            worker.start()
+            deadline = time.monotonic() + timeout
+            try:
+                while not done.wait(min(0.1, max(0, deadline - time.monotonic()))):
+                    with self._state_lock:
+                        if self._client is not client:
+                            raise RuntimeError("连接已断开，命令执行已取消")
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            "命令执行超时，连接已关闭；远端操作结果未知，请重新连接并检查状态后再操作"
+                        )
+                with self._state_lock:
+                    if self._client is not client:
+                        raise RuntimeError("连接已断开，命令执行已取消")
+                if errors:
+                    with self._state_lock:
+                        if self._client is client:
+                            self.close()
+                    raise errors[0]
+                if result[2] == -1:
+                    raise RuntimeError("SSH 通道已关闭，未收到命令退出状态；远端操作结果未知")
+                return result[0].decode("utf-8"), result[1].decode("utf-8"), result[2]
+            except (TimeoutError, RuntimeError):
+                with self._state_lock:
+                    if self._client is client:
+                        self.close()
+                raise
+            finally:
+                worker.join(timeout=1)
+
+    def exec_checked(self, command: str, *, timeout: Optional[float] = None) -> str:
         """Execute *command* and raise on non-zero exit code.  Returns stdout."""
-        stdout, stderr, code = self.exec_command(command)
+        stdout, stderr, code = (
+            self.exec_command(command)
+            if timeout is None else self.exec_command(command, timeout=timeout)
+        )
         if code != 0:
             error_msg = stderr.strip() or stdout.strip() or f"exit code {code}"
             raise RuntimeError(f"命令执行失败: {error_msg}")

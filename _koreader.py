@@ -294,8 +294,30 @@ def _koreader_running(ssh_client: SSHClientWrapper) -> bool:
 for proc in /proc/[0-9]*; do
     exe=$(readlink "$proc/exe" 2>/dev/null || true)
     case "$exe" in {shlex.quote(APPLOAD_INSTALL_DIR)}/*) exit 0 ;; esac
-    cmd=$(tr '\0' ' ' < "$proc/cmdline" 2>/dev/null || true)
-    case "$cmd" in *{shlex.quote(APPLOAD_INSTALL_DIR)}*) exit 0 ;; esac
+    # Inspect interpreter arguments, never the text of a shell -c command.
+    if tr '\\000' '\\n' < "$proc/cmdline" 2>/dev/null | (
+        IFS= read -r program || exit 1
+        case "${{program##*/}}" in sh|bash|dash|ash|lua|luajit) ;; *) exit 1 ;; esac
+        while IFS= read -r arg; do
+            case "${{program##*/}}:$arg" in
+                *:-*c*|lua:-*e*|luajit:-*e*) exit 1 ;;
+            esac
+            case "$arg" in
+                --) break ;;
+                -*) continue ;;
+                *) break ;;
+            esac
+        done
+        if [ "$arg" = -- ]; then IFS= read -r arg || exit 1; fi
+        case "$arg" in
+            /*) script="$arg" ;;
+            *) script="$(readlink "$proc/cwd" 2>/dev/null)/${{arg#./}}" ;;
+        esac
+        case "$script" in
+            {shlex.quote(APPLOAD_INSTALL_DIR)}/koreader.sh|{shlex.quote(APPLOAD_INSTALL_DIR)}/reader.lua) exit 0 ;;
+        esac
+        exit 1
+    ); then exit 0; fi
 done
 exit 1
 """.strip()
@@ -446,9 +468,31 @@ for directory in /home/root/xovi /home/root/xovi/exthome "$TARGET_PARENT"; do
         exit 1
     fi
 done
+# Keep rollback on the device: the client cannot observe a half-finished swap.
+HAD_TARGET=0
+[ ! -d "$TARGET" ] || HAD_TARGET=1
+SWAPPING=0
+rollback_swap() {{
+    result=$?
+    trap - EXIT HUP INT TERM
+    if [ "$result" -ne 0 ]; then
+        if [ -d "$BACKUP" ]; then
+            rm -rf "$TARGET" && mv "$BACKUP" "$TARGET"
+        elif [ "$HAD_TARGET" -eq 0 ] && [ "$SWAPPING" -eq 1 ]; then
+            rm -rf "$TARGET"
+        fi
+    fi
+    exit "$result"
+}}
+trap rollback_swap EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 if [ -d "$TARGET" ]; then mv "$TARGET" "$BACKUP"; fi
+SWAPPING=1
 mv "$STAGE/koreader" "$TARGET"
 rmdir "$STAGE"
+trap - EXIT HUP INT TERM
 """.strip()
             )
             committed = True

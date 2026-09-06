@@ -451,6 +451,16 @@ class DocumentsTab(QtWidgets.QWidget):
             # stale list from the previous connection is never applied.
             self._connection_generation += 1
         self._connected = connected
+        if not connected:
+            self._close_progress_dialog()
+            self.documents = []
+            self._documents_by_id.clear()
+            self.table.setRowCount(0)
+            self._current_preview_request = None
+            self.preview.clear()
+            self._set_preview_placeholder("暂无预览")
+            self._update_results_summary()
+            self.summary_changed.emit(self._build_summary())
         self.refresh_button.setEnabled(connected)
         self.upload_button.setEnabled(connected)
         self._update_action_state()
@@ -607,9 +617,25 @@ class DocumentsTab(QtWidgets.QWidget):
 
     # -- Refresh ---------------------------------------------------------------
     def refresh(self):
+        if not self.ssh_client.is_connected():
+            return
+        connection_generation = self._connection_generation
         worker = _rmtool.Worker(self._load_documents)
-        worker.signals.finished.connect(self._on_documents_loaded)
-        worker.signals.error.connect(self._on_error)
+
+        def on_finished(documents):
+            if sip.isdeleted(self):
+                return
+            if connection_generation == self._connection_generation:
+                self._on_documents_loaded(documents)
+
+        def on_error(exc):
+            if sip.isdeleted(self):
+                return
+            if connection_generation == self._connection_generation:
+                self._on_error(exc)
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
         self.thread_pool.start(worker)
 
     def refresh_quiet(self, on_done) -> None:
@@ -650,6 +676,8 @@ class DocumentsTab(QtWidgets.QWidget):
                     logging.error(
                         "Post-connect document refresh failed after tab close: %s", exc
                     )
+                    return
+                if connection_generation != self._connection_generation:
                     return
                 logging.error("Post-connect document refresh failed: %s", exc)
                 self.status_message.emit("error", f"文档列表刷新失败：{exc}", 4000)
@@ -712,6 +740,7 @@ class DocumentsTab(QtWidgets.QWidget):
         self._set_preview_placeholder("加载预览中...")
         self._current_preview_request = item.identifier
         request_id = item.identifier
+        connection_generation = self._connection_generation
         worker = _rmtool.Worker(self._fetch_preview_cover, item)
 
         # Closures with a liveness guard: a functools.partial would still be
@@ -720,13 +749,15 @@ class DocumentsTab(QtWidgets.QWidget):
         def on_finished(result):
             if sip.isdeleted(self):
                 return
-            self._on_preview_loaded(request_id, result)
+            if connection_generation == self._connection_generation:
+                self._on_preview_loaded(request_id, result)
 
         def on_error(exc: Exception):
             if sip.isdeleted(self):
                 logging.error("Preview load failed after tab close: %s", exc)
                 return
-            self._on_preview_error(request_id, exc)
+            if connection_generation == self._connection_generation:
+                self._on_preview_error(request_id, exc)
 
         worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
@@ -924,6 +955,9 @@ class DocumentsTab(QtWidgets.QWidget):
         if not items:
             show_warning(self, _rmtool.APP_NAME, "请先选择要删除的文档。")
             return
+        connection_generation = self._connection_generation
+        with self.ssh_client._state_lock:
+            client = self.ssh_client._client
         if len(items) == 1:
             confirm_text = f'确定要删除文档「{items[0].name}」吗？此操作不可撤销。'
             progress_text = f'正在删除「{items[0].name}」…'
@@ -941,11 +975,21 @@ class DocumentsTab(QtWidgets.QWidget):
             danger=True,
         ):
             return
-        worker = _rmtool.Worker(self._perform_delete_documents, items)
+        if (
+            connection_generation != self._connection_generation
+            or client is not self.ssh_client._client
+            or not self.ssh_client.is_connected()
+        ):
+            return
+        worker = _rmtool.Worker(
+            self._perform_delete_documents, items, connection_generation, client
+        )
 
         def on_finished(_result):
             if sip.isdeleted(self):
                 # Worker outlived the tab; nothing safe left to update.
+                return
+            if connection_generation != self._connection_generation:
                 return
             self._close_progress_dialog()
             self.status_message.emit("success", success_text, 3000)
@@ -958,6 +1002,8 @@ class DocumentsTab(QtWidgets.QWidget):
                 # raise RuntimeError (and abort the process on macOS).
                 logging.error("Document deletion failed after tab close: %s", exc)
                 return
+            if connection_generation != self._connection_generation:
+                return
             self._close_progress_dialog()
             self._on_error(exc)
 
@@ -967,15 +1013,27 @@ class DocumentsTab(QtWidgets.QWidget):
         self.thread_pool.start(worker)
 
     def _perform_delete(self, item: _rmtool.DocumentItem):
-        self._perform_delete_documents([item])
+        with self.ssh_client._state_lock:
+            client = self.ssh_client._client
+        self._perform_delete_documents([item], self._connection_generation, client)
 
-    def _perform_delete_documents(self, items: List[_rmtool.DocumentItem]):
-        # Remove all files belonging to this document (uuid.* and uuid directory)
-        for item in items:
-            self.ssh_client.exec_checked(
-                f"rm -rf {_rmtool.DOCUMENT_ROOT}/{item.identifier} {_rmtool.DOCUMENT_ROOT}/{item.identifier}.*"
-            )
-        self.ssh_client.exec_checked("systemctl restart xochitl")
+    def _perform_delete_documents(
+        self, items: List[_rmtool.DocumentItem], connection_generation: int, client
+    ):
+        # Hold the transport lock across validation and the entire batch so a
+        # queued deletion cannot follow the wrapper onto a different device.
+        with self.ssh_client.operation_session():
+            if (
+                connection_generation != self._connection_generation
+                or client is None
+                or self.ssh_client.ensure_client() is not client
+            ):
+                raise RuntimeError("设备连接已改变，请刷新列表后重新选择文档")
+            for item in items:
+                self.ssh_client.exec_checked(
+                    f"rm -rf {_rmtool.DOCUMENT_ROOT}/{item.identifier} {_rmtool.DOCUMENT_ROOT}/{item.identifier}.*"
+                )
+            self.ssh_client.exec_checked("systemctl restart xochitl")
 
     # -- Orphan thumbnail cleanup ---------------------------------------------
     @staticmethod
