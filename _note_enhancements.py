@@ -275,32 +275,13 @@ def load_catalog(
 
 
 def download_package(package: NoteEnhancementsPackage, state_dir: str) -> Path:
-    destination = _cache_dir(state_dir) / package.firmware / package.asset
-    if destination.is_file():
-        data = destination.read_bytes()
-        if len(data) == package.size and hashlib.sha256(data).hexdigest() == package.sha256:
-            return destination
-    last_error: Optional[Exception] = None
-    for url in package.download_urls:
-        try:
-            data = tap._download_limited(url, MAX_PACKAGE_BYTES)
-            if len(data) != package.size or hashlib.sha256(data).hexdigest() != package.sha256:
-                raise RuntimeError("笔记增强资源包与清单校验不匹配。")
-            tap._write_atomic(destination, data)
-            return destination
-        except Exception as exc:
-            last_error = exc
-            logging.warning(
-                "Could not download note-enhancements package from %s: %s", url, exc
-            )
-    raise _package_download.PackageDownloadError(
-        "笔记增强",
-        package.asset,
-        package.download_urls,
-        package.size,
-        package.sha256,
+    return _package_download.download_verified_package(
+        package, _cache_dir(state_dir) / package.firmware / package.asset,
+        MAX_PACKAGE_BYTES, feature_label="笔记增强",
+        mismatch_message="笔记增强资源包与清单校验不匹配。",
+        log_label="note-enhancements",
         store=lambda source_path: load_local_package(package, source_path, state_dir),
-    ) from last_error
+    )
 
 
 def load_local_package(

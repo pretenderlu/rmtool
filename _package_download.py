@@ -10,6 +10,8 @@ copy that still passes the manifest size and SHA-256 verification.
 from __future__ import annotations
 
 import hashlib
+import logging
+from pathlib import Path
 from typing import Callable, Optional
 
 
@@ -51,6 +53,35 @@ class PackageDownloadError(RuntimeError):
             f"{mirror_lines}\n"
             "可手动下载任一地址的文件，然后选择“手动加载资源包”完成校验和安装。"
         )
+
+
+def download_verified_package(
+    package, destination: Path, maximum: int, *, feature_label: str,
+    mismatch_message: str, log_label: str, store: Callable[[str], object],
+) -> Path:
+    """Reuse a verified cache or try each mirror before offering manual loading."""
+    # tap imports this module; resolve its helpers at call time to avoid a cycle.
+    import _tap_page_turn as tap
+
+    if destination.is_file():
+        data = destination.read_bytes()
+        if len(data) == package.size and hashlib.sha256(data).hexdigest() == package.sha256:
+            return destination
+    last_error: Optional[Exception] = None
+    for url in package.download_urls:
+        try:
+            data = tap._download_limited(url, maximum)
+            if len(data) != package.size or hashlib.sha256(data).hexdigest() != package.sha256:
+                raise RuntimeError(mismatch_message)
+            tap._write_atomic(destination, data)
+            return destination
+        except Exception as exc:
+            last_error = exc
+            logging.warning("Could not download %s package from %s: %s", log_label, url, exc)
+    raise PackageDownloadError(
+        feature_label, package.asset, package.download_urls,
+        package.size, package.sha256, store=store,
+    ) from last_error
 
 
 def verify_local_package(data: bytes, size: int, sha256: str, feature_label: str) -> None:

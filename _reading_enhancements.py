@@ -406,32 +406,13 @@ def load_catalog(
 
 
 def download_package(package: ReadingEnhancementsPackage, state_dir: str) -> Path:
-    destination = _cache_dir(state_dir) / package.firmware / package.asset
-    if destination.is_file():
-        data = destination.read_bytes()
-        if len(data) == package.size and hashlib.sha256(data).hexdigest() == package.sha256:
-            return destination
-    last_error: Optional[Exception] = None
-    for url in package.download_urls:
-        try:
-            data = tap._download_limited(url, MAX_PACKAGE_BYTES)
-            if len(data) != package.size or hashlib.sha256(data).hexdigest() != package.sha256:
-                raise RuntimeError("阅读增强资源包与清单校验不匹配。")
-            tap._write_atomic(destination, data)
-            return destination
-        except Exception as exc:
-            last_error = exc
-            logging.warning("Could not download reading-enhancements package from %s: %s", url, exc)
-    raise _package_download.PackageDownloadError(
-        "阅读增强",
-        package.asset,
-        package.download_urls,
-        package.size,
-        package.sha256,
-        store=lambda source_path: load_local_package(
-            package, source_path, state_dir
-        ),
-    ) from last_error
+    return _package_download.download_verified_package(
+        package, _cache_dir(state_dir) / package.firmware / package.asset,
+        MAX_PACKAGE_BYTES, feature_label="阅读增强",
+        mismatch_message="阅读增强资源包与清单校验不匹配。",
+        log_label="reading-enhancements",
+        store=lambda source_path: load_local_package(package, source_path, state_dir),
+    )
 
 
 def load_local_package(

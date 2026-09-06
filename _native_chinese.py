@@ -372,32 +372,13 @@ def _cache_path(state_dir: str, package: NativeChinesePackage) -> Path:
 
 
 def download_package(package: NativeChinesePackage, state_dir: str) -> Path:
-    destination = _cache_path(state_dir, package)
-    if destination.is_file():
-        data = destination.read_bytes()
-        if len(data) == package.size and hashlib.sha256(data).hexdigest() == package.sha256:
-            return destination
-    last_error: Optional[Exception] = None
-    for url in package.download_urls:
-        try:
-            data = tap._download_limited(url, MAX_PACKAGE_BYTES)
-            if len(data) != package.size or hashlib.sha256(data).hexdigest() != package.sha256:
-                raise RuntimeError("原生中文包与内置清单不匹配。")
-            tap._write_atomic(destination, data)
-            return destination
-        except Exception as exc:
-            last_error = exc
-            logging.warning("Could not download native Chinese package from %s: %s", url, exc)
-    raise _package_download.PackageDownloadError(
-        "原生简体中文",
-        package.asset,
-        package.download_urls,
-        package.size,
-        package.sha256,
-        store=lambda source_path: load_local_package(
-            package, source_path, state_dir
-        ),
-    ) from last_error
+    return _package_download.download_verified_package(
+        package, _cache_path(state_dir, package), MAX_PACKAGE_BYTES,
+        feature_label="原生简体中文",
+        mismatch_message="原生中文包与内置清单不匹配。",
+        log_label="native Chinese",
+        store=lambda source_path: load_local_package(package, source_path, state_dir),
+    )
 
 
 def load_local_package(
