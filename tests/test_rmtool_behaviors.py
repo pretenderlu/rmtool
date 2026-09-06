@@ -137,6 +137,10 @@ class FakeCarouselClient(QtCore.QObject):
     def is_connected(self):
         return True
 
+    @contextmanager
+    def operation_session(self):
+        yield
+
     def listdir_attr(self, remote_path):
         prefix = remote_path.rstrip("/") + "/"
         children = [
@@ -145,7 +149,7 @@ class FakeCarouselClient(QtCore.QObject):
             if path.startswith(prefix) and "/" not in path[len(prefix):]
         ]
         if not children:
-            raise IOError(remote_path)
+            raise FileNotFoundError(remote_path)
         return children
 
     def open_remote(self, remote_path, _mode="rb"):
@@ -168,9 +172,14 @@ class FakeCarouselClient(QtCore.QObject):
         self.commands.append(command)
         parts = command.split(" ")
         if parts[0] == "cp":
-            self.files[parts[2]] = self.files[parts[1]]
+            self.files[parts[-1]] = self.files[parts[-2]]
         elif parts[0] == "mv":
             self.files[parts[2]] = self.files.pop(parts[1])
+        elif parts[:2] == ["rm", "-rf"]:
+            prefix = parts[-1].rstrip("/") + "/"
+            for path in list(self.files):
+                if path.startswith(prefix):
+                    del self.files[path]
         return ""
 
 
@@ -424,12 +433,21 @@ class FakeRecursiveDownloadSFTP:
 
 class FakeDocumentsSSHClient(QtCore.QObject):
     connection_changed = QtCore.pyqtSignal(bool)
+    operation_session = _ssh.SSHClientWrapper.operation_session
 
     def __init__(self, connected=True):
         super().__init__()
         self._connected = connected
         self.sftp = FakePreviewlessSFTP()
         self.exec_calls = []
+        self._state_lock = threading.RLock()
+        self._transport_lock = threading.RLock()
+        self._client = object() if connected else None
+
+    def ensure_client(self):
+        if not self._connected:
+            raise RuntimeError("disconnected")
+        return self._client
 
     def is_connected(self):
         return self._connected
