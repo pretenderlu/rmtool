@@ -1013,28 +1013,44 @@ def _assert_recovery_sentinel(ssh_client, sentinel: str = SHARED_RECOVERY_SENTIN
 
 def set_recovery_sentinel(ssh_client) -> None:
     with _operation_lock(ssh_client):
-        path = shlex.quote(SHARED_RECOVERY_SENTINEL)
-        if _remote_entry_exists(ssh_client, SHARED_RECOVERY_SENTINEL):
-            _assert_recovery_sentinel(ssh_client)
-            return
-        if _remote_entry_exists(ssh_client, LEGACY_RECOVERY_SENTINEL):
-            _assert_recovery_sentinel(ssh_client, LEGACY_RECOVERY_SENTINEL)
-        directory = shlex.quote(posixpath.dirname(SHARED_RECOVERY_SENTINEL))
-        temporary = shlex.quote(
-            f"{posixpath.dirname(SHARED_RECOVERY_SENTINEL)}/"
-            f".disable-xovi-{uuid.uuid4().hex}.tmp"
-        )
-        ssh_client.exec_checked(
-            f"set -eu; mkdir -p {directory}; "
-            f"[ -d {directory} ] && [ ! -L {directory} ]; "
-            f"trap 'rm -f {temporary}' EXIT HUP INT TERM; "
-            f"umask 077; : > {temporary}; chmod 0600 {temporary}; "
-            f"chown root:root {temporary}; ln {temporary} {path}; rm -f {temporary}; "
-            "trap - EXIT HUP INT TERM"
-        )
-        if not recovery_sentinel_present(ssh_client):
-            raise RuntimeError("共享 Xovi 紧急停用标记未能创建。")
+        _set_recovery_sentinel_locked(ssh_client)
+
+
+def _set_recovery_sentinel_locked(ssh_client) -> bool:
+    path = shlex.quote(SHARED_RECOVERY_SENTINEL)
+    if _remote_entry_exists(ssh_client, SHARED_RECOVERY_SENTINEL):
         _assert_recovery_sentinel(ssh_client)
+        return False
+    if _remote_entry_exists(ssh_client, LEGACY_RECOVERY_SENTINEL):
+        _assert_recovery_sentinel(ssh_client, LEGACY_RECOVERY_SENTINEL)
+    directory = shlex.quote(posixpath.dirname(SHARED_RECOVERY_SENTINEL))
+    temporary = shlex.quote(
+        f"{posixpath.dirname(SHARED_RECOVERY_SENTINEL)}/"
+        f".disable-xovi-{uuid.uuid4().hex}.tmp"
+    )
+    ssh_client.exec_checked(
+        f"set -eu; mkdir -p {directory}; "
+        f"[ -d {directory} ] && [ ! -L {directory} ]; "
+        f"trap 'rm -f {temporary}' EXIT HUP INT TERM; "
+        f"umask 077; : > {temporary}; chmod 0600 {temporary}; "
+        f"chown root:root {temporary}; ln {temporary} {path}; rm -f {temporary}; "
+        "trap - EXIT HUP INT TERM"
+    )
+    if not recovery_sentinel_present(ssh_client):
+        raise RuntimeError("共享 Xovi 紧急停用标记未能创建。")
+    _assert_recovery_sentinel(ssh_client)
+    return True
+
+
+def _clear_recovery_sentinel_locked(ssh_client, sentinel: str) -> None:
+    if sentinel not in (SHARED_RECOVERY_SENTINEL, LEGACY_RECOVERY_SENTINEL):
+        raise RuntimeError("紧急停用标记路径无效。")
+    path = shlex.quote(sentinel)
+    ssh_client.exec_checked(
+        f"[ -f {path} ] && [ ! -L {path} ] && "
+        f"[ \"$(stat -c '%a:%u:%g:%s' {path})\" = '600:0:0:0' ] && "
+        f"rm -f {path} && [ ! -e {path} ] && [ ! -L {path} ]"
+    )
 
 
 def clear_recovery_sentinel(ssh_client) -> None:
@@ -1044,12 +1060,7 @@ def clear_recovery_sentinel(ssh_client) -> None:
         for sentinel in (SHARED_RECOVERY_SENTINEL, LEGACY_RECOVERY_SENTINEL):
             if not _remote_entry_exists(ssh_client, sentinel):
                 continue
-            path = shlex.quote(sentinel)
-            ssh_client.exec_checked(
-                f"[ -f {path} ] && [ ! -L {path} ] && "
-                f"[ \"$(stat -c '%a:%u:%g:%s' {path})\" = '600:0:0:0' ] && "
-                f"rm -f {path}"
-            )
+            _clear_recovery_sentinel_locked(ssh_client, sentinel)
         if recovery_sentinel_present(ssh_client):
             raise RuntimeError("共享 Xovi 紧急停用标记未能清除。")
 
@@ -1596,6 +1607,7 @@ def shared_transaction_script(
     *,
     enable_dropin: bool,
     remove_base: bool = False,
+    retain_backup: bool = False,
 ) -> str:
     layouts = tuple(legacy_layouts)
     bases = tuple(dict.fromkeys(
@@ -1606,7 +1618,10 @@ def shared_transaction_script(
     ))
     mount_dir = f"/tmp/rmtool-xovi-rootfs-{token}"
     backup_dir = f"/data/rmtool/.xovi-dropins-{token}"
-    base_backups = tuple(f"{base}.backup-{token}" for base in bases)
+    base_backups = tuple(
+        f"{backup_dir}/base-{index}" if retain_backup else f"{base}.backup-{token}"
+        for index, base in enumerate(bases)
+    )
     upper_backups = tuple(f"{backup_dir}/upper-{index}" for index in range(len(dropins)))
     lower_backups = tuple(f"{backup_dir}/lower-{index}" for index in range(len(dropins)))
 
@@ -1661,6 +1676,18 @@ cmp -s {shlex.quote(source_dropin)} "$MOUNT_DIR{SHARED_LAYOUT.dropin_path}"
         'rm -rf "$BASE"; rmdir "$BASE" 2>/dev/null || true; '
         'test ! -e "$BASE"' if remove_base else ":"
     )
+    # Recovery keeps the original programs as inert evidence, never as staging
+    # inputs. Refuse a colliding backup instead of deleting an earlier recovery.
+    prepare_backups = (
+        '[ ! -e "$BACKUP_DIR" ] && [ ! -L "$BACKUP_DIR" ]; '
+        'mkdir -m 0700 "$BACKUP_DIR"; BACKUPS_CREATED=1'
+        if retain_backup else
+        f'rm -rf "$BACKUP_DIR" {cleanup_backups}\nmkdir -p "$BACKUP_DIR"'
+    )
+    commit_cleanup = ':' if retain_backup else f'rm -rf "$BACKUP_DIR" {cleanup_backups}'
+    rollback_cleanup = f'rm -rf "$BACKUP_DIR" {cleanup_backups}'
+    if retain_backup:
+        rollback_cleanup = f'if [ "$BACKUPS_CREATED" -eq 1 ]; then {rollback_cleanup}; fi'
 
     return f"""#!/bin/sh
 set -eu
@@ -1668,6 +1695,7 @@ STAGE={shlex.quote(stage)}
 BASE={shlex.quote(SHARED_LAYOUT.remote_base)}
 MOUNT_DIR={shlex.quote(mount_dir)}
 BACKUP_DIR={shlex.quote(backup_dir)}
+BACKUPS_CREATED=0
 MOUNTED=0
 COMMITTED=0
 STAGE_MOVED=0
@@ -1728,7 +1756,7 @@ rollback() {{
     fi
     rm -rf "$STAGE" || ROLLBACK_OK=0
     if [ "$ROLLBACK_OK" -eq 1 ] && [ "$ROOT_RELEASED" -eq 1 ]; then
-        rm -rf "$BACKUP_DIR" {cleanup_backups}
+        {rollback_cleanup}
         rmdir "$MOUNT_DIR" 2>/dev/null || true
     else
         echo "rmtool Xovi rollback incomplete; recovery kept at $BACKUP_DIR and {cleanup_backups}" >&2
@@ -1737,8 +1765,7 @@ rollback() {{
 }}
 trap rollback EXIT INT TERM
 
-rm -rf "$BACKUP_DIR" {cleanup_backups}
-mkdir -p "$BACKUP_DIR"
+{prepare_backups}
 {backup_lines('', dropins, upper_backups)}
 mount_root_rw
 {backup_lines('$MOUNT_DIR', dropins, lower_backups)}
@@ -1759,7 +1786,7 @@ unmount_root
 systemctl daemon-reload
 
 COMMITTED=1
-rm -rf "$BACKUP_DIR" {cleanup_backups}
+{commit_cleanup}
 trap - EXIT INT TERM
 """
 
