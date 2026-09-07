@@ -69,11 +69,16 @@ class FirmwareUITests(unittest.TestCase):
 
     def test_primary_status_hides_technical_details(self):
         state = f.parse_state(state_text())
-        self.page._device_loaded((state, ("none", "没有固件事务")))
+        standby = {"version": "3.27.3.0"}
+        self.page._device_loaded((state, ("none", "没有固件事务"), standby, ""))
+        self.page._update()
         self.assertIn("Paper Pro Move", self.page.status.text())
         self.assertNotIn("chiappa", self.page.status.text())
         self.assertNotIn("当前 A", self.page.status.text())
-        self.assertIn("当前分区 A", self.page.advanced_status.text())
+        self.assertEqual(self.page.partition_cards["a"]._badge.text(), "当前运行")
+        self.assertEqual(self.page.partition_cards["a"]._version.text(), "3.28.0.169")
+        self.assertEqual(self.page.partition_cards["b"]._badge.text(), "备用")
+        self.assertEqual(self.page.partition_cards["b"]._version.text(), "3.27.3.0")
 
     def test_reboot_requires_confirmed_durable_success(self):
         self.ssh.connected = True
@@ -105,8 +110,16 @@ class FirmwareUITests(unittest.TestCase):
         self.ssh.connected = True
         state = f.parse_state(state_text())
         with mock.patch.object(QtCore.QTimer, "singleShot") as schedule:
-            self.page._device_loaded((state, ("completed", "已进入新固件")))
+            self.page._device_loaded((state, ("completed", "已进入新固件"), None, "无法读取"))
         schedule.assert_called_once_with(0, self.page._detect_plugin_restore)
+
+    def test_partition_cards_stack_in_narrow_view(self):
+        self.page.resize(560, 700)
+        self.page.show()
+        self.app.processEvents()
+        _row_a, column_a, _row_span, _column_span = self.page.partition_grid.getItemPosition(0)
+        row_b, column_b, _row_span, _column_span = self.page.partition_grid.getItemPosition(1)
+        self.assertEqual((column_a, row_b, column_b), (0, 1, 0))
 
     def test_plugin_restore_confirms_or_explains_blockers(self):
         blocked = residue_migration.ResidueReport(
@@ -137,8 +150,17 @@ class FirmwareUITests(unittest.TestCase):
         old = self.app.styleSheet()
         self.addCleanup(self.app.setStyleSheet, old)
         self.app.setStyleSheet(rmtool._resolve_stylesheet(rmtool._LIGHT_STYLESHEET))
-        self.page._image_loaded(f.Image(Path("remarkable-production-image-3.28.0.172-ferrari-public.swu"),
-                                       "3.28.0.172", "ferrari", 100, "a" * 64, 100))
+        self.ssh.connected = True
+        state = f.parse_state(state_text())
+        self.page._device_loaded((
+            state,
+            ("none", "没有正在进行的固件操作"),
+            {"version": "3.27.3.0"},
+            "",
+        ))
+        self.page._image_loaded(f.Image(Path("remarkable-production-image-3.28.0.172-chiappa-public.swu"),
+                                       "3.28.0.172", "chiappa", 100, "a" * 64, 100))
+        self.page._update()
         destination = os.environ.get("RMTOOL_FIRMWARE_SCREENSHOTS")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(destination or temporary)

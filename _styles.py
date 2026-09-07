@@ -705,6 +705,46 @@ QStatusBar#appStatusBar[level="error"] {
     color: {text_faded};
     font-size: {font_sm};
 }
+
+/* ===== Firmware management ===== */
+#firmwarePartitionCard {
+    background: {bg_card};
+    border: 1px solid {border_control};
+    border-radius: {radius_inner};
+}
+#firmwarePartitionCard[active="true"] {
+    border: 2px solid {accent_focus};
+}
+#firmwarePartitionTitle,
+#firmwareSectionTitle {
+    color: {text_primary};
+    font-size: {font_md};
+    font-weight: 700;
+}
+#firmwarePartitionCaption,
+#firmwarePartitionRole,
+#firmwareSectionHint {
+    color: {text_faded};
+    font-size: {font_sm};
+}
+#firmwarePartitionVersion {
+    color: {text_primary};
+    font-size: {font_md};
+    font-weight: 600;
+}
+#firmwarePartitionBadge {
+    background: {chip_bg};
+    color: {text_secondary};
+    border: none;
+    border-radius: {radius_control};
+    padding: 3px 9px;
+    font-size: {font_sm};
+    font-weight: 600;
+}
+#firmwarePartitionBadge[active="true"] {
+    background: {accent};
+    color: {text_on_accent};
+}
 #toolboxDetailCategory {
     font-weight: 600;
 }

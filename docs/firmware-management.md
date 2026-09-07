@@ -9,6 +9,10 @@ a writer, resource publication, or device operation is performed by the tests.
 Older devices and legacy A/B layouts remain unsupported for mutation.
 
 Connect and query device state before preparing an installation or switch.
+The firmware page presents the current and standby partitions as separate A/B
+cards, including the version and role of each partition. Firmware installation
+always targets the standby card; on narrow windows the two cards stack so the
+same relationship remains readable.
 After final confirmation rmtool pauses the idle automatic updater itself. The
 pause uses a runtime-only service mask and records the original active state in
 `pause.json`; it is restored automatically if the operation fails before being
