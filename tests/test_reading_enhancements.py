@@ -47,10 +47,10 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
     def _state(self, spec, enabled=True, token=None):
         return shared.SharedFeatureState(spec, enabled, token or self.process)
 
-    def test_manifest_is_exact_fourteen_target_matrix(self):
+    def test_manifest_is_exact_sixteen_target_matrix(self):
         self.assertEqual(
             len(self.catalog),
-            14,
+            16,
         )
         self.assertEqual(
             {
@@ -61,11 +61,11 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         )
         self.assertEqual(
             len({item.asset for item in self.catalog}),
-            14,
+            16,
         )
         self.assertEqual(
             len({(item.release_version, item.platform) for item in self.catalog}),
-            14,
+            16,
         )
         self.assertTrue(
             all(item.package_revision == reading.PACKAGE_REVISION for item in self.catalog)
@@ -173,6 +173,9 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         )
         for package in self.catalog:
             _runtime, current = reading._shared_specs(package)
+            if package.release_version == "3.28.0.172":
+                self.assertEqual(reading._known_shared_predecessor_specs(package, current), ())
+                continue
             self.assertEqual(
                 tuple(
                     reason

@@ -1,5 +1,9 @@
 # Native Simplified Chinese
 
+Paper Pro/Move 3.28.0.172 is integrated locally with offline-verified packages,
+not yet published or device-tested. See [the .172 matrix and local staging report](172-OFFLINE.md).
+Existing published support and fingerprints below are unchanged.
+
 Packages are gated to the exact firmware identity and stock xochitl SHA-256
 recorded in `manifest.json`.
 

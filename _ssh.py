@@ -238,6 +238,12 @@ class SSHClientWrapper(QtCore.QObject):
                     "device_id": device_id,
                     "device_name": device_name,
                 }
+            before_connected = getattr(self, "_before_connected", None)
+            if before_connected is not None:
+                before_connected()
+            with self._state_lock:
+                if self._client is not client or not client.get_transport().is_active():
+                    raise RuntimeError("连接在状态检查期间已断开，请重新连接")
                 self.connection_changed.emit(True)
 
     def close(self) -> None:

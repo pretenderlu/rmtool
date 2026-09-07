@@ -246,7 +246,7 @@ class SharedXoviTests(unittest.TestCase):
 
     def test_all_targets_have_identical_common_runtime(self):
         pairs = tuple(self.contexts())
-        self.assertEqual(len(pairs), 14)
+        self.assertEqual(len(pairs), 16)
         for tap_package, fast_package in pairs:
             with self.subTest(
                 platform=tap_package.platform, firmware=tap_package.firmware

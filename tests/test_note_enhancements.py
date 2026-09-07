@@ -43,7 +43,7 @@ class NoteEnhancementsBackendTests(unittest.TestCase):
         self.runtime, self.feature = note._shared_specs(self.package)
 
     def test_manifest_is_exact_color_device_matrix_with_two_mirrors(self):
-        self.assertEqual(len(self.catalog), 14)
+        self.assertEqual(len(self.catalog), 16)
         self.assertEqual(
             {
                 (item.platform, item.firmware, item.xochitl_sha256)

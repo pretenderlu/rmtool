@@ -1117,6 +1117,11 @@ def get_status(
 ) -> TapPageTurnStatus:
     packages = tuple(catalog)
     identity = get_device_identity(ssh_client)
+    if select_package(packages, identity) is None:
+        # A published remote manifest can lag locally bundled offline targets.
+        bundled = select_package(_trusted_catalog(), identity)
+        if bundled is not None:
+            packages += (bundled,)
     available = tuple(item for item in packages if item.platform == identity.platform)
     dropin_exists = ssh_client.file_exists(DROPIN_PATH)
     marker_exists = ssh_client.file_exists(MARKER_PATH)

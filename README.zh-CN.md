@@ -13,6 +13,9 @@
 rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Paper Pure、reMarkable 1 和 reMarkable 2，提供多设备连接、仪表盘、壁纸、文档、KOReader 书库管理、字体、时间、设备控制、原生界面中文、离线拼音输入，以及彩色设备按固件精确匹配的阅读增强和笔记增强，Paper Pure、reMarkable 1 和
 reMarkable 2 的经典离线验证点击翻页插件，以及一键只读诊断日志导出。设备操作不依赖 reMarkable 云服务；发布包内置这些固件功能的基础可信清单，可离线识别支持情况并复用已验证缓存。固件专用载荷不会打包进应用，仍需联网下载或使用已有的有效缓存。
 
+本地开发版已接入 Paper Pro / Move 的 3.28.0.172 六项固件插件，并提供经过离线验证的资源包及本地缓存。
+详见[.172 支持矩阵与本地缓存步骤](native-chinese/172-OFFLINE.md)。新增包尚未发布、未作真机验证，既有已发布记录保持不变。
+
 > [!WARNING]
 > rmtool 会直接修改设备文件。请先同步或备份重要内容，并确认自己能够承担开发者模式、root SSH 和第三方修改带来的数据与保修风险。本项目不是 reMarkable 官方软件。
 

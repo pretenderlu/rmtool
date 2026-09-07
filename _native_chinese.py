@@ -130,6 +130,8 @@ ALLOWED_TARGETS = {
         "aarch64",
         "113bf7ea62ad171ea03c77c1f90e0666bcff163242a22ebca84372533b270c1c",
     ): ("3.28.0.164", "beta", True, False),
+    ("20260827113527", "ferrari", "aarch64", "b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021"): ("3.28.0.172", "stable", True, False),
+    ("20260827113527", "chiappa", "aarch64", "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"): ("3.28.0.172", "stable", True, False),
 }
 EXPECTED_ASSETS = {
     identity: (
@@ -667,6 +669,17 @@ def _bundled_french_slot_package(
     catalog = _rmkit_cn.parse_translation_manifest(
         _rmkit_cn.BUNDLED_TRANSLATION_MANIFEST_PATH.read_bytes()
     )
+    if ALLOWED_TARGETS.get((identity.firmware, identity.platform, identity.architecture,
+                            identity.xochitl_sha256)) == ("3.28.0.172", "stable", True, False):
+        # Read-only French-slot guard: .172 has identical stock catalogs. This
+        # does not register .172 with the deprecated French-slot installer.
+        predecessor = catalog["20260806095513"]
+        matches = [p for p in (predecessor, *predecessor.variants)
+                   if p.platform == identity.platform and p.release_version == "3.28.0.166"]
+        if len(matches) != 1:
+            raise RuntimeError("Missing exact stock catalog for the .172 French-slot guard")
+        return replace(matches[0], firmware=identity.firmware, xochitl_sha256=identity.xochitl_sha256,
+                       release_version="3.28.0.172", channel="stable", variants=())
     root = catalog.get(identity.firmware)
     candidates = (root, *root.variants) if root is not None else ()
     platform_matches = tuple(

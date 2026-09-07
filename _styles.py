@@ -436,6 +436,15 @@ QStatusBar#appStatusBar[level="error"] {
 #sidebarConnection {
     background: transparent;
 }
+#sidebarConnection QPushButton {
+    padding: 5px 12px;
+}
+#sidebarConnection QToolButton {
+    padding: 3px 8px;
+}
+#sidebarConnection QComboBox {
+    padding: 4px 8px;
+}
 #sidebarScroll {
     background: transparent;
     border: none;
@@ -468,7 +477,7 @@ QStatusBar#appStatusBar[level="error"] {
 #sidebarNav QPushButton {
     color: {text_secondary};
     background: {bg_card};
-    padding: 10px 14px;
+    padding: 4px 14px;
     border: 1px solid {border_panel};
     border-radius: {radius_control};
     text-align: left;
@@ -531,7 +540,7 @@ QStatusBar#appStatusBar[level="error"] {
     font-size: {font_xs};
 }
 #forgetPasswordButton {
-    padding: 5px 8px;
+    padding: 3px 8px;
     font-size: {font_xs};
     border-radius: 7px;
 }

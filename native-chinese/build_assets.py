@@ -37,6 +37,8 @@ QMD_VARIANTS = {
     ),
 }
 CATALOG_PATHS = {
+    ("ferrari", "3.28.0.172"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.166-ferrari.qm",
+    ("chiappa", "3.28.0.172"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.166-chiappa.qm",
     ("chiappa", "3.27.1.0"): REPO_ROOT / "translations/reMarkable_zh_CN.qm",
     ("chiappa", "3.27.3.0"): REPO_ROOT / "translations/reMarkable_zh_CN.qm",
     ("ferrari", "3.27.1.0"): REPO_ROOT / "translations/reMarkable_zh_CN_ferrari.qm",
@@ -121,10 +123,13 @@ def _catalog_bytes(
     # 3.28.0.169 keeps the exact 3.28.0.166 stock carrier bytes, so its catalog
     # is gated by the 3.28.0.166 localization record.
     release = package.release_version
+    firmware = package.firmware
+    if release == "3.28.0.172":
+        release, firmware = "3.28.0.166", "20260806095513"
     if release == "3.28.0.169":
         release = "3.28.0.166"
     expected = records.get(
-        (package.platform, release, package.firmware)
+        (package.platform, release, firmware)
     )
     if path is None or expected is None:
         raise RuntimeError(

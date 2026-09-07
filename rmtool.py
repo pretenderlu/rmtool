@@ -672,6 +672,8 @@ from _tab_wallpaper import WallpaperTab
 from _tab_documents import DocumentsTab
 from _tab_koreader import KOReaderTab
 from _tab_dashboard import DashboardTab
+from _tab_firmware import FirmwareTab
+from _firmware import FirmwareSSHClientWrapper
 from _tab_toolbox import (
     ControlTab,
     FontPage,
@@ -701,7 +703,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.config = load_config()
         self._current_theme = self.config.get("theme", "dark")
-        self.ssh_client = SSHClientWrapper()
+        self.ssh_client = FirmwareSSHClientWrapper()
         self._log_bridge = log_bridge
         self._log_panel = None
         self._post_connect_active = False
@@ -736,6 +738,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.koreader_tab = KOReaderTab(self.ssh_client)
         self.font_page = FontPage(self.ssh_client, self.config)
         self.toolbox_tab = ToolboxTab(self.ssh_client, self.config)
+        self.firmware_tab = FirmwareTab(self.ssh_client, self.config)
 
         for page in (
             self.dashboard_tab,
@@ -744,6 +747,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.koreader_tab,
             self.font_page,
             self.toolbox_tab,
+            self.firmware_tab,
         ):
             self.pages.addWidget(page)
 
@@ -751,8 +755,8 @@ class MainWindow(QtWidgets.QMainWindow):
         nav_container = QtWidgets.QWidget()
         nav_container.setObjectName("sidebarNavSection")
         nav_layout = QtWidgets.QVBoxLayout(nav_container)
-        nav_layout.setContentsMargins(0, 12, 0, 0)
-        nav_layout.setSpacing(6)
+        nav_layout.setContentsMargins(0, 4, 0, 0)
+        nav_layout.setSpacing(4)
         nav_label = QtWidgets.QLabel("导航")
         nav_label.setObjectName("sidebarSectionLabel")
         nav_layout.addWidget(nav_label)
@@ -765,8 +769,8 @@ class MainWindow(QtWidgets.QMainWindow):
         nav_widget.setObjectName("sidebarNav")
         nav_buttons_layout = QtWidgets.QVBoxLayout(nav_widget)
         nav_buttons_layout.setContentsMargins(0, 0, 0, 0)
-        nav_buttons_layout.setSpacing(6)
-        for idx, title in enumerate(("仪表盘", "壁纸管理", "文档中心", "KOReader", "字体管理", "设备工具")):
+        nav_buttons_layout.setSpacing(4)
+        for idx, title in enumerate(("仪表盘", "壁纸管理", "文档中心", "KOReader", "字体管理", "设备工具", "固件管理")):
             button = QtWidgets.QPushButton(title)
             button.setCheckable(True)
             button.setMinimumHeight(self.NAV_BUTTON_MIN_HEIGHT)
@@ -887,6 +891,8 @@ class MainWindow(QtWidgets.QMainWindow):
         for idx in range(self.pages.count()):
             widget = self.pages.widget(idx)
             if widget is self.dashboard_tab:
+                continue
+            if widget is self.firmware_tab:
                 continue
             widget.setEnabled(enabled)
             self.nav_buttons[idx].setEnabled(enabled)

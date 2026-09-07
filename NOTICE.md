@@ -1,5 +1,21 @@
 # Third-party notices
 
+## Firmware management references
+
+`_firmware.py` follows the official image discovery and detached native
+SWUpdate approach in [rmitchellscott/reManager](https://github.com/rmitchellscott/reManager)
+(`app_os.go`, `app_swupdate.go`) and the A/B inspection approach in
+[remarkable-go v0.4.1](https://github.com/rmitchellscott/remarkable-go/tree/v0.4.1/partition).
+Both reference projects are licensed under the GNU General Public License v3.0;
+rmtool retains that license. The implementation adds independent validation,
+persistent recovery records and explicit confirmation boundaries. It does not
+inherit force bypasses, counter resets or writer cancellation.
+
+Official firmware is downloaded directly from reMarkable's distribution
+infrastructure, not redistributed by rmtool. Native SWUpdate is provided by
+the device firmware, not bundled here. Its implementation was consulted to
+verify check-only and staging semantics; see `docs/firmware-management.md`.
+
 ## rmkit Chinese translation
 
 `translations/reMarkable_zh_CN.ts` and the compiled

@@ -35,6 +35,8 @@ MANIFEST_URL = MANIFEST_URLS[0]
 BUNDLED_MANIFEST = Path(__file__).with_name("fast-mono-reading") / "manifest.json"
 
 ALLOWED_TARGETS = {
+    ("ferrari", "20260827113527", "aarch64", "b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021"): ("3.28.0.172", "stable", True, False),
+    ("chiappa", "20260827113527", "aarch64", "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"): ("3.28.0.172", "stable", True, False),
     (
         "ferrari",
         "20260506100933",
@@ -306,7 +308,7 @@ def _expected_asset_name(
         for identity, policy in ALLOWED_TARGETS.items()
         if identity[0] == platform and identity[1] == firmware
     )
-    if len(releases) > 1 and release_version != releases[0]:
+    if release_version == "3.28.0.172" or (len(releases) > 1 and release_version != releases[0]):
         return default.removesuffix(".tar.gz") + f"-{release_version}.tar.gz"
     return default
 

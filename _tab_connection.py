@@ -58,9 +58,9 @@ class ConnectionWidget(QtWidgets.QWidget):
         summary_layout = QtWidgets.QVBoxLayout(summary_card)
         summary_layout.setContentsMargins(
             8,
+            4,
             8,
-            8,
-            8,
+            4,
         )
         summary_layout.setSpacing(4)
         summary_layout.addLayout(status_row)
@@ -123,7 +123,7 @@ class ConnectionWidget(QtWidgets.QWidget):
         layout = QtWidgets.QVBoxLayout()
         layout.setSizeConstraint(QtWidgets.QLayout.SetMinimumSize)
         layout.setContentsMargins(16, 4, 16, 4)
-        layout.setSpacing(6)
+        layout.setSpacing(4)
 
         layout.addWidget(summary_card)
         layout.addSpacing(2)
