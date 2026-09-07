@@ -390,12 +390,16 @@ class ResidueMigrationTests(unittest.TestCase):
                 "_prepare_koreader_root",
                 return_value=koreader_root,
             ) as prepare_koreader,
+            mock.patch.object(
+                _residue_migration.appload, "ensure_shim_links"
+            ) as ensure_links,
             mock.patch.object(shared, "migrate_shared") as migrate_shared,
         ):
             _residue_migration.migrate(ssh, "state-dir")
 
         prepare_app.assert_called_once()
         prepare_koreader.assert_called_once()
+        ensure_links.assert_called_once_with(ssh, new_identity)
         self.assertEqual(
             migrate_shared.call_args.args[5],
             {"appload": app_root, "koreader": koreader_root},

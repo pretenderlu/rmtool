@@ -250,6 +250,8 @@ def migrate(ssh_client, state_dir: str) -> ResidueReport:
                 module, "extract_verified_package", tap.extract_verified_package
             )
             roots[feature_id] = extractor(archive, package, destination)
+        if appload.FEATURE_ID in enabled_ids:
+            appload.ensure_shim_links(ssh_client, report.new_identity)
         _xovi_standalone.migrate_shared(
             ssh_client,
             old_runtime,
