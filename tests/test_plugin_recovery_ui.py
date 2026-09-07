@@ -112,6 +112,16 @@ class RecoveryUiTests(unittest.TestCase):
             self.section._repair()
         confirm.assert_not_called()
 
+    def test_report_does_not_repeat_identical_detail_and_issue(self):
+        duplicate = "路径所有者或权限不安全：/etc/systemd/system"
+        result = report(recovery.RecoveryState.BLOCKED)
+        result.detail = duplicate
+        result.issues = (duplicate, duplicate)
+
+        self.section._apply_status(result)
+
+        self.assertEqual(self.section.status_label.text().count(duplicate), 1)
+
     def test_busy_and_disconnected_detection_finish_once_without_changing_status(self):
         self.section._busy = True
         self.section.status_label.setText("installing")

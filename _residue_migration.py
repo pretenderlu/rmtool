@@ -26,8 +26,13 @@ FEATURE_LABELS = {
     "pinyin-input": "拼音输入",
     "reading-enhancements": "阅读增强",
     "note-enhancements": "笔记增强",
-    "appload": "AppLoad/KOReader",
+    "appload": "AppLoad",
+    "koreader": "KOReader",
 }
+
+OPTIONAL_EXTERNAL_FEATURES = frozenset(
+    {appload.FEATURE_ID, appload.KOREADER_FEATURE_ID}
+)
 
 
 @dataclass(frozen=True)
@@ -173,19 +178,39 @@ def inspect_residue(ssh_client) -> ResidueReport | None:
         target_available = (
             feature_id in _xovi_standalone.MIGRATABLE_FEATURE_IDS
             and feature_id in new_trusted
+            and (
+                feature_id not in OPTIONAL_EXTERNAL_FEATURES
+                or appload.app_asset(new_identity) is not None
+            )
         )
-        if state.enabled and not target_available:
+        if (
+            state.enabled
+            and not target_available
+            and feature_id not in OPTIONAL_EXTERNAL_FEATURES
+        ):
             blockers.append(
                 f"{label}处于启用状态，但当前固件没有可迁移的精确包；请先停用该功能"
             )
         features.append(
             ResidueFeatureReport(feature_id, label, state.enabled, target_available)
         )
-    detail = (
-        "固件升级后检测到已验证的共享 Xovi 残留，可一键迁移到当前固件的精确包。"
-        if not blockers
-        else "残留已验证，但存在阻断项，暂不能一键迁移。"
-    )
+    skipped = [
+        item.label
+        for item in features
+        if item.enabled
+        and not item.target_available
+        and item.feature_id in OPTIONAL_EXTERNAL_FEATURES
+    ]
+    if blockers:
+        detail = "残留已验证，但存在阻断项，暂不能一键迁移。"
+    elif skipped:
+        detail = (
+            "可迁移其余插件；当前固件暂不兼容 "
+            + "、".join(skipped)
+            + "，将跳过入口并保留应用数据。"
+        )
+    else:
+        detail = "固件升级后检测到已验证的共享 Xovi 残留，可一键迁移到当前固件的精确包。"
     if legacy_templates and not blockers:
         detail = (
             "固件升级后检测到共享 Xovi 残留：内部文件与已发布包逐字节一致，"
@@ -218,8 +243,16 @@ def migrate(ssh_client, state_dir: str) -> ResidueReport:
     new_runtime, new_trusted, _legacy = tap._trusted_shared_context(report.new_identity)
     providers = _providers()
     enabled_ids = [
-        item.feature_id for item in report.features if item.enabled
+        item.feature_id
+        for item in report.features
+        if item.enabled and item.target_available
     ]
+    skipped_external = any(
+        item.enabled
+        and not item.target_available
+        and item.feature_id in OPTIONAL_EXTERNAL_FEATURES
+        for item in report.features
+    )
     with tempfile.TemporaryDirectory() as temporary:
         roots: Dict[str, Path] = {}
         for feature_id in enabled_ids:
@@ -262,6 +295,8 @@ def migrate(ssh_client, state_dir: str) -> ResidueReport:
             (),
             tolerate_legacy_templates=report.legacy_templates,
         )
+        if skipped_external:
+            appload.remove_shim_links(ssh_client, report.new_identity)
     return report
 
 

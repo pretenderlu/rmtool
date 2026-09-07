@@ -355,8 +355,8 @@ class ResidueMigrationTests(unittest.TestCase):
 
     def test_migrate_prepares_appload_and_koreader_roots(self):
         ssh = mock.Mock()
-        old_identity = _identity_for("3.27.3.0")
-        new_identity = _identity_for("3.28.0.172")
+        old_identity = _identity_for("3.27.1.0")
+        new_identity = _identity_for("3.27.3.0")
         old_context = tap._trusted_shared_context(old_identity)
         new_context = tap._trusted_shared_context(new_identity)
         feature_ids = ("appload", "koreader")
@@ -404,6 +404,64 @@ class ResidueMigrationTests(unittest.TestCase):
             migrate_shared.call_args.args[5],
             {"appload": app_root, "koreader": koreader_root},
         )
+
+    def test_migrate_skips_incompatible_appload_and_keeps_other_features(self):
+        ssh = mock.Mock()
+        old_identity = _identity_for("3.27.3.0")
+        new_identity = _identity_for("3.28.0.172")
+        old_context = tap._trusted_shared_context(old_identity)
+        new_context = tap._trusted_shared_context(new_identity)
+        report = _residue_migration.ResidueReport(
+            old_identity,
+            new_identity,
+            (
+                _residue_migration.ResidueFeatureReport(
+                    "native-chinese", "独立简体中文", True, True
+                ),
+                _residue_migration.ResidueFeatureReport(
+                    "appload", "AppLoad", True, False
+                ),
+                _residue_migration.ResidueFeatureReport(
+                    "koreader", "KOReader", True, False
+                ),
+            ),
+            True,
+            (),
+            "detail",
+        )
+        with (
+            mock.patch.object(_residue_migration, "inspect_residue", return_value=report),
+            mock.patch.object(
+                tap,
+                "_trusted_shared_context",
+                side_effect=[old_context, new_context],
+            ),
+            mock.patch.object(
+                native, "download_package", return_value=Path("archive.tar.gz")
+            ),
+            mock.patch.object(
+                tap,
+                "extract_verified_package",
+                return_value=Path("extracted/native-chinese"),
+            ),
+            mock.patch.object(
+                _residue_migration, "_prepare_appload_root"
+            ) as prepare_app,
+            mock.patch.object(
+                _residue_migration, "_prepare_koreader_root"
+            ) as prepare_koreader,
+            mock.patch.object(shared, "migrate_shared") as migrate_shared,
+            mock.patch.object(
+                _residue_migration.appload, "remove_shim_links"
+            ) as remove_links,
+        ):
+            _residue_migration.migrate(ssh, "state-dir")
+
+        prepare_app.assert_not_called()
+        prepare_koreader.assert_not_called()
+        self.assertEqual(set(migrate_shared.call_args.args[4]), {"native-chinese"})
+        self.assertEqual(set(migrate_shared.call_args.args[5]), {"native-chinese"})
+        remove_links.assert_called_once_with(ssh, new_identity)
 
     def test_koreader_migration_rejects_unverified_icon(self):
         ssh = mock.Mock()

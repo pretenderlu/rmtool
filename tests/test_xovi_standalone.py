@@ -275,8 +275,10 @@ class SharedXoviTests(unittest.TestCase):
                         expected_features.add(reading.FEATURE_ID)
                     if note.select_package(note._trusted_catalog(), identity):
                         expected_features.add(note.FEATURE_ID)
-                    if appload.app_asset(identity):
-                        expected_features.update(("appload", "koreader"))
+                    app_runtime, app_features = appload.trusted_specs(identity)
+                    if app_runtime is not None:
+                        self.assertEqual(app_runtime, tap_runtime)
+                    expected_features.update(app_features)
                     self.assertEqual(
                         set(trusted), expected_features
                     )

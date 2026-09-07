@@ -238,6 +238,23 @@ class RecoveryInspectionTests(unittest.TestCase):
         self.device.add(BASE + "/unknown.so")
         self.assertEqual(self.inspect().state, recovery.RecoveryState.BLOCKED)
 
+    def test_root_group_writable_ancestor_is_allowed_but_managed_directory_is_not(self):
+        systemd = self.device.entries["/etc/systemd/system"]
+        systemd.mode = 0o40775
+        self.assertEqual(self.inspect().state, recovery.RecoveryState.NOT_NEEDED)
+
+        self.device.entries[BASE].mode = 0o40775
+        self.assertEqual(self.inspect().state, recovery.RecoveryState.BLOCKED)
+
+    def test_ancestor_still_rejects_world_write_special_bits_and_wrong_owner(self):
+        systemd = self.device.entries["/etc/systemd/system"]
+        for field, value in (("mode", 0o40777), ("mode", 0o42775), ("uid", 1000), ("gid", 1000)):
+            with self.subTest(field=field, value=oct(value) if field == "mode" else value):
+                old = getattr(systemd, field)
+                setattr(systemd, field, value)
+                self.assertEqual(self.inspect().state, recovery.RecoveryState.BLOCKED)
+                setattr(systemd, field, old)
+
     def test_active_unknown_dropin_blocked_even_at_known_name(self):
         self.device.add(DROPIN, b"[Service]\nExecStart=/tmp/foreign\n")
         self.assertIn("drop-in", self.inspect().detail)

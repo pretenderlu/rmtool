@@ -27,6 +27,9 @@ FEATURE_ID = "appload"
 KOREADER_FEATURE_ID = "koreader"
 KOREADER_INSTALL_DIR = "/home/root/xovi/exthome/appload/koreader"
 SHIM_LINK_DIR = "/home/root/shims"
+APPLOAD_COMPATIBLE_FIRMWARES = frozenset(
+    {"20260506100933", "20260612085811"}
+)
 
 MAX_APPLOAD_BYTES = 16 * 1024 * 1024
 MAX_KOREADER_BYTES = 64 * 1024 * 1024
@@ -304,13 +307,16 @@ def _runtime_package(identity: tap.DeviceIdentity):
 
 
 def app_asset(identity: tap.DeviceIdentity) -> Optional[OfficialAsset]:
-    if _runtime_package(identity) is None:
+    if (
+        _runtime_package(identity) is None
+        or identity.firmware not in APPLOAD_COMPATIBLE_FIRMWARES
+    ):
         return None
     return APPLOAD_ASSETS.get(identity.architecture)
 
 
 def koreader_asset(identity: tap.DeviceIdentity) -> Optional[OfficialAsset]:
-    if _runtime_package(identity) is None:
+    if app_asset(identity) is None:
         return None
     return KOREADER_ASSETS.get(identity.architecture)
 
@@ -406,8 +412,7 @@ def get_status(ssh_client) -> AppLoadStatus:
             AppLoadState.INCOMPATIBLE,
             identity,
             detail=(
-                "当前设备没有精确匹配的正式版共享运行资源；"
-                "3.28 测试版不受支持"
+                "当前固件尚无兼容的 AppLoad 官方版本"
             ),
         )
     if not shared.has_shared_artifacts(ssh_client):

@@ -2377,7 +2377,6 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         self.thread_pool = QtCore.QThreadPool.globalInstance()
         self._status = None
         self._busy = False
-        self._other_packages_count = 0
 
         title = QtWidgets.QLabel(feature_name)
         title.setObjectName("toolboxFeatureTitle")
@@ -2388,22 +2387,6 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         self.catalog_label.setObjectName("readingEnhancementsCatalog")
         self.catalog_label.setWordWrap(True)
         self.catalog_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
-
-        self.other_packages_button = QtWidgets.QPushButton("其他固件版本")
-        self.other_packages_button.setCheckable(True)
-        self.other_packages_button.setSizePolicy(
-            QtWidgets.QSizePolicy.Maximum,
-            QtWidgets.QSizePolicy.Preferred,
-        )
-        self.other_packages_button.hide()
-
-        self.other_packages_label = QtWidgets.QLabel()
-        self.other_packages_label.setObjectName("readingEnhancementsOtherCatalog")
-        self.other_packages_label.setWordWrap(True)
-        self.other_packages_label.setTextInteractionFlags(
-            QtCore.Qt.TextSelectableByMouse
-        )
-        self.other_packages_label.hide()
 
         self.status_label = ToolboxStatusLabel("设备已连接，尚未检测")
         self.status_label.setObjectName("readingEnhancementsDeviceStatus")
@@ -2436,12 +2419,9 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         layout.addWidget(title)
         layout.addWidget(detail)
         layout.addWidget(self.catalog_label)
-        layout.addWidget(self.other_packages_button, alignment=QtCore.Qt.AlignLeft)
-        layout.addWidget(self.other_packages_label)
         layout.addWidget(self.status_label)
         layout.addLayout(buttons)
 
-        self.other_packages_button.toggled.connect(self._toggle_other_packages)
         self.detect_button.clicked.connect(self._detect_status)
         self.install_button.clicked.connect(self._install)
         self.disable_button.clicked.connect(self._disable)
@@ -2466,25 +2446,10 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             self.catalog_label.setText(
                 f"当前固件{self.feature_name}包：检测后显示"
             )
-            self.other_packages_button.setChecked(False)
-            self._other_packages_count = 0
-            self.other_packages_button.setText("其他固件版本")
-            self.other_packages_label.clear()
-            self.other_packages_button.hide()
-            self.other_packages_label.hide()
             self.status_label.setText("设备未连接")
         elif self._status is None:
             self.status_label.setText("设备已连接，尚未检测")
         self._update_buttons()
-
-    def _toggle_other_packages(self, expanded: bool):
-        self.other_packages_button.setText(
-            f"其他固件版本（{self._other_packages_count}） "
-            + ("⌄" if expanded else "›")
-        )
-        self.other_packages_label.setVisible(
-            expanded and not self.other_packages_button.isHidden()
-        )
 
     def _update_buttons(self):
         connected = self.ssh_client.is_connected() and not self._busy
@@ -2547,28 +2512,6 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
                 f"当前固件{self.feature_name}包：\n"
                 + self._package_display_text(status.package)
             )
-
-        other_packages = tuple(
-            package
-            for package in status.available_packages
-            if package != status.package and package.platform == status.identity.platform
-        )
-        self.other_packages_button.setChecked(False)
-        if other_packages:
-            self._other_packages_count = len(other_packages)
-            self.other_packages_button.setText(
-                f"其他固件版本（{self._other_packages_count}） ›"
-            )
-            self.other_packages_label.setText(
-                "\n".join(self._package_display_text(package) for package in other_packages)
-            )
-            self.other_packages_button.show()
-        else:
-            self._other_packages_count = 0
-            self.other_packages_button.setText("其他固件版本")
-            self.other_packages_label.clear()
-            self.other_packages_button.hide()
-        self.other_packages_label.hide()
 
         states = type(status.state)
         messages = {
@@ -3446,10 +3389,14 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                 "无法安全自动修复，请导出诊断日志交由维护者核对；不要手动跳过校验"
             ),
         }
-        lines = [labels[report.state], report.detail]
+        lines = [labels[report.state]]
+        if report.detail:
+            lines.append(report.detail)
         if report.features:
             lines.append("涉及共享插件：" + "、".join(report.features))
-        lines.extend(report.issues)
+        for issue in report.issues:
+            if issue and issue not in lines:
+                lines.append(issue)
         if report.backup_path:
             lines.append("原安装备份：" + report.backup_path)
         self.status_label.setText("\n".join(line for line in lines if line))
@@ -3499,12 +3446,19 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                         and not report.can_repair
                         and report.backup_path
                     ):
+                        report_details = "\n".join(
+                            dict.fromkeys(
+                                line
+                                for line in (report.detail, *report.issues)
+                                if line
+                            )
+                        )
                         message = (
                             "修复并重装完成，尚未重启设备。请先按下方保护状态说明处理，"
                             "再从设备菜单手动重启。若原有紧急停用仍保留，请重新连接，"
                             "在“原生简体中文”中检测状态并使用“清除紧急停用”；"
                             "校验未通过时不要解除保护。\n"
-                            + "\n".join((report.detail, *report.issues))
+                            + report_details
                             + f"\n原安装备份保留在：{report.backup_path}"
                         )
                         # Close only the originating client, before opening another dialog.
@@ -4334,6 +4288,8 @@ class ToolboxTab(QtWidgets.QWidget):
             return "不支持"
         if text.startswith("无需修复"):
             return "无需修复"
+        if "可直接修复更新" in text:
+            return "可更新"
         if any(word in text for word in ("失败", "不完整", "被修改", "需要修复", "残留")):
             return "需处理"
         if any(word in text for word in ("可安全更新", "可安全修复", "修复并更新")):

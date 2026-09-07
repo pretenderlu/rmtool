@@ -25,14 +25,18 @@ class OfficialAssetTests(unittest.TestCase):
                 package.architecture,
                 package.xochitl_sha256,
             )
-            self.assertEqual(
-                _appload.app_asset(identity),
-                _appload.APPLOAD_ASSETS[package.architecture],
-            )
-            self.assertEqual(
-                _appload.koreader_asset(identity),
-                _appload.KOREADER_ASSETS[package.architecture],
-            )
+            if package.firmware in _appload.APPLOAD_COMPATIBLE_FIRMWARES:
+                self.assertEqual(
+                    _appload.app_asset(identity),
+                    _appload.APPLOAD_ASSETS[package.architecture],
+                )
+                self.assertEqual(
+                    _appload.koreader_asset(identity),
+                    _appload.KOREADER_ASSETS[package.architecture],
+                )
+            else:
+                self.assertIsNone(_appload.app_asset(identity))
+                self.assertIsNone(_appload.koreader_asset(identity))
         for package in beta:
             identity = tap.DeviceIdentity(
                 package.firmware,
@@ -42,6 +46,24 @@ class OfficialAssetTests(unittest.TestCase):
             )
             self.assertIsNone(_appload.app_asset(identity))
             self.assertIsNone(_appload.koreader_asset(identity))
+
+    def test_incompatible_stable_firmware_remains_recognizable_for_cleanup(self):
+        package = next(
+            item
+            for item in tap._trusted_catalog()
+            if item.release_version == "3.28.0.172" and item.platform == "chiappa"
+        )
+        identity = tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+
+        self.assertIsNone(_appload.app_asset(identity))
+        runtime, features = _appload.trusted_specs(identity)
+        self.assertIsNotNone(runtime)
+        self.assertEqual(set(features), {"appload", "koreader"})
 
     def test_official_asset_requires_exact_name_size_and_hash(self):
         payload = b"official-payload"

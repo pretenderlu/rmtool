@@ -429,6 +429,42 @@ class PinyinInputTests(unittest.TestCase):
         self.assertIn("固件升级前", status.detail)
         self.assertIn("可直接修复更新", status.detail)
 
+    def test_external_payload_accepts_one_exact_cross_firmware_marker(self):
+        package = self.package()
+        predecessor = replace(
+            package,
+            firmware="previous-firmware",
+            release_version="previous-release",
+            xochitl_sha256="1" * 64,
+        )
+        predecessor_specs = pinyin._external_specs(predecessor)
+
+        def validate(_ssh, _base, specs, _name):
+            if specs == predecessor_specs:
+                return
+            raise RuntimeError("not this exact marker")
+
+        with patch.object(pinyin, "_trusted_catalog", return_value=(package, predecessor)), patch.object(
+            shared, "_validate_owned_tree", side_effect=validate
+        ):
+            self.assertTrue(pinyin._validate_external_payload(Mock(), package))
+
+    def test_external_payload_rejects_ambiguous_cross_firmware_markers(self):
+        package = self.package()
+        predecessors = (
+            replace(package, firmware="previous-a", xochitl_sha256="1" * 64),
+            replace(package, firmware="previous-b", xochitl_sha256="2" * 64),
+        )
+
+        def validate(_ssh, _base, specs, _name):
+            if specs == pinyin._external_specs(package):
+                raise RuntimeError("current marker mismatch")
+
+        with patch.object(pinyin, "_trusted_catalog", return_value=(package, *predecessors)), patch.object(
+            shared, "_validate_owned_tree", side_effect=validate
+        ), self.assertRaisesRegex(RuntimeError, "current marker mismatch"):
+            pinyin._validate_external_payload(Mock(), package)
+
     def test_revision_probe_accepts_only_current_or_known_predecessors(self):
         package = self.package()
         runtime, current = pinyin._shared_specs(package)

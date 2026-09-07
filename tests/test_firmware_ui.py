@@ -57,6 +57,19 @@ class FirmwareUITests(unittest.TestCase):
         self.assertFalse(self.page.advanced.isVisible())
         self.assertNotIn("pause", self.page.buttons)
 
+    def test_primary_actions_follow_firmware_workflow_order(self):
+        expected = {
+            "refresh": (0, 0, 1, 1),
+            "list": (0, 1, 1, 1),
+            "download": (1, 0, 1, 1),
+            "install": (1, 1, 1, 1),
+            "reboot": (2, 0, 1, 2),
+            "restore_plugins": (3, 0, 1, 2),
+        }
+        for key, position in expected.items():
+            index = self.page.actions.indexOf(self.page.buttons[key])
+            self.assertEqual(self.page.actions.getItemPosition(index), position)
+
     def test_advanced_options_expand_on_demand(self):
         self.page.show()
         self.page.advanced_toggle.setChecked(True)
@@ -157,6 +170,15 @@ class FirmwareUITests(unittest.TestCase):
                 mock.patch.object(self.page, "_run") as run:
             self.page.restore_plugins()
         run.assert_called_once()
+
+    def test_plugin_restore_finished_prompts_for_manual_reboot(self):
+        with mock.patch("_tab_firmware.show_info") as info:
+            self.page._plugin_restore_finished(mock.Mock())
+        info.assert_called_once_with(
+            self.page,
+            "插件恢复完成",
+            "更新前插件已恢复，请手动重启设备后生效。",
+        )
 
     def test_progress_is_determinate(self):
         self.page._progress(45, 100)

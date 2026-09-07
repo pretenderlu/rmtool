@@ -2279,7 +2279,7 @@ class WallpaperUiTests(unittest.TestCase):
             require_local_match=False,
         )
 
-    def test_reading_enhancements_section_lists_exact_package_and_collapses_versions(self):
+    def test_reading_enhancements_section_lists_only_exact_package(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")
         section = _tab_toolbox.ReadingEnhancementsSection(client)
         self.addCleanup(section.deleteLater)
@@ -2312,10 +2312,23 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertIn(package.release_version, section.catalog_label.text())
         self.assertIn({"stable": "正式版", "beta": "测试版"}[package.channel], section.catalog_label.text())
         self.assertNotIn(other_same_hardware.firmware, section.catalog_label.text())
-        self.assertEqual(section.other_packages_button.text(), "其他固件版本（1） ›")
-        section.other_packages_button.click()
-        self.assertIn(other_same_hardware.firmware, section.other_packages_label.text())
-        self.assertNotIn(other_hardware.firmware, section.other_packages_label.text())
+        self.assertFalse(hasattr(section, "other_packages_button"))
+        self.assertNotIn(
+            "其他固件版本",
+            tuple(button.text() for button in section.findChildren(QtWidgets.QPushButton)),
+        )
+
+    def test_note_enhancements_section_has_no_other_firmware_control(self):
+        section = _tab_toolbox.NoteEnhancementsSection(
+            FakeConnectionClient(connected=True, host="10.11.99.1")
+        )
+        self.addCleanup(section.deleteLater)
+
+        self.assertFalse(hasattr(section, "other_packages_button"))
+        self.assertNotIn(
+            "其他固件版本",
+            tuple(button.text() for button in section.findChildren(QtWidgets.QPushButton)),
+        )
 
     def test_reading_enhancements_status_and_button_states(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")
@@ -2551,6 +2564,10 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertTrue(section.enable_button.isEnabled())
         self.assertEqual(section.enable_button.text(), "修复并更新")
         self.assertIn("拼音包需要修复更新", section.status_label.text())
+        self.assertEqual(
+            _tab_toolbox.ToolboxTab._status_summary(section.status_label.text()),
+            "可更新",
+        )
 
     def test_pinyin_catalog_label_uses_exact_channel_and_hardware(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")

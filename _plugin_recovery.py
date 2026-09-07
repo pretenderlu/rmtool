@@ -138,7 +138,7 @@ def _recognized_marker(marker, runtime, trusted, revisions):
     raise RuntimeError("共享插件标记不能由内置已发布模板重建，拒绝信任自报哈希。")
 
 
-def _metadata(ssh_client, path):
+def _metadata(ssh_client, path, *, ancestor_directory=False):
     value = ssh_client.exec_checked(
         f"stat -c '%f|%u|%g|%s|%h' {shlex.quote(path)}"
     ).strip().split("|")
@@ -146,19 +146,20 @@ def _metadata(ssh_client, path):
         mode, uid, gid, size, links = int(value[0], 16), *(int(v) for v in value[1:])
     except (ValueError, IndexError) as exc:
         raise RuntimeError(f"无法验证路径元数据：{path}") from exc
-    if uid != 0 or gid != 0 or mode & 0o7022:
+    unsafe_permissions = mode & (0o7002 if ancestor_directory else 0o7022)
+    if uid != 0 or gid != 0 or unsafe_permissions:
         raise RuntimeError(f"路径所有者或权限不安全：{path}")
     if not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)) or (stat.S_ISREG(mode) and links != 1):
         raise RuntimeError(f"路径为符号链接、特殊文件或硬链接：{path}")
+    if ancestor_directory and not stat.S_ISDIR(mode):
+        raise RuntimeError(f"父路径不是安全目录：{path}")
     return mode, size
 
 
 def _ancestors(ssh_client, path):
     for parent in reversed(PurePosixPath(path).parents):
         if shared._remote_entry_exists(ssh_client, str(parent)):
-            mode, _size = _metadata(ssh_client, str(parent))
-            if not stat.S_ISDIR(mode):
-                raise RuntimeError(f"父路径不是安全目录：{parent}")
+            _metadata(ssh_client, str(parent), ancestor_directory=True)
 
 
 def _unhidden_paths(ssh_client):

@@ -5,7 +5,7 @@ from PyQt5 import QtCore, QtWidgets, sip
 
 import _firmware as firmware
 import _residue_migration as residue_migration
-from _dialogs import ask_confirmation, show_error
+from _dialogs import ask_confirmation, show_error, show_info
 import rmtool as _rmtool
 
 
@@ -71,26 +71,26 @@ class FirmwareTab(QtWidgets.QWidget):
         self.selected = QtWidgets.QLabel("尚未选择 SWU")
         self.selected.setWordWrap(True)
         root.addWidget(self.selected)
-        actions = QtWidgets.QGridLayout()
+        self.actions = QtWidgets.QGridLayout()
         self.buttons = {}
-        for index, (key, label, callback) in enumerate((
-            ("list", "获取官方列表", self.load_releases),
-            ("download", "下载所选固件", self.download),
-            ("refresh", "刷新设备状态", self.refresh),
-            ("install", "安装所选固件", self.install),
-            ("reboot", "确认重启", self.reboot),
-            ("restore_plugins", "恢复更新前插件", self.restore_plugins),
-        )):
+        for row, column, key, label, callback in (
+            (0, 0, "refresh", "刷新设备状态", self.refresh),
+            (0, 1, "list", "获取官方列表", self.load_releases),
+            (1, 0, "download", "下载所选固件", self.download),
+            (1, 1, "install", "安装所选固件", self.install),
+            (2, 0, "reboot", "确认重启", self.reboot),
+            (3, 0, "restore_plugins", "恢复更新前插件", self.restore_plugins),
+        ):
             button = QtWidgets.QPushButton(label)
             if key == "install":
                 button.setProperty("btnRole", "primary")
             button.clicked.connect(callback)
             self.buttons[key] = button
             if key in ("reboot", "restore_plugins"):
-                actions.addWidget(button, 2, 0, 1, 2)
+                self.actions.addWidget(button, row, column, 1, 2)
             else:
-                actions.addWidget(button, index // 2, index % 2)
-        root.addLayout(actions)
+                self.actions.addWidget(button, row, column)
+        root.addLayout(self.actions)
         self.advanced_toggle = QtWidgets.QToolButton()
         self.advanced_toggle.setText("高级选项")
         self.advanced_toggle.setCheckable(True)
@@ -380,6 +380,7 @@ class FirmwareTab(QtWidgets.QWidget):
         self.restore_report = None
         self.buttons["restore_plugins"].setText("恢复更新前插件")
         self.status.setText("更新前插件已按当前固件恢复；请手动重启设备生效。")
+        show_info(self, "插件恢复完成", "更新前插件已恢复，请手动重启设备后生效。")
         self._update()
 
     def refresh(self):

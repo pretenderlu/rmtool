@@ -502,12 +502,10 @@ def _validate_external_payload(ssh_client, package: PinyinInputPackage) -> bool:
             for item in _trusted_catalog()
             if item != package
             and (
-                item.firmware,
                 item.platform,
                 item.architecture,
             )
             == (
-                package.firmware,
                 package.platform,
                 package.architecture,
             )
