@@ -52,19 +52,42 @@ class FirmwareTab(QtWidgets.QWidget):
         for index, (key, label, callback) in enumerate((
             ("list", "获取官方列表", self.load_releases),
             ("download", "下载所选固件", self.download),
-            ("local", "选择本地 SWU", self.choose_local),
-            ("refresh", "检测设备 / 查询进度", self.refresh),
-            ("pause", "暂停自动更新", self.pause),
-            ("restore", "恢复自动更新", self.restore),
-            ("install", "检查并安装", self.install),
-            ("switch", "检查并切换 A/B", self.switch),
+            ("refresh", "刷新设备状态", self.refresh),
+            ("install", "安装所选固件", self.install),
             ("reboot", "确认重启", self.reboot),
         )):
             button = QtWidgets.QPushButton(label)
             button.clicked.connect(callback)
             self.buttons[key] = button
-            actions.addWidget(button, index // 2, index % 2)
+            if key == "reboot":
+                actions.addWidget(button, 2, 0, 1, 2)
+            else:
+                actions.addWidget(button, index // 2, index % 2)
         root.addLayout(actions)
+        self.advanced_toggle = QtWidgets.QToolButton()
+        self.advanced_toggle.setText("高级选项")
+        self.advanced_toggle.setCheckable(True)
+        self.advanced_toggle.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+        self.advanced_toggle.setArrowType(QtCore.Qt.RightArrow)
+        root.addWidget(self.advanced_toggle, 0, QtCore.Qt.AlignLeft)
+        self.advanced = QtWidgets.QWidget()
+        advanced_layout = QtWidgets.QGridLayout(self.advanced)
+        advanced_layout.setContentsMargins(0, 0, 0, 0)
+        self.advanced_status = QtWidgets.QLabel("连接设备并刷新后显示分区信息")
+        self.advanced_status.setWordWrap(True)
+        advanced_layout.addWidget(self.advanced_status, 0, 0, 1, 2)
+        for index, (key, label, callback) in enumerate((
+            ("local", "选择本地 SWU", self.choose_local),
+            ("switch", "切换备用 A/B 分区", self.switch),
+            ("restore", "恢复自动更新", self.restore),
+        )):
+            button = QtWidgets.QPushButton(label)
+            button.clicked.connect(callback)
+            self.buttons[key] = button
+            advanced_layout.addWidget(button, 1 + index // 2, index % 2)
+        self.advanced.setVisible(False)
+        root.addWidget(self.advanced)
+        self.advanced_toggle.toggled.connect(self._toggle_advanced)
         self.progress = QtWidgets.QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setVisible(False)
@@ -80,9 +103,9 @@ class FirmwareTab(QtWidgets.QWidget):
         safe = self.transaction[0] in ("none", "completed")
         for key, button in self.buttons.items():
             enabled = not self.busy
-            if key in ("refresh", "pause", "restore", "install", "switch", "reboot"):
+            if key in ("refresh", "restore", "install", "switch", "reboot"):
                 enabled &= connected
-            if key in ("pause", "restore", "install", "switch"):
+            if key in ("restore", "install", "switch"):
                 enabled &= safe
             if key == "install":
                 enabled &= self.image is not None
@@ -90,9 +113,19 @@ class FirmwareTab(QtWidgets.QWidget):
                 enabled &= self.releases.currentData() is not None
             if key == "reboot":
                 enabled &= self.transaction[0] == "success"
+            if key == "restore":
+                enabled &= bool(self.state and self.state.values.get("engine_file") == "masked-runtime")
             button.setEnabled(enabled)
+        self.buttons["reboot"].setVisible(self.transaction[0] == "success")
+        self.buttons["restore"].setVisible(
+            bool(self.state and self.state.values.get("engine_file") == "masked-runtime")
+        )
         self.platform.setEnabled(not self.busy)
         self.releases.setEnabled(not self.busy)
+
+    def _toggle_advanced(self, expanded):
+        self.advanced_toggle.setArrowType(QtCore.Qt.DownArrow if expanded else QtCore.Qt.RightArrow)
+        self.advanced.setVisible(expanded)
 
     def connection_changed(self, connected):
         self.state = None
@@ -133,7 +166,7 @@ class FirmwareTab(QtWidgets.QWidget):
             if device and getattr(self.ssh_client, "firmware_guard_reason", ""):
                 self.transaction = ("unknown", "请查询进度")
             self._update()
-            show_error(self, "固件管理", str(exc) + "\n若已暂停自动更新且尚未提交事务，可恢复自动更新。")
+            show_error(self, "固件管理", str(exc))
 
         worker.signals.finished.connect(finish)
         worker.signals.error.connect(fail)
@@ -157,7 +190,8 @@ class FirmwareTab(QtWidgets.QWidget):
 
     def _image_loaded(self, image):
         self.image = image
-        self.selected.setText(f"{image.version} / {image.platform}\n{image.path.name}\n结构与 SHA-256 已检查；原生签名将在设备端验证")
+        device = "Paper Pro" if image.platform == "ferrari" else "Paper Pro Move"
+        self.selected.setText(f"目标固件：{image.version} · {device}\n已下载并完成完整性检查")
 
     def choose_local(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "选择固件", "", "固件 (*.swu)")
@@ -173,29 +207,31 @@ class FirmwareTab(QtWidgets.QWidget):
         self.state, self.transaction = result
         state = self.state
         self.platform.setCurrentIndex(self.platform.findData(state.platform))
-        self.status.setText(f"{state.platform} / {state.values['version']}\n"
-                            f"当前 {state.active.upper()} · 下次启动 {state.next_boot.upper()} · "
-                            f"电量 {state.values['battery']}%\n{self.transaction[1].replace('事务', '安装状态')}")
+        device = "Paper Pro" if state.platform == "ferrari" else "Paper Pro Move"
+        self.status.setText(f"{device} · 当前固件 {state.values['version']} · 电量 {state.values['battery']}%\n"
+                            f"{self.transaction[1].replace('事务', '安装状态')}")
+        self.advanced_status.setText(
+            f"当前分区 {state.active.upper()} · 下次启动 {state.next_boot.upper()} · "
+            f"自动更新 {state.values['engine_file']}"
+        )
 
     def refresh(self):
         self._run(lambda: firmware.inspect_device(self.ssh_client), self._device_loaded, device=True)
 
-    def _updater(self, restore):
-        token = self.ssh_client.ensure_client()
-        message = "恢复本次暂停前的自动更新服务状态？" if restore else "临时暂停空闲的自动更新服务？重启后临时屏蔽失效，不改变永久更新策略。"
-        if ask_confirmation(self, "固件管理", message):
-            self._run(lambda: firmware.prepare_updater(self.ssh_client, token, confirmed=True, restore=restore), self.status.setText, device=True)
-
-    def pause(self):
-        self._updater(False)
-
     def restore(self):
-        self._updater(True)
+        token = self.ssh_client.ensure_client()
+        if ask_confirmation(self, "固件管理", "恢复 rmtool 暂停前的自动更新状态？"):
+            self._run(
+                lambda: firmware.prepare_updater(self.ssh_client, token, confirmed=True, restore=True),
+                self.status.setText,
+                device=True,
+            )
 
     def _confirm_plan(self, plan):
         target = plan.image.version if plan.image else plan.slot["version"]
         operation = "安装" if plan.image else "切换备用分区"
         detail = ("共享笔记数据不会随固件回退，请先备份。旧版系统可能无法读取新版数据。\n"
+                  "rmtool 会在提交前临时暂停自动更新；若预检失败会自动恢复。\n"
                   "现有可信插件将保持禁用，设置保留；需在目标固件上重新核验兼容性。\n"
                   "提交后不能取消，不会自动重启。目标插件兼容性尚未核验。")
         if not ask_confirmation(self, "固件管理", f"{operation}到 {target}？", detail=detail, danger=True):

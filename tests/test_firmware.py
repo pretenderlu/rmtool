@@ -62,7 +62,7 @@ class FakeSSH:
     def __init__(self):
         self.token = object()
         self.commands = []
-        self.files = {}
+        self.files = {"/proc/sys/kernel/random/boot_id": b"boot"}
         self.firmware_guard_reason = ""
         self.probe = state_text()
         self.props = "LoadState=loaded\nActiveState=active\nSubState=exited\nResult=success\nExecMainStatus=0"
@@ -84,7 +84,16 @@ class FakeSSH:
             return self.props
         if command == "sha256sum /usr/bin/xochitl":
             return "a" * 64 + "  /usr/bin/xochitl"
+        if command == "systemd-run --help":
+            return "--wait --pipe --collect --property"
+        if command in ("rootdev --active", "rootdev --next-boot"):
+            return "/dev/mmcblk0p2"
+        if command == "systemctl is-enabled rm-apply-ota.service":
+            return "enabled"
         return ""
+
+    def exec_command(self, command):
+        return self.exec_checked(command), "", 0
 
     @contextmanager
     def open_remote(self, path, mode):
@@ -211,6 +220,13 @@ class SafetyTests(unittest.TestCase):
         self.assertIn("IMG_VERSION", script)
         self.assertNotIn("RELEASE_VERSION", f.PROBE + script)
         self.assertIn("e2fsck -fn", script)
+        command = f.isolated_slot_command("b")
+        self.assertIn("systemd-run", command)
+        self.assertIn("--wait", command)
+        self.assertIn("--pipe", command)
+        self.assertIn("--collect", command)
+        self.assertIn("PrivateMounts=yes", command)
+        self.assertNotIn("unshare", command)
 
     def test_remote_lock_revalidates_and_releases_on_mismatch(self):
         ssh = FakeSSH()
@@ -266,14 +282,14 @@ class SafetyTests(unittest.TestCase):
                 ssh._firmware_gate()
                 with ssh.operation_session():
                     ssh._firmware_gate()
-                probe.assert_called_once()
+                probe.assert_not_called()
                 ssh.firmware_guard_reason = "install started"
                 with self.assertRaises(RuntimeError):
                     ssh._firmware_gate()
             ssh.firmware_guard_reason = ""
             with ssh.operation_session():
                 pass
-            self.assertEqual(probe.call_count, 2)
+            probe.assert_not_called()
 
     def test_firmware_queries_bypass_locked_session_only_locally(self):
         ssh = f.FirmwareSSHClientWrapper()
@@ -388,7 +404,7 @@ class TransactionTests(unittest.TestCase):
         original = self.ssh.exec_checked
 
         def execute(command):
-            if command.startswith("unshare "):
+            if command == f.isolated_slot_command("b"):
                 return self.ssh.files[self.directory + "/target"].decode()
             return original(command)
 
@@ -415,6 +431,55 @@ class TransactionTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             f.prepare_updater(self.ssh, self.ssh.token, confirmed=True)
         self.assertFalse(any("systemctl stop" in c for c in self.ssh.commands))
+
+    def test_partial_pause_restores_runtime_mask(self):
+        state = f.parse_state(state_text(engine="active", engine_file="enabled"))
+        original = self.ssh.exec_checked
+
+        def execute(command):
+            if "mask --runtime update-engine.service" in command:
+                self.ssh.probe = state_text()
+                raise RuntimeError("writer appeared")
+            return original(command)
+
+        with mock.patch.object(self.ssh, "exec_checked", side_effect=execute), \
+                mock.patch.object(f, "_restore_updater_locked") as restore:
+            with self.assertRaisesRegex(RuntimeError, "writer appeared"):
+                f._pause_updater_locked(self.ssh, state)
+            restore.assert_called_once_with(self.ssh)
+
+    def test_prepared_operation_restores_only_before_commit(self):
+        state = f.parse_state(state_text(engine="active", engine_file="enabled"))
+        plan = f.Plan(state, None, (), {"version": "3.28.0.172"}, self.ssh.token)
+        prepared = f.Plan(f.parse_state(state_text()), None, (), plan.slot, self.ssh.token)
+        with mock.patch.object(f, "preflight", side_effect=[plan, prepared]), \
+                mock.patch.object(f, "_pause_updater_locked", return_value=True), \
+                mock.patch.object(f, "_restore_updater_locked") as restore:
+            with self.assertRaisesRegex(RuntimeError, "before commit"):
+                with f._prepared_operation(self.ssh, plan, switch=True):
+                    raise RuntimeError("before commit")
+            restore.assert_called_once_with(self.ssh)
+
+        with mock.patch.object(f, "preflight", side_effect=[plan, prepared]), \
+                mock.patch.object(f, "_pause_updater_locked", return_value=True), \
+                mock.patch.object(f, "_restore_updater_locked") as restore:
+            with self.assertRaisesRegex(RuntimeError, "after commit"):
+                with f._prepared_operation(self.ssh, plan, switch=True) as (_current, committed):
+                    committed["value"] = True
+                    raise RuntimeError("after commit")
+            restore.assert_not_called()
+
+    def test_preflight_reports_missing_command(self):
+        self.ssh.files.pop(f.BASE + "/current", None)
+        self.ssh.probe = state_text(engine="active", engine_file="enabled")
+
+        def execute(command):
+            return "", "", 1 if command == "command -v mount" else 0
+
+        with mock.patch.object(self.ssh, "exec_command", side_effect=execute), \
+                mock.patch.object(f, "inspect_plugins", return_value=()), \
+                self.assertRaisesRegex(RuntimeError, "mount"):
+            f.preflight(self.ssh, switch=True)
 
 
 if __name__ == "__main__":

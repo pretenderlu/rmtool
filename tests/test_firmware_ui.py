@@ -10,6 +10,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 import rmtool
 import _firmware as f
 from _tab_firmware import FirmwareTab
+from tests.test_firmware import state_text
 
 
 class UIConnection(QtCore.QObject):
@@ -52,6 +53,26 @@ class FirmwareUITests(unittest.TestCase):
         self.assertTrue(self.page.buttons["list"].isEnabled())
         self.assertFalse(self.page.buttons["install"].isEnabled())
         self.assertFalse(self.page.buttons["reboot"].isEnabled())
+        self.assertFalse(self.page.advanced.isVisible())
+        self.assertNotIn("pause", self.page.buttons)
+
+    def test_advanced_options_expand_on_demand(self):
+        self.page.show()
+        self.page.advanced_toggle.setChecked(True)
+        self.app.processEvents()
+        self.assertTrue(self.page.advanced.isVisible())
+        self.assertEqual(self.page.advanced_toggle.arrowType(), QtCore.Qt.DownArrow)
+        self.page.advanced_toggle.setChecked(False)
+        self.app.processEvents()
+        self.assertFalse(self.page.advanced.isVisible())
+
+    def test_primary_status_hides_technical_details(self):
+        state = f.parse_state(state_text())
+        self.page._device_loaded((state, ("none", "没有固件事务")))
+        self.assertIn("Paper Pro Move", self.page.status.text())
+        self.assertNotIn("chiappa", self.page.status.text())
+        self.assertNotIn("当前 A", self.page.status.text())
+        self.assertIn("当前分区 A", self.page.advanced_status.text())
 
     def test_reboot_requires_confirmed_durable_success(self):
         self.ssh.connected = True
