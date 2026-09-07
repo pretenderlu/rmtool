@@ -39,6 +39,7 @@ class Resource:
     asset_prefix: str = ""
     extra_keys: frozenset[str] = frozenset()
     url_bases: tuple[str, str] | None = None
+    optional_keys: frozenset[str] = frozenset()
 
     @property
     def release_dir_name(self) -> str:
@@ -60,6 +61,7 @@ RESOURCES = {
             ROOT / "tap-page-turn" / "manifest.json",
             "tap-page-turn",
             "rmtool-tap-page-turn-",
+            optional_keys=frozenset({"offline_verified", "device_verified"}),
         ),
         Resource(
             "fast-mono-reading",
@@ -68,6 +70,11 @@ RESOURCES = {
             "fast-mono-reading",
             "rmtool-fast-mono-reading-",
             frozenset({"offline_verified", "device_verified", "package_revision"}),
+            (
+                f"{COS_PUBLIC_BASE_URL}/fast-mono-reading",
+                "https://github.com/pretenderlu/rmtool/releases/download/fast-mono-reading-assets",
+            ),
+            optional_keys=frozenset({"urls"}),
         ),
         Resource(
             "native-chinese",
@@ -293,7 +300,13 @@ def _validate_feature(resource: Resource, release_dir: Path) -> Bundle:
     assets: dict[str, tuple[int, str]] = {}
     identities = set()
     for package in document["packages"]:
-        if not isinstance(package, dict) or set(package) != base_keys | resource.extra_keys:
+        required_keys = base_keys | resource.extra_keys
+        allowed_keys = required_keys | resource.optional_keys
+        if (
+            not isinstance(package, dict)
+            or not required_keys.issubset(package)
+            or not set(package).issubset(allowed_keys)
+        ):
             raise RuntimeError(f"Invalid {resource.name} package fields.")
         identity = (
             package.get("firmware"),
@@ -327,13 +340,16 @@ def _validate_feature(resource: Resource, release_dir: Path) -> Bundle:
         ):
             raise RuntimeError(f"Invalid or duplicate {resource.name} package: {name!r}")
         identities.add(identity)
-        if resource.name in {
+        has_verification = bool(
+            {"offline_verified", "device_verified"} & set(package)
+        )
+        if (resource.name in {
             "fast-mono-reading",
             "native-chinese",
             "pinyin-input",
             "reading-enhancements",
             "note-enhancements",
-        } and (
+        } or has_verification) and (
             type(package.get("offline_verified")) is not bool
             or type(package.get("device_verified")) is not bool
         ):
@@ -349,7 +365,7 @@ def _validate_feature(resource: Resource, release_dir: Path) -> Bundle:
             raise RuntimeError(f"Invalid {resource.name} package revision.")
         # The runtime parsers accept the two mirrors in any order (GitHub is
         # now the default route), so validate them as a set of exact URLs.
-        if resource.url_bases is not None:
+        if resource.url_bases is not None and "urls" in package:
             urls = package.get("urls")
             expected_urls = {f"{base}/{name}" for base in resource.url_bases}
             if (

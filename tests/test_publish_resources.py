@@ -207,6 +207,89 @@ class PublishResourcesTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "verification metadata"):
                 publisher._validate_feature(resource, release_dir)
 
+    def test_optional_tap_verification_and_fast_urls_remain_strict(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            resource, release_dir = self.make_feature(Path(temp_dir))
+            resource = publisher.Resource(
+                resource.name,
+                resource.tag,
+                resource.repository_manifest,
+                resource.object_prefix,
+                resource.asset_prefix,
+                optional_keys=frozenset(
+                    {"offline_verified", "device_verified"}
+                ),
+            )
+            document = json.loads(resource.repository_manifest.read_text())
+            package = document["packages"][0]
+            package.update(offline_verified=True, device_verified=False)
+
+            def write_tap_manifest():
+                payload = json.dumps(document, separators=(",", ":")).encode()
+                resource.repository_manifest.write_bytes(payload)
+                (release_dir / "manifest.json").write_bytes(payload)
+
+            write_tap_manifest()
+            publisher._validate_feature(resource, release_dir)
+            package.pop("device_verified")
+            write_tap_manifest()
+            with self.assertRaisesRegex(RuntimeError, "verification metadata"):
+                publisher._validate_feature(resource, release_dir)
+            package["device_verified"] = False
+            package["unexpected"] = True
+            write_tap_manifest()
+            with self.assertRaisesRegex(RuntimeError, "package fields"):
+                publisher._validate_feature(resource, release_dir)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base, release_dir = self.make_feature(Path(temp_dir))
+            resource = publisher.Resource(
+                "fast-mono-reading",
+                "fast-mono-reading-assets",
+                base.repository_manifest,
+                "fast-mono-reading",
+                "rmtool-fast-mono-reading-",
+                frozenset(
+                    {"offline_verified", "device_verified", "package_revision"}
+                ),
+                (
+                    f"{publisher.COS_PUBLIC_BASE_URL}/fast-mono-reading",
+                    "https://github.com/pretenderlu/rmtool/releases/download/fast-mono-reading-assets",
+                ),
+                optional_keys=frozenset({"urls"}),
+            )
+            document = json.loads(resource.repository_manifest.read_text())
+            package = document["packages"][0]
+            package["asset"] = package["asset"].replace(
+                "rmtool-tap-page-turn-", "rmtool-fast-mono-reading-"
+            )
+            package.update(
+                offline_verified=True,
+                device_verified=False,
+                package_revision=1,
+            )
+            next(release_dir.glob("*.tar.gz")).rename(
+                release_dir / package["asset"]
+            )
+
+            def write_fast_manifest():
+                payload = json.dumps(document, separators=(",", ":")).encode()
+                resource.repository_manifest.write_bytes(payload)
+                (release_dir / "manifest.json").write_bytes(payload)
+
+            write_fast_manifest()
+            publisher._validate_feature(resource, release_dir)
+            package["urls"] = [
+                f"{base_url}/{package['asset']}"
+                for base_url in resource.url_bases
+            ]
+            write_fast_manifest()
+            publisher._validate_feature(resource, release_dir)
+            package["urls"][0] = "https://example.invalid/payload"
+            write_fast_manifest()
+            with self.assertRaisesRegex(RuntimeError, "download URLs"):
+                publisher._validate_feature(resource, release_dir)
+
     def test_readmes_describe_github_first_and_cos_fallback(self):
         for filename in ("README.md", "README.zh-CN.md"):
             text = (publisher.ROOT / filename).read_text(encoding="utf-8")
