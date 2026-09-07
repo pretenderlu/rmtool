@@ -1,4 +1,5 @@
 import os
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -351,6 +352,70 @@ class ResidueMigrationTests(unittest.TestCase):
             _residue_migration.migrate(ssh, "state-dir")
 
         self.assertTrue(migrate_shared.call_args.kwargs["tolerate_legacy_templates"])
+
+    def test_migrate_prepares_appload_and_koreader_roots(self):
+        ssh = mock.Mock()
+        old_identity = _identity_for("3.27.3.0")
+        new_identity = _identity_for("3.28.0.172")
+        old_context = tap._trusted_shared_context(old_identity)
+        new_context = tap._trusted_shared_context(new_identity)
+        feature_ids = ("appload", "koreader")
+        report = _residue_migration.ResidueReport(
+            old_identity,
+            new_identity,
+            tuple(
+                _residue_migration.ResidueFeatureReport(fid, fid, True, True)
+                for fid in feature_ids
+            ),
+            True,
+            (),
+            "detail",
+        )
+        app_root = Path("prepared-appload")
+        koreader_root = Path("prepared-koreader")
+        with (
+            mock.patch.object(_residue_migration, "inspect_residue", return_value=report),
+            mock.patch.object(
+                tap,
+                "_trusted_shared_context",
+                side_effect=[old_context, new_context],
+            ),
+            mock.patch.object(
+                _residue_migration,
+                "_prepare_appload_root",
+                return_value=app_root,
+            ) as prepare_app,
+            mock.patch.object(
+                _residue_migration,
+                "_prepare_koreader_root",
+                return_value=koreader_root,
+            ) as prepare_koreader,
+            mock.patch.object(shared, "migrate_shared") as migrate_shared,
+        ):
+            _residue_migration.migrate(ssh, "state-dir")
+
+        prepare_app.assert_called_once()
+        prepare_koreader.assert_called_once()
+        self.assertEqual(
+            migrate_shared.call_args.args[5],
+            {"appload": app_root, "koreader": koreader_root},
+        )
+
+    def test_koreader_migration_rejects_unverified_icon(self):
+        ssh = mock.Mock()
+        ssh.download_file.side_effect = lambda _remote, local: Path(local).write_bytes(
+            b"invalid"
+        )
+        with tempfile.TemporaryDirectory() as temporary, self.assertRaisesRegex(
+            RuntimeError, "图标校验失败"
+        ):
+            _residue_migration._prepare_koreader_root(
+                ssh,
+                _identity_for("3.28.0.172"),
+                tap._trusted_shared_context(_identity_for("3.27.3.0"))[1],
+                "state-dir",
+                Path(temporary) / "koreader",
+            )
 
     def test_cleanup_removes_verified_residue_and_preserves_template_tolerance(self):
         ssh = mock.Mock()

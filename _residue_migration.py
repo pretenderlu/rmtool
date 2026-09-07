@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict
 
+import _appload as appload
 import _fast_mono_reading as fast
+import _koreader as koreader
 import _native_chinese as native
 import _note_enhancements as note
 import _pinyin_input as pinyin
@@ -57,6 +60,41 @@ def _providers() -> Dict[str, object]:
         "reading-enhancements": reading,
         "note-enhancements": note,
     }
+
+
+def _prepare_appload_root(identity, state_dir, destination):
+    asset = appload.app_asset(identity)
+    if asset is None:
+        raise RuntimeError("AppLoad 没有当前固件的精确资源。")
+    archive = appload.download_official_asset(asset, state_dir)
+    return appload._prepare_appload_root(
+        identity, archive, state_dir, destination
+    )
+
+
+def _prepare_koreader_root(
+    ssh_client, identity, old_trusted, state_dir, destination
+):
+    spec = old_trusted[appload.KOREADER_FEATURE_ID]
+    icon_spec = next(
+        (item for item in spec.files if item.runtime_path.endswith("/icon.png")),
+        None,
+    )
+    if icon_spec is None:
+        raise RuntimeError("KOReader 旧版入口缺少图标记录。")
+    icon = Path(destination).parent / "koreader-icon.png"
+    ssh_client.download_file(
+        f"{_xovi_standalone.SHARED_LAYOUT.remote_base}/{icon_spec.runtime_path}",
+        str(icon),
+    )
+    if (
+        icon.stat().st_size != icon_spec.size
+        or hashlib.sha256(icon.read_bytes()).hexdigest() != icon_spec.sha256
+    ):
+        raise RuntimeError("KOReader 旧版入口图标校验失败。")
+    return koreader._prepare_bridge_root(
+        identity, icon, state_dir, destination
+    )
 
 
 def inspect_residue(ssh_client) -> ResidueReport | None:
@@ -185,6 +223,22 @@ def migrate(ssh_client, state_dir: str) -> ResidueReport:
     with tempfile.TemporaryDirectory() as temporary:
         roots: Dict[str, Path] = {}
         for feature_id in enabled_ids:
+            destination = Path(temporary) / feature_id
+            destination.mkdir()
+            if feature_id == appload.FEATURE_ID:
+                roots[feature_id] = _prepare_appload_root(
+                    report.new_identity, state_dir, destination
+                )
+                continue
+            if feature_id == appload.KOREADER_FEATURE_ID:
+                roots[feature_id] = _prepare_koreader_root(
+                    ssh_client,
+                    report.new_identity,
+                    old_trusted,
+                    state_dir,
+                    destination,
+                )
+                continue
             module = providers[feature_id]
             package = module.select_package(
                 module._trusted_catalog(), report.new_identity
@@ -195,8 +249,6 @@ def migrate(ssh_client, state_dir: str) -> ResidueReport:
             extractor = getattr(
                 module, "extract_verified_package", tap.extract_verified_package
             )
-            destination = Path(temporary) / feature_id
-            destination.mkdir()
             roots[feature_id] = extractor(archive, package, destination)
         _xovi_standalone.migrate_shared(
             ssh_client,
