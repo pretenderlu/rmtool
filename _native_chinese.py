@@ -132,6 +132,9 @@ ALLOWED_TARGETS = {
     ): ("3.28.0.164", "beta", True, False),
     ("20260827113527", "ferrari", "aarch64", "b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021"): ("3.28.0.172", "stable", True, False),
     ("20260827113527", "chiappa", "aarch64", "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"): ("3.28.0.172", "stable", True, False),
+    ("20260827113527", "tatsu", "aarch64", "fa674d2ca3d8002602ce4b1b92280b96bcdf2cf32b6a42ec62ae178a1fad1fe3"): ("3.28.0.172", "stable", True, False),
+    ("20260827113527", "rm1", "armv7l", "1f4fbb6e14650704b5b036e482da9948e73553178f6116ad464ab072f7b90117"): ("3.28.0.172", "stable", True, False),
+    ("20260827113527", "rm2", "armv7l", "071d85beef3ef2d4cc0e11002140b27b82a2cc04a2ed740a5669f591069b77df"): ("3.28.0.172", "stable", True, False),
 }
 EXPECTED_ASSETS = {
     identity: (

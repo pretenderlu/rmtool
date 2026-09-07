@@ -7,14 +7,15 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
-from build_172 import FEATURES, FIRMWARE, RELEASE, ROOT, XOCHITL, tap, verified
+from build_172 import FEATURES, FEATURES_BY_PLATFORM, FIRMWARE, RELEASE, ROOT, TARGETS, tap, verified
 
 
 def verify_candidate(path, entry, feature):
     platform = entry["platform"]
-    if (platform not in XOCHITL or entry["firmware"] != FIRMWARE
-            or entry["release_version"] != RELEASE or entry["xochitl_sha256"] != XOCHITL[platform]
-            or entry["architecture"] != "aarch64" or entry["channel"] != "stable"
+    architecture, xochitl = TARGETS.get(platform, (None, None))
+    if (architecture is None or entry["firmware"] != FIRMWARE
+            or entry["release_version"] != RELEASE or entry["xochitl_sha256"] != xochitl
+            or entry["architecture"] != architecture or entry["channel"] != "stable"
             or entry["offline_verified"] is not True or entry["device_verified"] is not False):
         raise RuntimeError("Candidate identity/verification mismatch")
     if entry["asset"] != f"rmtool-{feature}-{platform}-{FIRMWARE}-{RELEASE}.tar.gz":
@@ -46,18 +47,20 @@ def append_only(path, data):
 
 def stage(source, cache):
     report = json.loads((source / "validation.json").read_text())
-    if report.get("status") != "offline-candidates-only" or report.get("package_count") != 12:
+    expected_count = sum(map(len, FEATURES_BY_PLATFORM.values()))
+    if report.get("status") != "offline-candidates-only" or report.get("package_count") != expected_count:
         raise RuntimeError("Complete offline validation report required")
     pending = []
     for feature in FEATURES:
         raw = (source / feature / "manifest.candidate.json").read_bytes()
         entries = json.loads(raw)["packages"]
-        if len(entries) != 2 or {e["platform"] for e in entries} != set(XOCHITL):
+        expected = {platform for platform, names in FEATURES_BY_PLATFORM.items() if feature in names}
+        if {e["platform"] for e in entries} != expected:
             raise RuntimeError("Incomplete candidate manifest")
         for entry in entries:
             data = verify_candidate(source / feature / entry["asset"], entry, feature)
             pending.append((cache / feature / FIRMWARE / entry["asset"], data))
-        pending.append((cache / feature / "manifest.172.candidate.json", raw))
+        pending.append((cache / feature / "manifest.172.five-device.candidate.json", raw))
     # Detect every collision before the first cache write. Never replace manifest.json.
     for path, data in pending:
         if path.exists() and path.read_bytes() != data:
@@ -70,7 +73,8 @@ def stage(source, cache):
 def integrate(source, cache):
     """Append validated build outputs, then use the real application parsers."""
     abi = json.loads((source / "abi-validation.json").read_text())
-    if not all(p in abi for p in XOCHITL) or "native_translator" not in abi:
+    if (abi.get("status") != "PASS" or set(abi.get("targets", {})) != set(TARGETS)
+            or set(abi.get("native_translator", {})) != {"aarch64", "armv7l"}):
         raise RuntimeError("Static hook/relocation evidence required")
     stage(source, cache)
     pending = []
@@ -102,7 +106,7 @@ def integrate(source, cache):
                 if entry not in document["packages"]:
                     raise RuntimeError(f"Cache contains differing records; preserved: {cache_path}")
             if old != data:
-                append_only(cache_path.with_name("manifest.before-172.json"), old)
+                append_only(cache_path.with_name("manifest.before-172-five-device.json"), old)
         pending.extend(((path, data), (cache_path, data)))
     for path, data in pending:
         tap._write_atomic(path, data)
@@ -117,7 +121,11 @@ def integrate(source, cache):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, default=ROOT / "build/resources-172")
+    parser.add_argument(
+        "--source",
+        type=Path,
+        default=ROOT / "build/resources-172-five-device",
+    )
     parser.add_argument("--cache", type=Path, default=ROOT / ".rmtool/cache")
     parser.add_argument("--integrate", action="store_true", help="append bundled and active cache records after application gates are updated")
     args = parser.parse_args()

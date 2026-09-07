@@ -39,6 +39,9 @@ QMD_VARIANTS = {
 CATALOG_PATHS = {
     ("ferrari", "3.28.0.172"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.166-ferrari.qm",
     ("chiappa", "3.28.0.172"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.166-chiappa.qm",
+    ("tatsu", "3.28.0.172"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.166-chiappa.qm",
+    ("rm1", "3.28.0.172"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.172-rm1-rm2.qm",
+    ("rm2", "3.28.0.172"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.172-rm1-rm2.qm",
     ("chiappa", "3.27.1.0"): REPO_ROOT / "translations/reMarkable_zh_CN.qm",
     ("chiappa", "3.27.3.0"): REPO_ROOT / "translations/reMarkable_zh_CN.qm",
     ("ferrari", "3.27.1.0"): REPO_ROOT / "translations/reMarkable_zh_CN_ferrari.qm",
@@ -57,6 +60,7 @@ CATALOG_PATHS = {
     ("chiappa", "3.28.0.169"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.166-chiappa.qm",
 }
 DEFAULT_CACHE_ROOTS = (
+    REPO_ROOT / ".rmtool/cache",
     REPO_ROOT / "build/tap-page-turn-166",
     REPO_ROOT / "build/release-verify-164-current/tap",
     REPO_ROOT / "build/tap-page-turn-164",
@@ -67,6 +71,10 @@ DEFAULT_CACHE_ROOTS = (
 TRANSLATOR_SIZE = 3976
 TRANSLATOR_SHA256 = (
     "4408c4ecf1e2774cbbc10374aae544e3d600525663eba8893cdceb83374b8734"
+)
+ARM_TRANSLATOR_SIZE = 2888
+ARM_TRANSLATOR_SHA256 = (
+    "9569d723d4057f741fcb70522b90a69e11aa5c75998cee8a6dcb69ad668be722"
 )
 TAP_QMD_PATH = "exthome/qt-resource-rebuilder/tap-page-turn.qmd"
 HASHTAB_PATH = "exthome/qt-resource-rebuilder/hashtab"
@@ -82,8 +90,13 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _variant(release_version: str) -> str:
-    if release_version == "3.28.0.166":
+def _variant(package: tap.TapPageTurnPackage | str) -> str:
+    release_version = package if isinstance(package, str) else package.release_version
+    platform = None if isinstance(package, str) else package.platform
+    if release_version == "3.28.0.166" or (
+        release_version == "3.28.0.172"
+        and platform in {"tatsu", "rm1", "rm2"}
+    ):
         return "3.28.166"
     return "3.28.162-164" if release_version.startswith("3.28.") else "3.27"
 
@@ -120,6 +133,16 @@ def _catalog_bytes(
     records: dict[tuple[str, str, str], tuple[int, str]],
 ) -> bytes:
     path = CATALOG_PATHS.get((package.platform, package.release_version))
+    if package.release_version == "3.28.0.172" and package.platform in {"tatsu", "rm1", "rm2"}:
+        expected = {
+            "tatsu": (192400, "2e501a66c30addbecada68b6af262ea506440547b478b4e02e7d2a56889446a1"),
+            "rm1": (205621, "0f1de519ab4ac1998f432dab014d40fb0cdae2fe528ab30ca47c7a507df82485"),
+            "rm2": (205621, "0f1de519ab4ac1998f432dab014d40fb0cdae2fe528ab30ca47c7a507df82485"),
+        }[package.platform]
+        data = path.read_bytes() if path is not None else b""
+        if (len(data), sha256(data)) != expected:
+            raise RuntimeError(f"Chinese catalog does not match its exact .172 gate: {path}")
+        return data
     # 3.28.0.169 keeps the exact 3.28.0.166 stock carrier bytes, so its catalog
     # is gated by the 3.28.0.166 localization record.
     release = package.release_version
@@ -235,10 +258,18 @@ def build_target(
         }
         tap_qmd = extracted.joinpath(*PurePosixPath(TAP_QMD_PATH).parts).read_bytes()
 
-    translator = (
-        REPO_ROOT / "native-chinese/native-chinese-translator.so"
-    ).read_bytes()
-    if len(translator) != TRANSLATOR_SIZE or sha256(translator) != TRANSLATOR_SHA256:
+    translator_path = REPO_ROOT / "native-chinese" / (
+        "native-chinese-translator-armv7.so"
+        if package.architecture == "armv7l"
+        else "native-chinese-translator.so"
+    )
+    translator = translator_path.read_bytes()
+    expected_translator = (
+        (ARM_TRANSLATOR_SIZE, ARM_TRANSLATOR_SHA256)
+        if package.architecture == "armv7l"
+        else (TRANSLATOR_SIZE, TRANSLATOR_SHA256)
+    )
+    if (len(translator), sha256(translator)) != expected_translator:
         raise RuntimeError("Native-Chinese translator does not match the gate")
     files[native.QMD_PATH] = (qmd, 0o644)
     files[native.EXTENSION_PATH] = (translator, 0o644)
@@ -338,7 +369,7 @@ def main() -> int:
             build_target(
                 package,
                 archive,
-                qmds[_variant(package.release_version)],
+                qmds[_variant(package)],
                 _catalog_bytes(package, records),
                 args.qmd_tool,
             )

@@ -29,7 +29,7 @@ class NativeChineseTests(unittest.TestCase):
 
     def test_manifest_is_complete_dual_source_three_file_feature(self):
         packages = native.parse_manifest(native.BUNDLED_MANIFEST.read_bytes())
-        self.assertEqual(len(packages), 16)
+        self.assertEqual(len(packages), 19)
         self.assertEqual(
             {
                 (item.platform, item.release_version)
@@ -52,6 +52,9 @@ class NativeChineseTests(unittest.TestCase):
                 ("ferrari", "3.28.0.166"),
                 ("ferrari", "3.28.0.169"),
                 ("ferrari", "3.28.0.172"),
+                ("tatsu", "3.28.0.172"),
+                ("rm1", "3.28.0.172"),
+                ("rm2", "3.28.0.172"),
             },
         )
         self.assertTrue(all(item.offline_verified for item in packages))
@@ -280,7 +283,7 @@ class NativeChineseTests(unittest.TestCase):
                     package.architecture,
                     package.xochitl_sha256,
                 ))
-                qmd = builder._qmd_bytes()[builder._variant(base.release_version)]
+                qmd = builder._qmd_bytes()[builder._variant(base)]
                 qmd_expected = package.file(native.QMD_PATH)
                 self.assertEqual(
                     (len(qmd), builder.sha256(qmd)),

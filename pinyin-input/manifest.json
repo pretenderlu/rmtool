@@ -1360,6 +1360,261 @@
         "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input/rmtool-pinyin-input-chiappa-20260827113527-3.28.0.172.tar.gz",
         "https://github.com/pretenderlu/rmtool/releases/download/pinyin-input-assets/rmtool-pinyin-input-chiappa-20260827113527-3.28.0.172.tar.gz"
       ]
+    },
+    {
+      "firmware": "20260827113527",
+      "release_version": "3.28.0.172",
+      "platform": "tatsu",
+      "architecture": "aarch64",
+      "channel": "stable",
+      "xochitl_sha256": "fa674d2ca3d8002602ce4b1b92280b96bcdf2cf32b6a42ec62ae178a1fad1fe3",
+      "asset": "rmtool-pinyin-input-tatsu-20260827113527-3.28.0.172.tar.gz",
+      "size": 12449493,
+      "sha256": "9691bc89d614e9ba53b242dea18d637c6eb20057344c12a39715a7111ec29f09",
+      "offline_verified": true,
+      "device_verified": false,
+      "files": [
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "size": 9496456,
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "size": 614317,
+          "sha256": "e28d716a0d625d6e5444da434ffe4f6e0abd99e7a8c45c44c77a985f540dd50d",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/pinyin-input.qmd",
+          "size": 51642,
+          "sha256": "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/zh_CN.rcc",
+          "size": 333,
+          "sha256": "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+          "mode": 420
+        },
+        {
+          "path": "pinyin-input/LICENSE-rmkit",
+          "size": 35149,
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420
+        },
+        {
+          "path": "pinyin-input/NOTICE-rmkit.md",
+          "size": 4808,
+          "sha256": "b061f7f65fd8a6620f23d05e208370707156679aea0761e8a6ef9f4f4953fc0b",
+          "mode": 420
+        },
+        {
+          "path": "pinyin-input/ime-server",
+          "size": 18481336,
+          "sha256": "ab1935dac1e91a86e7b704f9feb0de985e009f366590448fe9c6ec5e400901bf",
+          "mode": 493
+        },
+        {
+          "path": "pinyin-input/ime_hook.so",
+          "size": 72232,
+          "sha256": "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+          "mode": 420
+        },
+        {
+          "path": "pinyin-input/rmtool-pinyin-input.service",
+          "size": 648,
+          "sha256": "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+          "mode": 420
+        },
+        {
+          "path": "qmd-tool",
+          "size": 1966264,
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493
+        },
+        {
+          "path": "xovi.so",
+          "size": 103008,
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420
+        }
+      ],
+      "urls": [
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input/rmtool-pinyin-input-tatsu-20260827113527-3.28.0.172.tar.gz",
+        "https://github.com/pretenderlu/rmtool/releases/download/pinyin-input-assets/rmtool-pinyin-input-tatsu-20260827113527-3.28.0.172.tar.gz"
+      ]
+    },
+    {
+      "firmware": "20260827113527",
+      "release_version": "3.28.0.172",
+      "platform": "rm1",
+      "architecture": "armv7l",
+      "channel": "stable",
+      "xochitl_sha256": "1f4fbb6e14650704b5b036e482da9948e73553178f6116ad464ab072f7b90117",
+      "asset": "rmtool-pinyin-input-rm1-20260827113527-3.28.0.172.tar.gz",
+      "size": 12558652,
+      "sha256": "4d99e1aad93b1da49f9d6400e3d5b4d1a5ae865055f4b51cc58a560e1cbafe07",
+      "offline_verified": true,
+      "device_verified": false,
+      "files": [
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "size": 8539328,
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "size": 601282,
+          "sha256": "9fa76d1fb069dd74b09cf7cac3d26dbaf1ba350ac5b273344c2430f3d1b258a9",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/pinyin-input.qmd",
+          "size": 51642,
+          "sha256": "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/zh_CN.rcc",
+          "size": 333,
+          "sha256": "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+          "mode": 420
+        },
+        {
+          "path": "pinyin-input/LICENSE-rmkit",
+          "size": 35149,
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420
+        },
+        {
+          "path": "pinyin-input/NOTICE-rmkit.md",
+          "size": 4808,
+          "sha256": "b061f7f65fd8a6620f23d05e208370707156679aea0761e8a6ef9f4f4953fc0b",
+          "mode": 420
+        },
+        {
+          "path": "pinyin-input/ime-server",
+          "size": 18677944,
+          "sha256": "3f015db7104d28edfbde6cc940a82b373254591ac07042c5a189ce27b05a4f05",
+          "mode": 493
+        },
+        {
+          "path": "pinyin-input/ime_hook.so",
+          "size": 13280,
+          "sha256": "ee919128b3201ad9ba7a975f0626351cece98a2f4e008973e1847409c28ca1c3",
+          "mode": 420
+        },
+        {
+          "path": "pinyin-input/rmtool-pinyin-input.service",
+          "size": 648,
+          "sha256": "420f2023a48ff1348883e39c397f49197c1d583e2a9a4209ddc2ee39a131d6c5",
+          "mode": 420
+        },
+        {
+          "path": "qmd-tool",
+          "size": 2031800,
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312",
+          "mode": 493
+        },
+        {
+          "path": "xovi.so",
+          "size": 123620,
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14",
+          "mode": 420
+        }
+      ],
+      "urls": [
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input/rmtool-pinyin-input-rm1-20260827113527-3.28.0.172.tar.gz",
+        "https://github.com/pretenderlu/rmtool/releases/download/pinyin-input-assets/rmtool-pinyin-input-rm1-20260827113527-3.28.0.172.tar.gz"
+      ]
+    },
+    {
+      "firmware": "20260827113527",
+      "release_version": "3.28.0.172",
+      "platform": "rm2",
+      "architecture": "armv7l",
+      "channel": "stable",
+      "xochitl_sha256": "071d85beef3ef2d4cc0e11002140b27b82a2cc04a2ed740a5669f591069b77df",
+      "asset": "rmtool-pinyin-input-rm2-20260827113527-3.28.0.172.tar.gz",
+      "size": 12568858,
+      "sha256": "2f842bd8e528c0f28a36c69daabcd8ba76f89f208c09ac41b109180c2a3b5b91",
+      "offline_verified": true,
+      "device_verified": false,
+      "files": [
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "size": 8539328,
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "size": 616434,
+          "sha256": "f0e559b0d46c28cbaf73c35e9203b02fddfd13c4e8f3198eed05be8ce067bac0",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/pinyin-input.qmd",
+          "size": 51642,
+          "sha256": "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/zh_CN.rcc",
+          "size": 333,
+          "sha256": "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+          "mode": 420
+        },
+        {
+          "path": "pinyin-input/LICENSE-rmkit",
+          "size": 35149,
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420
+        },
+        {
+          "path": "pinyin-input/NOTICE-rmkit.md",
+          "size": 4808,
+          "sha256": "b061f7f65fd8a6620f23d05e208370707156679aea0761e8a6ef9f4f4953fc0b",
+          "mode": 420
+        },
+        {
+          "path": "pinyin-input/ime-server",
+          "size": 18677944,
+          "sha256": "3f015db7104d28edfbde6cc940a82b373254591ac07042c5a189ce27b05a4f05",
+          "mode": 493
+        },
+        {
+          "path": "pinyin-input/ime_hook.so",
+          "size": 13280,
+          "sha256": "ee919128b3201ad9ba7a975f0626351cece98a2f4e008973e1847409c28ca1c3",
+          "mode": 420
+        },
+        {
+          "path": "pinyin-input/rmtool-pinyin-input.service",
+          "size": 648,
+          "sha256": "420f2023a48ff1348883e39c397f49197c1d583e2a9a4209ddc2ee39a131d6c5",
+          "mode": 420
+        },
+        {
+          "path": "qmd-tool",
+          "size": 2031800,
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312",
+          "mode": 493
+        },
+        {
+          "path": "xovi.so",
+          "size": 123620,
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14",
+          "mode": 420
+        }
+      ],
+      "urls": [
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input/rmtool-pinyin-input-rm2-20260827113527-3.28.0.172.tar.gz",
+        "https://github.com/pretenderlu/rmtool/releases/download/pinyin-input-assets/rmtool-pinyin-input-rm2-20260827113527-3.28.0.172.tar.gz"
+      ]
     }
   ]
 }

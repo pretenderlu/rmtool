@@ -1,16 +1,20 @@
 # Native Simplified Chinese
 
-Paper Pro/Move 3.28.0.172 is integrated locally with offline-verified packages,
-not yet published or device-tested. See [the .172 matrix and local staging report](172-OFFLINE.md).
-Existing published support and fingerprints below are unchanged.
+All five devices on stable 3.28.0.172 have exact offline-verified packages.
+The Tatsu, RM1, and RM2 packages have not yet been device-tested. See
+[the .172 matrix and local staging report](172-OFFLINE.md).
+Existing support and fingerprints below are unchanged.
 
 Packages are gated to the exact firmware identity and stock xochitl SHA-256
 recorded in `manifest.json`.
 
-| Device | 3.27.1.0 stable | 3.27.3.0 stable | 3.28.0.162 beta | 3.28.0.163 beta | 3.28.0.164 beta | 3.28.0.166 beta | 3.28.0.169 beta |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Paper Pro (`ferrari`) | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | **Device verified** | Offline verified |
-| Paper Pro Move (`chiappa`) | Offline verified | **Device verified** | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
+| Device | 3.27.1.0 stable | 3.27.3.0 stable | 3.28.0.162 beta | 3.28.0.163 beta | 3.28.0.164 beta | 3.28.0.166 beta | 3.28.0.169 beta | 3.28.0.172 stable |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Paper Pro (`ferrari`) | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | **Device verified** | Offline verified | Offline verified |
+| Paper Pro Move (`chiappa`) | Offline verified | **Device verified** | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
+| Paper Pure (`tatsu`) | - | Offline verified | - | - | - | - | - | Offline verified |
+| reMarkable 1 (`rm1`) | - | Offline verified | - | - | - | - | - | Offline verified |
+| reMarkable 2 (`rm2`) | - | Offline verified | - | - | - | - | - | Offline verified |
 
 It preserves the existing French-slot localization feature. Before enabling
 this plugin, fully restore any managed French-slot localization, including one

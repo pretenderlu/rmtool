@@ -1,4 +1,4 @@
-"""Offline candidate checks; published support gates remain unchanged."""
+"""Offline candidate checks for the five-device 3.28.0.172 matrix."""
 
 import json
 import sys
@@ -33,20 +33,26 @@ class Candidate172Tests(unittest.TestCase):
     def test_exact_application_targets_and_no_fabricated_predecessors(self):
         import _native_chinese as native
         import _reading_enhancements as reading
-        for platform, sha in builder.XOCHITL.items():
-            identity = builder.tap.DeviceIdentity(builder.FIRMWARE, platform, "aarch64", sha)
+        import _pinyin_input as pinyin
+        for platform, (architecture, sha) in builder.TARGETS.items():
+            identity = builder.tap.DeviceIdentity(builder.FIRMWARE, platform, architecture, sha)
             _runtime, peers, _legacy = builder.tap._trusted_shared_context(identity)
-            self.assertTrue(set(builder.FEATURES).issubset(peers))
+            self.assertTrue(set(builder.FEATURES_BY_PLATFORM[platform]).issubset(peers))
+            if platform not in builder.COLOR_PLATFORMS:
+                self.assertTrue({"reading-enhancements", "note-enhancements", "fast-mono-reading"}.isdisjoint(peers))
             package = native.select_package(native._trusted_catalog(), identity)
             self.assertTrue(package.offline_verified)
             self.assertFalse(package.device_verified)
             self.assertEqual(native._known_shared_predecessor_specs(package), ())
-            french = native._bundled_french_slot_package(identity)
-            self.assertEqual(french.firmware, builder.FIRMWARE)
-            self.assertEqual(french.xochitl_sha256, sha)
-            package = reading.select_package(reading._trusted_catalog(), identity)
-            self.assertEqual(reading._known_shared_predecessor_specs(package, peers[reading.FEATURE_ID]), ())
-            forged = builder.tap.DeviceIdentity(builder.FIRMWARE, platform, "aarch64", "0" * 64)
+            self.assertIsNotNone(pinyin.select_package(pinyin._trusted_catalog(), identity))
+            reading_package = reading.select_package(reading._trusted_catalog(), identity)
+            if platform in builder.COLOR_PLATFORMS:
+                self.assertIsNotNone(reading_package)
+                self.assertEqual(reading._known_shared_predecessor_specs(
+                    reading_package, peers[reading.FEATURE_ID]), ())
+            else:
+                self.assertIsNone(reading_package)
+            forged = builder.tap.DeviceIdentity(builder.FIRMWARE, platform, architecture, "0" * 64)
             self.assertIsNone(native.select_package(native._trusted_catalog(), forged))
 
     def test_tap_status_survives_old_remote_catalog(self):
@@ -91,27 +97,42 @@ class Candidate172Tests(unittest.TestCase):
                 staging.stage(path, path / "cache")
             self.assertFalse((path / "cache").exists())
 
-    @unittest.skipUnless((ROOT / "build/resources-172/validation.json").is_file(), "local .172 assets not built")
+    @unittest.skipUnless((ROOT / "build/resources-172-five-device/validation.json").is_file(), "local .172 assets not built")
     def test_real_candidates(self):
-        root = ROOT / "build/resources-172"
+        root = ROOT / "build/resources-172-five-device"
         common = {}
         for feature in builder.FEATURES:
             entries = json.loads((root / feature / "manifest.candidate.json").read_text())["packages"]
-            self.assertEqual({e["platform"] for e in entries}, set(builder.XOCHITL))
+            expected = {
+                platform for platform, features in builder.FEATURES_BY_PLATFORM.items()
+                if feature in features
+            }
+            self.assertEqual({e["platform"] for e in entries}, expected)
             for entry in entries:
                 staging.verify_candidate(root / feature / entry["asset"], entry, feature)
                 shared = {f["path"]: f for f in entry["files"] if f["path"] in builder.COMMON}
                 self.assertEqual(shared, common.setdefault(entry["platform"], shared))
         report = json.loads((root / "validation.json").read_text())
-        self.assertEqual(len(report["checks"]), 8)
+        self.assertEqual(report["package_count"], 21)
+        self.assertEqual(len(report["checks"]), 6)
         self.assertFalse(report["application_enabled"])
+
+    def test_committed_legacy_binary_inputs_are_exact(self):
+        translator = ROOT / "native-chinese/native-chinese-translator-armv7.so"
+        catalog = ROOT / "translations/reMarkable_zh_CN-3.28.0.172-rm1-rm2.qm"
+        builder.verified(translator, *builder.ARM_TRANSLATOR)
+        builder.verified(
+            catalog, 205621,
+            "0f1de519ab4ac1998f432dab014d40fb0cdae2fe528ab30ca47c7a507df82485",
+        )
 
     @unittest.skipUnless((ROOT / ".rmtool/cache/native-chinese/20260827113527").is_dir(), "local .172 cache not staged")
     def test_application_uses_verified_local_archives_without_network(self):
         for feature in builder.FEATURES:
             app = __import__("_" + feature.replace("-", "_"))
             packages = [p for p in app._trusted_catalog() if p.release_version == builder.RELEASE]
-            self.assertEqual(len(packages), 2)
+            expected = sum(feature in names for names in builder.FEATURES_BY_PLATFORM.values())
+            self.assertEqual(len(packages), expected)
             for package in packages:
                 with patch.object(builder.tap, "_download_limited", side_effect=AssertionError("network forbidden")):
                     path = app.download_package(package, str(ROOT / ".rmtool"))

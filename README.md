@@ -186,10 +186,13 @@ The established localization path reuses xochitl's built-in French language slot
 
 Exact-build plugins add an independent **Simplified Chinese** language option while preserving French:
 
-| Device | 3.27.1 stable | 3.27.3 stable | 3.28.162 beta | 3.28.163 beta | 3.28.164 beta | 3.28.166 beta | 3.28.169 beta |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Paper Pro (`ferrari`) | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | **Device verified** | Offline verified |
-| Paper Pro Move (`chiappa`) | Offline verified | **Device verified** | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
+| Device | 3.27.1 stable | 3.27.3 stable | 3.28.162 beta | 3.28.163 beta | 3.28.164 beta | 3.28.166 beta | 3.28.169 beta | 3.28.172 stable |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Paper Pro (`ferrari`) | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | **Device verified** | Offline verified | Offline verified |
+| Paper Pro Move (`chiappa`) | Offline verified | **Device verified** | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
+| Paper Pure (`tatsu`) | - | Offline verified | - | - | - | - | - | Offline verified |
+| reMarkable 1 (`rm1`) | - | Offline verified | - | - | - | - | - | Offline verified |
+| reMarkable 2 (`rm2`) | - | Offline verified | - | - | - | - | - | Offline verified |
 
 The Move stable package has passed real-device installation, language switching, reboot, and removal tests. It remains gated to the exact official xochitl hash. Its stock firmware has no CJK font, so rmtool requires a Chinese-capable active system font before deployment and refuses without writing when coverage is missing.
 
@@ -197,7 +200,7 @@ The independent plugin and French-slot localization cannot be active together. T
 
 ### Offline Pinyin input
 
-Exact packages cover Paper Pro and Paper Pro Move `3.27.1.0`, `3.27.3.0`, `3.28.0.162`, `3.28.0.163`, `3.28.0.164`, `3.28.0.166`, and `3.28.0.169`. Every package is gated by hardware, architecture, internal firmware, and xochitl SHA-256. Paper Pro `3.28.0.166` is device verified; the other thirteen targets are offline verified against official firmware.
+Exact packages cover Paper Pro and Paper Pro Move from `3.27.1.0` through stable `3.28.0.172`, plus Paper Pure, reMarkable 1, and reMarkable 2 on `3.28.0.172`. Every package is gated by hardware, architecture, internal firmware, and xochitl SHA-256. Paper Pro `3.28.0.166` is device verified; all other targets are offline verified against official firmware.
 
 The GPL-3.0 components ported from [boangs/rmkit](https://github.com/boangs/rmkit) comprise a QMLDiff candidate bar, a small input hook, the `zh_CN` keyboard-layout resource, and a local `rime-frost` dictionary server. The hook and validated keyboard resource join the rmtool shared-Xovi runtime only while Pinyin is enabled. Every exact native-Chinese catalog resolves the stock `LanguageAndKeyboard / Chinese` label as `中文`; keyboard-label ownership stays out of all QMDs. The dictionary server is kept under `/home/root/.local/share/rmtool/pinyin-input`, and installation preserves every peer feature without restarting xochitl or the device. Only the previously installed Paper Pro `3.28.0.166` revisions are accepted for bounded repair; newly supported targets do not inherit those predecessor rules.
 
@@ -209,12 +212,12 @@ Paper Pure, reMarkable 1, and reMarkable 2 are not covered by the unified readin
 
 For every package in the support matrix, rmtool can identify exact earlier Reading Enhancements revisions and verified historical tap-to-turn/fast-monochrome layouts. It offers migration or repair as the primary path and a separate **Clean legacy** action before a fresh install. Cleanup validates the complete old installation before changing the device, preserves other verified rmtool plugins even when they are disabled, and refuses unknown, modified, or mixed layouts.
 
-| Device model | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) | 3.28.0.169 beta (`20260806095513`) |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| reMarkable Paper Pro | `ferrari` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
-| reMarkable Paper Pro Move | `chiappa` | Offline verified | **Device verified** | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
+| Device model | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) | 3.28.0.169 beta (`20260806095513`) | 3.28.0.172 stable (`20260827113527`) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| reMarkable Paper Pro | `ferrari` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
+| reMarkable Paper Pro Move | `chiappa` | Offline verified | **Device verified** | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
 
-Move 3.27.3 has passed real-device installation, restart, Settings navigation, and feature tests. The other thirteen targets are offline verified against official firmware with qmd-tool hash checks, QMLDiff compatibility, patch replay, patched-QML assertions, archive validation, and deterministic rebuild.
+Move 3.27.3 has passed real-device installation, restart, Settings navigation, and feature tests. The other fifteen color-device targets are offline verified against official firmware with qmd-tool hash checks, QMLDiff compatibility, patch replay, patched-QML assertions, archive validation, and deterministic rebuild.
 
 After installation and a manual device restart, first authorize the required features in `Settings > Reading enhancements`, then control them independently from each PDF/EPUB reading menu. Per-book state is keyed by document ID and survives restarts. Tap-to-turn keeps native swipes, stylus input, menus, zooming, selections, and document links available. Fast monochrome applies only to PDF/EPUB reading on color devices; forced-refresh controls do not appear in notebooks, inserted note pages, or non-reading views.
 
@@ -228,7 +231,7 @@ For damaged managed shared plugins, open **Toolbox > Legacy plugin migration/cle
 
 Note Enhancements targets color handwriting on Paper Pro and Paper Pro Move. After installation, `Settings > Note enhancements` provides a master switch and global defaults; each notebook can override them from its own settings menu. **Delayed refresh after pen-up** settles color 5, 10, or 30 seconds after writing stops. **Refresh on page turn only** keeps fast writing feedback on the current page and settles when the page or document changes. The two enhanced policies are mutually exclusive, and disabling the enhancement restores the stock approximately one-second pen-up refresh.
 
-The exact-package matrix covers the fourteen currently supported Paper Pro and Paper Pro Move 3.27 stable and 3.28 beta targets. Move 3.27.3 has passed real-device installation, reboot, global settings, per-notebook settings, and policy-switching tests; the remaining targets are verified offline against official firmware. Installation, update, disable, and cleanup preserve the other verified shared-Xovi features and never reboot the device automatically.
+The exact-package matrix covers sixteen Paper Pro and Paper Pro Move 3.27/3.28 targets, including stable 3.28.0.172. Move 3.27.3 has passed real-device installation, reboot, global settings, per-notebook settings, and policy-switching tests; the remaining targets are verified offline against official firmware. Installation, update, disable, and cleanup preserve the other verified shared-Xovi features and never reboot the device automatically.
 
 ## Usage recommendations
 

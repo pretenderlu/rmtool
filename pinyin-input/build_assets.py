@@ -45,6 +45,7 @@ ARCHIVE_ROOTS = (
     REPO_ROOT / "build/fast-mono-reading-expanded",
     REPO_ROOT / "build/fast-mono-r4/assets",
     REPO_ROOT / "build/fast-mono-reading-166",
+    REPO_ROOT / ".rmtool/cache",
 )
 
 
@@ -128,8 +129,7 @@ def _check_orders(
     for name, data in peers.items():
         _qmd_check(qmd_tool, hashtab, (("pinyin", pinyin_qmd), (name, data)))
         _qmd_check(qmd_tool, hashtab, ((name, data), ("pinyin", pinyin_qmd)))
-    all_qmds = (("native", peers["native"]), ("tap", peers["tap"]),
-                ("fast", peers["fast"]), ("pinyin", pinyin_qmd))
+    all_qmds = tuple(peers.items()) + (("pinyin", pinyin_qmd),)
     _qmd_check(qmd_tool, hashtab, all_qmds)
     _qmd_check(qmd_tool, hashtab, tuple(reversed(all_qmds)))
 
@@ -163,18 +163,25 @@ def build_target(
             extracted = tap.extract_verified_package(archive, peer_package, temporary)
             peers[name] = extracted.joinpath(*PurePosixPath(PEER_PATHS[name]).parts).read_bytes()
 
+    armv7 = package.architecture == "armv7l"
+    server_path = rmkit_root / "dist" / ("ime-server-armv7" if armv7 else "ime-server")
+    server = server_path.read_bytes()
+    unit_source = (REPO_ROOT / "pinyin-input/rmtool-pinyin-input.service").read_text()
+    unit = unit_source.replace("18481336", str(len(server))).replace(
+        "ab1935dac1e91a86e7b704f9feb0de985e009f366590448fe9c6ec5e400901bf",
+        sha256(server),
+    ).encode()
     fixed_files = {
         pinyin.QMD_PATH: (REPO_ROOT / "pinyin-input/qmd/pinyin-input.qmd", 0o644),
-        pinyin.HOOK_PATH: (rmkit_root / "dist/ime_hook.so", 0o644),
+        pinyin.HOOK_PATH: (rmkit_root / "dist" / ("ime_hook-armv7.so" if armv7 else "ime_hook.so"), 0o644),
         pinyin.RCC_PATH: (REPO_ROOT / "pinyin-input/zh_CN.rcc", 0o644),
-        pinyin.SERVER_PATH: (rmkit_root / "dist/ime-server", 0o755),
-        pinyin.UNIT_PATH: (REPO_ROOT / "pinyin-input/rmtool-pinyin-input.service", 0o644),
         pinyin.NOTICE_PATH: (rmkit_root / "NOTICE.md", 0o644),
         pinyin.LICENSE_PATH: (rmkit_root / "LICENSE", 0o644),
     }
     files.update({path: (source.read_bytes(), mode) for path, (source, mode) in fixed_files.items()})
-    unit = files[pinyin.UNIT_PATH][0].decode("utf-8")
-    server = files[pinyin.SERVER_PATH][0]
+    files[pinyin.SERVER_PATH] = (server, 0o755)
+    files[pinyin.UNIT_PATH] = (unit, 0o644)
+    unit = unit.decode("utf-8")
     if (
         pinyin.REMOTE_SERVER not in unit
         or str(len(server)) not in unit
@@ -257,6 +264,8 @@ def main() -> int:
         peer_archives = {}
         for name, catalog in (("tap", tap_packages), ("fast", fast_packages)):
             peer = catalog.get(identity)
+            if peer is None and name == "fast" and package.platform in {"tatsu", "rm1", "rm2"}:
+                continue
             if peer is None:
                 raise RuntimeError(f"Missing exact {name} peer for {identity}")
             peer_archives[name] = (

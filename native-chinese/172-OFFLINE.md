@@ -1,109 +1,84 @@
-# 3.28.0.172 offline support
+# 3.28.0.172 five-device offline support
 
-Both official images identify `/etc/version` as `20260827113527`. Stable channel
-is user-confirmed, not inferred from the public download URL. No device was
-accessed, rebooted, flashed or tested. Nothing was uploaded or published.
+The official stable images for Paper Pro (`ferrari`), Paper Pro Move
+(`chiappa`), Paper Pure (`tatsu`), reMarkable 1 (`rm1`), and reMarkable 2
+(`rm2`) all report internal version `20260827113527`. No device was accessed,
+rebooted, flashed, or tested during this offline validation.
 
 ## Resource matrix
 
-| Feature | Ferrari | Chiappa | Application installation |
+| Feature | Ferrari | Chiappa | Tatsu | RM1 | RM2 |
+| --- | --- | --- | --- | --- | --- |
+| Native Chinese | Offline passed | Offline passed | Offline passed | Offline passed | Offline passed |
+| Pinyin input | Offline passed | Offline passed | Offline passed | Offline passed | Offline passed |
+| Tap to turn | Offline passed | Offline passed | Offline passed | Offline passed | Offline passed |
+| Reading enhancements | Offline passed | Offline passed | Not exposed | Not exposed | Not exposed |
+| Note enhancements | Offline passed | Offline passed | Not exposed | Not exposed | Not exposed |
+| Fast mono reading | Offline passed | Offline passed | Not exposed | Not exposed | Not exposed |
+
+Ferrari and Chiappa retain their existing `.172` resources byte for byte.
+Tatsu uses AArch64 runtime and input assets. RM1 and RM2 use ARMv7 runtime,
+input, and native-Chinese translator assets. Reading Enhancements, Note
+Enhancements, and Fast Mono remain color-device-only.
+
+## Exact identities
+
+| Platform | Architecture | SWU SHA-256 | xochitl SHA-256 |
 | --- | --- | --- | --- |
-| Native Chinese | Offline passed | Offline passed | Local trust/cache integrated |
-| Pinyin input | Offline passed | Offline passed | Local trust/cache integrated |
-| Reading enhancements | Offline passed | Offline passed | Local trust/cache integrated |
-| Note enhancements | Offline passed | Offline passed | Local trust/cache integrated |
-| Tap page turn | Offline passed | Offline passed | Local trust/cache integrated |
-| Fast mono reading | Offline passed | Offline passed | Local trust/cache integrated |
+| `ferrari` | AArch64 | recorded in the prior `.172` audit | `b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021` |
+| `chiappa` | AArch64 | recorded in the prior `.172` audit | `5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4` |
+| `tatsu` | AArch64 | `a9372f222abd12f7c7aeb36a3667eee6f0e8841ee885a23797c41019bcd848e0` | `fa674d2ca3d8002602ce4b1b92280b96bcdf2cf32b6a42ec62ae178a1fad1fe3` |
+| `rm1` | ARMv7 | `4e572f72ae17ce1f1e8a2bbb7f3e9cddc6b0ba7d168bc75328216aaeee9eb910` | `1f4fbb6e14650704b5b036e482da9948e73553178f6116ad464ab072f7b90117` |
+| `rm2` | ARMv7 | `9b91cfe303d1c7c3458f2e511a635341653a2f90535240cb5374fb93fa0f0ad6` | `071d85beef3ef2d4cc0e11002140b27b82a2cc04a2ed740a5669f591069b77df` |
 
-Stock EN/FR/DE/ES catalogs are byte-identical to .169. Chinese catalogs rebuilt
-twice with Qt 6.10.3 reproduce the published bytes: Ferrari 2015 translations,
-196626 bytes, SHA-256 `49cf09fc23ef3fcacb956d426915e3f80b85a02fa7e597a8b5fc8013a2bdb931`;
-Chiappa 1982 translations, 192400 bytes, SHA-256
+Every package selector remains fail-closed on platform, architecture, internal
+version, and stock xochitl SHA-256.
+
+## Chinese catalogs and ARM translator
+
+Tatsu uses the exact proven Pure catalog: 192400 bytes, SHA-256
 `2e501a66c30addbecada68b6af262ea506440547b478b4e02e7d2a56889446a1`.
-The prior catalog audit reports zero missing keys and zero placeholder issues.
-This does not extend the deprecated French-slot replacement support matrix.
+RM1 and RM2 use the deterministic merged legacy catalog with 2099 entries:
+205621 bytes, SHA-256
+`0f1de519ab4ac1998f432dab014d40fb0cdae2fe528ab30ca47c7a507df82485`.
+The committed ARMv7 translator is built from the same architecture-neutral
+source under `native-chinese/xovi-src` with the reviewed Zig toolchain: 2888
+bytes, SHA-256
+`9569d723d4057f741fcb70522b90a69e11aa5c75998cee8a6dcb69ad668be722`.
+Builders reject any byte mismatch before packaging.
 
-Exact xochitl SHA-256:
+## Deterministic outputs
 
-| Platform | SHA-256 |
-| --- | --- |
-| ferrari | `b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021` |
-| chiappa | `5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4` |
-
-Reading and note QMDs are compiled from current source and checked with the
-existing structural assertions against each exact recovered resource tree.
-Other payloads come from checksum-verified current .169 packages; only the
-hashtab changes, and Chinese catalog bytes are independently rebuilt. All six
-features pass individual QMD checks and QML replay. Both supported families
-pass combined replay in forward/reverse order: native + pinyin + reading +
-note; native + pinyin + tap + fast + note. Reading is not combined with its
-legacy tap/fast alternatives. Shared runtime members match across all peers.
-
-`pinyin-input/check_172_abi.py` verifies the official Qt 6.10.3 export symbols
-and disassembly evidence for IME KeyEvent offsets 72/80/108 on both platforms.
-Native translator has no undefined dynamic imports; its three ELF relocations
-are internal/relative AArch64 ABS64/GLOB_DAT/RELATIVE. The Xovi Qt imports are
-present. This is static evidence, not proof of runtime behavior or cold boot.
-The audited existing translator `.so` is reused unchanged, not recompiled.
-
-## Exact local outputs
-
-Repository: `E:/rmtool-main`. Each of the six feature names in the builder's
-`FEATURES` tuple has these two archives (substitute the same feature twice):
+The five-device builder creates 21 archives under:
 
 ```text
-E:/rmtool-main/build/resources-172/<feature>/rmtool-<feature>-ferrari-20260827113527-3.28.0.172.tar.gz
-E:/rmtool-main/build/resources-172/<feature>/rmtool-<feature>-chiappa-20260827113527-3.28.0.172.tar.gz
-E:/rmtool-main/build/resources-172/<feature>/manifest.candidate.json
+E:/rmtool-main/build/resources-172-five-device/<feature>/
 ```
 
-Each candidate manifest contains the actual archive and every member's size,
-mode and SHA-256. `build/resources-172/validation.json` records the eight
-combined checks; `abi-validation.json` records symbols, offsets and library
-hashes. `integration.json` records local trust integration, and
-`unittest-final.log` records the post-integration full regression run.
+Each feature directory contains its applicable device archives and
+`manifest.candidate.json`. `validation.json` records all 21 packages and six
+forward/reverse combined-QMD checks. `abi-validation.json` records both
+translator architectures and the static input ABI evidence. Candidate archives
+and every member are checked by exact size, mode, and SHA-256.
 
-Rebuild from the repository directory, without network or device operations:
+Rebuild from the repository directory without network or device operations:
 
 ```powershell
-build/.venv/Scripts/python.exe native-chinese/build_172.py --research .trellis/tasks/09-07-firmware-management-172/research --firmware-cache E:/remarkable/firmware-cache/official/3.28.0.172 --output-dir build/resources-172 --qmd-tool build/reading-enhancements-qmd/qmd-tool.exe --qmldiff E:/remarkable/qmldiff-source/target/release/qmldiff.exe --qt-bin E:/remarkable/firmware-cache/tools/qt-6.10.3/6.10.3/msvc2022_64/bin
-build/.venv/Scripts/python.exe native-chinese/stage_172.py
-build/.venv/Scripts/python.exe native-chinese/stage_172.py --integrate
+build/.venv/Scripts/python.exe native-chinese/build_172.py --research .trellis/tasks/09-08-172-five-device-support/research --firmware-cache E:/remarkable/firmware-cache/official/3.28.0.172 --output-dir build/resources-172-five-device --qmd-tool build/reading-enhancements-qmd/qmd-tool.exe --qmldiff E:/remarkable/qmldiff-source/target/release/qmldiff.exe --qt-bin E:/remarkable/firmware-cache/tools/qt-6.10.3/6.10.3/msvc2022_64/bin
+build/.venv/Scripts/python.exe native-chinese/stage_172.py --source build/resources-172-five-device --cache build/stage-172-five-device-cache
+build/.venv/Scripts/python.exe native-chinese/stage_172.py --source build/resources-172-five-device --integrate
 ```
 
-Both staging and integration have been run. Staging verifies all archive/member
-hashes and modes before writing, refuses collisions, and is repeatable. It
-adds the 12 archives to `E:/rmtool-main/.rmtool/cache/<feature>/20260827113527/`
-and puts metadata in `<feature>/manifest.172.candidate.json`. Staging alone
-never replaces active manifests. `--integrate` requires ABI evidence and the
-updated application gates, validates all six merged manifests through the real
-parsers, then appends the .172 records to bundled and active cache manifests.
-Existing rows must remain identical; differing cache records are refused and
-previous active cache manifests are backed up as `manifest.before-172.json`.
+Staging verifies every candidate before writing and refuses collisions.
+Integration keeps all existing rows byte-equivalent, validates merged manifests
+through the application parsers, and adds only the exact applicable `.172`
+records. Native Chinese, Pinyin, and Tap to Turn receive five entries; Reading
+Enhancements, Note Enhancements, and Fast Mono retain only Ferrari and Chiappa.
 
-## Local testing and publication boundary
+## Validation boundary
 
-Application allowlists and bundled manifests now admit both exact .172
-identities. Native/Pinyin retain complete-target checks; reading/note/fast
-retain bundled trust checks. All .172 entries are offline verified and NOT
-device verified. There are no fabricated .172 predecessor revisions.
-
-The application package selectors, shared-runtime trust context, and all 12
-local download/cache paths have been tested with network calls prohibited.
-Manual archive import can use the exact build paths above after selecting the
-.172 target. Normal manifest download URL fields are present for schema
-compatibility but are NOT evidence of publication; rely on the verified local
-cache before testing. No device installation has been performed or authorized
-by this offline validation.
-
-Native/Pinyin use bundled trust directly. Reading/note/fast reject an old
-incomplete remote manifest and fall back to the local/bundled complete matrix.
-Tap status now selects the exact bundled target when a lagging remote manifest
-omits it. This preserves .172 discovery without manufacturing remote records.
-Use offline mode to avoid unnecessary remote lookup delays; local archives
-remain available even if the remote manifest does not yet contain .172.
-
-The deprecated French-slot matrix is unchanged: native .172 deployment only
-uses the byte-identical stock catalog identity for its read-only conflict
-guard. It does not enable the old French-slot installer for .172.
-Firmware UI, firmware tests and flashing remain outside this resource change.
+All new Tatsu, RM1, and RM2 packages are offline verified and explicitly not
+device verified. The tests prohibit network fallback while selecting staged
+archives. Publication is verified separately from package construction and does
+not change the device-verification level. Firmware flashing and device
+operations are outside this resource pipeline.

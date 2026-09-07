@@ -3,11 +3,14 @@
 This package ports the offline Pinyin input components from
 [boangs/rmkit](https://github.com/boangs/rmkit) into rmtool's shared Xovi
 runtime. The exact matrix covers Paper Pro and Move from 3.27.1.0 through
-3.28.0.169. Paper Pro 3.28.0.166 is device verified; the other thirteen
-targets are verified offline against official firmware.
+stable 3.28.0.172, plus Paper Pure, reMarkable 1, and reMarkable 2 on
+3.28.0.172. Paper Pro 3.28.0.166 is device verified; all other targets are
+verified offline against official firmware.
 
-The package includes rmkit's `pinyin_interceptor.qmd`, `ime_hook.so`,
-`zh_CN.rcc`, and `ime-server` with the upstream GPL-3.0 license and notice.
+The package includes rmkit's `pinyin_interceptor.qmd`, architecture-matched
+`ime_hook.so` and `ime-server`, `zh_CN.rcc`, and the upstream GPL-3.0 license
+and notice. Paper Pro, Move, and Pure use AArch64 binaries; reMarkable 1 and 2
+use the reviewed ARMv7 builds.
 The RCC registers the Chinese keyboard locale. It is installed as a
 feature-owned, immediate file in `exthome/qt-resource-rebuilder`, because QRR
 does not recursively scan subdirectories. The Pinyin QMD intentionally does
