@@ -201,7 +201,7 @@ class SafetyTests(unittest.TestCase):
     def test_no_silent_resets_or_cancellation_or_auto_reboot(self):
         state = f.parse_state(state_text())
         image = f.Image(Path("x"), "3.28.0.172", "chiappa", 10, "a" * 64, 10)
-        script = f.installation_script("a" * 32, f.Plan(state, image, (), None, object()))
+        script = f.installation_script("a" * 32, f.Plan(state, image, None, object()))
         for forbidden in ("echo 0 >", "kill", "systemctl stop", "systemctl reboot", "swupdate-from-image-file", "source ", "cpio -i"):
             self.assertNotIn(forbidden, script)
         self.assertIn("fuser /dev/mmcblk0p3", script)
@@ -230,11 +230,10 @@ class SafetyTests(unittest.TestCase):
 
     def test_remote_lock_revalidates_and_releases_on_mismatch(self):
         ssh = FakeSSH()
-        plan = f.Plan(f.parse_state(state_text()), None, (), {"version": "3.28.0.172"}, ssh.token)
-        ssh.probe = state_text(shared_lock="busy")
-        with mock.patch.object(f, "inspect_plugins", return_value=("changed",)):
-            with self.assertRaises(RuntimeError):
-                f._lock_and_revalidate(ssh, plan)
+        plan = f.Plan(f.parse_state(state_text()), None, {"version": "3.28.0.172"}, ssh.token)
+        ssh.probe = state_text(version="3.28.0.170", shared_lock="busy")
+        with self.assertRaises(RuntimeError):
+            f._lock_and_revalidate(ssh, plan)
         self.assertEqual(ssh.commands[0], "mkdir /tmp/rmtool-xovi-standalone.lock")
         self.assertEqual(ssh.commands[-1], "rmdir /tmp/rmtool-xovi-standalone.lock")
 
@@ -247,7 +246,7 @@ class SafetyTests(unittest.TestCase):
     def test_unsafe_staging_root_aborts_before_upload(self):
         ssh = FakeSSH()
         image = f.Image(Path("x"), "3.28.0.172", "chiappa", 10, "a" * 64, 10)
-        plan = f.Plan(f.parse_state(state_text()), image, (), None, ssh.token)
+        plan = f.Plan(f.parse_state(state_text()), image, None, ssh.token)
         with mock.patch.object(f, "preflight", return_value=plan), \
                 mock.patch.object(ssh, "exec_checked", side_effect=RuntimeError("unsafe root")) as execute, \
                 mock.patch.object(f, "_write_remote") as write:
@@ -390,7 +389,7 @@ class TransactionTests(unittest.TestCase):
     def test_switch_is_durable_and_explicit_reboot_rechecks_target(self):
         self.ssh.files.pop(f.BASE + "/current")
         target = dict(version="3.28.0.172", internal="20260828000000", xochitl="a" * 64, hardware="-H chiappa:1.0")
-        plan = f.Plan(f.parse_state(state_text()), None, (), target, self.ssh.token)
+        plan = f.Plan(f.parse_state(state_text()), None, target, self.ssh.token)
         with mock.patch.object(f, "preflight", return_value=plan), \
                 mock.patch.object(f, "_lock_and_revalidate"), \
                 mock.patch.object(f.uuid, "uuid4", return_value=mock.Mock(hex=self.job)):
@@ -450,8 +449,8 @@ class TransactionTests(unittest.TestCase):
 
     def test_prepared_operation_restores_only_before_commit(self):
         state = f.parse_state(state_text(engine="active", engine_file="enabled"))
-        plan = f.Plan(state, None, (), {"version": "3.28.0.172"}, self.ssh.token)
-        prepared = f.Plan(f.parse_state(state_text()), None, (), plan.slot, self.ssh.token)
+        plan = f.Plan(state, None, {"version": "3.28.0.172"}, self.ssh.token)
+        prepared = f.Plan(f.parse_state(state_text()), None, plan.slot, self.ssh.token)
         with mock.patch.object(f, "preflight", side_effect=[plan, prepared]), \
                 mock.patch.object(f, "_pause_updater_locked", return_value=True), \
                 mock.patch.object(f, "_restore_updater_locked") as restore:
@@ -477,9 +476,18 @@ class TransactionTests(unittest.TestCase):
             return "", "", 1 if command == "command -v mount" else 0
 
         with mock.patch.object(self.ssh, "exec_command", side_effect=execute), \
-                mock.patch.object(f, "inspect_plugins", return_value=()), \
                 self.assertRaisesRegex(RuntimeError, "mount"):
             f.preflight(self.ssh, switch=True)
+
+    def test_official_install_ignores_third_party_paths(self):
+        self.ssh.files.pop(f.BASE + "/current", None)
+        image = f.Image(Path("x.swu"), "3.28.0.172", "chiappa", 10, "a" * 64, 10)
+        with mock.patch.object(f, "inspect_image", return_value=image):
+            plan = f.preflight(self.ssh, image)
+        self.assertEqual(plan.image, image)
+        commands = "\n".join(self.ssh.commands)
+        self.assertNotIn("/etc/systemd/system/xochitl.service.d", commands)
+        self.assertNotIn("/opt/xovi", commands)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ from pathlib import Path
 from PyQt5 import QtCore, QtWidgets, sip
 
 import _firmware as firmware
+import _residue_migration as residue_migration
 from _dialogs import ask_confirmation, show_error
 import rmtool as _rmtool
 
@@ -15,6 +16,7 @@ class FirmwareTab(QtWidgets.QWidget):
         self.image = None
         self.state = None
         self.transaction = ("none", "尚未检测")
+        self.restore_report = None
         self.busy = False
         self.worker = None
         outer = QtWidgets.QVBoxLayout(self)
@@ -55,11 +57,12 @@ class FirmwareTab(QtWidgets.QWidget):
             ("refresh", "刷新设备状态", self.refresh),
             ("install", "安装所选固件", self.install),
             ("reboot", "确认重启", self.reboot),
+            ("restore_plugins", "恢复更新前插件", self.restore_plugins),
         )):
             button = QtWidgets.QPushButton(label)
             button.clicked.connect(callback)
             self.buttons[key] = button
-            if key == "reboot":
+            if key in ("reboot", "restore_plugins"):
                 actions.addWidget(button, 2, 0, 1, 2)
             else:
                 actions.addWidget(button, index // 2, index % 2)
@@ -103,7 +106,7 @@ class FirmwareTab(QtWidgets.QWidget):
         safe = self.transaction[0] in ("none", "completed")
         for key, button in self.buttons.items():
             enabled = not self.busy
-            if key in ("refresh", "restore", "install", "switch", "reboot"):
+            if key in ("refresh", "restore", "install", "switch", "reboot", "restore_plugins"):
                 enabled &= connected
             if key in ("restore", "install", "switch"):
                 enabled &= safe
@@ -115,8 +118,11 @@ class FirmwareTab(QtWidgets.QWidget):
                 enabled &= self.transaction[0] == "success"
             if key == "restore":
                 enabled &= bool(self.state and self.state.values.get("engine_file") == "masked-runtime")
+            if key == "restore_plugins":
+                enabled &= self.restore_report is not None
             button.setEnabled(enabled)
         self.buttons["reboot"].setVisible(self.transaction[0] == "success")
+        self.buttons["restore_plugins"].setVisible(self.restore_report is not None)
         self.buttons["restore"].setVisible(
             bool(self.state and self.state.values.get("engine_file") == "masked-runtime")
         )
@@ -129,6 +135,7 @@ class FirmwareTab(QtWidgets.QWidget):
 
     def connection_changed(self, connected):
         self.state = None
+        self.restore_report = None
         self.transaction = ("unknown", "请检测设备状态")
         self.status.setText("已连接，请检测设备状态" if connected else "未连接；已提交的安装不会因断线停止")
         self._update()
@@ -214,6 +221,58 @@ class FirmwareTab(QtWidgets.QWidget):
             f"当前分区 {state.active.upper()} · 下次启动 {state.next_boot.upper()} · "
             f"自动更新 {state.values['engine_file']}"
         )
+        self.restore_report = None
+        if self.transaction[0] == "completed":
+            QtCore.QTimer.singleShot(0, self._detect_plugin_restore)
+
+    def _detect_plugin_restore(self):
+        if self.busy or not self.ssh_client.is_connected():
+            return
+        self._run(
+            lambda: residue_migration.inspect_residue(self.ssh_client),
+            self._plugin_restore_detected,
+            device=True,
+        )
+
+    def _plugin_restore_detected(self, report):
+        self.restore_report = report
+        self.buttons["restore_plugins"].setText(
+            "恢复更新前插件" if report is not None and report.migratable else "查看插件恢复状态"
+        )
+        if report is not None:
+            suffix = "可以一键恢复。" if report.migratable else "暂时不能自动恢复。"
+            self.status.setText(self.status.text() + "\n检测到更新前插件，" + suffix)
+        self._update()
+
+    def restore_plugins(self):
+        report = self.restore_report
+        if report is None:
+            return
+        if not report.migratable:
+            detail = "\n".join(report.blockers) or report.detail
+            show_error(self, "恢复更新前插件", detail)
+            return
+        enabled = "、".join(item.label for item in report.features if item.enabled) or "无"
+        disabled = "、".join(item.label for item in report.features if not item.enabled) or "无"
+        detail = f"原来启用：{enabled}\n原来停用：{disabled}\n\n恢复后请手动重启设备生效。"
+        if not ask_confirmation(
+            self,
+            "恢复更新前插件",
+            "使用当前固件的精确插件包恢复更新前状态？",
+            detail=detail,
+        ):
+            return
+        self._run(
+            lambda: residue_migration.migrate(self.ssh_client, str(_rmtool.app_state_dir())),
+            self._plugin_restore_finished,
+            device=True,
+        )
+
+    def _plugin_restore_finished(self, _report):
+        self.restore_report = None
+        self.buttons["restore_plugins"].setText("恢复更新前插件")
+        self.status.setText("更新前插件已按当前固件恢复；请手动重启设备生效。")
+        self._update()
 
     def refresh(self):
         self._run(lambda: firmware.inspect_device(self.ssh_client), self._device_loaded, device=True)
@@ -232,7 +291,7 @@ class FirmwareTab(QtWidgets.QWidget):
         operation = "安装" if plan.image else "切换备用分区"
         detail = ("共享笔记数据不会随固件回退，请先备份。旧版系统可能无法读取新版数据。\n"
                   "rmtool 会在提交前临时暂停自动更新；若预检失败会自动恢复。\n"
-                  "现有可信插件将保持禁用，设置保留；需在目标固件上重新核验兼容性。\n"
+                  "第三方应用和插件不会参与固件检查；更新后请重新确认兼容性。\n"
                   "提交后不能取消，不会自动重启。目标插件兼容性尚未核验。")
         if not ask_confirmation(self, "固件管理", f"{operation}到 {target}？", detail=detail, danger=True):
             return

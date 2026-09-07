@@ -613,57 +613,6 @@ def _remote_text(ssh, path, limit=MAX_DESCRIPTION):
     return data.decode("utf-8") if isinstance(data, bytes) else data
 
 
-def inspect_plugins(ssh):
-    """Only authenticated current shared launchers can be held disabled.
-
-Nothing is migrated/deleted, and support for the new OS is never inferred
-from the old OS. Overlaid/foreign hooks and external sidecars fail closed.
-"""
-    import _plugin_recovery as recovery
-    import _tap_page_turn as tap
-    import _xovi_standalone as shared
-    recovery._unhidden_paths(ssh)
-    recovery._external_loaders(ssh)
-    forbidden = (shared.LEGACY_SHARED_LAYOUT.remote_base, tap.VELLUM_ROOT,
-                 tap.SHARED_XOVI_LIBRARY, tap.SHARED_QRR_LIBRARY, tap.SHARED_APPLOAD_LIBRARY,
-                 tap.REMOTE_BASE, tap.DROPIN_PATH,
-                 recovery.migration.fast.REMOTE_BASE, recovery.migration.fast.DROPIN_PATH)
-    if any(shared._remote_entry_exists(ssh, path) for path in forbidden):
-        raise RuntimeError("检测到旧插件或其他启动程序，请先检查其兼容性；未修改任何配置。")
-    if not shared._remote_entry_exists(ssh, shared.SHARED_LAYOUT.remote_base):
-        if shared._remote_entry_exists(ssh, shared.SHARED_LAYOUT.dropin_path):
-            raise RuntimeError("插件启动配置不完整。")
-        return ()
-    identity = tap.get_device_identity(ssh)
-    runtime, trusted, _ = tap._trusted_shared_context(identity)
-    inspected = shared.inspect_shared(ssh, runtime, trusted)
-    if inspected.startup_pending or inspected.launcher_update_available or inspected.legacy_templates:
-        raise RuntimeError("插件启动状态需要先修复，固件操作已阻止。")
-    for state in inspected.states.values():
-        for sidecar in state.spec.sidecars:
-            if not sidecar.unit_name:
-                raise RuntimeError("旧版内联拼音后台无法验证启动归属，请先升级插件；配置未修改。")
-            # inspect_shared authenticates the launcher and unit payload. Only
-            # runtime-linked services started behind that launcher's firmware
-            # and emergency gates are safe across a reboot.
-            props = key_values(ssh.exec_checked(shell("systemctl", "show", sidecar.unit_name,
-                "-p", "FragmentPath", "-p", "DropInPaths", "-p", "UnitFileState")))
-            expected = shared.SHARED_LAYOUT.remote_base + "/" + sidecar.unit_runtime_path
-            path = shlex.quote(sidecar.remote_path)
-            ssh.exec_checked(f"set -eu; test -f {path}; test ! -L {path}; "
-                             f"test \"$(stat -c '%a:%u:%g:%s' {path})\" = '755:0:0:{sidecar.size}'; "
-                             f"test \"$(sha256sum {path} | cut -d ' ' -f 1)\" = {sidecar.sha256}")
-            if (props.get("FragmentPath") != expected or props.get("DropInPaths")
-                    or props.get("UnitFileState") not in ("linked-runtime", "static")):
-                raise RuntimeError("拼音后台存在持久启动或未知配置，无法安全准备固件操作。")
-            for directory in ("/etc/systemd/system", "/usr/lib/systemd/system"):
-                if ssh.exec_checked(shell("find", "-P", directory, "-name", sidecar.unit_name, "-print")).strip():
-                    raise RuntimeError("拼音后台存在独立持久启动项，请先检查其归属。")
-    for path in (shared.SHARED_LAYOUT.launcher_path, shared.SHARED_MARKER_PATH):
-        recovery._ancestors(ssh, path)
-    return tuple(sorted(inspected.states))
-
-
 def slot_script(slot):
     if slot not in ("a", "b"):
         raise RuntimeError("无效目标分区。")
@@ -730,7 +679,6 @@ def inspect_slot(ssh, state):
 class Plan:
     state: DeviceState
     image: Image | None
-    plugins: tuple[str, ...]
     slot: dict | None
     token: object
 
@@ -766,11 +714,12 @@ def preflight(ssh, image=None, *, switch=False, prepared=False):
             raise RuntimeError("原生工具报告的当前分区不一致。")
         if ssh.exec_checked("rootdev --next-boot").strip() != state.values["root"]:
             raise RuntimeError("已有下次启动分区切换，拒绝再次切换。")
-        plugins = inspect_plugins(ssh)
+        # Match the stock updater: third-party applications and plugins do not
+        # participate in official firmware validation or installation.
         if image and ssh.exec_checked("systemctl is-enabled rm-apply-ota.service").strip() != "enabled":
             raise RuntimeError("原生重启应用更新服务未启用，无法保证安装后的启动切换。")
         slot = inspect_slot(ssh, state) if switch else None
-        return Plan(state, image, plugins, slot, token)
+        return Plan(state, image, slot, token)
 
 
 def _write_remote(ssh, path, data):
@@ -793,8 +742,8 @@ def _lock_and_revalidate(ssh, plan):
         # unknown owner. Normalize only this local snapshot for preflight.
         state.values["shared_lock"] = "idle"
         assert_idle(state, writing=True, image=plan.image)
-        if not same_device_state(state, plan.state) or inspect_plugins(ssh) != plan.plugins:
-            raise RuntimeError("暂存期间设备或插件状态已变化，请重新确认。")
+        if not same_device_state(state, plan.state):
+            raise RuntimeError("暂存期间设备状态已变化，请重新确认。")
         if plan.slot is not None and inspect_slot(ssh, state) != plan.slot:
             raise RuntimeError("备用分区内容已变化。")
     except Exception:
@@ -869,7 +818,6 @@ def _prepared_operation(ssh, plan, *, switch=False):
     """Pause the updater around final validation and restore on early failure."""
     initial = preflight(ssh, plan.image, switch=switch, prepared=False)
     if (not same_device_state(initial.state, plan.state)
-            or initial.plugins != plan.plugins
             or (switch and initial.slot != plan.slot)):
         raise RuntimeError("设备状态已变化，请重新检测并确认。")
     paused_here = _pause_updater_locked(ssh, initial.state)
@@ -877,7 +825,6 @@ def _prepared_operation(ssh, plan, *, switch=False):
     try:
         current = preflight(ssh, plan.image, switch=switch, prepared=True)
         if (not same_device_state(current.state, plan.state)
-                or current.plugins != plan.plugins
                 or (switch and current.slot != plan.slot)):
             raise RuntimeError("设备状态已变化，请重新检测并确认。")
         yield current, committed
@@ -972,7 +919,6 @@ def start_install(ssh, plan, *, confirmed=False, downgrade_confirmed=False, prog
                         "platform": plan.image.platform, "target": "b" if plan.state.active == "a" else "a",
                         "boot_id": _remote_text(ssh, "/proc/sys/kernel/random/boot_id", 64).strip()}
             _write_remote(ssh, directory + "/job.json", json.dumps(metadata).encode())
-            import _xovi_standalone as shared
             # Same remote lock as plugin installers. Retained through the detached
             # job and reboot: uncertain jobs must not unlock competing writers.
             _lock_and_revalidate(ssh, plan)
@@ -980,8 +926,6 @@ def start_install(ssh, plan, *, confirmed=False, downgrade_confirmed=False, prog
             _write_remote(ssh, BASE + "/current.tmp", (job + "\n").encode())
             ssh.exec_checked(f"sync {BASE}/current.tmp && mv {BASE}/current.tmp {BASE}/current && sync")
             committed["value"] = True
-            if plan.plugins:
-                shared._set_recovery_sentinel_locked(ssh)
             try:
                 ssh.exec_checked(shell("systemd-run", "--unit=" + UNIT + "-" + job, "--service-type=oneshot",
                     "--property=RemainAfterExit=yes", "--property=TimeoutStartSec=infinity",
@@ -1000,7 +944,6 @@ def switch_slot(ssh, plan, *, confirmed=False, downgrade_confirmed=False):
         raise RuntimeError("切换或降级尚未明确确认。")
     with firmware_session(ssh, plan.token):
         with _prepared_operation(ssh, plan, switch=True) as (_current, committed):
-            import _xovi_standalone as shared
             job = uuid.uuid4().hex
             directory = BASE + "/" + job
             target_slot = "b" if plan.state.active == "a" else "a"
@@ -1042,8 +985,6 @@ test "$(rootdev --next-boot)" = {target}
             _write_remote(ssh, BASE + "/current.tmp", (job + "\n").encode())
             ssh.exec_checked(f"sync {BASE}/current.tmp && mv {BASE}/current.tmp {BASE}/current && sync")
             committed["value"] = True
-            if plan.plugins:
-                shared._set_recovery_sentinel_locked(ssh)
             try:
                 ssh.exec_checked(shell("systemd-run", "--unit=" + UNIT + "-" + job, "--service-type=oneshot",
                                       "--property=RemainAfterExit=yes", "/bin/bash", directory + "/switch.sh"))

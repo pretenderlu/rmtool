@@ -8,12 +8,12 @@ A/B switching. No automatic reboot, force mode, counter reset, cancellation of
 a writer, resource publication, or device operation is performed by the tests.
 Older devices and legacy A/B layouts remain unsupported for mutation.
 
-Connect, query device state, and explicitly pause the idle automatic updater
-before preparing an installation or switch. Pause uses a runtime-only service
-mask and records the original active state in `pause.json`. If preflight fails
-or the user abandons installation, use Restore Automatic Updates. The runtime
-mask disappears on reboot. Permanent enable/disable policy is not changed.
-Unknown service changes are never overwritten by restoration.
+Connect and query device state before preparing an installation or switch.
+After final confirmation rmtool pauses the idle automatic updater itself. The
+pause uses a runtime-only service mask and records the original active state in
+`pause.json`; it is restored automatically if the operation fails before being
+committed. The runtime mask also disappears on reboot. Permanent enable/disable
+policy is not changed, and unknown service changes are never overwritten.
 
 Installing and switching require confirmation after preflight. A downgrade
 requires an additional confirmation: shared user data is NOT rolled back and
@@ -39,9 +39,9 @@ Both current and inactive version probes read `IMG_VERSION` from
 Boot flow, A/B mappings, counters, power, staging capacity and inactive-device
 users are validated. An ordinary idle SWUpdate daemon is NOT a writer. Normal
 rmtool operations are not blocked solely by battery, platform or daemon state.
-The transport guard checks once per top-level operation session and reconnect;
-standalone commands/SFTP sessions are their own boundaries. Actual/uncertain
-updates block competing operations immediately, including queued writes/reboots.
+The transport guard establishes firmware state while connecting and updates it
+when rmtool starts a firmware transaction. Actual or uncertain updates block
+competing operations immediately, including queued writes and reboots.
 
 The .172 `09-swupdate-args` resets `swu_status`; therefore rmtool does **not**
 source it or call `swupdate-from-image-file`. It invokes the same native engine
@@ -73,16 +73,25 @@ state; it does not depend on a surviving transient unit. Missing/conflicting
 evidence remains locked for manual diagnosis. Logs and images are retained;
 there is no automatic cleanup/retry of uncertain jobs.
 
-The shared plugin lock is acquired and plugin/device state revalidated under it
-before committing a job. Trusted shared launchers are protected with the existing
-emergency sentinel, preserving settings and keeping old plugins disabled. Current
-runtime-linked Pinyin sidecars require trusted unit/payload fingerprints, no
-unknown overrides or persistent standalone startup, and the authenticated shared
-launcher's firmware/sentinel gates. Old inline sidecars, unknown boot hooks,
-overlay ownership ambiguity and unsupported shared layouts are rejected. Target
-plugin compatibility is not inferred or automatically enabled after installation.
-Inactive slots require a clean read-only filesystem check and `ro,noload`
-inspection; unknown old root-local xochitl drop-ins block switching.
+Official firmware installation deliberately does not inspect, modify, migrate,
+or reject third-party applications and plugins. This matches the stock updater:
+firmware validation is limited to the official image, device identity, power,
+native updater and inactive target. The shared operation lock still serializes
+rmtool's own writers while the firmware job is committed.
+
+After the new firmware boots, rmtool detects the retained trusted shared-plugin
+marker in `/data`. When exact packages exist for the new firmware, the firmware
+page offers **Restore pre-update plugins**. Restoration downloads and verifies
+the new packages, rebuilds the complete shared runtime in one transaction, and
+preserves each feature's enabled or disabled state. Missing or untrusted targets
+are reported and never forced into the new firmware. A restoration failure does
+not roll back or damage the completed firmware installation. Third-party apps
+outside rmtool ownership are left untouched and are never automatically injected.
+
+Inactive-slot switching is different from installing an image: it boots existing
+contents without replacing them. It therefore retains the clean read-only
+filesystem check and `ro,noload` inspection; unknown old root-local xochitl
+drop-ins still block switching.
 
 ## Verification and limits
 

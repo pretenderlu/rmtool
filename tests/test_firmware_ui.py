@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5 import QtCore, QtGui, QtWidgets
 import rmtool
 import _firmware as f
+import _residue_migration as residue_migration
 from _tab_firmware import FirmwareTab
 from tests.test_firmware import state_text
 
@@ -81,6 +82,51 @@ class FirmwareUITests(unittest.TestCase):
             self.page._update()
             self.assertEqual(self.page.buttons["reboot"].isEnabled(), status == "success")
             self.assertEqual(self.page.buttons["switch"].isEnabled(), status in ("none", "completed"))
+
+    def test_plugin_restore_only_appears_for_detected_residue(self):
+        self.ssh.connected = True
+        self.page.transaction = ("completed", "已进入新固件")
+        self.page._update()
+        self.assertTrue(self.page.buttons["restore_plugins"].isHidden())
+        report = residue_migration.ResidueReport(
+            mock.Mock(), mock.Mock(), (), True, (), "可以恢复"
+        )
+        self.page.restore_report = report
+        self.page._update()
+        self.assertFalse(self.page.buttons["restore_plugins"].isHidden())
+        self.assertTrue(self.page.buttons["restore_plugins"].isEnabled())
+        self.page.restore_report = residue_migration.ResidueReport(
+            mock.Mock(), mock.Mock(), (), False, ("缺少精确包",), "不能恢复"
+        )
+        self.page._update()
+        self.assertTrue(self.page.buttons["restore_plugins"].isEnabled())
+
+    def test_completed_firmware_schedules_restore_detection(self):
+        self.ssh.connected = True
+        state = f.parse_state(state_text())
+        with mock.patch.object(QtCore.QTimer, "singleShot") as schedule:
+            self.page._device_loaded((state, ("completed", "已进入新固件")))
+        schedule.assert_called_once_with(0, self.page._detect_plugin_restore)
+
+    def test_plugin_restore_confirms_or_explains_blockers(self):
+        blocked = residue_migration.ResidueReport(
+            mock.Mock(), mock.Mock(), (), False, ("阅读增强暂无精确包",), "不能恢复"
+        )
+        self.page.restore_report = blocked
+        with mock.patch("_tab_firmware.show_error") as error:
+            self.page.restore_plugins()
+        self.assertIn("阅读增强暂无精确包", error.call_args.args[2])
+
+        feature = residue_migration.ResidueFeatureReport(
+            "reading-enhancements", "阅读增强", True, True
+        )
+        self.page.restore_report = residue_migration.ResidueReport(
+            mock.Mock(), mock.Mock(), (feature,), True, (), "可以恢复"
+        )
+        with mock.patch("_tab_firmware.ask_confirmation", return_value=True), \
+                mock.patch.object(self.page, "_run") as run:
+            self.page.restore_plugins()
+        run.assert_called_once()
 
     def test_progress_is_determinate(self):
         self.page._progress(45, 100)
