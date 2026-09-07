@@ -218,6 +218,8 @@ class SafetyTests(unittest.TestCase):
         script = f.slot_script("b")
         self.assertIn("ro,noload", script)
         self.assertIn("IMG_VERSION", script)
+        self.assertIn("备用分区包含旧版 xochitl 插件", script)
+        self.assertNotIn("xochitl.service.d", f.slot_script("b", require_clean=False))
         self.assertNotIn("RELEASE_VERSION", f.PROBE + script)
         self.assertIn("e2fsck -fn", script)
         command = f.isolated_slot_command("b")

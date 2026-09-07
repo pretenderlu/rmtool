@@ -384,7 +384,7 @@ class FirmwareTab(QtWidgets.QWidget):
         def inspect():
             state, transaction = firmware.inspect_device(self.ssh_client)
             try:
-                slot, error = firmware.inspect_slot(self.ssh_client, state), ""
+                slot, error = firmware.inspect_slot_metadata(self.ssh_client, state), ""
             except (RuntimeError, OSError, ValueError) as exc:
                 slot, error = None, str(exc)
             return state, transaction, slot, error

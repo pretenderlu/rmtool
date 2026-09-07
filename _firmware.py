@@ -613,10 +613,22 @@ def _remote_text(ssh, path, limit=MAX_DESCRIPTION):
     return data.decode("utf-8") if isinstance(data, bytes) else data
 
 
-def slot_script(slot):
+def slot_script(slot, *, require_clean=True):
     if slot not in ("a", "b"):
         raise RuntimeError("无效目标分区。")
     device = "/dev/mmcblk0p" + ("2" if slot == "a" else "3")
+    clean_checks = '''
+# Direct switching must not boot unknown root-local plugin hooks.
+if [ -d "$m/etc/systemd/system/xochitl.service.d" ] &&
+        [ -n "$(find "$m/etc/systemd/system/xochitl.service.d" -mindepth 1 -print)" ]; then
+    echo '备用分区包含旧版 xochitl 插件，不能直接切换。' >&2
+    exit 1
+fi
+if [ -e "$m/opt/xovi" ]; then
+    echo '备用分区包含旧版 Xovi，不能直接切换。' >&2
+    exit 1
+fi
+''' if require_clean else ""
     # Isolated namespace; ro,noload forbids ext4 journal replay. Cleanup errors
     # propagate instead of treating an unreadable or mounted slot as healthy.
     return f'''set -eu
@@ -627,11 +639,7 @@ m=$(mktemp -d /tmp/rmtool-slot.XXXXXXXX)
 cleanup() {{ umount "$m" && rmdir "$m"; }}
 trap cleanup EXIT
 mount -o ro,noload {device} "$m"
-# Unknown old root-local boot hooks are not covered by the shared sentinel.
-if [ -d "$m/etc/systemd/system/xochitl.service.d" ]; then
-    test -z "$(find "$m/etc/systemd/system/xochitl.service.d" -mindepth 1 -print)"
-fi
-test ! -e "$m/opt/xovi"
+{clean_checks}
 test -f "$m/usr/bin/xochitl"
 test -x "$m/usr/bin/xochitl"
 version=$(sed -n 's/^IMG_VERSION=//p' "$m/usr/lib/os-release")
@@ -644,7 +652,7 @@ grep -oE -- '-H (chiappa|ferrari|CT-PCBA-IMX8MM):1.0' "$m/usr/lib/swupdate/conf.
 '''
 
 
-def isolated_slot_command(slot):
+def isolated_slot_command(slot, *, require_clean=True):
     """Run the read-only slot probe in a systemd private mount namespace."""
     return shell(
         "systemd-run",
@@ -656,15 +664,17 @@ def isolated_slot_command(slot):
         "--property=PrivateMounts=yes",
         "/bin/sh",
         "-c",
-        slot_script(slot),
+        slot_script(slot, require_clean=require_clean),
     )
 
 
-def inspect_slot(ssh, state):
+def _inspect_slot(ssh, state, *, require_clean):
     target = "b" if state.active == "a" else "a"
     with firmware_session(ssh):
         assert_idle(state)
-        result = key_values(ssh.exec_checked(isolated_slot_command(target)))
+        result = key_values(ssh.exec_checked(isolated_slot_command(
+            target, require_clean=require_clean
+        )))
     if (set(result) != {"version", "internal", "xochitl", "hardware"}
             or result["hardware"].replace("CT-PCBA-IMX8MM", "ferrari") != "-H " + state.platform + ":1.0"
             or not re.fullmatch(r"\d{14}", result["internal"])
@@ -673,6 +683,16 @@ def inspect_slot(ssh, state):
     if version_key(result["version"]) < (3, 22, 0, 0):
         raise RuntimeError("备用分区使用旧 A/B 架构，禁止切换。")
     return result
+
+
+def inspect_slot_metadata(ssh, state):
+    """Read standby firmware identity without deciding whether it is safe to boot."""
+    return _inspect_slot(ssh, state, require_clean=False)
+
+
+def inspect_slot(ssh, state):
+    """Read and validate a standby slot before direct A/B switching."""
+    return _inspect_slot(ssh, state, require_clean=True)
 
 
 @dataclass(frozen=True)
