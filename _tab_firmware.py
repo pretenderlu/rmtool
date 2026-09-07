@@ -21,6 +21,8 @@ class FirmwareTab(QtWidgets.QWidget):
         self.restore_report = None
         self.busy = False
         self.worker = None
+        self._transaction_action = "install"
+        self._transaction_poll_scheduled = False
         outer = QtWidgets.QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         scroll = QtWidgets.QScrollArea()
@@ -412,6 +414,7 @@ class FirmwareTab(QtWidgets.QWidget):
         if plan.downgrade and not ask_confirmation(self, "确认降级", "确认承担共享数据不兼容风险并降级？", danger=True):
             return
         function = firmware.start_install if plan.image else firmware.switch_slot
+        self._transaction_action = "install" if plan.image else "switch"
         if plan.image:
             self._run(lambda callback: function(self.ssh_client, plan, confirmed=True, downgrade_confirmed=plan.downgrade, progress=callback), self._transaction_loaded, device=True, progress=True)
         else:
@@ -420,6 +423,43 @@ class FirmwareTab(QtWidgets.QWidget):
     def _transaction_loaded(self, result):
         self.transaction = result
         self.status.setText(result[1].replace("事务", "安装状态"))
+        if result[0] == "running":
+            self._schedule_transaction_poll()
+        elif result[0] == "success":
+            title = "固件安装完成" if self._transaction_action == "install" else "分区切换已准备"
+            message = (
+                "固件已写入备用分区，需要重启设备后才能切换。"
+                if self._transaction_action == "install"
+                else "下次启动分区已经切换，需要重启设备后才能生效。"
+            )
+            if ask_confirmation(
+                self,
+                title,
+                message,
+                confirm_text="立即重启",
+                cancel_text="稍后重启",
+            ):
+                self._reboot_device()
+
+    def _schedule_transaction_poll(self):
+        if self._transaction_poll_scheduled:
+            return
+        self._transaction_poll_scheduled = True
+        QtCore.QTimer.singleShot(2000, self._poll_transaction)
+
+    def _poll_transaction(self):
+        self._transaction_poll_scheduled = False
+        if sip.isdeleted(self) or not self.ssh_client.is_connected():
+            return
+        if self.busy:
+            self._schedule_transaction_poll()
+            return
+        if self.transaction[0] == "running":
+            self._run(
+                lambda: firmware.query_transaction(self.ssh_client),
+                self._transaction_loaded,
+                device=True,
+            )
 
     def install(self):
         image = self.image
@@ -429,6 +469,9 @@ class FirmwareTab(QtWidgets.QWidget):
         self._run(lambda: firmware.preflight(self.ssh_client, switch=True), self._confirm_plan, device=True)
 
     def reboot(self):
-        token = self.ssh_client.ensure_client()
         if ask_confirmation(self, "确认重启", "已确认设备端事务成功。现在重启进入目标固件？", danger=True):
-            self._run(lambda: firmware.reboot_after_success(self.ssh_client, token, confirmed=True), lambda _: None, device=True)
+            self._reboot_device()
+
+    def _reboot_device(self):
+        token = self.ssh_client.ensure_client()
+        self._run(lambda: firmware.reboot_after_success(self.ssh_client, token, confirmed=True), lambda _: None, device=True)

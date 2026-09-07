@@ -25,8 +25,11 @@ Installing and switching require confirmation after preflight. A downgrade
 requires an additional confirmation: shared user data is NOT rolled back and
 older firmware may be unable to read newer notes/settings. Back up first.
 Reboot is a separate action available only after durable success and native
-state checks. Download/structure/hash work reports progress; native installation
-is queried as a state rather than displaying an invented flash percentage.
+state checks. rmtool polls the detached transaction and, after durable success,
+offers an explicit choice between restarting immediately and restarting later;
+it never restarts without that confirmation. Download/structure/hash work
+reports progress; native installation is queried as a state rather than
+displaying an invented flash percentage.
 
 ## Validation and native engine
 

@@ -88,6 +88,23 @@ class FirmwareUITests(unittest.TestCase):
             self.assertEqual(self.page.buttons["reboot"].isEnabled(), status == "success")
             self.assertEqual(self.page.buttons["switch"].isEnabled(), status in ("none", "completed"))
 
+    def test_running_transaction_polls_and_success_offers_reboot(self):
+        with mock.patch.object(self.page, "_schedule_transaction_poll") as schedule:
+            self.page._transaction_loaded(("running", "设备端事务仍在运行"))
+        schedule.assert_called_once_with()
+
+        with mock.patch("_tab_firmware.ask_confirmation", return_value=False) as confirm:
+            self.page._transaction_loaded(("success", "设备端操作成功；尚未重启"))
+        confirm.assert_called_once()
+        self.assertEqual(confirm.call_args.kwargs["confirm_text"], "立即重启")
+        self.assertEqual(confirm.call_args.kwargs["cancel_text"], "稍后重启")
+
+    def test_success_dialog_can_reboot_without_second_confirmation(self):
+        with mock.patch("_tab_firmware.ask_confirmation", return_value=True), \
+                mock.patch.object(self.page, "_reboot_device") as reboot:
+            self.page._transaction_loaded(("success", "设备端操作成功；尚未重启"))
+        reboot.assert_called_once_with()
+
     def test_plugin_restore_only_appears_for_detected_residue(self):
         self.ssh.connected = True
         self.page.transaction = ("completed", "已进入新固件")
