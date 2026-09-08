@@ -12,6 +12,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
 import _diagnostics
+import _device_screenshot
 import _package_download
 import _rmkit_cn
 import _legacy_vellum
@@ -3859,6 +3860,233 @@ class DiagnosticPreviewDialog(QtWidgets.QDialog):
         return box is None or box.isChecked()
 
 
+class DeviceScreenshotSection(QtWidgets.QWidget):
+    """Enable the native shortcut and save direct device screenshots."""
+
+    def __init__(self, ssh_client: SSHClientWrapper, parent=None):
+        super().__init__(parent)
+        self.ssh_client = ssh_client
+        self.thread_pool = QtCore.QThreadPool.globalInstance()
+        self._busy = False
+        self._status = None
+        self._connection_generation = 0
+
+        title = QtWidgets.QLabel("设备截图")
+        title.setObjectName("toolboxFeatureTitle")
+        detail = QtWidgets.QLabel(
+            "开启后，设备快捷设置会显示原生截图按钮；该按钮仍按系统方式保存到资料库。"
+            "“截取并保存 PNG”会直接把当前画面保存到电脑，不在设备资料库中创建 PDF；"
+            "实时截图首版已在 Paper Pro Move 上验证。"
+        )
+        detail.setWordWrap(True)
+        restart_hint = QtWidgets.QLabel(
+            "开启原生快捷截图后需要完整重启设备，rmtool 不会自动重启。"
+        )
+        restart_hint.setWordWrap(True)
+
+        self.status_label = ToolboxStatusLabel("设备已连接，尚未检测")
+        self.status_label.setWordWrap(True)
+        self.detect_button = QtWidgets.QPushButton("检测状态")
+        self.enable_button = QtWidgets.QPushButton("开启原生快捷截图")
+        self.disable_button = QtWidgets.QPushButton("停用")
+        self.capture_button = QtWidgets.QPushButton("截取并保存 PNG…")
+        self.capture_button.setProperty("btnRole", "primary")
+
+        buttons = QtWidgets.QHBoxLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.setSpacing(_rmtool.SUBSECTION_GAP)
+        for button in (
+            self.detect_button,
+            self.enable_button,
+            self.disable_button,
+            self.capture_button,
+        ):
+            buttons.addWidget(button)
+        buttons.addStretch()
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(_rmtool.SUBSECTION_GAP)
+        layout.addWidget(title)
+        layout.addWidget(detail)
+        layout.addWidget(restart_hint)
+        layout.addWidget(self.status_label)
+        layout.addLayout(buttons)
+
+        self.detect_button.clicked.connect(self._detect)
+        self.enable_button.clicked.connect(self._enable)
+        self.disable_button.clicked.connect(self._disable)
+        self.capture_button.clicked.connect(self._capture)
+        self.ssh_client.connection_changed.connect(self._on_connection_changed)
+        self._on_connection_changed(self.ssh_client.is_connected())
+
+    def _on_connection_changed(self, connected: bool):
+        self._connection_generation += 1
+        self._busy = False
+        self._status = None
+        self.status_label.setText(
+            "设备已连接，尚未检测" if connected else "设备未连接"
+        )
+        self._refresh_buttons()
+
+    def _refresh_buttons(self):
+        connected = self.ssh_client.is_connected()
+        status = self._status
+        available = connected and not self._busy
+        self.detect_button.setEnabled(available)
+        self.enable_button.setEnabled(
+            available
+            and status is not None
+            and status.state is _device_screenshot.ScreenshotState.DISABLED
+        )
+        self.disable_button.setEnabled(
+            available and status is not None and status.configured
+        )
+        self.capture_button.setEnabled(
+            available and status is not None and status.ready
+        )
+
+    def _apply_status(self, status):
+        self._status = status
+        if status.state is _device_screenshot.ScreenshotState.UNSUPPORTED:
+            text = "当前设备暂不支持截图功能。"
+        elif status.state is _device_screenshot.ScreenshotState.DISABLED:
+            text = "原生快捷截图未启用。"
+        else:
+            text = "原生快捷截图已启用。"
+        if status.direct_supported:
+            text += " 电脑端实时截图已就绪。"
+        elif status.state is not _device_screenshot.ScreenshotState.UNSUPPORTED:
+            text += " 当前机型的电脑端实时截图尚未适配。"
+        self.status_label.setText(text)
+        self._refresh_buttons()
+
+    def _start_worker(self, operation, *, pending: str, on_success, error_prefix: str):
+        if self._busy:
+            return
+        self._busy = True
+        self.status_label.setText(pending)
+        self._refresh_buttons()
+        generation = self._connection_generation
+        worker = _rmtool.Worker(operation)
+
+        def on_finished(result):
+            if sip.isdeleted(self):
+                return
+            if generation != self._connection_generation:
+                return
+            if not self.ssh_client.is_connected():
+                self._busy = False
+                self._status = None
+                self.status_label.setText("设备未连接")
+                self._refresh_buttons()
+                return
+            self._busy = False
+            on_success(result)
+
+        def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                logging.error("Device screenshot operation failed after tab close: %s", exc)
+                return
+            if generation != self._connection_generation:
+                return
+            if not self.ssh_client.is_connected():
+                self._busy = False
+                self._status = None
+                self.status_label.setText("设备未连接")
+                self._refresh_buttons()
+                return
+            self._busy = False
+            self._status = None
+            self.status_label.setText(f"{error_prefix}：{exc}")
+            self._refresh_buttons()
+            logging.error("Device screenshot operation failed: %s", exc)
+            show_error(self, _rmtool.APP_NAME, f"{error_prefix}：{exc}")
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        try:
+            self.thread_pool.start(worker)
+        except Exception as exc:
+            on_error(exc)
+
+    @require_connection
+    def _detect(self):
+        self._start_worker(
+            lambda: _device_screenshot.get_status(self.ssh_client),
+            pending="正在检测设备截图能力…",
+            on_success=self._apply_status,
+            error_prefix="检测设备截图失败",
+        )
+
+    @require_connection
+    def _enable(self):
+        self._start_worker(
+            lambda: _device_screenshot.set_enabled(self.ssh_client, True),
+            pending="正在开启原生快捷截图…",
+            on_success=self._enabled,
+            error_prefix="开启设备截图失败",
+        )
+
+    def _enabled(self, status):
+        self._apply_status(status)
+        direct = "电脑端实时截图可立即使用。" if status.direct_supported else ""
+        self.status_label.setText(
+            "原生快捷截图配置已写入，完整重启设备后显示。" + direct
+        )
+        show_info(
+            self,
+            _rmtool.APP_NAME,
+            "原生快捷截图已开启。请完整重启设备，重启后重新连接并检测状态。"
+            + direct,
+        )
+
+    @require_connection
+    def _disable(self):
+        self._start_worker(
+            lambda: _device_screenshot.set_enabled(self.ssh_client, False),
+            pending="正在停用原生快捷截图…",
+            on_success=self._disabled,
+            error_prefix="停用设备截图失败",
+        )
+
+    def _disabled(self, status):
+        self._apply_status(status)
+        show_info(
+            self,
+            _rmtool.APP_NAME,
+            "原生快捷截图配置已停用。完整重启设备后，快捷设置中的截图按钮会消失。",
+        )
+
+    @require_connection
+    def _capture(self):
+        default_name = datetime.now().strftime("rmtool-screenshot-%Y%m%d-%H%M%S.png")
+        target, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "保存设备截图", default_name, "PNG 图片 (*.png)"
+        )
+        if not target:
+            return
+        if Path(target).suffix.casefold() != ".png":
+            target += ".png"
+        self._start_worker(
+            lambda: _device_screenshot.capture_to_file(self.ssh_client, target),
+            pending="正在截取当前设备画面…",
+            on_success=self._captured,
+            error_prefix="设备截图失败",
+        )
+
+    def _captured(self, result):
+        self.status_label.setText(
+            f"截图已保存：{result.width} × {result.height}，{result.path}"
+        )
+        self._refresh_buttons()
+        show_info(
+            self,
+            _rmtool.APP_NAME,
+            f"截图已保存（{result.width} × {result.height}）：\n{result.path}",
+        )
+
+
 class DiagnosticsSection(QtWidgets.QWidget):
     """One-click read-only diagnostic bundle export for user support."""
 
@@ -4000,6 +4228,7 @@ class ToolboxTab(QtWidgets.QWidget):
         self.reading_enhancements_section = ReadingEnhancementsSection(ssh_client)
         self.note_enhancements_section = NoteEnhancementsSection(ssh_client)
         self.tap_page_turn_section = TapPageTurnSection(ssh_client)
+        self.device_screenshot_section = DeviceScreenshotSection(ssh_client)
         self.diagnostics_section = DiagnosticsSection(ssh_client)
         self.legacy_plugin_section = LegacyPluginMigrationSection(ssh_client)
         self._detectable_sections = (
@@ -4067,6 +4296,13 @@ class ToolboxTab(QtWidgets.QWidget):
                 "keywords": "重启 Wi-Fi SSH 前光",
                 "section": self.control_section,
                 "status": None,
+            },
+            {
+                "title": "设备截图",
+                "category": "设备维护",
+                "keywords": "截图 屏幕 快捷设置 PNG PDF 保存",
+                "section": self.device_screenshot_section,
+                "status": self.device_screenshot_section.status_label,
             },
             {
                 "title": "诊断日志导出",
@@ -4280,6 +4516,8 @@ class ToolboxTab(QtWidgets.QWidget):
     @staticmethod
     def _status_summary(text: str) -> str:
         text = text.strip()
+        if "等待完整重启" in text:
+            return "待重启"
         if text.startswith("可修复并重装"):
             return "可修复"
         if text.startswith("无法安全自动修复"):
@@ -4296,7 +4534,7 @@ class ToolboxTab(QtWidgets.QWidget):
             return "可更新"
         if "可迁移" in text:
             return "可迁移"
-        if any(word in text for word in ("不兼容", "没有精确匹配", "当前设备没有")):
+        if any(word in text for word in ("不兼容", "不支持", "没有精确匹配", "当前设备没有")):
             return "不兼容"
         if "未连接" in text:
             return "未连接"
