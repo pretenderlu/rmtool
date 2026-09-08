@@ -12,7 +12,7 @@ from PyQt5 import QtWidgets
 
 import _screen_preview as preview
 import rmtool
-from _tab_screen_preview import ScreenPreviewTab
+from _tab_screen_preview import LIVE_PREVIEW_COOLDOWN_MS, ScreenPreviewTab
 
 
 _APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
@@ -132,21 +132,44 @@ class ScreenPreviewUiTests(unittest.TestCase):
         self.pool.reset_mock()
 
     def test_continuous_preview_schedules_next_frame_after_capture(self):
-        self.tab.preview_button.click()
+        self.tab.start_button.click()
         worker = self.pool.start.call_args.args[0]
         worker.signals.finished.emit(preview.PreviewFrame(png_bytes(), 24, 18))
 
-        self.assertTrue(self.tab.preview_button.isChecked())
+        self.assertTrue(self.tab._previewing)
+        self.assertFalse(self.tab.start_button.isEnabled())
+        self.assertTrue(self.tab.stop_button.isEnabled())
         self.assertTrue(self.tab.timer.isActive())
-        self.assertEqual(self.tab.timer.interval(), 2000)
+        self.assertEqual(self.tab.timer.interval(), LIVE_PREVIEW_COOLDOWN_MS)
         self.assertIsNotNone(self.tab._latest_png)
 
     def test_leaving_page_stops_continuous_preview(self):
-        self.tab.preview_button.click()
+        self.tab.start_button.click()
         self.tab.set_page_active(False)
 
-        self.assertFalse(self.tab.preview_button.isChecked())
+        self.assertFalse(self.tab._previewing)
         self.assertFalse(self.tab.timer.isActive())
+
+    def test_stop_is_available_during_capture_and_cancels_loop(self):
+        self.tab.start_button.click()
+        worker = self.pool.start.call_args.args[0]
+
+        self.assertTrue(self.tab.stop_button.isEnabled())
+        self.tab.stop_button.click()
+        worker.signals.finished.emit(preview.PreviewFrame(png_bytes(), 24, 18))
+
+        self.assertFalse(self.tab._previewing)
+        self.assertFalse(self.tab.timer.isActive())
+        self.assertIsNone(self.tab._latest_png)
+
+    def test_unchanged_frame_is_not_redrawn(self):
+        frame = png_bytes()
+        self.tab._latest_png = frame
+        self.tab.start_button.click()
+        worker = self.pool.start.call_args.args[0]
+        with mock.patch.object(self.tab.preview, "setPixmap") as set_pixmap:
+            worker.signals.finished.emit(preview.PreviewFrame(frame, 24, 18))
+        set_pixmap.assert_not_called()
 
     def test_save_as_uses_latest_frame_without_recapturing(self):
         self.tab._latest_png = png_bytes()

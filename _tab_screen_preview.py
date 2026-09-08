@@ -10,6 +10,9 @@ import _screen_preview
 import rmtool as _rmtool
 
 
+LIVE_PREVIEW_COOLDOWN_MS = 150
+
+
 class ScreenPreviewTab(QtWidgets.QWidget):
     status_message = QtCore.pyqtSignal(str, str, int)
 
@@ -27,6 +30,7 @@ class ScreenPreviewTab(QtWidgets.QWidget):
         self._generation = 0
         self._supported = None
         self._latest_png = None
+        self._previewing = False
 
         root = QtWidgets.QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
@@ -44,18 +48,14 @@ class ScreenPreviewTab(QtWidgets.QWidget):
         controls = QtWidgets.QHBoxLayout()
         controls.setContentsMargins(0, 0, 0, 0)
         controls.setSpacing(8)
-        self.preview_button = QtWidgets.QPushButton("开启预览")
-        self.preview_button.setCheckable(True)
-        self.preview_button.setProperty("btnRole", "primary")
+        self.start_button = QtWidgets.QPushButton("开启预览")
+        self.start_button.setProperty("btnRole", "primary")
+        self.stop_button = QtWidgets.QPushButton("停止预览")
         self.refresh_button = QtWidgets.QPushButton("刷新画面")
-        self.interval_combo = QtWidgets.QComboBox()
-        for seconds in (2, 5, 10):
-            self.interval_combo.addItem(f"{seconds} 秒", seconds * 1000)
         self.save_button = QtWidgets.QPushButton("另存为…")
-        controls.addWidget(self.preview_button)
+        controls.addWidget(self.start_button)
+        controls.addWidget(self.stop_button)
         controls.addWidget(self.refresh_button)
-        controls.addWidget(QtWidgets.QLabel("刷新间隔"))
-        controls.addWidget(self.interval_combo)
         controls.addStretch()
         controls.addWidget(self.save_button)
         root.addLayout(controls)
@@ -67,9 +67,9 @@ class ScreenPreviewTab(QtWidgets.QWidget):
         )
         root.addWidget(self.preview, 1)
 
-        self.preview_button.clicked.connect(self._toggle_preview)
+        self.start_button.clicked.connect(self._start_preview)
+        self.stop_button.clicked.connect(self._stop_preview)
         self.refresh_button.clicked.connect(self._capture)
-        self.interval_combo.currentIndexChanged.connect(self._interval_changed)
         self.save_button.clicked.connect(self._save_as)
         self._refresh_controls()
 
@@ -90,11 +90,11 @@ class ScreenPreviewTab(QtWidgets.QWidget):
             self._detect()
 
     def _refresh_controls(self) -> None:
-        available = self._connected and not self._busy and self._supported is True
-        self.preview_button.setEnabled(available)
-        self.refresh_button.setEnabled(available and not self.preview_button.isChecked())
-        self.interval_combo.setEnabled(available and self.preview_button.isChecked())
-        self.save_button.setEnabled(self._latest_png is not None and not self._busy)
+        ready = self._connected and self._supported is True
+        self.start_button.setEnabled(ready and not self._previewing and not self._busy)
+        self.stop_button.setEnabled(self._previewing)
+        self.refresh_button.setEnabled(ready and not self._previewing and not self._busy)
+        self.save_button.setEnabled(self._latest_png is not None)
 
     def _start_worker(self, operation, on_success, *, error_prefix: str) -> None:
         if self._busy or not self._connected:
@@ -149,49 +149,45 @@ class ScreenPreviewTab(QtWidgets.QWidget):
             self.status_label.setText(f"{device} · 屏幕预览尚未适配")
         self._refresh_controls()
 
-    def _toggle_preview(self, checked: bool) -> None:
-        if checked:
-            self.preview_button.setText("停止预览")
-            self._capture()
-        else:
-            self._stop_preview()
+    def _start_preview(self) -> None:
+        if self._busy or not self._connected or self._supported is not True:
+            return
+        self._previewing = True
         self._refresh_controls()
+        self._capture()
 
     def _stop_preview(self) -> None:
         self.timer.stop()
         self._generation += 1
-        self.preview_button.blockSignals(True)
-        self.preview_button.setChecked(False)
-        self.preview_button.setText("开启预览")
-        self.preview_button.blockSignals(False)
+        self._previewing = False
+        if self._connected and self._supported is True:
+            self.status_label.setText("屏幕预览已停止")
         self._refresh_controls()
 
     def _capture(self) -> None:
         if self._busy or not self._connected or self._supported is not True:
             return
-        automatic = self.preview_button.isChecked()
+        automatic = self._previewing
         self.status_label.setText("正在读取设备画面…")
 
         def captured(frame):
-            self._latest_png = frame.png
-            pixmap = QtGui.QPixmap()
-            if not pixmap.loadFromData(frame.png, "PNG"):
-                raise RuntimeError("无法显示设备预览。")
-            self.preview.setPixmap(pixmap)
-            self.status_label.setText(f"实时画面 · {frame.width} × {frame.height}")
+            if frame.png != self._latest_png:
+                pixmap = QtGui.QPixmap()
+                if not pixmap.loadFromData(frame.png, "PNG"):
+                    raise RuntimeError("无法显示设备预览。")
+                self._latest_png = frame.png
+                self.preview.setPixmap(pixmap)
+            mode = "实时预览中" if automatic else "当前画面"
+            self.status_label.setText(f"{mode} · {frame.width} × {frame.height}")
             self._refresh_controls()
-            if automatic and self.preview_button.isChecked() and self._page_active:
-                self.timer.start(int(self.interval_combo.currentData()))
+            if automatic and self._previewing and self._page_active:
+                self.timer.start(LIVE_PREVIEW_COOLDOWN_MS)
 
         self._start_worker(
             lambda: _screen_preview.capture(self.ssh_client),
             captured,
             error_prefix="屏幕预览失败",
         )
-
-    def _interval_changed(self) -> None:
-        if self.timer.isActive():
-            self.timer.start(int(self.interval_combo.currentData()))
 
     def _save_as(self) -> None:
         if self._latest_png is None:
