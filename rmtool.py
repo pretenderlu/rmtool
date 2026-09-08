@@ -672,6 +672,7 @@ from _tab_wallpaper import WallpaperTab
 from _tab_documents import DocumentsTab
 from _tab_koreader import KOReaderTab
 from _tab_dashboard import DashboardTab
+from _tab_screen_preview import ScreenPreviewTab
 from _tab_firmware import FirmwareTab
 from _firmware import FirmwareSSHClientWrapper
 from _tab_toolbox import (
@@ -693,7 +694,7 @@ class MainWindow(QtWidgets.QMainWindow):
     DEFAULT_MIN_HEIGHT = 720
     MIN_WIDTH = 1024
     MIN_HEIGHT = 640
-    NAV_BUTTON_MIN_HEIGHT = 38
+    NAV_BUTTON_MIN_HEIGHT = 34
 
     def __init__(self, log_bridge=None):
         super().__init__()
@@ -733,6 +734,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored
         )
         self.dashboard_tab = DashboardTab()
+        self.screen_preview_tab = ScreenPreviewTab(self.ssh_client)
         self.wallpaper_tab = WallpaperTab(self.ssh_client, self.config)
         self.documents_tab = DocumentsTab(self.ssh_client)
         self.koreader_tab = KOReaderTab(self.ssh_client)
@@ -742,6 +744,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         for page in (
             self.dashboard_tab,
+            self.screen_preview_tab,
             self.wallpaper_tab,
             self.documents_tab,
             self.koreader_tab,
@@ -769,8 +772,8 @@ class MainWindow(QtWidgets.QMainWindow):
         nav_widget.setObjectName("sidebarNav")
         nav_buttons_layout = QtWidgets.QVBoxLayout(nav_widget)
         nav_buttons_layout.setContentsMargins(0, 0, 0, 0)
-        nav_buttons_layout.setSpacing(4)
-        for idx, title in enumerate(("仪表盘", "壁纸管理", "文档中心", "KOReader", "字体管理", "设备工具", "固件管理")):
+        nav_buttons_layout.setSpacing(2)
+        for idx, title in enumerate(("仪表盘", "屏幕预览", "壁纸管理", "文档中心", "KOReader", "字体管理", "设备工具", "固件管理")):
             button = QtWidgets.QPushButton(title)
             button.setCheckable(True)
             button.setMinimumHeight(self.NAV_BUTTON_MIN_HEIGHT)
@@ -839,6 +842,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.connection_widget.disconnected.connect(lambda: self._update_tabs_enabled(False))
         self.connection_widget.connected.connect(lambda: self.documents_tab.set_connection_state(True))
         self.connection_widget.disconnected.connect(lambda: self.documents_tab.set_connection_state(False))
+        self.connection_widget.connected.connect(lambda: self.screen_preview_tab.set_connection_state(True))
+        self.connection_widget.disconnected.connect(lambda: self.screen_preview_tab.set_connection_state(False))
         self.connection_widget.connected.connect(lambda: self.koreader_tab.set_connection_state(True))
         self.connection_widget.disconnected.connect(lambda: self.koreader_tab.set_connection_state(False))
         # KOReader loads lazily: refreshing on connect would add SSH channels
@@ -856,6 +861,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.connection_widget.log_button.clicked.connect(self._toggle_log_panel)
         self.connection_widget.status_message.connect(self._show_status_message)
         self.documents_tab.status_message.connect(self._show_status_message)
+        self.screen_preview_tab.status_message.connect(self._show_status_message)
         self.documents_tab.summary_changed.connect(self.dashboard_tab.update_documents)
         self.koreader_tab.status_message.connect(self._show_status_message)
 
@@ -867,6 +873,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.dashboard_tab.set_theme(self._current_theme)
         self.dashboard_tab.update_connection(False, initial_device)
         self.documents_tab.set_connection_state(False)
+        self.screen_preview_tab.set_connection_state(False)
         self._set_connection_chip(False, initial_device)
 
     def _default_window_size(self) -> QtCore.QSize:
@@ -898,6 +905,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.nav_buttons[idx].setEnabled(enabled)
 
     def _on_page_changed(self, index: int) -> None:
+        self.screen_preview_tab.set_page_active(
+            self.pages.widget(index) is self.screen_preview_tab
+        )
         if self.pages.widget(index) is self.koreader_tab:
             self.koreader_tab.ensure_loaded()
 

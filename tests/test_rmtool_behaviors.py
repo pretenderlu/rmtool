@@ -1288,7 +1288,7 @@ class WallpaperUiTests(unittest.TestCase):
         toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
         self.addCleanup(toolbox.deleteLater)
 
-        self.assertEqual(toolbox.tool_table.rowCount(), 10)
+        self.assertEqual(toolbox.tool_table.rowCount(), 9)
         self.assertEqual(
             [
                 toolbox.tool_table.item(row, 0).text()
@@ -1302,7 +1302,6 @@ class WallpaperUiTests(unittest.TestCase):
                 "点击翻页（RM1/RM2/Paper Pure）",
                 "时间管理",
                 "设备控制",
-                "设备截图",
                 "诊断日志导出",
                 "旧版插件迁移/清理",
             ],
