@@ -143,7 +143,7 @@ class ScreenPreviewTab(QtWidgets.QWidget):
     def _detected(self, status) -> None:
         self._supported = status.supported
         if status.supported:
-            self.status_label.setText("Paper Pro Move · 屏幕预览已就绪")
+            self.status_label.setText(f"{status.device_name} · 屏幕预览已就绪")
         else:
             device = status.machine or "未知设备"
             self.status_label.setText(f"{device} · 屏幕预览尚未适配")

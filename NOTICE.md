@@ -1,5 +1,15 @@
 # Third-party notices
 
+## Screen preview references
+
+The Paper Pro and reMarkable 2 framebuffer layouts used by `_screen_preview.py`
+were informed by the screenshot implementation in
+[yangg1224/smart_remarkable](https://github.com/yangg1224/smart_remarkable)
+at commit `cb787065281b7211b012bd5e5d9be751fe5adaef`, licensed under the MIT
+License (Copyright 2024-2025 Brock Wilcox). rmtool independently performs the
+read over its existing SSH transport, validates exact device families, and
+does not install the upstream application on the device.
+
 ## Firmware management references
 
 `_firmware.py` follows the official image discovery and detached native

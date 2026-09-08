@@ -1,4 +1,4 @@
-"""Read-only screen preview capture for verified reMarkable hardware."""
+"""Read-only screen preview capture for supported reMarkable hardware."""
 
 from __future__ import annotations
 
@@ -15,16 +15,45 @@ from PIL import Image
 
 MAX_RAW_BYTES = 32 * 1024 * 1024
 MAX_PNG_BYTES = 32 * 1024 * 1024
-MOVE_MACHINE = "reMarkable Chiappa"
-MOVE_BUFFER_WIDTH = 960
-MOVE_SCREEN_WIDTH = 954
-MOVE_SCREEN_HEIGHT = 1696
+LEGACY_FRAME_OFFSET = 2_629_632 + 8
+
+
+@dataclass(frozen=True)
+class DeviceProfile:
+    platform: str
+    label: str
+    mapping: str
+    buffer_width: int
+    buffer_height: int
+    visible_width: int
+    visible_height: int
+    bytes_per_pixel: int = 4
+
+
+PROFILES = {
+    "ferrari": DeviceProfile(
+        "ferrari", "Paper Pro", "drm", 1632, 2154, 1620, 2154
+    ),
+    "chiappa": DeviceProfile(
+        "chiappa", "Paper Pro Move", "drm", 960, 1696, 954, 1696
+    ),
+    "tatsu": DeviceProfile(
+        "tatsu", "Paper Pure", "drm", 1408, 1872, 1404, 1872
+    ),
+    "rm1": DeviceProfile(
+        "rm1", "reMarkable 1", "legacy", 1404, 1872, 1404, 1872
+    ),
+    "rm2": DeviceProfile(
+        "rm2", "reMarkable 2", "legacy", 1404, 1872, 1404, 1872
+    ),
+}
 
 
 @dataclass(frozen=True)
 class PreviewStatus:
     supported: bool
     machine: str
+    device_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -41,6 +70,21 @@ class SavedFrame:
     height: int
 
 
+def _profile_for_machine(machine: str) -> DeviceProfile | None:
+    normalized = machine.casefold()
+    if "chiappa" in normalized or "paper pro move" in normalized:
+        return PROFILES["chiappa"]
+    if "ferrari" in normalized or normalized == "remarkable paper pro":
+        return PROFILES["ferrari"]
+    if "tatsu" in normalized or "paper pure" in normalized:
+        return PROFILES["tatsu"]
+    if "remarkable 1" in normalized:
+        return PROFILES["rm1"]
+    if "remarkable 2" in normalized:
+        return PROFILES["rm2"]
+    return None
+
+
 def _read_remote_bytes(ssh_client, path: str, limit: int) -> bytes:
     try:
         with ssh_client.sftp_session() as sftp:
@@ -53,23 +97,44 @@ def _read_remote_bytes(ssh_client, path: str, limit: int) -> bytes:
     return data
 
 
+def _legacy_ready_command() -> str:
+    return """set -eu
+version=$(sed -n 's/^IMG_VERSION=//p' /etc/os-release | tr -d '\"')
+major=${version%%.*}; rest=${version#*.}; minor=${rest%%.*}
+case "$major:$minor" in *[!0-9:]*|:|*:) exit 2;; esac
+[ "$major" -gt 3 ] || { [ "$major" -eq 3 ] && [ "$minor" -ge 24 ]; }
+pid=""
+for candidate in $(pidof xochitl); do
+    if grep -q '/dev/fb0' /proc/$candidate/maps; then pid=$candidate; break; fi
+done
+[ -n "$pid" ] && test -r /proc/$pid/mem
+"""
+
+
 def get_status(ssh_client) -> PreviewStatus:
     stdout, _stderr, code = ssh_client.exec_command(
-        "cat /sys/devices/soc0/machine 2>/dev/null", timeout=10
-    )
-    machine = stdout.strip() if code == 0 else ""
-    if machine != MOVE_MACHINE:
-        return PreviewStatus(False, machine)
-    _stdout, _stderr, code = ssh_client.exec_command(
-        "pid=$(pgrep -o xochitl) || exit 1; "
-        "test -r /proc/$pid/mem && grep -q '/dev/dri/card0' /proc/$pid/maps",
+        "cat /sys/devices/soc0/machine 2>/dev/null || "
+        "tr -d '\\0' < /proc/device-tree/model 2>/dev/null",
         timeout=10,
     )
-    return PreviewStatus(code == 0, machine)
+    machine = stdout.strip() if code == 0 else ""
+    profile = _profile_for_machine(machine)
+    if profile is None:
+        return PreviewStatus(False, machine)
+    if profile.mapping == "drm":
+        command = (
+            "pid=$(pgrep -o xochitl) || exit 1; "
+            "test -r /proc/$pid/mem && "
+            "grep -q '/dev/dri/card0' /proc/$pid/maps"
+        )
+    else:
+        command = _legacy_ready_command()
+    _stdout, _stderr, code = ssh_client.exec_command(command, timeout=10)
+    return PreviewStatus(code == 0, machine, profile.label)
 
 
-def _move_capture_command(remote_path: str) -> str:
-    target = MOVE_BUFFER_WIDTH * MOVE_SCREEN_HEIGHT * 4
+def _drm_capture_command(profile: DeviceProfile, remote_path: str) -> str:
+    target = profile.buffer_width * profile.buffer_height * profile.bytes_per_pixel
     return f"""set -eu
 pid=$(pgrep -o xochitl)
 endhex=$(grep '/dev/dri/card0' /proc/$pid/maps | tail -n 1 | cut -d- -f2 | cut -d' ' -f1)
@@ -90,14 +155,37 @@ dd if=/proc/$pid/mem of={remote_path} iflag=skip_bytes,count_bytes skip=$ptr cou
 """
 
 
-def _encode_move_png(raw: bytes) -> bytes:
-    expected = MOVE_BUFFER_WIDTH * MOVE_SCREEN_HEIGHT * 4
+def _legacy_capture_command(profile: DeviceProfile, remote_path: str) -> str:
+    target = profile.buffer_width * profile.buffer_height * profile.bytes_per_pixel
+    return f"""set -eu
+pid=""
+for candidate in $(pidof xochitl); do
+    if grep -q '/dev/fb0' /proc/$candidate/maps; then pid=$candidate; break; fi
+done
+[ -n "$pid" ] || exit 50
+basehex=$(grep -A1 '/dev/fb0' /proc/$pid/maps | tail -n 1 | cut -d- -f1)
+case "$basehex" in ""|*[!0-9a-fA-F]*) exit 51;; esac
+ptr=$((0x$basehex+{LEGACY_FRAME_OFFSET})); target={target}
+dd if=/proc/$pid/mem of={remote_path} iflag=skip_bytes,count_bytes skip=$ptr count=$target 2>/dev/null
+[ "$(wc -c < {remote_path})" -eq "$target" ] || exit 52
+"""
+
+
+def _encode_png(profile: DeviceProfile, raw: bytes) -> bytes:
+    expected = profile.buffer_width * profile.buffer_height * profile.bytes_per_pixel
     if len(raw) != expected:
         raise RuntimeError("设备返回的屏幕缓冲大小不正确。")
     try:
-        image = Image.frombytes(
-            "RGBA", (MOVE_BUFFER_WIDTH, MOVE_SCREEN_HEIGHT), raw
-        ).crop((0, 0, MOVE_SCREEN_WIDTH, MOVE_SCREEN_HEIGHT))
+        if profile.mapping == "legacy":
+            luminance = raw[0::4]
+            image = Image.frombytes(
+                "L", (profile.buffer_width, profile.buffer_height), luminance
+            )
+        else:
+            image = Image.frombytes(
+                "RGBA", (profile.buffer_width, profile.buffer_height), raw
+            )
+        image = image.crop((0, 0, profile.visible_width, profile.visible_height))
         output = io.BytesIO()
         image.save(output, format="PNG")
         return output.getvalue()
@@ -124,20 +212,24 @@ def validate_png(data: bytes) -> tuple[int, int]:
 def capture(ssh_client) -> PreviewFrame:
     with ssh_client.operation_session():
         status = get_status(ssh_client)
-        if not status.supported:
-            raise RuntimeError("当前设备尚未适配屏幕预览。")
+        profile = _profile_for_machine(status.machine)
+        if not status.supported or profile is None:
+            raise RuntimeError("当前设备或固件尚未适配屏幕预览。")
         remote_path = f"/tmp/rmtool-screen-preview-{uuid.uuid4().hex}.raw"
+        command = (
+            _drm_capture_command(profile, remote_path)
+            if profile.mapping == "drm"
+            else _legacy_capture_command(profile, remote_path)
+        )
         try:
-            _stdout, stderr, code = ssh_client.exec_command(
-                _move_capture_command(remote_path), timeout=30
-            )
+            _stdout, stderr, code = ssh_client.exec_command(command, timeout=30)
             if code != 0:
                 raise RuntimeError(
                     "读取设备当前画面失败："
                     + (stderr.strip() or f"exit code {code}")
                 )
             raw = _read_remote_bytes(ssh_client, remote_path, MAX_RAW_BYTES)
-            png = _encode_move_png(raw)
+            png = _encode_png(profile, raw)
             width, height = validate_png(png)
             return PreviewFrame(png, width, height)
         finally:

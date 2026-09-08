@@ -55,18 +55,34 @@ class FakeSSH:
 
 
 class ScreenPreviewBackendTests(unittest.TestCase):
-    def test_status_requires_exact_verified_machine_and_readable_buffer(self):
-        supported = FakeSSH(
-            commands=[(preview.MOVE_MACHINE + "\n", "", 0), ("", "", 0)]
-        )
-        other = FakeSSH(commands=[("reMarkable Ferrari\n", "", 0)])
+    def test_status_recognizes_all_supported_devices(self):
+        cases = {
+            "reMarkable Ferrari": "Paper Pro",
+            "reMarkable Chiappa": "Paper Pro Move",
+            "reMarkable Tatsu": "Paper Pure",
+            "reMarkable 1.0": "reMarkable 1",
+            "reMarkable 2.0": "reMarkable 2",
+        }
+        for machine, label in cases.items():
+            with self.subTest(machine=machine):
+                ssh = FakeSSH(commands=[(machine + "\n", "", 0), ("", "", 0)])
+                status = preview.get_status(ssh)
+                self.assertTrue(status.supported)
+                self.assertEqual(status.device_name, label)
 
-        self.assertTrue(preview.get_status(supported).supported)
-        self.assertFalse(preview.get_status(other).supported)
+    def test_status_rejects_unknown_devices_and_unreadable_buffers(self):
+        unknown = FakeSSH(commands=[("reMarkable Unknown\n", "", 0)])
+        unavailable = FakeSSH(
+            commands=[("reMarkable Ferrari\n", "", 0), ("", "", 1)]
+        )
+
+        self.assertFalse(preview.get_status(unknown).supported)
+        self.assertFalse(preview.get_status(unavailable).supported)
 
     def test_capture_encodes_visible_screen_and_cleans_remote_buffer(self):
+        profile = preview.PROFILES["chiappa"]
         raw = bytes([255, 255, 255, 255]) * (
-            preview.MOVE_BUFFER_WIDTH * preview.MOVE_SCREEN_HEIGHT
+            profile.buffer_width * profile.buffer_height
         )
         remote = "/tmp/rmtool-screen-preview-capture.raw"
         ssh = FakeSSH(files={remote: raw})
@@ -74,7 +90,9 @@ class ScreenPreviewBackendTests(unittest.TestCase):
             mock.patch.object(
                 preview,
                 "get_status",
-                return_value=preview.PreviewStatus(True, preview.MOVE_MACHINE),
+                return_value=preview.PreviewStatus(
+                    True, "reMarkable Chiappa", "Paper Pro Move"
+                ),
             ),
             mock.patch.object(
                 preview.uuid, "uuid4", return_value=SimpleNamespace(hex="capture")
@@ -94,7 +112,9 @@ class ScreenPreviewBackendTests(unittest.TestCase):
             mock.patch.object(
                 preview,
                 "get_status",
-                return_value=preview.PreviewStatus(True, preview.MOVE_MACHINE),
+                return_value=preview.PreviewStatus(
+                    True, "reMarkable Chiappa", "Paper Pro Move"
+                ),
             ),
             mock.patch.object(
                 preview.uuid, "uuid4", return_value=SimpleNamespace(hex="capture")
@@ -105,6 +125,23 @@ class ScreenPreviewBackendTests(unittest.TestCase):
         ssh.exec_checked.assert_called_once_with(
             "rm -f /tmp/rmtool-screen-preview-capture.raw", timeout=10
         )
+
+    def test_legacy_capture_uses_framebuffer_mapping_without_signals(self):
+        command = preview._legacy_capture_command(
+            preview.PROFILES["rm2"], "/tmp/frame.raw"
+        )
+
+        self.assertIn("/dev/fb0", command)
+        self.assertIn(str(preview.LEGACY_FRAME_OFFSET), command)
+        self.assertNotIn("USR2", command)
+
+    def test_legacy_buffer_is_encoded_as_grayscale(self):
+        profile = preview.DeviceProfile("test", "Test", "legacy", 2, 1, 2, 1)
+        data = preview._encode_png(profile, bytes([10, 1, 2, 3, 200, 4, 5, 6]))
+
+        with Image.open(io.BytesIO(data)) as image:
+            self.assertEqual(image.mode, "L")
+            self.assertEqual([image.getpixel((0, 0)), image.getpixel((1, 0))], [10, 200])
 
     def test_atomic_save_preserves_existing_file_on_replace_failure(self):
         data = png_bytes()
@@ -127,7 +164,7 @@ class ScreenPreviewUiTests(unittest.TestCase):
         self.tab.set_page_active(True)
         detection = self.pool.start.call_args.args[0]
         detection.signals.finished.emit(
-            preview.PreviewStatus(True, preview.MOVE_MACHINE)
+            preview.PreviewStatus(True, "reMarkable Chiappa", "Paper Pro Move")
         )
         self.pool.reset_mock()
 
