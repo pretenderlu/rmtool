@@ -159,6 +159,20 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                         57224,
                     ),
                 },
+                8: {
+                    "3.27": (
+                        "dde14dc76ab7ba0039472b338ac3c4589b81c5be15fa582c06fb60e03a90344c",
+                        51289,
+                    ),
+                    "3.28.0.162": (
+                        "03293b8f0550b4e86b10fbf01f1446b18fb60947ed6388587f9d9dcb861b81d0",
+                        57184,
+                    ),
+                    "3.28": (
+                        "4ba71b466de622f2d0d3167e38ccdc2d9e1bf3841338997c79a9c1f1f24f70ef",
+                        57224,
+                    ),
+                },
             },
         )
         self.assertEqual(
@@ -169,28 +183,43 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 "package-revision-4",
                 "package-revision-6",
                 "package-revision-7",
+                "package-revision-8",
             },
         )
         for package in self.catalog:
             _runtime, current = reading._shared_specs(package)
-            if package.release_version == "3.28.0.172":
-                self.assertEqual(reading._known_shared_predecessor_specs(package, current), ())
-                continue
-            self.assertEqual(
-                tuple(
-                    reason
-                    for reason, _feature in reading._known_shared_predecessor_specs(
-                        package, current
-                    )
-                ),
-                (
-                    "package-revision-7",
-                    "package-revision-6",
-                    "package-revision-4",
-                    "package-revision-3",
-                    "package-revision-1",
-                ),
+            reasons = tuple(
+                reason
+                for reason, _feature in reading._known_shared_predecessor_specs(
+                    package, current
+                )
             )
+            if package.release_version.startswith("3.27."):
+                self.assertEqual(
+                    reasons,
+                    (
+                        "package-revision-8",
+                        "package-revision-7",
+                        "package-revision-6",
+                        "package-revision-4",
+                        "package-revision-3",
+                        "package-revision-1",
+                    ),
+                )
+            elif package.release_version == "3.28.0.172":
+                self.assertEqual(reasons, ("package-revision-8",))
+            else:
+                self.assertEqual(
+                    reasons,
+                    (
+                        "package-revision-8",
+                        "package-revision-7",
+                        "package-revision-6",
+                        "package-revision-4",
+                        "package-revision-3",
+                        "package-revision-1",
+                    ),
+                )
 
     def test_tagged_revisions_report_safe_update(self):
         ssh = Mock()

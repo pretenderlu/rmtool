@@ -63,7 +63,7 @@ AFFECT /qml/device/view/settings/Settings.qml
                     readonly property string group: "RmtoolReadingEnhancements"
                     readonly property int privatePage: 1001
                     readonly property var intervalChoices: [5, 10, 15, 20, 25, 30]
-                    property bool masterEnabled: true
+                    property bool masterEnabled: false
                     property bool tapPageTurnEnabled: false
                     property bool fastMonoEnabled: false
                     property bool cleanupEnabled: false
@@ -85,7 +85,7 @@ AFFECT /qml/device/view/settings/Settings.qml
                     }
 
                     function readSettings() {
-                        masterEnabled = readBool("masterEnabled", true)
+                        masterEnabled = readBool("masterEnabled", false)
                         tapPageTurnEnabled = readBool("tapPageTurnEnabled", false)
                         fastMonoEnabled = readBool("fastMonoEnabled", false)
                         cleanupEnabled = readBool("cleanupEnabled", false)
@@ -277,6 +277,10 @@ AFFECT /qml/device/view/documentview/FormatFont.qml
             property string rmtoolEpubLabel2: ""
             property string rmtoolEpubLabel3: ""
 
+            FontMetrics {
+                id: rmtoolEpubLabelMetrics
+            }
+
             function rmtoolEpubLoader(slot) {
                 if (slot === 1) return rmtoolEpubFont1
                 if (slot === 2) return rmtoolEpubFont2
@@ -293,6 +297,18 @@ AFFECT /qml/device/view/documentview/FormatFont.qml
                 if (slot === 1) rmtoolEpubLabel1 = label
                 else if (slot === 2) rmtoolEpubLabel2 = label
                 else rmtoolEpubLabel3 = label
+            }
+
+            function rmtoolEpubDisplayLabel(slot, family) {
+                const label = rmtoolEpubLabel(slot) || family
+                if (dropdown.width <= 76) return label
+                rmtoolEpubLabelMetrics.font = Qt.font({
+                    family: family,
+                    pixelSize: Values.fontSizeH2
+                })
+                return rmtoolEpubLabelMetrics.elidedText(
+                    label, Qt.ElideRight, dropdown.width - 76
+                )
             }
 
             function rmtoolEpubLabelSource(slot) {
@@ -339,7 +355,7 @@ AFFECT /qml/device/view/documentview/FormatFont.qml
                     || !rmtoolEpubOwnsFamily(slot, loader.name)) {
                     return
                 }
-                const label = rmtoolEpubLabel(slot) || loader.name
+                const label = rmtoolEpubDisplayLabel(slot, loader.name)
                 const existing = rmtoolEpubModelIndex(loader.name)
                 if (existing >= 0) {
                     fontModel.setProperty(existing, "value", label)
@@ -373,6 +389,10 @@ AFFECT /qml/device/view/documentview/FormatFont.qml
                     for (let slot = 1; slot <= 3; slot++) rmtoolSyncEpubFont(slot)
                 })
             }
+
+            onWidthChanged: Qt.callLater(function() {
+                for (let slot = 1; slot <= 3; slot++) rmtoolSyncEpubFont(slot)
+            })
         }
     END TRAVERSE
 
@@ -795,7 +815,7 @@ AFFECT /qml/device/view/documentview/DocumentView.qml
 
             function rmtoolReadReadingSettings() {
                 const previousDocumentId = rmtoolCleanupLastDocumentId
-                const masterEnabled = readBool("masterEnabled", true)
+                const masterEnabled = readBool("masterEnabled", false)
                 const globalTap = readBool("tapPageTurnEnabled", false)
                 const globalFastMono = readBool("fastMonoEnabled", false)
                 const globalCleanup = readBool("cleanupEnabled", false)

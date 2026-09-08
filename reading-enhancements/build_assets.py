@@ -296,6 +296,10 @@ def _compile_and_validate(*, qmd_tool: Path, qmldiff: Path, source: Path, target
             "rmtoolEpubFont3",
             "slot-1.label",
             "slot-3.ttf",
+            "rmtoolEpubDisplayLabel(slot, loader.name)",
+            "rmtoolEpubLabelMetrics.elidedText(",
+            "Qt.ElideRight",
+            "dropdown.width - 76",
             'fontModel.setProperty(existing, "value", label)',
             "key: loader.name",
             "value: label",
@@ -414,7 +418,7 @@ def main() -> int:
     expected_keys = set(reading.ALLOWED_TARGETS)
     expected_config = {(key[0], key[1], key[3]) for key in expected_keys}
     if set(matrix) != expected_config:
-        raise RuntimeError("matrix config does not cover the exact 14 reading targets")
+        raise RuntimeError("matrix config does not cover the exact 16 reading targets")
     cache_roots = tuple(args.cache_root) or (REPO_ROOT / ".rmtool/cache/tap-page-turn",)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     download_root = args.output_dir / "tap-base-cache"

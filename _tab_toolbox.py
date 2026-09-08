@@ -106,6 +106,49 @@ def _install_reading_enhancements(
     return operation(ssh_client, package, archive)
 
 
+def _set_epub_font_with_menu_support(
+    ssh_client,
+    remote_dir: str,
+    filename: str,
+    state_dir: str,
+):
+    """Prepare the trusted EPUB menu component before writing a font slot."""
+    catalog = _reading_enhancements.load_catalog(state_dir, refresh=True)
+    status = _reading_enhancements.get_status(ssh_client, catalog)
+    states = _reading_enhancements.ReadingEnhancementsState
+    reusable = (states.ENABLED, states.ENABLE_PENDING_REBOOT)
+    deployable = (
+        states.NOT_INSTALLED,
+        states.INSTALLED_DISABLED,
+        states.DISABLE_PENDING_REBOOT,
+        states.MIGRATION_AVAILABLE,
+        states.REPAIR_AVAILABLE,
+    )
+    if status.state in (states.INCOMPATIBLE, states.BROKEN):
+        reason = (
+            "当前固件没有可用的 EPUB 字体菜单支持。"
+            if status.state is states.INCOMPATIBLE
+            else "检测到插件状态异常，请先在“插件与工具”中完成修复。"
+        )
+        raise RuntimeError(f"{reason}未修改 EPUB 字体。")
+    if status.state not in reusable:
+        if status.state not in deployable or status.package is None:
+            raise RuntimeError("无法安全准备 EPUB 字体菜单，未修改 EPUB 字体。")
+        deployed = _install_reading_enhancements(
+            ssh_client,
+            status.package,
+            state_dir,
+            status.state is states.MIGRATION_AVAILABLE,
+        )
+        if deployed.state not in reusable:
+            raise RuntimeError("EPUB 字体菜单支持未能通过验证，未修改 EPUB 字体。")
+    try:
+        return _rmkit_cn.set_epub_font_slot(ssh_client, remote_dir, filename)
+    except Exception as exc:
+        logging.error("EPUB font slot write failed after menu check: %s", exc)
+        raise RuntimeError("EPUB 字体菜单已准备，但字体写入失败，请刷新状态后重试。") from exc
+
+
 def _cleanup_reading_enhancements(ssh_client, state_dir: str):
     catalog = _reading_enhancements.load_catalog(state_dir, refresh=True)
     return _reading_enhancements.cleanup_legacy(ssh_client, catalog)
@@ -919,8 +962,13 @@ class FontTab(QtWidgets.QWidget):
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
-            f"{action}：{selected.filename}。操作完成后需手动重启设备，"
-            "EPUB 字体菜单才会更新。是否继续？",
+            f"{action}：{selected.filename}。"
+            + (
+                "操作完成后需手动重启设备，EPUB 字体菜单才会更新。是否继续？"
+                if removing
+                else "若设备尚未具备 EPUB 字体菜单支持，rmtool 会先自动安装或更新所需组件；"
+                "不会开启任何阅读功能。操作完成后需手动重启设备，是否继续？"
+            ),
             confirm_text=action,
             cancel_text="取消",
         ):
@@ -928,12 +976,13 @@ class FontTab(QtWidgets.QWidget):
         fn = (
             _rmkit_cn.remove_epub_font_slot
             if removing
-            else _rmkit_cn.set_epub_font_slot
+            else _set_epub_font_with_menu_support
         )
         args = (
             self.ssh_client,
             posixpath.dirname(selected.remote_path),
             selected.filename,
+            *((str(_rmtool.app_state_dir()),) if not removing else ()),
         )
         self._start_font_worker(
             fn,

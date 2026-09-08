@@ -325,7 +325,18 @@ class NoteEnhancementsQmdTests(unittest.TestCase):
         note_builder = _load_builder()
         reading_builder = _load_reading_builder()
         targets = _targets()
-        self.assertEqual(len(targets), 14)
+        self.assertEqual(
+            {
+                (
+                    target["platform"],
+                    target["firmware"],
+                    target.get("architecture", "aarch64"),
+                    target["xochitl_sha256"],
+                )
+                for target in targets
+            },
+            set(note.ALLOWED_TARGETS),
+        )
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             for index, target in enumerate(targets):

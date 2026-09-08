@@ -30,7 +30,7 @@ BUNDLED_MANIFEST = Path(__file__).with_name("reading-enhancements") / "manifest.
 
 QMD_PAYLOAD_PATH = "exthome/qt-resource-rebuilder/reading-enhancements.qmd"
 FEATURE_ID = "reading-enhancements"
-PACKAGE_REVISION = 8
+PACKAGE_REVISION = 9
 MAX_MANIFEST_BYTES = tap.MAX_MANIFEST_BYTES
 MAX_PACKAGE_BYTES = tap.MAX_PACKAGE_BYTES
 MAX_UNPACKED_BYTES = tap.MAX_UNPACKED_BYTES
@@ -100,6 +100,20 @@ _PUBLISHED_REVISION_QMDS = {
         ),
         "3.28": (
             "65d36fa86f1db0378e2c729553089d71b7655cbda39608a612f366e170de3611",
+            57224,
+        ),
+    },
+    8: {
+        "3.27": (
+            "dde14dc76ab7ba0039472b338ac3c4589b81c5be15fa582c06fb60e03a90344c",
+            51289,
+        ),
+        "3.28.0.162": (
+            "03293b8f0550b4e86b10fbf01f1446b18fb60947ed6388587f9d9dcb861b81d0",
+            57184,
+        ),
+        "3.28": (
+            "4ba71b466de622f2d0d3167e38ccdc2d9e1bf3841338997c79a9c1f1f24f70ef",
             57224,
         ),
     },
@@ -467,7 +481,7 @@ def _shared_specs(package: ReadingEnhancementsPackage):
 
 
 def _known_published_revision_feature(package, current, revision):
-    if package.release_version == "3.28.0.172":
+    if package.release_version == "3.28.0.172" and revision != 8:
         return None
     fingerprints = _PUBLISHED_REVISION_QMDS.get(revision)
     if fingerprints is None:

@@ -50,6 +50,35 @@ def _targets() -> tuple[dict, ...]:
 
 
 class ReadingEnhancementsQmdTests(unittest.TestCase):
+    def test_qt_elides_long_epub_labels_within_the_available_width(self):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PyQt5 import QtCore, QtGui, QtWidgets
+
+        app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        font = QtGui.QFont("sans-serif")
+        font.setPixelSize(24)
+        metrics = QtGui.QFontMetrics(font)
+        available_width = 240
+
+        short_label = "飞花宋体"
+        self.assertEqual(
+            metrics.elidedText(short_label, QtCore.Qt.ElideRight, available_width),
+            short_label,
+        )
+        for label in (
+            "京华老宋体超长中文字体名称版本一二三四五六七八九",
+            "An exceptionally long custom EPUB font family name",
+            "霞鹜文楷 LXGW WenKai Custom Long Name",
+        ):
+            displayed = metrics.elidedText(
+                label, QtCore.Qt.ElideRight, available_width
+            )
+            self.assertNotEqual(displayed, label)
+            self.assertTrue(displayed.endswith("…"), displayed)
+            self.assertLessEqual(metrics.horizontalAdvance(displayed), available_width)
+
+        self.assertIsNotNone(app)
+
     def test_source_is_utf8_lf_text_without_nul_bytes(self):
         data = SOURCE.read_bytes()
         self.assertNotIn(b"\x00", data)
@@ -130,6 +159,10 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
             "FontLoader.Ready",
             "key: loader.name",
             "value: label",
+            "rmtoolEpubDisplayLabel(slot, loader.name)",
+            "rmtoolEpubLabelMetrics.elidedText(",
+            "Qt.ElideRight",
+            "dropdown.width - 76",
             'fontModel.setProperty(existing, "value", label)',
             "rmtoolEpubInsertIndex",
             "return fontModel.count - 1",
@@ -145,6 +178,9 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
         self.assertEqual(source.count("opacity: enabled ? 1 : 0.5"), 5)
 
         self.assertIn("Settings.rawValue(\"RmtoolReadingEnhancements\",", source)
+        self.assertIn('property bool masterEnabled: false', source)
+        self.assertEqual(source.count('readBool("masterEnabled", false)'), 2)
+        self.assertNotIn('readBool("masterEnabled", true)', source)
         self.assertIn("TRAVERSE Item#root", source)
         self.assertIn("LOCATE BEFORE Component#general", source)
         self.assertNotIn("TRAVERSE ?#general", source)
@@ -251,9 +287,9 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
         and MATRIX_CONFIG.exists(),
         "full offline reading-enhancements matrix is not configured",
     )
-    def test_matrix_is_exactly_fourteen_targets(self):
+    def test_matrix_is_exactly_sixteen_targets(self):
         targets = _targets()
-        self.assertEqual(len(targets), 14)
+        self.assertEqual(len(targets), 16)
         identities = {
             (target["platform"], target["firmware"], target["xochitl_sha256"])
             for target in targets
@@ -276,7 +312,7 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
     def test_compiles_checks_replays_and_asserts_all_targets(self):
         builder = _load_builder()
         targets = _targets()
-        self.assertEqual(len(targets), 14)
+        self.assertEqual(len(targets), 16)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             for target in targets:
@@ -440,6 +476,11 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
                         font_menu,
                         target_id,
                     )
+                    self.assertIn(
+                        "rmtoolEpubLabelMetrics.elidedText(", font_menu, target_id
+                    )
+                    self.assertIn("Qt.ElideRight", font_menu, target_id)
+                    self.assertIn("dropdown.width - 76", font_menu, target_id)
                     self.assertIn("return fontModel.count - 1", font_menu)
 
 

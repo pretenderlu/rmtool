@@ -4291,15 +4291,25 @@ class FontUiTests(unittest.TestCase):
             _tab_toolbox, "ask_confirmation", return_value=True
         ) as confirm, mock.patch.object(widget, "_start_font_worker") as start_worker:
             widget._toggle_selected_epub_font()
-        self.assertIs(start_worker.call_args.args[0], _rmkit_cn.set_epub_font_slot)
+        self.assertIs(
+            start_worker.call_args.args[0],
+            _tab_toolbox._set_epub_font_with_menu_support,
+        )
         confirmation = confirm.call_args.args[2]
         self.assertIn("手动重启", confirmation)
+        self.assertIn("自动安装或更新", confirmation)
+        self.assertIn("不会开启任何阅读功能", confirmation)
         self.assertNotIn("revision", confirmation)
         self.assertNotIn("阅读增强", confirmation)
         self.assertNotIn("/home", confirmation)
         self.assertEqual(
-            start_worker.call_args.args[1:4],
-            (client, posixpath.normpath(rmtool.DEFAULT_FONT_DIR), "reader.ttf"),
+            start_worker.call_args.args[1:5],
+            (
+                client,
+                posixpath.normpath(rmtool.DEFAULT_FONT_DIR),
+                "reader.ttf",
+                str(rmtool.app_state_dir()),
+            ),
         )
         with mock.patch.object(widget, "_refresh_fonts") as refresh:
             start_worker.call_args.kwargs["on_success"](None)
@@ -4329,6 +4339,7 @@ class FontUiTests(unittest.TestCase):
         self.assertIs(start_worker.call_args.args[0], _rmkit_cn.remove_epub_font_slot)
         confirmation = confirm.call_args.args[2]
         self.assertIn("手动重启", confirmation)
+        self.assertNotIn("自动安装或更新", confirmation)
         self.assertNotIn("revision", confirmation)
         self.assertNotIn("阅读增强", confirmation)
         self.assertNotIn("/home", confirmation)
@@ -4344,6 +4355,138 @@ class FontUiTests(unittest.TestCase):
         self.assertNotIn("revision", success)
         self.assertNotIn("阅读增强", success)
         self.assertNotIn("/home", success)
+
+    def test_epub_font_menu_support_reuses_current_component(self):
+        states = _reading_enhancements.ReadingEnhancementsState
+        package = object()
+        for current_state in (states.ENABLED, states.ENABLE_PENDING_REBOOT):
+            expected = object()
+            status = SimpleNamespace(state=current_state, package=package)
+            with self.subTest(state=current_state), mock.patch.object(
+                _reading_enhancements, "load_catalog", return_value=(package,)
+            ) as load_catalog, mock.patch.object(
+                _reading_enhancements, "get_status", return_value=status
+            ), mock.patch.object(
+                _reading_enhancements, "download_package"
+            ) as download, mock.patch.object(
+                _rmkit_cn, "set_epub_font_slot", return_value=expected
+            ) as set_slot:
+                result = _tab_toolbox._set_epub_font_with_menu_support(
+                    object(), "/home/root/fonts", "reader.ttf", "state"
+                )
+
+            self.assertIs(result, expected)
+            load_catalog.assert_called_once_with("state", refresh=True)
+            download.assert_not_called()
+            set_slot.assert_called_once()
+
+    def test_epub_font_menu_support_deploys_before_writing_slot(self):
+        states = _reading_enhancements.ReadingEnhancementsState
+        package = object()
+        deployed = SimpleNamespace(state=states.ENABLE_PENDING_REBOOT)
+        for initial_state in (
+            states.NOT_INSTALLED,
+            states.INSTALLED_DISABLED,
+            states.DISABLE_PENDING_REBOOT,
+            states.REPAIR_AVAILABLE,
+        ):
+            calls = []
+
+            def install(*_args):
+                calls.append("install")
+                return deployed
+
+            def set_slot(*_args):
+                calls.append("slot")
+                return object()
+
+            with self.subTest(state=initial_state), mock.patch.object(
+                _reading_enhancements, "load_catalog", return_value=(package,)
+            ), mock.patch.object(
+                _reading_enhancements,
+                "get_status",
+                return_value=SimpleNamespace(
+                    state=initial_state, package=package
+                ),
+            ), mock.patch.object(
+                _tab_toolbox,
+                "_install_reading_enhancements",
+                side_effect=install,
+            ) as deploy, mock.patch.object(
+                _rmkit_cn, "set_epub_font_slot", side_effect=set_slot
+            ):
+                _tab_toolbox._set_epub_font_with_menu_support(
+                    object(), "/home/root/fonts", "reader.ttf", "state"
+                )
+
+            deploy.assert_called_once_with(
+                mock.ANY, package, "state", False
+            )
+            self.assertEqual(calls, ["install", "slot"])
+
+    def test_epub_font_menu_support_migrates_and_refuses_unsafe_states(self):
+        states = _reading_enhancements.ReadingEnhancementsState
+        package = object()
+        migration = SimpleNamespace(state=states.MIGRATION_AVAILABLE, package=package)
+        deployed = SimpleNamespace(state=states.ENABLE_PENDING_REBOOT)
+        with mock.patch.object(
+            _reading_enhancements, "load_catalog", return_value=(package,)
+        ), mock.patch.object(
+            _reading_enhancements, "get_status", return_value=migration
+        ), mock.patch.object(
+            _tab_toolbox,
+            "_install_reading_enhancements",
+            return_value=deployed,
+        ) as migrate, mock.patch.object(
+            _rmkit_cn, "set_epub_font_slot", return_value=object()
+        ) as set_slot:
+            _tab_toolbox._set_epub_font_with_menu_support(
+                object(), "/home/root/fonts", "reader.ttf", "state"
+            )
+        migrate.assert_called_once_with(mock.ANY, package, "state", True)
+        set_slot.assert_called_once()
+
+        for unsafe in (states.INCOMPATIBLE, states.BROKEN):
+            with self.subTest(state=unsafe), mock.patch.object(
+                _reading_enhancements, "load_catalog", return_value=(package,)
+            ), mock.patch.object(
+                _reading_enhancements,
+                "get_status",
+                return_value=SimpleNamespace(state=unsafe, package=package),
+            ), mock.patch.object(
+                _reading_enhancements, "download_package"
+            ) as download, mock.patch.object(
+                _rmkit_cn, "set_epub_font_slot"
+            ) as set_slot:
+                with self.assertRaisesRegex(RuntimeError, "未修改 EPUB 字体"):
+                    _tab_toolbox._set_epub_font_with_menu_support(
+                        object(), "/home/root/fonts", "reader.ttf", "state"
+                    )
+                download.assert_not_called()
+                set_slot.assert_not_called()
+
+    def test_epub_font_menu_support_requires_verified_deployment(self):
+        states = _reading_enhancements.ReadingEnhancementsState
+        package = object()
+        status = SimpleNamespace(state=states.REPAIR_AVAILABLE, package=package)
+        with mock.patch.object(
+            _reading_enhancements, "load_catalog", return_value=(package,)
+        ), mock.patch.object(
+            _reading_enhancements, "get_status", return_value=status
+        ), mock.patch.object(
+            _reading_enhancements, "download_package", return_value="archive"
+        ), mock.patch.object(
+            _reading_enhancements,
+            "install",
+            return_value=SimpleNamespace(state=states.BROKEN),
+        ), mock.patch.object(
+            _rmkit_cn, "set_epub_font_slot"
+        ) as set_slot:
+            with self.assertRaisesRegex(RuntimeError, "未修改 EPUB 字体"):
+                _tab_toolbox._set_epub_font_with_menu_support(
+                    object(), "/home/root/fonts", "reader.ttf", "state"
+                )
+        set_slot.assert_not_called()
 
     def test_epub_font_action_distinguishes_append_relabel_and_capacity(self):
         widget = rmtool.FontTab(

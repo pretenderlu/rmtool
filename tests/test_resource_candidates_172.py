@@ -21,7 +21,7 @@ class Candidate172Tests(unittest.TestCase):
             "fast-mono-reading": "f00f8f71423bf365e3aeb41e30e0d621f20cc00f2d07b800ac4c6e1ad32940cc",
             "native-chinese": "4c3f5c9eb081ac44538bbabfd923a626e978c6513ad9c5956fdbe4e183e61429",
             "pinyin-input": "d47c77d2ec9dedcaa0884226d3b6978591febd7f52958fd466c23c39b02d264f",
-            "reading-enhancements": "18bcc013a4227b7520908c94e0cf49a5827a1ff5db4c0e6de2135b614bf4710b",
+            "reading-enhancements": "8985540f5dbcb501b1092b96ca6a965267ee06283e36e6903f781713ec2f0587",
             "note-enhancements": "5dfd6e9c565e38201da517d9c8c578fcf63bcdf301bae19275b7d9eda09b61ea",
         }
         for feature, fingerprint in expected.items():
@@ -30,7 +30,7 @@ class Candidate172Tests(unittest.TestCase):
             canonical = json.dumps(old, sort_keys=True, separators=(",", ":")).encode()
             self.assertEqual(builder.digest(canonical), fingerprint, feature)
 
-    def test_exact_application_targets_and_no_fabricated_predecessors(self):
+    def test_exact_application_targets_and_published_predecessors(self):
         import _native_chinese as native
         import _reading_enhancements as reading
         import _pinyin_input as pinyin
@@ -48,8 +48,13 @@ class Candidate172Tests(unittest.TestCase):
             reading_package = reading.select_package(reading._trusted_catalog(), identity)
             if platform in builder.COLOR_PLATFORMS:
                 self.assertIsNotNone(reading_package)
-                self.assertEqual(reading._known_shared_predecessor_specs(
-                    reading_package, peers[reading.FEATURE_ID]), ())
+                predecessors = reading._known_shared_predecessor_specs(
+                    reading_package, peers[reading.FEATURE_ID]
+                )
+                self.assertEqual(
+                    tuple(reason for reason, _feature in predecessors),
+                    ("package-revision-8",),
+                )
             else:
                 self.assertIsNone(reading_package)
             forged = builder.tap.DeviceIdentity(builder.FIRMWARE, platform, architecture, "0" * 64)
