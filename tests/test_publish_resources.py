@@ -291,7 +291,7 @@ class PublishResourcesTests(unittest.TestCase):
                 publisher._validate_feature(resource, release_dir)
 
     def test_readmes_describe_github_first_and_cos_fallback(self):
-        for filename in ("README.md", "README.zh-CN.md"):
+        for filename in ("README.en.md", "README.md"):
             text = (publisher.ROOT / filename).read_text(encoding="utf-8")
             resource_rows = [
                 line
@@ -307,8 +307,8 @@ class PublishResourcesTests(unittest.TestCase):
                 any("note-enhancements-assets" in row for row in resource_rows),
                 filename,
             )
-        english = (publisher.ROOT / "README.md").read_text(encoding="utf-8")
-        chinese = (publisher.ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+        english = (publisher.ROOT / "README.en.md").read_text(encoding="utf-8")
+        chinese = (publisher.ROOT / "README.md").read_text(encoding="utf-8")
         self.assertNotIn("Tencent COS mirror before GitHub", english)
         self.assertNotIn("COS、GitHub", chinese)
 

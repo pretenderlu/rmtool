@@ -1,267 +1,258 @@
-**English | [简体中文](README.zh-CN.md)**
+**简体中文 | [English](README.en.md)**
 
 <div align="center">
 
-<img src="assets/rmtool-icon.png" alt="rmtool icon" width="120">
+<img src="assets/rmtool-icon.png" alt="rmtool 图标" width="120">
 
 # rmtool
 
-A desktop GUI management tool for reMarkable devices
+面向 reMarkable 的桌面图形化管理工具
 
 </div>
 
-rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, and reMarkable 2 devices over local root SSH. It provides multi-device connections, a dashboard, wallpaper and document management, KOReader library management, font upload, time management, device controls, native Chinese UI localization, offline Pinyin input, and exact-build reading and note enhancements for color devices, the
-classic offline-verified tap-to-turn plugin for Paper Pure, reMarkable 1,
-and reMarkable 2, plus a one-click read-only diagnostic bundle for support. Device operations do not depend on reMarkable cloud services. Release builds include baseline trusted manifests for these firmware-specific features, enabling offline support discovery and verified cache reuse. Payloads are not bundled and still require a network download or an existing validated cache.
+rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Paper Pure、reMarkable 1 和 reMarkable 2，提供多设备连接、仪表盘、壁纸、文档、KOReader 书库管理、字体、时间、设备控制、原生界面中文、离线拼音输入，以及彩色设备按固件精确匹配的阅读增强和笔记增强，Paper Pure、reMarkable 1 和
+reMarkable 2 的经典离线验证点击翻页插件，以及一键只读诊断日志导出。设备操作不依赖 reMarkable 云服务；发布包内置这些固件功能的基础可信清单，可离线识别支持情况并复用已验证缓存。固件专用载荷不会打包进应用，仍需联网下载或使用已有的有效缓存。
 
-Local development support: Paper Pro/Move 3.28.0.172 is integrated for all six
-firmware plugins with offline-verified packages and local caches. See the
-[.172 matrix and verified local staging procedure](native-chinese/172-OFFLINE.md).
-These new packages are not published or device-tested; existing published records are unchanged.
+当前发布版为 `v1.15.6`。3.28.0.172 正式版的固件专用资源已覆盖 Paper Pro、Paper Pro Move、Paper Pure、reMarkable 1 和 reMarkable 2，并已发布至对应的 GitHub Release 与腾讯云 COS 镜像；所有目标均完成官方固件离线验证，真机验证范围以各功能支持矩阵中的标注为准。
 
 > [!WARNING]
-> rmtool directly modifies files on the device. Sync or back up important content first, and make sure you accept the data and warranty risks associated with Developer Mode, root SSH, and third-party modifications. This project is not official reMarkable software.
+> rmtool 会直接修改设备文件。请先同步或备份重要内容，并确认自己能够承担开发者模式、root SSH 和第三方修改带来的数据与保修风险。本项目不是 reMarkable 官方软件。
 
-## Screenshots
+## 软件截图
 
 <table>
   <tr>
     <td width="50%" align="center">
-      <a href="assets/screenshots/01-dashboard.png"><img src="assets/screenshots/01-dashboard.png" alt="rmtool device dashboard" width="100%"></a><br>
-      <sub><b>Dashboard</b></sub>
+      <a href="assets/screenshots/01-dashboard.png"><img src="assets/screenshots/01-dashboard.png" alt="rmtool 设备仪表盘" width="100%"></a><br>
+      <sub><b>仪表盘</b></sub>
     </td>
     <td width="50%" align="center">
-      <a href="assets/screenshots/02-wallpaper.png"><img src="assets/screenshots/02-wallpaper.png" alt="rmtool wallpaper management" width="100%"></a><br>
-      <sub><b>Wallpaper Management</b></sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center">
-      <a href="assets/screenshots/03-documents.png"><img src="assets/screenshots/03-documents.png" alt="rmtool document center" width="100%"></a><br>
-      <sub><b>Document Center</b></sub>
-    </td>
-    <td width="50%" align="center">
-      <a href="assets/screenshots/04-koreader.png"><img src="assets/screenshots/04-koreader.png" alt="rmtool KOReader library manager" width="100%"></a><br>
-      <sub><b>KOReader Library</b></sub>
+      <a href="assets/screenshots/02-wallpaper.png"><img src="assets/screenshots/02-wallpaper.png" alt="rmtool 壁纸管理" width="100%"></a><br>
+      <sub><b>壁纸管理</b></sub>
     </td>
   </tr>
   <tr>
     <td width="50%" align="center">
-      <a href="assets/screenshots/05-fonts.png"><img src="assets/screenshots/05-fonts.png" alt="rmtool font management" width="100%"></a><br>
-      <sub><b>Font Management</b></sub>
+      <a href="assets/screenshots/03-documents.png"><img src="assets/screenshots/03-documents.png" alt="rmtool 文档中心" width="100%"></a><br>
+      <sub><b>文档中心</b></sub>
     </td>
     <td width="50%" align="center">
-      <a href="assets/screenshots/06-toolbox.png"><img src="assets/screenshots/06-toolbox.png" alt="rmtool device toolbox" width="100%"></a><br>
-      <sub><b>Device Toolbox</b></sub>
+      <a href="assets/screenshots/04-koreader.png"><img src="assets/screenshots/04-koreader.png" alt="rmtool KOReader 书库管理" width="100%"></a><br>
+      <sub><b>KOReader 书库</b></sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/05-fonts.png"><img src="assets/screenshots/05-fonts.png" alt="rmtool 字体管理" width="100%"></a><br>
+      <sub><b>字体管理</b></sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="assets/screenshots/06-toolbox.png"><img src="assets/screenshots/06-toolbox.png" alt="rmtool 设备工具箱" width="100%"></a><br>
+      <sub><b>设备工具箱</b></sub>
     </td>
   </tr>
 </table>
 
-## Download and installation
+## 下载与安装
 
-Most users should download the latest build below from GitHub Releases. Python is not required.
+普通用户建议直接从 GitHub Releases 下载下表中的最新版本，无需安装 Python。
 
-| Platform | Download | Notes |
+| 平台 | 下载 | 说明 |
 | --- | --- | --- |
-| Windows x64 | [Portable ZIP](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64.zip) | Extract it and run `rmtool/rmtool.exe`; recommended for regular use |
-| Windows x64 | [Single-file EXE](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64-onefile.exe) | Run it directly; first launch and each cold start are slower |
-| macOS ARM64 | [Apple Silicon app](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-macos-arm64.app.zip) | M-series Macs only; extract it and run `rmtool.app` |
+| Windows x64 | [便携版 ZIP](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64.zip) | 解压后运行 `rmtool/rmtool.exe`，适合长期使用 |
+| Windows x64 | [单文件 EXE](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-windows-x64-onefile.exe) | 直接运行；首次和每次冷启动会稍慢 |
+| macOS ARM64 | [Apple Silicon 应用](https://github.com/pretenderlu/rmtool/releases/latest/download/rmtool-macos-arm64.app.zip) | 仅支持 M 系列 Mac；解压后运行 `rmtool.app` |
 
-The release packages are currently neither Windows code-signed nor Apple-notarized. If SmartScreen or Gatekeeper blocks the app, first verify that the file came from this repository's release page, then use the operating system's one-time approval option. Do not disable system security globally.
+发布包目前没有 Windows 代码签名或 Apple 公证。若 SmartScreen 或 Gatekeeper 阻止启动，请先核对文件确实来自本仓库 Release，再使用系统提供的单次放行方式；不要全局关闭系统安全保护。
 
-The macOS build stores its runtime state in `~/Library/Application Support/rmtool/`, so the app can run normally even when its bundle is in a read-only or translocated location.
+macOS 版会把运行状态保存在 `~/Library/Application Support/rmtool/`，因此即使应用包位于只读或系统转移的位置，也能正常保存配置。
 
-### Hosted resource sources
+### 托管资源下载源
 
-All firmware-specific resources managed by rmtool use two fixed sources. The client tries GitHub Releases first and automatically falls back to the Tencent COS mirror (useful when GitHub is hard to reach from mainland China), and accepts a manifest or payload only after its expected size and SHA-256 match. An invalid response never replaces a validated cache. If both sources fail, rmtool uses a previously validated cached manifest and then the baseline trusted manifest bundled with the application; installation still requires the matching payload to exist in the validated cache. When a payload cannot be downloaded from either mirror, the error dialog lists the exact GitHub and COS download URLs, offers to copy them, and can load a manually downloaded archive after the same size and SHA-256 verification.
+rmtool 管理的固件专用资源均使用两个固定来源。客户端默认优先访问 GitHub Releases，失败后自动回退腾讯云 COS 镜像（便于中国大陆用户在 GitHub 下载不畅时继续使用）；清单和载荷每次都必须通过预期大小与 SHA-256 校验，无效响应不会覆盖已验证缓存。两个远端均失败时，程序依次使用此前验证过的缓存清单和应用内置基础可信清单；真正安装时仍必须在缓存中已有精确匹配且通过验证的载荷。当资源包从两个镜像都无法下载时，报错弹窗会列出 GitHub 与腾讯云 COS 的实际下载地址（可一键复制），并支持通过“手动加载资源包”导入已下载到本机的文件，导入同样必须通过大小与 SHA-256 校验。
 
-| Resource | GitHub (default) | Tencent COS fallback (mainland China) |
+| 资源 | GitHub（默认） | 腾讯云 COS 备用（中国大陆） |
 | --- | --- | --- |
-| Chinese localization | [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/tag/localization-assets) | [COS root](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/) |
-| Native Simplified Chinese | [`native-chinese-assets`](https://github.com/pretenderlu/rmtool/releases/tag/native-chinese-assets) | [`native-chinese/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/) |
-| Pinyin input | [`pinyin-input-assets`](https://github.com/pretenderlu/rmtool/releases/tag/pinyin-input-assets) | [`pinyin-input/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input/) |
-| Reading enhancements | [`reading-enhancements-assets`](https://github.com/pretenderlu/rmtool/releases/tag/reading-enhancements-assets) | [`reading-enhancements/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/) |
-| Note enhancements | [`note-enhancements-assets`](https://github.com/pretenderlu/rmtool/releases/tag/note-enhancements-assets) | [`note-enhancements/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/) |
+| 原生界面汉化 | [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/tag/localization-assets) | [COS 根目录](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/) |
+| 独立简体中文 | [`native-chinese-assets`](https://github.com/pretenderlu/rmtool/releases/tag/native-chinese-assets) | [`native-chinese/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/) |
+| 拼音输入法 | [`pinyin-input-assets`](https://github.com/pretenderlu/rmtool/releases/tag/pinyin-input-assets) | [`pinyin-input/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input/) |
+| 阅读增强 | [`reading-enhancements-assets`](https://github.com/pretenderlu/rmtool/releases/tag/reading-enhancements-assets) | [`reading-enhancements/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/) |
+| 笔记增强 | [`note-enhancements-assets`](https://github.com/pretenderlu/rmtool/releases/tag/note-enhancements-assets) | [`note-enhancements/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/) |
 
-## Connecting a device
+## 连接设备
 
-### SSH prerequisites
+### SSH 前置条件
 
-- The device must allow SSH login as `root`, and you must be able to view its current root password.
-- Paper Pro, Paper Pro Move, and Paper Pure must first be put into Developer Mode. Enabling it performs a factory reset, removes local data from the device, and weakens device security, so sync or back up first. See the [official reMarkable documentation](https://developer.remarkable.com/documentation/developer-mode) for the procedure and risks. reMarkable 1 and reMarkable 2 do not use Developer Mode, but they still require working root SSH access.
-- The default USB address is `10.11.99.1`. Connect the device to the computer over USB and select USB mode on the device.
-- Wi-Fi SSH is disabled by default. Connect over USB first, then choose "Enable Wi-Fi SSH" under "Device Toolbox > Device Control" and change the saved device address to its WLAN address.
-- On Paper Pro, the root username and password are available under `General > Help > About > Copyrights and Licenses`. For other models or firmware versions, follow the current device UI.
+- 设备必须允许使用 `root` 账户通过 SSH 登录，并能查看当前 root 密码。
+- Paper Pro、Paper Pro Move 和 Paper Pure 需要先启用 Developer Mode。启用会执行恢复出厂设置、清除设备上的本地数据并削弱设备安全性，请先同步或备份；具体流程与风险见 [reMarkable 官方说明](https://developer.remarkable.com/documentation/developer-mode)。reMarkable 1 和 reMarkable 2 不使用 Developer Mode，但仍需可用的 root SSH。
+- USB 连接的默认地址是 `10.11.99.1`。设备通过 USB 接入电脑后，选择 USB 模式即可连接。
+- Wi-Fi SSH 默认关闭。请先通过 USB 连接，再到“设备工具箱 > 设备控制”点击“开启 Wi-Fi SSH 通道”，随后把设备配置改为 WLAN 地址。
+- Paper Pro 上的 root 用户名和密码可在 `General > Help > About > Copyrights and Licenses` 查看；其他型号或固件请以设备当前界面为准。
 
-### First connection
+### 首次连接
 
-1. Start rmtool, click "Add" in the sidebar, and enter the device name, connection method, address, model, and root password.
-2. Click "Connect". The first connection displays the SSH host fingerprint; trust it only after confirming that it belongs to your device.
-3. After a successful connection, the wallpaper, document, KOReader, and toolbox pages are enabled automatically.
-4. Multiple devices can have separate saved profiles. Switching to another device or address automatically closes the existing SSH connection.
+1. 启动 rmtool，点击左侧“新增”，填写设备名称、连接方式、地址、型号和 root 密码。
+2. 点击“连接”。首次连接会显示 SSH 主机指纹；确认是自己的设备后再选择信任。
+3. 连接成功后，壁纸、文档、KOReader 和工具箱页面会自动启用。
+4. 多台设备可以分别保存配置；切换到不同设备或地址时，现有 SSH 连接会自动断开。
 
-## Local data and security
+## 本地数据与安全
 
-rmtool stores runtime state in the following platform-specific directory:
+rmtool 按运行平台将状态保存在以下目录：
 
-| Run mode | State directory |
+| 运行方式 | 状态目录 |
 | --- | --- |
-| From source | `.rmtool/` in the repository root |
-| Windows release | `.rmtool/` beside `rmtool.exe` or the single-file EXE |
-| macOS release | `~/Library/Application Support/rmtool/` |
+| 源码运行 | 仓库根目录下的 `.rmtool/` |
+| Windows 发布包 | `rmtool.exe` 或单文件 EXE 同级的 `.rmtool/` |
+| macOS 发布包 | `~/Library/Application Support/rmtool/` |
 
-The main files are:
+主要文件包括：
 
-- `devices.json`: device profiles, current device, theme, paths, and log-panel settings.
-- `known_hosts`: SSH host trust records isolated by device ID.
-- `remarkable_tool.log`: rotating runtime log.
-- `cache/localization/`: validated localization manifests and firmware-package cache.
-- `cache/reading-enhancements/`: validated reading-enhancements manifest and package cache.
-- `cache/note-enhancements/`: validated note-enhancements manifest and package cache.
-- `cache/pinyin-input/`: validated offline Pinyin package cache.
-- `cache/official/`: verified AppLoad and KOReader archives downloaded directly from their official GitHub Releases.
+- `devices.json`：设备列表、当前设备、主题、路径和日志面板设置。
+- `known_hosts`：按设备 ID 隔离保存的 SSH 主机信任记录。
+- `remarkable_tool.log`：滚动运行日志。
+- `cache/localization/`：已校验的汉化清单和固件包缓存。
+- `cache/reading-enhancements/`：已校验的阅读增强清单和固件包缓存。
+- `cache/note-enhancements/`：已校验的笔记增强清单和固件包缓存。
+- `cache/pinyin-input/`：已校验的离线拼音输入法包缓存。
+- `cache/official/`：直接从 AppLoad 与 KOReader 官方 GitHub Release 下载并校验的缓存。
 
 > [!CAUTION]
-> When "Remember password" is selected, the root password is stored in **plain text** in `devices.json` under the state directory above; it is not stored in the operating system credential manager. Do not share, upload, or sync the entire state directory to an untrusted location, and do not attach it to an issue. Use "Forget password" in the sidebar to remove a saved password.
+> 勾选“记住密码”后，root 密码会以**明文**写入上述状态目录中的 `devices.json`，不会进入系统凭据库。请勿分享、上传或把整个状态目录同步到不受信任的位置；提交 Issue 时也不要附带该目录。可在左侧点击“忘记密码”删除已保存密码。
 
-## Features
+## 当前功能
 
-- **Connections and dashboard**: Manage multiple USB/Wi-Fi device profiles and verify SSH host fingerprints. The native Qt dashboard shows connection status, device details, PDF/EPUB/notebook counts, and suggested next steps.
-- **Wallpaper management**: Read and preview the device's current startup, suspend, carousel, and shutdown wallpapers. The current UI produces portrait wallpapers at the selected device's native resolution, with fit, crop, and stretch modes plus horizontal and vertical crop offsets. The cover-wall generator arranges selected document thumbnails with optional text into a local poster wallpaper; no document data is sent to a cloud service.
-- **Document center**: Search and inspect document metadata and thumbnails; batch-upload PDF/EPUB files, check free space, and batch-delete documents. Export parseable handwriting from `.rm` or `.note` data in one document to a white-background PDF without merging the original PDF/EPUB pages.
-- **AppLoad and KOReader**: On exact supported production firmware, install AppLoad and KOReader directly from their official GitHub Releases without Vellum. rmtool verifies the pinned filename, size, and SHA-256, accepts the same official ZIP files for offline import, and never restarts the device automatically. A previous Vellum/AppLoad KOReader directory is fully backed up before rmtool migrates its settings, history, statistics, screenshots, and other allowlisted user data into a clean official install; unrecognized program files are not mixed into the new version. Firmware 3.28 beta builds are intentionally unsupported. The existing KOReader library manager can then search folders, transfer books, create folders, and delete entries without leaving the detected library root.
-- **Font manager**: Preview and upload multiple TTF/OTF fonts, optionally rename an upload to `zwzt.ttf`, inspect the inactive repository at `/home/root/.local/share/rmtool/fonts`, switch the exact font file used by the system UI, and delete inactive fonts. Uploads stay outside Fontconfig's default scan paths until explicitly selected; only the selected font is atomically mirrored to `/data/rmtool/fonts` for the pre-unlock UI. Root stores only a small, persistent Fontconfig file. Existing custom font directories remain supported and are not moved automatically. A one-click migration is offered only when the old root mirror, rmtool-generated Fontconfig files, metadata, and one `/home` original match the exact legacy layout; no font is re-uploaded. Activation uses the complete font and is allowed when the post-swap state keeps at least 24 MiB free on `/data`; tight-space replacements first preserve and verify the previous mirror under `/home`. The UI labels exact device/firmware identities as device verified, pending validation, or unverified. Uploading does not change the active font or reboot the device; restart is a separate confirmed action.
-- **Time management**: Sync the computer's time, inspect system time, hardware clock, and timezone, or set the timezone to `Asia/Shanghai`.
-- **Device control**: Restart the device, enable Wi-Fi SSH, and increase frontlight brightness on devices with the `rm_frontlight` interface while installing a persistence service.
-- **Reading enhancements**: On exact supported Paper Pro and Paper Pro Move 3.27/3.28 builds, add one native Settings page for global tap-to-turn, fast monochrome, and forced-refresh controls. Each PDF/EPUB also keeps independent switches and a per-book refresh strategy in its reading menu.
-- **Note enhancements**: On exact supported Paper Pro and Paper Pro Move 3.27/3.28 builds, control color-settlement refreshes while handwriting. Device Settings provide the global default, while each notebook can independently choose a 5/10/30-second pen-up delay or page-turn-only settlement.
-- **Offline Pinyin input**: Adds an on-device Pinyin candidate bar for the system soft keyboard and physical keyboard. Prediction stays local and shares rmtool's existing Xovi runtime with other plugins.
-- **Theme and logs**: Light and dark themes are persisted. The bottom log panel supports level filtering, pause, automatic scrolling, clearing, and opening the log file.
+- **连接与仪表盘**：管理多个 USB/Wi-Fi 设备配置，校验 SSH 主机指纹；原生 Qt 仪表盘显示连接状态、设备信息、PDF/EPUB/笔记数量和下一步建议。
+- **壁纸管理**：读取设备现有启动、休眠、轮播和关机壁纸预览；当前界面只按所选设备的原生分辨率生成竖屏壁纸，支持留白、裁剪和拉伸，裁剪时可调整水平/垂直偏移；还可把选中的文档缩略图配合可选文案，在电脑本地排版为封面墙壁纸，不会把文档数据发送到云端。
+- **文档中心**：搜索和查看文档元数据、缩略图；批量上传 PDF/EPUB、检查剩余空间、批量删除；将单个文档中 `.rm` 或 `.note` 内可解析的手写笔迹导出为白底 PDF，不合并原 PDF/EPUB 页面。
+- **固件管理**：目前支持 Paper Pro 与 Paper Pro Move，可读取 A/B 分区和版本状态，获取官方固件列表，将校验通过的官方固件下载并安装至备用分区，或切换至已检查的备用分区；新固件启动后，可在存在精确匹配资源时按更新前的插件列表修复 rmtool 插件。安装、切换或插件修复完成后，请按界面提示重启设备。
+- **AppLoad 与 KOReader**：在精确支持的正式版固件上，不经过 Vellum，直接从各自官方 GitHub Release 安装 AppLoad 和 KOReader。rmtool 会固定校验文件名、大小和 SHA-256，也支持导入用户自行下载的同一官方 ZIP，且不会自动重启设备。检测到旧 Vellum/AppLoad KOReader 目录时，会先完整备份，再把设置、历史、统计、截图等白名单用户数据迁移到全新的官方程序中，不会把未知旧程序文件混入新版本。3.28 系列测试版明确不支持；正式版 3.28.0.172 也暂不支持，需等待 AppLoad 上游适配。安装后可继续在书库管理器中搜索目录、传输书籍、新建文件夹和删除项目，所有操作均限制在检测到的书库根目录内。
+- **字体管理**：预览并上传多个 TTF/OTF，可在上传时重命名为 `zwzt.ttf`；查看 `/home/root/.local/share/rmtool/fonts` 中的非活动字体，按精确文件路径切换系统界面字体，并删除未启用字体。上传字体在用户明确选择前不会进入 Fontconfig 默认扫描范围；只有当前选中的字体会原子复制到 `/data/rmtool/fonts`，供密码解锁前后的界面共同使用，根分区仅保存一个很小的 Fontconfig 配置。已有自定义字体目录继续受支持，不会被自动搬移。只有旧版根区镜像、rmtool 生成的 Fontconfig、文件元数据以及唯一 `/home` 原字体均精确匹配时，才会提供一键迁移，且无需重新上传字体。系统字体保留完整字形，并按替换完成后的实际空间判断；应用后 `/data` 至少保留 24 MiB，空间紧张时会先在 `/home` 备份并校验原镜像。界面会按精确设备与固件显示“已实机验证”“待实机验证”或“未实机验证”。上传不会自动切换字体或重启设备，重启由独立确认按钮执行。
+- **时间管理**：同步电脑时间、查看系统时间/硬件时钟/时区，或设置为 `Asia/Shanghai`。
+- **设备控制**：重启设备、开启 Wi-Fi SSH，以及为具有 `rm_frontlight` 前光接口的设备提升亮度并安装持久化服务。
+- **阅读增强**：在精确支持的 Paper Pro 与 Paper Pro Move 3.27/3.28 固件上，增加一个原生设置页，统一控制点击翻页、快速黑白和强制刷新；每本 PDF/EPUB 还可在阅读菜单中保存独立开关和刷新策略。
+- **笔记增强**：在精确支持的 Paper Pro 与 Paper Pro Move 3.27/3.28 固件上控制彩色笔迹的沉淀刷新。设备设置保存全局默认，每本笔记可单独选择提笔后等待 5/10/30 秒刷新，或仅在翻页时刷新。
+- **离线拼音输入**：为系统软键盘和实体键盘增加设备端拼音候选栏，预测与词库完全留在本机，并与其他插件共享 rmtool 现有 Xovi 运行时。
+- **主题与日志**：亮色/暗色主题会持久化；底部日志面板支持级别过滤、暂停、自动滚动、清屏和打开日志文件。
 
-### AppLoad and KOReader installation
+### 安装 AppLoad 与 KOReader
 
-Open the KOReader page, connect the device, and click **Check Status**. Installation is enabled only when the model, internal firmware version, architecture, and stock xochitl hash exactly match a supported production-firmware entry. Install AppLoad first, then KOReader, and restart the device manually after rmtool closes SSH. If legacy KOReader files are detected, choose either **Migrate and Install KOReader** or **Permanently Remove Legacy Files**. Migration keeps the untouched old directory at `/home/root/.local/share/rmtool/koreader-legacy-backup`; permanent removal deletes the fixed legacy KOReader application directory and everything inside it, creates no backup, and requires a separate confirmation before a clean installation. Online installation downloads AppLoad from [asivery/rm-appload Releases](https://github.com/asivery/rm-appload/releases) and KOReader from [koreader/koreader Releases](https://github.com/koreader/koreader/releases); these two application archives are not bundled in rmtool, copied to Tencent COS, or served from the rmtool repository. For an unreliable connection, download the exact official ZIP yourself and choose **Load Local Official Package**.
+进入 KOReader 页面，连接设备后先点击**检测状态**。只有设备型号、内部固件版本、架构与原始 xochitl 哈希精确命中受支持的正式版条目时，安装按钮才会启用；正式版 3.28.0.172 当前不在支持范围内。先安装 AppLoad，再安装 KOReader；rmtool 关闭 SSH 后，从设备菜单手动重启。若检测到旧版 KOReader，用户可以选择**迁移并安装 KOReader**或**彻底清理旧版残留**：迁移会把未经修改的旧目录保存在 `/home/root/.local/share/rmtool/koreader-legacy-backup`；彻底清理会删除固定的旧 KOReader 应用目录及其中全部内容、不创建备份，完成后再由用户单独执行全新安装。在线安装分别从 [asivery/rm-appload Releases](https://github.com/asivery/rm-appload/releases) 和 [koreader/koreader Releases](https://github.com/koreader/koreader/releases) 下载；这两项应用资源不会打包进 rmtool、不会上传腾讯云 COS，也不会存放在 rmtool 仓库。网络不稳定时，可自行下载对应的官方 ZIP，再选择**加载本地官方包**。
 
-### Wallpaper notes
+### 壁纸注意事项
 
-Before each upload, the target file is copied to `.backup` in the same directory; another upload overwrites that backup. When uploading the suspend wallpaper `suspended.png`, rmtool can replace existing `carousel/*.png` files with transparent images so firmware 3.27 carousel artwork does not cover the custom wallpaper. The original carousel images are preserved once in `carousel/.backup/`, a subdirectory ignored by the firmware, and disabling the option restores them. Legacy adjacent backups are migrated into that subdirectory.
+每次上传前，目标文件会复制为同目录的 `.backup`；再次上传会覆盖该备份。上传休眠壁纸 `suspended.png` 时，可让程序把设备现有 `carousel/*.png` 替换为透明图片，避免固件 3.27 的轮播插图遮挡自定义壁纸。轮播原图会首次备份到固件不会读取的 `carousel/.backup/` 子目录；关闭该选项时会从备份恢复，旧版本遗留在原图旁的备份也会迁移到该子目录。
 
-### Native Chinese UI localization
+### 原生界面中文
 
 > [!IMPORTANT]
-> This feature (the French-slot replacement method) is **frozen**: the matrix
-> below is the final support list and no newer firmware will be added to it.
-> Localization for newer firmware (`3.28.0.166` betas and future stable
-> releases) is provided exclusively by the [Independent Simplified Chinese
-> plugin](#independent-simplified-chinese-plugin), which uses a genuine
-> `zh_CN` slot and keeps French fully usable. This feature remains available
-> on the firmware listed below.
+> 本功能（法语槽位替换法）已**停止扩展**：下方矩阵即最终支持清单，更新的固件不再加入。新固件（`3.28.0.166` 之后的测试版与未来正式版）的汉化由[独立简体中文插件](#独立简体中文插件)提供，走真正的 `zh_CN` 原生槽位，且可与法语共存。已有固件上的本功能继续可用。
 
-Release packages do not embed firmware-specific `.qm` files. After you choose "Device Toolbox > System Localization > Check Status", rmtool:
+发布包不内置任何固件专用 `.qm` 文件。点击“设备工具箱 > 系统汉化 > 检测状态”后，rmtool 会：
 
-1. Retrieves the manifest from the fixed GitHub [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/download/localization-assets/manifest.json) release first, then the [Tencent COS mainland mirror](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/manifest.json). If both are unavailable or invalid, it uses a previously validated cache and finally the baseline manifest bundled with the application.
-2. Matches the exact 14-digit internal firmware version from `/etc/version`.
-3. Calculates the SHA-256 of the device's original French carrier file, `reMarkable_fr.qm`, and uses it to select the correct hardware payload. Platform names such as `chiappa`, `ferrari`, `tatsu`, `rm1`, and `rm2` are display labels only; they are not used to guess compatibility.
-4. Verifies the download size and SHA-256. Nothing is written to the device if the firmware, original French file, or checksum does not match.
+1. 优先从固定的 GitHub [`localization-assets`](https://github.com/pretenderlu/rmtool/releases/download/localization-assets/manifest.json) Release 获取清单，再尝试[腾讯云 COS 中国大陆镜像](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/manifest.json)；两者均不可用或内容无效时，依次使用已验证的本地缓存和应用内置的基础清单。
+2. 按 `/etc/version` 的 14 位内部固件版本精确匹配。
+3. 对设备原始法语载体文件 `reMarkable_fr.qm` 计算 SHA-256，据此选择对应硬件载荷；`chiappa`、`ferrari`、`tatsu`、`rm1`、`rm2` 等平台名仅用于显示，不用于猜测兼容性。
+4. 校验下载大小和 SHA-256。固件、原始法语文件或校验值不匹配时，不会写入设备。
 
-The normal workflow is to click "Enable Chinese" and let rmtool download and install the exact matching package automatically. Package downloads try GitHub first and fall back to the Tencent COS mirror, and every response must match the manifest's exact size and SHA-256 before it can replace the cache. If the network is unreliable, use "Get Localization Package" to save the matching file or copy a direct URL, then import it with "Load Local Localization Package". Local files must pass the same checks for the connected device. A verified import only enters the computer-side cache; "Enable Chinese" still performs the existing guarded deployment. Firmware-specific `.qm` payloads are never bundled in rmtool releases.
+默认直接点击“启用中文”，rmtool 会依次从 GitHub 和腾讯云 COS 镜像下载精确匹配的汉化包；每次响应都必须通过清单规定的精确大小和 SHA-256 校验后，才能替换缓存并继续安装。网络不稳定时，可通过“获取汉化包”将匹配文件下载到电脑或复制 COS 直链，再用“加载本地汉化包”导入；本地文件同样必须通过当前设备对应的校验，验证后只写入电脑端缓存，随后仍由“启用中文”执行原有的安全部署流程。rmtool 发布包不会内置任何固件专用 `.qm` 载荷。
 
-#### Current localization support matrix
+#### 当前汉化支持矩阵
 
-The platform code is the hardware identifier used inside official firmware packages. It is separate from the 14-digit internal firmware version shown in each column.
+“平台代号”是官方固件包内部使用的硬件标识，与各列所示的 14 位内部固件版本是两个不同概念。
 
-| Device model | Platform code | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) | 3.28.0.169 beta (`20260806095513`) |
+| 设备型号 | 平台代号 | 3.27.1.0 正式版（`20260506100933`） | 3.27.3.0 正式版（`20260612085811`） | 3.28.0.162 测试版（`20260629074044`） | 3.28.0.163 测试版（`20260702125656`） | 3.28.0.164 测试版（`20260702125656`） | 3.28.0.166 测试版（`20260806095513`） | 3.28.0.169 测试版（`20260806095513`） |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| reMarkable Paper Pro | `ferrari` | Supported | Supported | Supported | Supported | Supported | Supported | Supported |
-| reMarkable Paper Pro Move | `chiappa` | Supported | Supported | Supported | Supported | Supported | Supported | Supported |
-| reMarkable Paper Pure | `tatsu` | Not available | Supported | Not available | Not available | Not available | Not available | Not supported |
-| reMarkable 1 | `rm1` | Not available | Supported | Not available | Not available | Not available | Not available | Not supported |
-| reMarkable 2 | `rm2` | Not available | Supported | Not available | Not available | Not available | Not available | Not supported |
+| reMarkable Paper Pro | `ferrari` | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 |
+| reMarkable Paper Pro Move | `chiappa` | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 |
+| reMarkable Paper Pure | `tatsu` | 暂不支持 | 支持 | 暂不支持 | 暂不支持 | 暂不支持 | 暂不支持 | 暂不支持 |
+| reMarkable 1 | `rm1` | 暂不支持 | 支持 | 暂不支持 | 暂不支持 | 暂不支持 | 暂不支持 | 暂不支持 |
+| reMarkable 2 | `rm2` | 暂不支持 | 支持 | 暂不支持 | 暂不支持 | 暂不支持 | 暂不支持 | 暂不支持 |
 
-Enable and restore have been verified on a real Paper Pro (`ferrari`) for 3.28.0.162 and 3.28.0.163. The 3.28.0.164 packages, Paper Pro Move (`chiappa`) beta support (including 3.28.0.166 and 3.28.0.169), and the listed 3.27.3 packages for Paper Pro Move, Paper Pure (`tatsu`), reMarkable 1 (`rm1`), and reMarkable 2 (`rm2`) have been validated offline against official firmware but not yet deployed to those devices. Versions 3.28.0.163 and 3.28.0.164, like 3.28.0.166 and 3.28.0.169, share the same internal version, so rmtool distinguishes them by the exact stock French catalog hash instead of the version string alone; 3.28.0.169 also ships the byte-identical stock carrier, so the same localization assets apply. The cloud manifest remains the source of truth for actual availability. See the [localization documentation](translations/README.md) and [manifest format](translations/manifest.json).
+Paper Pro（`ferrari`）已在 3.28.0.162 和 3.28.0.163 完成真机启用与还原验证；3.28.0.164 两款设备包、Paper Pro Move（`chiappa`）测试版支持（含 3.28.0.166），以及 Paper Pro Move、Paper Pure（`tatsu`）、reMarkable 1（`rm1`）和 reMarkable 2（`rm2`）所列的 3.27.3 包，目前仅完成官方固件离线验证。3.28.0.163 与 3.28.0.164 的内部版本相同，rmtool 会继续使用原始法语目录的精确哈希区分，绝不会只看版本字符串猜测；3.28.0.169 与 3.28.0.166 的原始法语目录逐字节相同，汉化资产直接通用。实际可用范围以云端清单为准。详见 [汉化说明](translations/README.md) 和 [清单格式](translations/manifest.json)。
 
-The established localization path reuses xochitl's built-in French language slot, so French is unavailable while Chinese is enabled. rmtool first backs up the original configuration and `reMarkable_fr.qm`, then checks whether the current primary font supports Simplified Chinese. The official reMarkable 1 and reMarkable 2 firmware images contain no CJK fonts, so this fallback is required. If the current primary font does not support Chinese, you can install the bundled Noto Sans CJK SC or select a local TTF/OTF file. The selected UI font remains managed under `/home`; one verified active copy is stored under `/data/rmtool/fonts`, while only `/etc/fonts/conf.d/99-rmtool-ui-font.conf` is persisted on the root filesystem. This keeps the same font available on the passcode screen before encrypted `/home` is unlocked without consuming root space with a full font. After enabling localization, applying or repairing fonts, or restoring the original UI, rmtool closes SSH and **does not restart the device automatically**. After enabling Chinese, restart the device manually, then open Settings > Language and select French to activate the Chinese UI. Restoring the original UI only requires the prompted restart.
+现有稳定汉化借用 xochitl 内置法语槽位，启用期间不能使用法语。程序会先备份原配置和原始 `reMarkable_fr.qm`，并检查当前主字体是否支持简体中文。reMarkable 1 和 reMarkable 2 的官方固件不含 CJK 字体，因此必须经过这项字体保底检查；缺少字体时可安装随应用提供的 Noto Sans CJK SC，或选择本地 TTF/OTF。字体原文件仍由 `/home` 管理，只有当前字体的一份校验副本保存在 `/data/rmtool/fonts`；根分区只持久化 `/etc/fonts/conf.d/99-rmtool-ui-font.conf`。因此加密 `/home` 尚未解锁时，密码界面也能使用同一字体，又不会用完整字体占满根分区。启用汉化、应用或修复字体、还原原始界面后，程序会关闭 SSH，且**不会自动重启设备**。启用中文后请手动重启，再进入“设置 > 语言”选择“法语”，中文界面才会正式显示；还原操作只需按提示重启。
 
-#### Independent Simplified Chinese plugin
+#### 独立简体中文插件
 
-Exact-build plugins add an independent **Simplified Chinese** language option while preserving French:
+精确构建插件可在保留法语的同时新增独立“简体中文”选项：
 
-| Device | 3.27.1 stable | 3.27.3 stable | 3.28.162 beta | 3.28.163 beta | 3.28.164 beta | 3.28.166 beta | 3.28.169 beta | 3.28.172 stable |
+| 设备 | 3.27.1 正式版 | 3.27.3 正式版 | 3.28.162 测试版 | 3.28.163 测试版 | 3.28.164 测试版 | 3.28.166 测试版 | 3.28.169 测试版 | 3.28.172 正式版 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Paper Pro (`ferrari`) | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | **Device verified** | Offline verified | Offline verified |
-| Paper Pro Move (`chiappa`) | Offline verified | **Device verified** | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
-| Paper Pure (`tatsu`) | - | Offline verified | - | - | - | - | - | Offline verified |
-| reMarkable 1 (`rm1`) | - | Offline verified | - | - | - | - | - | Offline verified |
-| reMarkable 2 (`rm2`) | - | Offline verified | - | - | - | - | - | Offline verified |
+| Paper Pro（`ferrari`） | 离线验证 | 离线验证 | 离线验证 | 离线验证 | 离线验证 | **实机验证** | 离线验证 | 离线验证 |
+| Paper Pro Move（`chiappa`） | 离线验证 | **实机验证** | 离线验证 | 离线验证 | 离线验证 | 离线验证 | 离线验证 | 离线验证 |
+| Paper Pure（`tatsu`） | - | 离线验证 | - | - | - | - | - | 离线验证 |
+| reMarkable 1（`rm1`） | - | 离线验证 | - | - | - | - | - | 离线验证 |
+| reMarkable 2（`rm2`） | - | 离线验证 | - | - | - | - | - | 离线验证 |
 
-The Move stable package has passed real-device installation, language switching, reboot, and removal tests. It remains gated to the exact official xochitl hash. Its stock firmware has no CJK font, so rmtool requires a Chinese-capable active system font before deployment and refuses without writing when coverage is missing.
+Move 正式版包已通过实机安装、语言切换、重启和停用测试，并继续精确匹配官方 xochitl 哈希。该固件默认没有 CJK 字体，因此 rmtool 会在部署前确认当前系统字体支持简体中文；缺少字形时会在任何写入前停止，并引导用户先到字体管理设置系统字体。
 
-The independent plugin and French-slot localization cannot be active together. To migrate safely, first restore French-slot localization and manually reboot. Then reconnect, enable the independent plugin, and reboot manually again before selecting Simplified Chinese. rmtool deliberately keeps this as two explicit stages so a failed second stage leaves the device on the stock language path.
+独立插件不能和法语槽位汉化同时启用。无损迁移应分两步：先还原法语槽位汉化并手动重启；重新连接后，再启用独立简体中文插件并再次手动重启，最后选择“简体中文”。rmtool 故意保留两次明确操作，第二步失败时设备仍处于原生语言路径。
 
-### Offline Pinyin input
+### 离线拼音输入
 
-Exact packages cover Paper Pro and Paper Pro Move from `3.27.1.0` through stable `3.28.0.172`, plus Paper Pure, reMarkable 1, and reMarkable 2 on `3.28.0.172`. Every package is gated by hardware, architecture, internal firmware, and xochitl SHA-256. Paper Pro `3.28.0.166` is device verified; all other targets are offline verified against official firmware.
+精确包现已覆盖 Paper Pro 与 Paper Pro Move 从 `3.27.1.0` 到正式版 `3.28.0.172`，并覆盖 Paper Pure、reMarkable 1 与 reMarkable 2 的 `3.28.0.172`。每个包同时校验硬件、架构、内部固件版本和 xochitl SHA-256；Paper Pro `3.28.0.166` 已通过实机验证，其余目标为官方固件离线验证。
 
-The GPL-3.0 components ported from [boangs/rmkit](https://github.com/boangs/rmkit) comprise a QMLDiff candidate bar, a small input hook, the `zh_CN` keyboard-layout resource, and a local `rime-frost` dictionary server. The hook and validated keyboard resource join the rmtool shared-Xovi runtime only while Pinyin is enabled. Every exact native-Chinese catalog resolves the stock `LanguageAndKeyboard / Chinese` label as `中文`; keyboard-label ownership stays out of all QMDs. The dictionary server is kept under `/home/root/.local/share/rmtool/pinyin-input`, and installation preserves every peer feature without restarting xochitl or the device. Only the previously installed Paper Pro `3.28.0.166` revisions are accepted for bounded repair; newly supported targets do not inherit those predecessor rules.
+本功能移植 [boangs/rmkit](https://github.com/boangs/rmkit) 中 GPL-3.0 的 QMLDiff 候选栏、小型输入 hook、`zh_CN` 键盘布局资源和本地 `rime-frost` 词库服务。只有启用拼音时，hook 和键盘资源才会加入 rmtool 共享 Xovi；所有精确版本的原生中文目录都负责把系统动态名称 `Chinese` 显示为“中文”，任何 QMD 都不接管键盘名称。词库服务保存在 `/home/root/.local/share/rmtool/pinyin-input`，启停会保留全部同伴插件，也不会重启 xochitl 或设备。旧包迁移严格限制在真实存在过的 Paper Pro `3.28.0.166` 版本，不会把旧版本规则错误套用到新目标。
 
-### Reading enhancements
+### 阅读增强
 
-Reading enhancements remain one rmtool plugin and one exact-firmware package. The native device Settings page provides a master switch plus independent global gates for tap-to-turn, fast monochrome, and forced refresh. Each PDF/EPUB reading menu then exposes per-book switches; forced refresh can use a 5/10/15/20/25/30-page interval or chapter boundaries for that document. The same menu also provides a direct **Table of contents** entry: reMarkable already supplies the TOC data, hierarchy, navigation, and native screen, while rmtool only exposes that existing screen outside the deeper stock menu. Global gates always win over per-book state, while disabling a global feature preserves the saved book preferences. rmtool requires the hardware platform, CPU architecture, internal firmware version, and stock `/usr/bin/xochitl` SHA-256 to match; other or modified builds are rejected rather than guessed. The older tap-to-turn and fast-monochrome packages remain private compatibility inputs for safe migration and cleanup only.
+阅读增强是 rmtool 当前唯一的阅读插件：使用一个固件精确包，并在设备原生设置中提供总开关，以及点击翻页、快速黑白和强制刷新的独立全局开关。每本 PDF/EPUB 的阅读菜单还提供对应的单书开关；强制刷新可为该书选择每 5/10/15/20/25/30 次翻页或按章节刷新。同一菜单新增“目录”直达入口：reMarkable 系统本身已经提供目录数据、层级、跳转和原生目录页，rmtool 不重新解析或生成目录，只把原本位于更深层级菜单中的系统目录入口提到外面。全局开关负责授权，单书开关不能绕过全局关闭；关闭全局功能不会删除已经保存的单书状态。rmtool 会同时匹配硬件平台、CPU 架构、内部固件版本和原始 `/usr/bin/xochitl` SHA-256；其他固件或被修改的构建不会通过猜测强行安装。旧版点击翻页和快速黑白包只作为安全迁移、清理的兼容性输入，不再作为独立功能安装。
 
-Paper Pure, reMarkable 1, and reMarkable 2 are not covered by the unified reading-enhancements packages. On those devices the toolbox shows a device-scoped **Tap to turn** entry (it appears only when the connected device has an exact tap package and no reading-enhancements package) that manages the classic tap-to-turn plugin with install, disable, firmware-residue cleanup, and a local-package loader. Every tap target on these devices is offline verified only and has not been deployed to a real device; the UI states this explicitly before every install.
+对支持矩阵中的每个固件包，rmtool 都能识别字节精确匹配的旧版阅读增强，以及通过验证的旧点击翻页、快速黑白独立或共享安装。界面会优先提供迁移或修复，也可选择“清理旧版”后重新安装。清理会在修改设备前完整验证旧安装，保留其他已验证的 rmtool 插件（包括已停用状态），并拒绝未知、被修改或混合的布局。
 
-For every package in the support matrix, rmtool can identify exact earlier Reading Enhancements revisions and verified historical tap-to-turn/fast-monochrome layouts. It offers migration or repair as the primary path and a separate **Clean legacy** action before a fresh install. Cleanup validates the complete old installation before changing the device, preserves other verified rmtool plugins even when they are disabled, and refuses unknown, modified, or mixed layouts.
-
-| Device model | Platform | 3.27.1.0 stable (`20260506100933`) | 3.27.3.0 stable (`20260612085811`) | 3.28.0.162 beta (`20260629074044`) | 3.28.0.163 beta (`20260702125656`) | 3.28.0.164 beta (`20260702125656`) | 3.28.0.166 beta (`20260806095513`) | 3.28.0.169 beta (`20260806095513`) | 3.28.0.172 stable (`20260827113527`) |
+| 设备型号 | 平台代号 | 3.27.1.0 正式版（`20260506100933`） | 3.27.3.0 正式版（`20260612085811`） | 3.28.0.162 测试版（`20260629074044`） | 3.28.0.163 测试版（`20260702125656`） | 3.28.0.164 测试版（`20260702125656`） | 3.28.0.166 测试版（`20260806095513`） | 3.28.0.169 测试版（`20260806095513`） | 3.28.0.172 正式版（`20260827113527`） |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| reMarkable Paper Pro | `ferrari` | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
-| reMarkable Paper Pro Move | `chiappa` | Offline verified | **Device verified** | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified | Offline verified |
+| reMarkable Paper Pro | `ferrari` | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 |
+| reMarkable Paper Pro Move | `chiappa` | 官方固件离线验证 | **真机验证** | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 | 官方固件离线验证 |
 
-Move 3.27.3 has passed real-device installation, restart, Settings navigation, and feature tests. The other fifteen color-device targets are offline verified against official firmware with qmd-tool hash checks, QMLDiff compatibility, patch replay, patched-QML assertions, archive validation, and deterministic rebuild.
+Move 3.27.3 已完成真机安装、重启、设置页导航和功能测试；其余 15 个彩屏设备目标均针对对应官方固件完成 qmd-tool 哈希检查、QMLDiff 兼容性、补丁回放、修改后 QML 断言、压缩包校验和确定性重建。
 
-After installation and a manual device restart, first authorize the required features in `Settings > Reading enhancements`, then control them independently from each PDF/EPUB reading menu. Per-book state is keyed by document ID and survives restarts. Tap-to-turn keeps native swipes, stylus input, menus, zooming, selections, and document links available. Fast monochrome applies only to PDF/EPUB reading on color devices; forced-refresh controls do not appear in notebooks, inserted note pages, or non-reading views.
+安装并手动重启设备后，先在“设置 > 阅读增强”中开启总开关和需要授权的功能，再到每本 PDF/EPUB 的阅读菜单中独立控制。单书状态按文档 ID 保存并可跨重启保留。点击翻页会保留原生滑动、手写笔、菜单、缩放、选区和文档链接；快速黑白只作用于彩色设备的 PDF/EPUB 阅读，强制刷新不会出现在笔记本、插入笔记页或非阅读页面中。
 
-Installation, migration, repair, and removal are intentionally separated from activation. rmtool writes and validates the persistent configuration, closes SSH, and never restarts xochitl or reboots the device automatically. Use the device menu to perform a full restart afterward. The launcher checks the device and every runtime file on each boot and falls back to stock xochitl if any check fails.
+安装、迁移、修复或停用与重启严格分离。rmtool 只写入并校验持久化配置，随后关闭 SSH，不会自动重启 xochitl 或设备。操作后应从设备菜单执行完整重启。启动器会在每次开机时校验设备身份和全部运行文件；任一项不匹配时会直接启动原生 xochitl。
 
-Reading enhancements, note enhancements, native Simplified Chinese, and Pinyin input share one rmtool-owned Xovi/QRR runtime while retaining separate feature state. Vellum/AppLoader and unmanaged Xovi layouts block installation to prevent mixed runtimes. Firmware-specific resources are fetched from the fixed GitHub release first and the Tencent COS mirror second, with exact size and SHA-256 verification plus validated-cache fallback. The legacy migration/cleanup action can replace verified historical tap-to-turn and fast-monochrome packages with the current exact package while preserving peer features. rmtool does not uninstall Vellum itself; follow the [official Vellum CLI instructions](https://github.com/vellum-dev/vellum-cli#usage) after verified legacy package cleanup.
+Paper Pure、reMarkable 1 和 reMarkable 2 不在统一阅读增强包的覆盖范围内。这些设备会在工具箱中看到按设备显示的**点击翻页**入口（仅当连接的设备有精确点击翻页包且没有阅读增强包时出现），用于管理经典点击翻页插件：安装、停用、固件残留清理和本地资源包加载。这些设备上的全部点击翻页目标都只有离线验证、尚未在实机部署，界面会在每次安装前明确说明。
 
-For damaged managed shared plugins, open **Toolbox > Legacy plugin migration/cleanup > Detect recovery status** (also included in **Detect all plugins**). Detection is read-only; **Repair and reinstall** requires recognized rmtool ownership and exactly supported firmware. Coverage is conservative: enabled sidecars (including Pinyin), external AppLoad/KOReader programs, legacy `/home` layouts, and hidden mounted-over paths currently block automatic recovery, as do unknown ownership, mixed runtimes, unsafe paths, and unsupported firmware. For supported combinations, confirmation validates every replacement package before writing, retains an original-installation backup, and rebuilds all enabled peers while preserving enabled/disabled states and external settings, fonts, and books. SHA checks are never bypassed; download failures offer verified manual import. A temporary emergency-disable latch is armed before the live transaction and retained on failure. Only after strict post-repair verification succeeds is a newly created latch cleared; pre-existing emergency-disable markers remain unchanged. An old `startup.pending` stays with the quarantined original and is never copied into the fresh installation. The result shows the backup path and protection status. After success, follow that status and restart manually. If pre-existing protection remains, reconnect, detect status under **Native Simplified Chinese**, and use **Clear emergency disable** only after validation succeeds. After a failed or uncertain repair, do not restart or clear protection: restored old programs are not thereby verified. Keep the backup and diagnose first. Strict firmware migration and historical Vellum cleanup remain separate actions.
+阅读增强、笔记增强、原生简体中文和拼音输入统一共享 rmtool 自有 Xovi/QRR 运行时，同时保留各自的功能状态。检测到 Vellum/AppLoader 或非托管 Xovi 时会阻止安装，避免混合运行时。固件资源优先从对应的固定 GitHub Release 获取，失败后回退腾讯云 COS 镜像，并执行精确大小、SHA-256 校验和已验证缓存回退。“旧版插件迁移/清理”可把已验证的历史点击翻页、快速黑白包替换为当前固件精确包，同时保留同伴功能。rmtool 不会自行卸载 Vellum；清理已验证旧包后，请按 [Vellum CLI 官方卸载说明](https://github.com/vellum-dev/vellum-cli#usage) 操作。
 
-### Note enhancements
+共享插件损坏时，可进入**工具箱 > 旧版插件迁移/清理 > 检测恢复状态**，或使用“检测全部插件”。检测只读；“修复并重装”要求能确认 rmtool 安装归属且固件精确受支持。当前覆盖保守：启用 sidecar（包括拼音输入法）或 AppLoad/KOReader 外部程序、旧 `/home` 布局、被挂载遮盖的路径，以及未知归属、混合运行时、不安全路径、不支持的固件，均会阻止自动恢复。对支持的组合，确认后先校验全部替换资源包，保留原安装备份，再重建全部已启用的共享插件，保留启用/停用状态及外部设置、字体和书籍。不会绕过 SHA 校验；下载失败可使用已验证的手动加载流程。交换安装前会开启临时紧急停用保护，失败时保留；只有修复后严格校验全部通过，才清除本次新增的保护，原有紧急停用标记保持不变。旧 `startup.pending` 仅留在隔离的原安装中，不复制到新安装。结果会显示备份路径和保护状态；成功后按提示处理保护，再手动重启。若原有紧急停用仍保留，请重新连接，在“原生简体中文”中检测状态，通过校验后再使用“清除紧急停用”。修复失败或结果不确定时，不要重启或解除保护：恢复旧程序不代表旧程序已通过校验，应保留备份并先诊断。严格的固件迁移与历史 Vellum 清理仍是独立操作。
 
-Note Enhancements targets color handwriting on Paper Pro and Paper Pro Move. After installation, `Settings > Note enhancements` provides a master switch and global defaults; each notebook can override them from its own settings menu. **Delayed refresh after pen-up** settles color 5, 10, or 30 seconds after writing stops. **Refresh on page turn only** keeps fast writing feedback on the current page and settles when the page or document changes. The two enhanced policies are mutually exclusive, and disabling the enhancement restores the stock approximately one-second pen-up refresh.
+### 笔记增强
 
-The exact-package matrix covers sixteen Paper Pro and Paper Pro Move 3.27/3.28 targets, including stable 3.28.0.172. Move 3.27.3 has passed real-device installation, reboot, global settings, per-notebook settings, and policy-switching tests; the remaining targets are verified offline against official firmware. Installation, update, disable, and cleanup preserve the other verified shared-Xovi features and never reboot the device automatically.
+笔记增强面向 Paper Pro 与 Paper Pro Move 的彩色手写场景。安装后，设备的“设置 > 笔记增强”提供总开关和全局默认策略；每本笔记的设置菜单可单独覆盖。选择“提笔后延迟刷新”时，可在停止书写 5、10 或 30 秒后完成彩色沉淀刷新；选择“仅翻页刷新”时，当前页保持快速书写反馈，并在翻页或离开文档时完成刷新。两种策略互斥，关闭增强后恢复系统原生约 1 秒的提笔刷新。
 
-## Usage recommendations
+插件精确覆盖 Paper Pro 与 Paper Pro Move 的 16 个 3.27/3.28 目标，包括正式版 3.28.0.172。Move 3.27.3 已完成安装、重启、全局设置、单笔记设置和策略切换实机验证；其余目标完成官方固件离线验证。笔记增强与阅读增强、独立简体中文、拼音输入共享同一套 rmtool Xovi 运行时，安装、更新、停用和清理都会保留其他已验证功能，且不会自动重启设备。
 
-1. After connecting, confirm the current device and connection method on the dashboard.
-2. On the wallpaper page, run "Rescan" first, choose a target that actually exists on the device, then preview and upload.
-3. After uploading documents, you can restart xochitl immediately when prompted. If you skip it, new documents may not appear yet.
-4. Document deletion cannot be undone. PDF export only works for one document containing `.rm` or `.note` handwriting data, and the result excludes the original PDF/EPUB background and non-handwriting content.
-5. Font and localization changes are device-level modifications. Restart the device when prompted after they finish.
-6. After installing, migrating, repairing, or disabling reading or note enhancements, wait for rmtool to close SSH, then restart from the device menu. Do not combine deployment with an immediate remote xochitl restart.
+## 使用建议
 
-## Troubleshooting
+1. 连接后先在仪表盘确认当前设备和连接方式。
+2. 壁纸页先“重新扫描”，选择设备实际存在的目标，再预览并上传。
+3. 文档上传完成后，可按提示立即重启 xochitl；跳过时，新文档可能暂时不显示。
+4. 删除文档不可撤销；导出 PDF 只对包含 `.rm` 或 `.note` 笔迹数据的单个文档可用，结果不包含原 PDF/EPUB 底图或非笔迹内容。
+5. 字体和汉化属于设备级修改，完成后按提示重启设备。
+6. 安装、迁移、修复或停用阅读增强或笔记增强后，等待 rmtool 关闭 SSH，再从设备菜单重启；不要把部署和远程立即重启 xochitl 放在同一个操作中。
 
-- **Connection fails**: Check that the USB network interface appears, the address is `10.11.99.1`, the root password is current, and SSH is allowed on the device. Wi-Fi connections also require Wi-Fi SSH to be enabled over USB first.
-- **SSH fingerprint changed**: A system update, device reset, or reuse of the same address by another device can trigger this warning. Verify the device identity before trusting the new fingerprint.
-- **Wallpaper target unavailable**: Different firmware versions provide different wallpaper files. Click "Rescan" and choose a target that has a preview and is not marked as missing from the current device.
-- **Uploaded document does not appear on the device**: Return to the document center and restart xochitl, or restart the device manually.
-- **"Export to PDF" is unavailable**: Select exactly one document containing `.rm` or `.note` handwriting resources. Export renders only parseable handwriting and does not merge original PDF/EPUB pages, typed text, or other non-handwriting content.
-- **Localization buttons are disabled**: Click "Check Status" first. rmtool can use GitHub, Tencent COS, a validated cache, or its bundled baseline catalog, but the internal firmware version plus the SHA-256 of the original `reMarkable_fr.qm` must match the same manifest entry. Installing without network access also requires a validated cached package or a matching package imported from disk.
-- **Reading enhancements cannot be installed**: Click "Check Status" first. The model, firmware, architecture, and stock xochitl hash must match one exact row above. Modified or mixed Xovi layouts are blocked. If Vellum is detected, first let rmtool remove only its verified historical feature packages, then follow the official Vellum uninstall instructions and detect again.
-- **Reading enhancements still work immediately after disabling**: This is expected because rmtool does not kill the running xochitl process. Restart the tablet from its device menu to return to the stock interface.
-- **Note enhancements cannot be installed**: Click "Check Status" first. Only exact supported Paper Pro and Paper Pro Move firmware builds are accepted; unknown, modified, or mixed Xovi layouts are rejected. Restart from the device menu after installation, update, or disable.
-- **AppLoad/KOReader installation is unavailable**: Click "Check Status" on the KOReader page. Only exact production-firmware matches are accepted; all 3.28 beta builds are excluded. A previous KOReader directory can be migrated, but mixed Vellum/Xovi runtimes or an already existing legacy backup still block mutation for safety.
-- **macOS cannot create its configuration**: Make sure the current user can create and write `~/Library/Application Support/rmtool/`.
-- **Diagnostic information is needed**: Click the log button in the lower-left corner, filter by level, or choose "Open Log File". Before sharing a log, check it for private information such as the device address.
+## 常见问题
 
-## Running from source
+- **连接失败**：检查 USB 网络是否出现、地址是否为 `10.11.99.1`、root 密码是否为当前值，以及设备是否已允许 SSH。Wi-Fi 连接还需先通过 USB 开启 Wi-Fi SSH。
+- **SSH 指纹变化**：系统更新、设备重置或地址被另一台设备复用都可能触发提示。先核对设备身份，不要在原因不明时直接重新信任。
+- **壁纸目标不可用**：不同固件拥有的壁纸文件不同。点击“重新扫描”，改选有预览且未标记“当前设备不存在”的目标。
+- **上传文档后设备端没显示**：回到文档中心重启 xochitl，或手动重启设备。
+- **“导出为 PDF”不可用**：只能单选包含 `.rm` 或 `.note` 笔迹资源的文档；该功能只渲染可解析笔迹，不会合并原 PDF/EPUB 页面、键入文本或其他非笔迹内容。
+- **汉化按钮不可用**：先点击“检测状态”。rmtool 可依次使用 GitHub、腾讯云 COS、已验证缓存或内置基础清单，但内部固件版本与设备原始 `reMarkable_fr.qm` 的 SHA-256 必须命中同一清单项。完全离线安装时，还需要已有通过校验的包缓存，或从本地导入匹配的汉化包。
+- **无法安装阅读增强**：先点击“检测状态”。设备型号、固件、架构和原始 xochitl 哈希必须精确命中上表中的一项；被修改的载荷或混合 Xovi 布局会阻止部署。若检测到 Vellum，请先让 rmtool 只卸载其已验证的历史功能包，再按官方说明卸载 Vellum，重新检测后安装。
+- **停用后阅读增强仍暂时有效**：这是正常现象，rmtool 不会强制结束当前 xochitl 进程。请从设备菜单完整重启，恢复原生界面。
+- **无法安装笔记增强**：先点击“检测状态”。只有精确匹配的 Paper Pro 或 Paper Pro Move 固件可以安装；未知、被修改或混合的 Xovi 布局会被拒绝。安装、更新或停用后请从设备菜单完整重启。
+- **AppLoad/KOReader 安装按钮不可用**：先在 KOReader 页面点击“检测状态”。这里只接受精确匹配的正式版固件，全部 3.28 测试版以及正式版 3.28.0.172 均不支持。旧版 KOReader 目录可以迁移，但 Vellum/Xovi 混合运行时或已经存在旧版完整备份时，仍会为安全起见拒绝修改。
+- **macOS 无法创建配置**：确认当前用户可以创建并写入 `~/Library/Application Support/rmtool/`。
+- **需要诊断信息**：点击左下角日志按钮，按级别筛选，或选择“打开日志文件”。分享日志前请检查其中是否含设备地址等隐私信息。
 
-Use 64-bit Python 3.12 to match the release workflow. Other Python versions are not covered by the current CI configuration.
+## 源码运行
 
-Windows PowerShell:
+建议使用与 Release 工作流一致的 64 位 Python 3.12；其他 Python 版本未由当前 CI 覆盖。
+
+Windows PowerShell：
 
 ```powershell
 python -m venv .venv
@@ -270,7 +261,7 @@ python -m pip install -r requirements.txt
 python rmtool.py
 ```
 
-macOS:
+macOS：
 
 ```bash
 python3 -m venv .venv
@@ -279,9 +270,9 @@ python -m pip install -r requirements.txt
 python rmtool.py
 ```
 
-On Windows, after installing dependencies, you can also double-click `rmtool.bat` to launch with `pythonw.exe` without keeping a console window open. See [requirements.txt](requirements.txt) for pinned dependency versions.
+Windows 也可在依赖安装完成后双击 `rmtool.bat`，通过 `pythonw.exe` 启动而不保留控制台窗口。固定依赖版本见 [requirements.txt](requirements.txt)。
 
-## Development and release checks
+## 开发与发布检查
 
 ```bash
 python -m compileall -q rmtool.py _dialogs.py _diagnostics.py _fast_mono_reading.py _log_viewer.py _note_enhancements.py _package_download.py _pinyin_input.py _residue_migration.py _reading_enhancements.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tools tests
@@ -290,28 +281,28 @@ git diff --check
 actionlint .github/workflows/release.yml .github/workflows/sync-localization-assets.yml .github/workflows/sync-feature-assets.yml
 ```
 
-To build Windows x64 packages locally:
+Windows x64 本地构建运行：
 
 ```powershell
 .\build-portable.ps1
 ```
 
-The script creates `dist/rmtool-windows-x64.zip` and `dist/rmtool-windows-x64-onefile.exe`. The macOS ARM64 app is built by the [release workflow](.github/workflows/release.yml). After a `v*` tag is pushed, the workflow publishes all three downloads when the Windows and macOS test and build jobs succeed.
+脚本生成 `dist/rmtool-windows-x64.zip` 和 `dist/rmtool-windows-x64-onefile.exe`。macOS ARM64 应用由 [Release 工作流](.github/workflows/release.yml) 构建；推送 `v*` 标签后，工作流会在 Windows 与 macOS 测试、构建均成功时发布三个下载文件。
 
-Fixed resource Releases are validated by GitHub Actions but are published to the Tencent COS mirror from a maintainer's Windows computer. Install `cos-python-sdk-v5==1.9.44`, copy [.env.example](.env.example) to the gitignored `.env`, add the bucket-scoped CAM credentials, then run:
+固定资源 Release 仍由 GitHub Actions 严格验证，但腾讯云 COS 镜像改为维护者在 Windows 本地发布。先安装 `cos-python-sdk-v5==1.9.44`，将 [.env.example](.env.example) 复制为已被 Git 忽略的 `.env`，填入仅限该存储桶的 CAM 凭据，然后运行：
 
 ```powershell
 .\publish-cos.ps1
 ```
 
-The command downloads all seven fixed Releases into a temporary directory, applies the same strict manifest and payload checks used by Actions, uploads only changed payloads, publishes every manifest last, and verifies every object through the public COS endpoint. The temporary directory is removed even when publishing fails.
+命令会将七个固定 Release 下载到临时目录，复用 Actions 的清单与载荷校验规则，只上传发生变化的载荷，在全部载荷成功后统一写入清单，最后从 COS 公网地址逐字节回读验证。无论成功或失败，临时目录都会自动清理。
 
-## Contributing, license, and credits
+## 贡献、许可与致谢
 
-Report problems through [Issues](../../issues) or submit [Pull Requests](../../pulls). Do not include device addresses, root passwords, or `.rmtool/` contents in logs, screenshots, or reproduction configurations.
+欢迎通过 [Issues](../../issues) 报告问题，或提交 [Pull Requests](../../pulls)。请勿在日志、截图或复现配置中提交设备地址、root 密码或 `.rmtool/` 内容。
 
-This project is licensed under the [GNU General Public License v3.0](LICENSE). See [NOTICE.md](NOTICE.md) for third-party sources and licenses covering translations and fonts. Major sources include:
+本项目采用 [GNU General Public License v3.0](LICENSE)。译文与字体的第三方来源及许可见 [NOTICE.md](NOTICE.md)；主要来源如下：
 
-- The Chinese translation catalog is adapted from GPL-3.0 content in [boangs/rmkit](https://github.com/boangs/rmkit).
-- The bundled handwritten-note renderer is ported from [rschroll/rmrl](https://github.com/rschroll/rmrl) and uses `rmscene` to parse newer handwriting formats.
-- The bundled Noto Sans CJK SC comes from [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk) and is distributed under the [SIL Open Font License 1.1](assets/fonts/LICENSE).
+- 中文翻译目录基于 [boangs/rmkit](https://github.com/boangs/rmkit) 的 GPL-3.0 内容适配。
+- 内置手写笔记渲染器移植自 [rschroll/rmrl](https://github.com/rschroll/rmrl)，并使用 `rmscene` 解析新格式笔迹。
+- 内置 Noto Sans CJK SC 来自 [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk)，按 [SIL Open Font License 1.1](assets/fonts/LICENSE) 分发。
