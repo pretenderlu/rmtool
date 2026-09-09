@@ -23,6 +23,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+import _https
 from _ssh import SSHClientWrapper
 
 BUCKET = "https://remarkable-software.s3.us-east-2.amazonaws.com/"
@@ -76,7 +77,7 @@ def _official_url(url):
 
 def _open(url):
     _official_url(url)
-    return urllib.request.build_opener(_OfficialRedirect()).open(url, timeout=60)
+    return _https.urlopen(url, timeout=60, handlers=(_OfficialRedirect(),))
 
 
 def list_releases(platform):

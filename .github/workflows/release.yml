@@ -70,6 +70,7 @@ jobs:
             --onedir \
             --name rmtool \
             --icon "$root/build/rmtool.icns" \
+            --collect-data certifi \
             --add-data "$root/assets/fonts:assets/fonts" \
             --add-data "$root/assets/device_frames:assets/device_frames" \
             --add-data "$root/translations/manifest.json:translations" \
@@ -84,6 +85,8 @@ jobs:
             --specpath build \
             "$root/rmtool.py"
           test -d dist/rmtool.app
+          test -f dist/rmtool.app/Contents/Resources/certifi/cacert.pem
+          dist/rmtool.app/Contents/MacOS/rmtool --https-smoke-test
           ditto -c -k --sequesterRsrc --keepParent dist/rmtool.app dist/rmtool-macos-arm64.app.zip
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v7

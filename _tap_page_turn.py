@@ -21,6 +21,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Optional
 
+import _https
 import _package_download
 import _xovi_standalone
 
@@ -278,7 +279,7 @@ def _download_limited(url: str, maximum: int) -> bytes:
     request = urllib.request.Request(
         url, headers={"User-Agent": "rmtool-tap-page-turn/1"}
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with _https.urlopen(request, timeout=30) as response:
         declared = response.headers.get("Content-Length")
         if declared and int(declared) > maximum:
             raise RuntimeError("云端文件超过允许大小。")

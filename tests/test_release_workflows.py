@@ -51,12 +51,26 @@ class ReleaseWorkflowTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/release.yml").read_text(
             encoding="utf-8"
         )
+        windows_build = (ROOT / "build-portable.ps1").read_text(encoding="utf-8")
 
         self.assertIn("tap-page-turn/manifest.json:tap-page-turn", workflow)
         self.assertIn("native-chinese/manifest.json:native-chinese", workflow)
         self.assertIn("pinyin-input/manifest.json:pinyin-input", workflow)
         self.assertIn("reading-enhancements/manifest.json:reading-enhancements", workflow)
         self.assertIn("note-enhancements/manifest.json:note-enhancements", workflow)
+        self.assertIn("--collect-data certifi", workflow)
+        self.assertIn(
+            "dist/rmtool.app/Contents/Resources/certifi/cacert.pem", workflow
+        )
+        self.assertIn(
+            "dist/rmtool.app/Contents/MacOS/rmtool --https-smoke-test", workflow
+        )
+        self.assertLess(
+            workflow.index("Contents/MacOS/rmtool --https-smoke-test"),
+            workflow.index("ditto -c -k"),
+        )
+        self.assertIn('"--collect-data", "certifi"', windows_build)
+        self.assertIn('"certifi\\cacert.pem"', windows_build)
         for name in (
             "rmtool-windows-x64.zip",
             "rmtool-windows-x64-onefile.exe",

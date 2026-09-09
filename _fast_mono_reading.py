@@ -10,7 +10,6 @@ import posixpath
 import re
 import shlex
 import tempfile
-import urllib.request
 import uuid
 from dataclasses import dataclass
 from enum import Enum

@@ -75,6 +75,7 @@ $commonArguments = @(
     "--noconfirm",
     "--windowed",
     "--icon", (Join-Path $root "assets\rmtool-icon.ico"),
+    "--collect-data", "certifi",
     "--add-data", "$(Join-Path $root 'assets\fonts');assets\fonts",
     "--add-data", "$(Join-Path $root 'assets\device_frames');assets\device_frames",
     "--add-data", "$(Join-Path $root 'assets\rmtool-icon.ico');assets",
@@ -105,8 +106,11 @@ if ($LASTEXITCODE -ne 0) {
 
 $executable = Join-Path $portableDir "rmtool.exe"
 $internalDir = Join-Path $portableDir "_internal"
-if (-not (Test-Path -LiteralPath $executable) -or -not (Test-Path -LiteralPath $internalDir)) {
-    throw "Build completed without the expected rmtool.exe and _internal directory."
+$caBundle = Join-Path $internalDir "certifi\cacert.pem"
+if (-not (Test-Path -LiteralPath $executable) -or
+    -not (Test-Path -LiteralPath $internalDir) -or
+    -not (Test-Path -LiteralPath $caBundle -PathType Leaf)) {
+    throw "Build completed without the expected rmtool.exe, _internal directory, and certifi CA bundle."
 }
 
 Compress-Archive -LiteralPath $portableDir -DestinationPath $zipPath -CompressionLevel Optimal

@@ -18,6 +18,7 @@ from urllib import request
 from xml.etree import ElementTree
 from xml.sax.saxutils import escape
 
+import _https
 from _ssh import remount_rw
 
 
@@ -419,7 +420,7 @@ def _download_limited(url: str, max_bytes: int) -> bytes:
             "User-Agent": "rmtool-localization/1",
         },
     )
-    with request.urlopen(http_request, timeout=TRANSLATION_DOWNLOAD_TIMEOUT) as response:
+    with _https.urlopen(http_request, timeout=TRANSLATION_DOWNLOAD_TIMEOUT) as response:
         content_length = response.headers.get("Content-Length")
         if content_length:
             try:

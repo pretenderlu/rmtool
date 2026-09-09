@@ -11,6 +11,13 @@ import uuid
 # trigger a second import of this file.  Register early so they get the
 # already-loading module object instead.
 sys.modules.setdefault("rmtool", sys.modules[__name__])
+
+if sys.argv[1:] == ["--https-smoke-test"]:
+    import _https
+
+    _https.smoke_test()
+    raise SystemExit(0)
+
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path

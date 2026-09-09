@@ -15,6 +15,7 @@ from enum import Enum
 from pathlib import Path, PurePosixPath
 from typing import Optional
 
+import _https
 import _tap_page_turn as tap
 import _xovi_standalone as shared
 
@@ -226,7 +227,7 @@ def download_official_asset(asset: OfficialAsset, state_dir: str) -> Path:
     )
     try:
         with (
-            urllib.request.urlopen(request, timeout=45) as response,
+            _https.urlopen(request, timeout=45) as response,
             temporary.open("wb") as output,
         ):
             declared = response.headers.get("Content-Length")
