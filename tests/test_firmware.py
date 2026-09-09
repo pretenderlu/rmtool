@@ -3,7 +3,9 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import stat
+import subprocess
 import tempfile
 import unittest
 from contextlib import contextmanager
@@ -192,9 +194,16 @@ class SafetyTests(unittest.TestCase):
                 f.assert_idle(state, writing=True, image=image)
         f.assert_idle(f.parse_state(state_text(battery="1", power="0", engine="active", engine_file="enabled")))
 
+    def test_unknown_power_allows_inspection_but_blocks_writes(self):
+        state = f.parse_state(state_text(battery="unknown", power="unknown"))
+        f.assert_idle(state)
+        with self.assertRaisesRegex(RuntimeError, "无法确认设备电量或外接电源"):
+            f.assert_power(state)
+
     def test_malformed_states_fail_closed(self):
         for change in ({"version": ""}, {"boot_flow": "recovery"}, {"schema": "644"},
-                       {"arch": "armv7l"}, {"root_part": "b"}, {"battery": "NaN"}, {"a": "/dev/evil"}):
+                       {"arch": "armv7l"}, {"root_part": "b"}, {"battery": "NaN"},
+                       {"power": "2"}, {"a": "/dev/evil"}):
             with self.subTest(change=change), self.assertRaises(RuntimeError):
                 f.parse_state(state_text(**change))
 
@@ -209,6 +218,100 @@ class SafetyTests(unittest.TestCase):
         self.assertIn("swupdate -c", script)
         self.assertIn("result.tmp", script)
         self.assertIn("sync", script)
+
+    def test_power_nodes_are_discovered_for_probe_install_and_switch(self):
+        state = f.parse_state(state_text())
+        image = f.Image(Path("x"), "3.28.0.172", "chiappa", 10, "a" * 64, 10)
+        install = f.installation_script("a" * 32, f.Plan(state, image, None, object()))
+        switch = f.Plan(state, None, {"version": "3.28.0.172"}, object())
+        switch_script = self._switch_script(switch)
+        scripts = (f.PROBE, install, switch_script)
+        for script in scripts:
+            with self.subTest(script=script[:20]):
+                self.assertIn('for supply in "$1"/*', script)
+                self.assertIn('cat "$supply/type"', script)
+                self.assertIn('"$capacity" -lt "$battery"', script)
+                self.assertNotIn("max77818", script)
+
+        install_guard = install.rfind("require_safe_power /sys/class/power_supply")
+        switch_guard = switch_script.rfind("require_safe_power /sys/class/power_supply")
+        self.assertGreaterEqual(install_guard, 0)
+        self.assertGreaterEqual(switch_guard, 0)
+        self.assertLess(install_guard, install.rfind("swupdate -f"))
+        self.assertLess(switch_guard, switch_script.rfind("rootdev --switch"))
+
+    def test_power_discovery_runs_under_posix_set_eu(self):
+        cases = (
+            ({}, "unknown unknown"),
+            ({"battery-main": {"type": "Battery", "capacity": "81"},
+              "battery-aux": {"type": "Battery", "capacity": "52"},
+              "usb-c": {"type": "USB_C", "online": "1"}}, "52 1"),
+            ({"battery-bad": {"type": "Battery", "capacity": "101"},
+              "battery-good": {"type": "Battery", "capacity": "63"},
+              "usb": {"type": "USB", "online": "0"},
+              "mains": {"type": "Mains", "online": "1"},
+              "metadata-missing": {"online": "1"}}, "63 1"),
+            ({"battery": {"type": "Battery", "capacity": "invalid"},
+              "charger": {"type": "Mains", "online": "0"}}, "unknown 0"),
+        )
+        for nodes, expected in cases:
+            with self.subTest(nodes=nodes):
+                result = self._run_power_shell(nodes, guarded=False)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), expected)
+
+    def test_power_guard_fails_before_mutation(self):
+        cases = (
+            {},
+            {"battery": {"type": "Battery", "capacity": "49"},
+             "charger": {"type": "Mains", "online": "1"}},
+            {"battery": {"type": "Battery", "capacity": "50"},
+             "charger": {"type": "Mains", "online": "0"}},
+            {"battery": {"type": "Battery", "capacity": "broken"},
+             "charger": {"type": "Mains", "online": "1"}},
+        )
+        for nodes in cases:
+            with self.subTest(nodes=nodes):
+                result = self._run_power_shell(nodes, guarded=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("mutated", result.stdout)
+
+        result = self._run_power_shell({
+            "battery": {"type": "Battery", "capacity": "50"},
+            "charger": {"type": "Mains", "online": "1"},
+        }, guarded=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "mutated")
+
+    @staticmethod
+    def _run_power_shell(nodes, *, guarded):
+        shell_path = shutil.which("sh")
+        if shell_path is None:
+            raise unittest.SkipTest("POSIX sh is unavailable")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name, attributes in nodes.items():
+                supply = root / name
+                supply.mkdir()
+                for attribute, value in attributes.items():
+                    (supply / attribute).write_text(value, encoding="ascii")
+            if guarded:
+                script = "set -eu\n" + f.POWER_GUARD + 'require_safe_power "$1"\nprintf "mutated\\n"\n'
+            else:
+                script = ("set -eu\n" + f.POWER_PROBE
+                          + 'read_power_state "$1"\nprintf "%s %s\\n" "$battery" "$power"\n')
+            return subprocess.run((shell_path, "-c", script, "power-test", str(root)),
+                                  capture_output=True, text=True, check=False)
+
+    @staticmethod
+    def _switch_script(plan):
+        ssh = FakeSSH()
+        plan = f.Plan(plan.state, plan.image, plan.slot, ssh.token)
+        with mock.patch.object(f, "preflight", return_value=plan), \
+                mock.patch.object(f, "_lock_and_revalidate"), \
+                mock.patch.object(f.uuid, "uuid4", return_value=mock.Mock(hex="a" * 32)):
+            f.switch_slot(ssh, plan, confirmed=True)
+        return ssh.files[f.BASE + "/" + "a" * 32 + "/switch.sh"].decode()
 
     def test_native_command_and_slot_probe(self):
         command = f.native_check_command(f.BASE + "/" + "a" * 32 + "/image.swu", "ferrari", "b")

@@ -373,7 +373,39 @@ if [ -d /sys/devices/platform/lpgpr ]; then
 fi
 '''
 
+POWER_PROBE = r'''read_power_state() {
+    battery=unknown
+    power=unknown
+    for supply in "$1"/*; do
+        [ -d "$supply" ] || continue
+        type=$(cat "$supply/type" 2>/dev/null) || continue
+        if [ "$type" = Battery ]; then
+            capacity=$(cat "$supply/capacity" 2>/dev/null) || continue
+            case "$capacity" in ''|*[!0-9]*) continue;; esac
+            [ "$capacity" -le 100 ] || continue
+            if [ "$battery" = unknown ] || [ "$capacity" -lt "$battery" ]; then battery=$capacity; fi
+        elif [ -f "$supply/online" ]; then
+            online=$(cat "$supply/online" 2>/dev/null) || continue
+            case "$online" in
+                1) power=1;;
+                0) [ "$power" = 1 ] || power=0;;
+            esac
+        fi
+    done
+}
+'''
+
+POWER_GUARD = POWER_PROBE + r'''require_safe_power() {
+    read_power_state "$1"
+    test "$battery" != unknown
+    test "$power" = 1
+    test "$battery" -ge 50
+}
+'''
+
+
 PROBE = r'''set -eu
+''' + POWER_PROBE + r'''read_power_state /sys/class/power_supply
 printf 'machine='; cat /sys/devices/soc0/machine
 printf 'arch='; uname -m
 printf 'root='; swupdate -g
@@ -384,8 +416,8 @@ for key in root_part roota_errcnt rootb_errcnt swu_status swu_applied swu_recove
     printf '%s=' "$key"; cat "/sys/devices/platform/lpgpr/$key"
 done
 printf 'schema='; stat -c '%a' /sys/devices/platform/lpgpr/root_part
-printf 'battery='; cat /sys/class/power_supply/max77818_battery/capacity
-printf 'power='; cat /sys/class/power_supply/max77818-charger/online
+printf 'battery=%s\n' "$battery"
+printf 'power=%s\n' "$power"
 printf 'free='; df -Pk /home/root | awk 'END {print $4}'
 printf 'tmpfree='; df -Pk /tmp | awk 'END {print $4}'
 printf 'engine='; systemctl show update-engine.service -p ActiveState --value
@@ -438,10 +470,12 @@ def parse_state(text):
         raise RuntimeError("A/B 状态不一致或旧分区架构，拒绝写入。")
     if values["boot_flow"] != "regular":
         raise RuntimeError("设备不处于正常启动流程。")
-    for key in ("roota_errcnt", "rootb_errcnt", "swu_status", "swu_applied", "swu_recovery", "battery", "power", "free", "tmpfree"):
+    for key in ("roota_errcnt", "rootb_errcnt", "swu_status", "swu_applied", "swu_recovery", "free", "tmpfree"):
         if not re.fullmatch(r"\d{1,15}", values[key]):
             raise RuntimeError("设备数值状态无效：" + key)
-    if not 0 <= int(values["battery"]) <= 100 or values["power"] not in ("0", "1"):
+    if ((values["battery"] != "unknown" and
+         (not re.fullmatch(r"\d{1,3}", values["battery"]) or not 0 <= int(values["battery"]) <= 100))
+            or values["power"] not in ("0", "1", "unknown")):
         raise RuntimeError("设备电源状态无效。")
     version_key(values["version"])
     return DeviceState(values, platforms[0], active, "a" if values["boot"] == "1" else "b")
@@ -471,6 +505,8 @@ def assert_idle(state, *, writing=False, image=None):
 
 
 def assert_power(state):
+    if state.values["battery"] == "unknown" or state.values["power"] == "unknown":
+        raise RuntimeError("无法确认设备电量或外接电源状态，拒绝固件写入。")
     if int(state.values["battery"]) < 50 or state.values["power"] != "1":
         raise RuntimeError("固件操作需要接通电源且电量至少 50%。")
 
@@ -750,7 +786,7 @@ def _write_remote(ssh, path, data):
 
 
 def same_device_state(left, right):
-    volatile = {"battery", "free", "tmpfree", "engine", "engine_file"}
+    volatile = {"battery", "power", "free", "tmpfree", "engine", "engine_file"}
     return ({k: v for k, v in left.values.items() if k not in volatile}
             == {k: v for k, v in right.values.items() if k not in volatile})
 
@@ -899,13 +935,12 @@ test "$(cat {LPGPR}/rootb_errcnt)" = 0
 test "$(cat {LPGPR}/swu_status)" = 0
 test "$(cat {LPGPR}/swu_applied)" = 0
 test "$(cat {LPGPR}/swu_recovery)" = 0
-test "$(cat /sys/class/power_supply/max77818-charger/online)" = 1
-test "$(cat /sys/class/power_supply/max77818_battery/capacity)" -ge 50
 test "$(systemctl show update-engine.service -p ActiveState --value)" = inactive
 case "$(systemctl show update-engine.service -p UnitFileState --value)" in masked|masked-runtime) ;; *) exit 1;; esac
 if fuser {plan.state.values['b' if plan.state.active == 'a' else 'a']} >/dev/null 2>&1; then exit 1; else test "$?" = 1; fi
 echo '{plan.image.sha256}  {path}' | sha256sum -c -
 {native_check_command(path, plan.state.platform, plan.state.active)}
+{POWER_GUARD}require_safe_power /sys/class/power_supply
 # Use the same native engine without sourcing conf.d (which resets counters).
 # Native extraction stages archive filenames before preinstall scripts.
 {native_check_command(path, plan.state.platform, plan.state.active).replace(' -c ', ' ')}
@@ -995,8 +1030,7 @@ test "$(cat {LPGPR}/roota_errcnt)" = 0
 test "$(cat {LPGPR}/rootb_errcnt)" = 0
 test "$(systemctl show update-engine.service -p ActiveState --value)" = inactive
 case "$(systemctl show update-engine.service -p UnitFileState --value)" in masked|masked-runtime) ;; *) exit 1;; esac
-test "$(cat /sys/class/power_supply/max77818-charger/online)" = 1
-test "$(cat /sys/class/power_supply/max77818_battery/capacity)" -ge 50
+{POWER_GUARD}require_safe_power /sys/class/power_supply
 rootdev --switch
 test "$(rootdev --next-boot)" = {target}
 '''
