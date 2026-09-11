@@ -35,6 +35,11 @@ QREX_FILES = (
 )
 EPUB_FONT_328_START = "; RMTOOL_EPUB_FONT_328_START"
 EPUB_FONT_328_END = "; RMTOOL_EPUB_FONT_328_END"
+HIGHLIGHT_AVAILABLE_MARKER = "readonly property bool hlSnapAvailable: false"
+HIGHLIGHT_BLOCKS = tuple(
+    (f"; RMTOOL_HL_SNAP_{index}_START", f"; RMTOOL_HL_SNAP_{index}_END")
+    for index in range(1, 5)
+)
 
 
 def sha256(data: bytes) -> str:
@@ -140,14 +145,48 @@ def _strip_epub_font_328(source: str) -> str:
     return before.rstrip() + "\n" + after.lstrip("\n")
 
 
-def _source_for_release(source: Path, release_version: str, temporary: Path) -> Path:
+def _strip_highlighter(source: str) -> str:
+    for index, (start, end) in enumerate(HIGHLIGHT_BLOCKS, 1):
+        if source.count(start) != 1 or source.count(end) != 1:
+            raise RuntimeError("reading-enhancements source lacks one highlighter block")
+        before, remainder = source.split(start, 1)
+        _block, after = remainder.split(end, 1)
+        separator = "\n\n" if index == 4 else "\n"
+        source = before.rstrip() + separator + after.lstrip("\n")
+    return source
+
+
+def _source_for_target(
+    source: Path,
+    firmware: str,
+    release_version: str,
+    platform: str,
+    architecture: str,
+    xochitl_sha256: str,
+    temporary: Path,
+) -> Path:
     text = source.read_text(encoding="utf-8")
+    if text.count(HIGHLIGHT_AVAILABLE_MARKER) != 1:
+        raise RuntimeError("reading-enhancements source lacks one highlighter availability marker")
+    if reading._highlight_snap_supported(
+        firmware, release_version, platform, architecture, xochitl_sha256
+    ):
+        text = text.replace(HIGHLIGHT_AVAILABLE_MARKER, HIGHLIGHT_AVAILABLE_MARKER.replace("false", "true"), 1)
+        for start, end in HIGHLIGHT_BLOCKS:
+            text = text.replace(start + "\n", "", 1).replace(end + "\n", "", 1)
+    else:
+        text = _strip_highlighter(text)
     if _variant_for_release(release_version) == "3.27":
         text = _strip_epub_font_328(_main_view_variant(text))
     temporary.mkdir(parents=True, exist_ok=True)
-    destination = temporary / f"reading-enhancements-{_variant_for_release(release_version)}.qmd"
+    destination = temporary / f"reading-enhancements-{platform}-{release_version}.qmd"
     destination.write_text(text, encoding="utf-8", newline="\n")
     return destination
+
+
+def _source_for_release(source: Path, release_version: str, temporary: Path) -> Path:
+    """Compatibility helper for callers that do not build a device package."""
+    return _source_for_target(source, "", release_version, "", "", "", temporary)
 
 
 def _run(command: list[str], *, label: str) -> bytes:
@@ -275,6 +314,16 @@ def _compile_and_validate(*, qmd_tool: Path, qmldiff: Path, source: Path, target
         raise RuntimeError(
             f"structure assertion {target['id']} nested the reading page component"
         )
+    highlighter_expected = (
+        target["platform"] == "chiappa"
+        and target["firmware"] == "20260827113527"
+        and target["xochitl_sha256"]
+        == "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"
+    )
+    if ('label: "中文划词精确选取"' in settings) != highlighter_expected:
+        raise RuntimeError(
+            f"structure assertion {target['id']} has incorrect highlighter availability"
+        )
     is_327 = target["firmware"] in {"20260506100933", "20260612085811"}
     if is_327:
         for marker in (
@@ -292,14 +341,15 @@ def _compile_and_validate(*, qmd_tool: Path, qmldiff: Path, source: Path, target
     else:
         font_menu = (replay / QREX_FILES[4]).read_text(encoding="utf-8")
         for marker in (
-            "rmtoolEpubFont1",
-            "rmtoolEpubFont3",
-            "slot-1.label",
-            "slot-3.ttf",
-            "rmtoolEpubDisplayLabel(slot, loader.name)",
+            "rmtoolEpubFontFactory",
+            "rmtoolEpubEntries",
+            "rmtoolEpubLoaders",
+            "epub-fonts/index.json",
+            "JSON.parse(request.responseText)",
+            "rmtoolEpubDisplayLabel(entry.label, loader.name)",
             "rmtoolEpubLabelMetrics.elidedText(",
             "Qt.ElideRight",
-            "dropdown.width - 76",
+            "Math.max(1, dropdown.width - 76)",
             'fontModel.setProperty(existing, "value", label)',
             "key: loader.name",
             "value: label",
@@ -358,7 +408,7 @@ def _find_base_archive(package, cache_roots: tuple[Path, ...], download_root: Pa
     return destination
 
 
-def _build_archive(base, base_archive: Path, qmd: bytes) -> tuple[bytes, dict]:
+def _build_archive(base, base_archive: Path, qmd: bytes, highlight_extension: Path) -> tuple[bytes, dict]:
     if base_archive.stat().st_size != base.size or sha256(base_archive.read_bytes()) != base.sha256:
         raise RuntimeError(f"tap carrier failed verification: {base.asset}")
     with tempfile.TemporaryDirectory() as temporary:
@@ -369,7 +419,25 @@ def _build_archive(base, base_archive: Path, qmd: bytes) -> tuple[bytes, dict]:
             if item.path != BASE_QMD_PATH
         }
     files[reading.QMD_PAYLOAD_PATH] = (qmd, 0o644)
-    if set(files) != reading._PAYLOAD_PATHS:
+    if reading._highlight_snap_supported(
+        base.firmware,
+        base.release_version,
+        base.platform,
+        base.architecture,
+        base.xochitl_sha256,
+    ):
+        files[reading.HIGHLIGHT_EXTENSION_PATH] = (highlight_extension.read_bytes(), 0o644)
+        files[reading.HIGHLIGHT_LICENSE_PATH] = (
+            highlight_extension.with_name("LICENSE.rm-tweak").read_bytes(),
+            0o644,
+        )
+    if set(files) != reading._payload_paths_for(
+        base.firmware,
+        base.release_version,
+        base.platform,
+        base.architecture,
+        base.xochitl_sha256,
+    ):
         raise RuntimeError("reading-enhancements payload path set drifted from carrier")
     archive = tap._gzip_member(tap._tar_member(files, apk_checksums=False, include_directories=False))
     if archive != tap._gzip_member(tap._tar_member(files, apk_checksums=False, include_directories=False)):
@@ -406,12 +474,15 @@ def main() -> int:
     parser.add_argument("--qmd-tool", type=Path, required=True)
     parser.add_argument("--qmldiff", type=Path, required=True)
     parser.add_argument("--source", type=Path, default=REPO_ROOT / "reading-enhancements/qmd-src/reading-enhancements-3.28.qmd")
+    parser.add_argument("--highlight-extension", type=Path, default=REPO_ROOT / "reading-enhancements/native/rmtool-highlight-snap.so")
     parser.add_argument("--matrix-config", type=Path, required=True)
     parser.add_argument("--base-manifest", type=Path, default=REPO_ROOT / "tap-page-turn/manifest.json")
     parser.add_argument("--cache-root", action="append", type=Path, default=[])
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--write-manifest", type=Path, required=True)
     args = parser.parse_args()
+    if not args.highlight_extension.is_file():
+        raise RuntimeError("missing built highlighter extension")
 
     tap_catalog = tap.parse_manifest(args.base_manifest.read_bytes())
     matrix = _load_matrix_config(args.matrix_config)
@@ -437,9 +508,17 @@ def main() -> int:
             if len(base_matches) != 1:
                 raise RuntimeError(f"tap manifest has no unique carrier for {platform}/{release}")
             base = base_matches[0]
-            source = _source_for_release(args.source, release, work)
+            source = _source_for_target(
+                args.source,
+                firmware,
+                release,
+                platform,
+                architecture,
+                xochitl_sha,
+                work,
+            )
             qmd = _compile_and_validate(qmd_tool=args.qmd_tool, qmldiff=args.qmldiff, source=source, target=target, work=work / "validation")
-            archive, entry = _build_archive(base, _find_base_archive(base, cache_roots, download_root), qmd)
+            archive, entry = _build_archive(base, _find_base_archive(base, cache_roots, download_root), qmd, args.highlight_extension)
             output = args.output_dir / entry["asset"]
             tap._write_atomic(output, archive)
             entries.append(entry)

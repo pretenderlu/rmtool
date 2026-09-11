@@ -10,13 +10,15 @@ import tempfile
 import uuid
 from dataclasses import dataclass
 from io import BytesIO
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
-from _dialogs import show_error, show_info, show_warning
+from _dialogs import ask_confirmation, show_error, show_info, show_warning
 from _ssh import SSHClientWrapper, remount_rw, require_connection
+import _sleep_wallpaper
 import rmtool as _rmtool  # late-bound access to avoid circular import
 
 _LEGACY_WALLPAPER_PATHS = {
@@ -747,6 +749,8 @@ class WallpaperTab(QtWidgets.QWidget):
         self.current_resolution: Tuple[int, int] = _rmtool.DEVICE_PROFILES["reMarkable Paper Pro"]
         self._unavailable_wallpaper_paths: Set[str] = set()
         self._carousel_blank_active = False
+        self._sleep_user_status = _sleep_wallpaper.SleepWallpaperStatus(False)
+        self._sleep_user_requested = False
         self._connected = False
         self._connection_generation = 0
 
@@ -858,6 +862,15 @@ class WallpaperTab(QtWidgets.QWidget):
         self.blank_carousel_checkbox.setEnabled(False)
         variants_section_layout.addWidget(self.blank_carousel_checkbox)
 
+        self.user_partition_sleep_checkbox = QtWidgets.QCheckBox(
+            "使用用户分区管理休眠壁纸"
+        )
+        self.user_partition_sleep_checkbox.setToolTip(
+            "休眠图片保存在用户分区，不占用系统根分区；仅适用于已验证的设备和固件。"
+        )
+        self.user_partition_sleep_checkbox.setEnabled(False)
+        variants_section_layout.addWidget(self.user_partition_sleep_checkbox)
+
         self.target_label = QtWidgets.QLabel()
 
         # -- Source section: pick an image, then see what was picked --
@@ -956,6 +969,9 @@ class WallpaperTab(QtWidgets.QWidget):
         self.offset_y_slider.valueChanged.connect(self._render_preview)
         self.variant_group.buttonClicked.connect(self._on_variant_selected)
         self.blank_carousel_checkbox.toggled.connect(self._on_blank_carousel_toggled)
+        self.user_partition_sleep_checkbox.toggled.connect(
+            self._on_user_partition_sleep_toggled
+        )
         self.ssh_client.connection_changed.connect(self._on_connection_changed)
         QtCore.QTimer.singleShot(0, self._apply_initial_splitter_sizes)
 
@@ -1009,7 +1025,10 @@ class WallpaperTab(QtWidgets.QWidget):
         self.cover_wall_button.setEnabled(connected)
         if not connected:
             self._carousel_blank_active = False
+            self._sleep_user_status = _sleep_wallpaper.SleepWallpaperStatus(False)
+            self._sleep_user_requested = False
         self._sync_blank_carousel_checkbox()
+        self._sync_user_partition_sleep_checkbox()
         if not connected:
             for preview in self.variant_previews.values():
                 preview.clear_preview()
@@ -1025,9 +1044,58 @@ class WallpaperTab(QtWidgets.QWidget):
         self.blank_carousel_checkbox.setEnabled(connected)
         self.blank_carousel_checkbox.blockSignals(False)
 
+    def _is_sleep_target(self) -> bool:
+        return self._configured_wallpaper_path().endswith("/suspended.png")
+
+    def _sync_user_partition_sleep_checkbox(self) -> None:
+        status = self._sleep_user_status
+        selected = self._is_sleep_target()
+        self.user_partition_sleep_checkbox.blockSignals(True)
+        self.user_partition_sleep_checkbox.setChecked(
+            status.enabled or self._sleep_user_requested
+        )
+        self.user_partition_sleep_checkbox.setVisible(selected)
+        self.user_partition_sleep_checkbox.setEnabled(
+            selected and self.ssh_client.is_connected() and status.supported and not status.broken
+        )
+        self.user_partition_sleep_checkbox.blockSignals(False)
+
+    def _on_user_partition_sleep_toggled(self, checked: bool) -> None:
+        self._sleep_user_requested = checked
+        if checked or not self._sleep_user_status.enabled:
+            self._update_target_label()
+            self._update_upload_button_state()
+            return
+        self.user_partition_sleep_checkbox.setEnabled(False)
+        worker = _rmtool.Worker(_sleep_wallpaper.disable, self.ssh_client)
+
+        def on_finished(_result):
+            if sip.isdeleted(self):
+                return
+            self._sleep_user_status = _sleep_wallpaper.SleepWallpaperStatus(True)
+            self._sleep_user_requested = False
+            self._sync_user_partition_sleep_checkbox()
+            self._update_target_label()
+            self._update_upload_button_state()
+            show_info(self, _rmtool.APP_NAME, "已恢复原休眠壁纸设置。请手动重启设备后生效。")
+
+        def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                logging.error("Sleep wallpaper disable failed after tab close: %s", exc)
+                return
+            logging.error("Sleep wallpaper disable failed: %s", exc)
+            self._sleep_user_requested = False
+            self._sync_user_partition_sleep_checkbox()
+            show_error(self, _rmtool.APP_NAME, f"停用用户分区休眠壁纸失败：{exc}")
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self.thread_pool.start(worker)
+
     def _on_blank_carousel_toggled(self, checked: bool) -> None:
         if not self.ssh_client.is_connected():
             self._sync_blank_carousel_checkbox()
+            self._sync_user_partition_sleep_checkbox()
             return
         self.blank_carousel_checkbox.setEnabled(False)
         if checked:
@@ -1286,6 +1354,14 @@ class WallpaperTab(QtWidgets.QWidget):
         except Exception:
             pass
 
+        try:
+            self._sleep_user_status = _sleep_wallpaper.get_status(self.ssh_client)
+        except Exception as exc:
+            logging.info("User-partition sleep wallpaper status unavailable: %s", exc)
+            self._sleep_user_status = _sleep_wallpaper.SleepWallpaperStatus(
+                False, detail=str(exc)
+            )
+
         return _WallpaperResourceScan(
             available_paths=available_paths,
             complete=complete,
@@ -1388,6 +1464,7 @@ class WallpaperTab(QtWidgets.QWidget):
         elif any(r.data and _is_transparent_placeholder(r.data) for r in carousel_results):
             self._carousel_blank_active = True
         self._sync_blank_carousel_checkbox()
+        self._sync_user_partition_sleep_checkbox()
         self._update_target_label()
         self._update_upload_button_state()
 
@@ -1402,6 +1479,7 @@ class WallpaperTab(QtWidgets.QWidget):
         if not remote_path:
             return
         self.config.setdefault("paths", {})["wallpaper"] = self._normalise_wallpaper_path(remote_path)
+        self._sync_user_partition_sleep_checkbox()
         self._update_target_label()
 
     def _normalise_wallpaper_path(self, remote_path: str) -> str:
@@ -1445,13 +1523,25 @@ class WallpaperTab(QtWidgets.QWidget):
         return normalized not in self._unavailable_wallpaper_paths
 
     def _update_upload_button_state(self) -> None:
+        user_partition = (
+            self._is_sleep_target()
+            and self.user_partition_sleep_checkbox.isChecked()
+            and self._sleep_user_status.supported
+            and not self._sleep_user_status.broken
+        )
         self.upload_button.setEnabled(
             self._cached_source_image is not None
-            and self._wallpaper_path_available(self._configured_wallpaper_path())
+            and (
+                user_partition
+                or self._wallpaper_path_available(self._configured_wallpaper_path())
+            )
         )
 
     def _update_target_label(self) -> None:
         remote_path = self._configured_wallpaper_path()
+        if self._is_sleep_target() and self.user_partition_sleep_checkbox.isChecked():
+            self.target_label.setText("目标壁纸：休眠壁纸（用户分区管理）")
+            return
         variant_label = self._variant_label_for_path(remote_path)
         suffix = "（当前设备不存在）" if not self._wallpaper_path_available(remote_path) else ""
         if variant_label:
@@ -1661,7 +1751,23 @@ class WallpaperTab(QtWidgets.QWidget):
         if self._cached_source_image is None:
             return
         wallpaper_path = self._configured_wallpaper_path()
-        if not self._wallpaper_path_available(wallpaper_path):
+        use_user_partition = (
+            self._is_sleep_target() and self.user_partition_sleep_checkbox.isChecked()
+        )
+        take_over = False
+        if use_user_partition and self._sleep_user_status.conflict:
+            take_over = ask_confirmation(
+                self,
+                _rmtool.APP_NAME,
+                "设备已有其他休眠壁纸设置。是否保存原设置并由 rmtool 接管？",
+            )
+            if not take_over:
+                self._sleep_user_requested = False
+                self._sync_user_partition_sleep_checkbox()
+                self._update_target_label()
+                self._update_upload_button_state()
+                return
+        if not use_user_partition and not self._wallpaper_path_available(wallpaper_path):
             show_warning(
                 self,
                 _rmtool.APP_NAME,
@@ -1688,9 +1794,15 @@ class WallpaperTab(QtWidgets.QWidget):
         self._wallpaper_progress.setMinimumDuration(0)
         self._wallpaper_progress.show()
 
-        worker = _rmtool.Worker(self._do_upload_wallpaper, temp_path, wallpaper_path)
+        worker = _rmtool.Worker(
+            self._do_upload_wallpaper,
+            temp_path,
+            wallpaper_path,
+            use_user_partition,
+            take_over,
+        )
 
-        def on_finished(_result):
+        def on_finished(requires_reboot):
             if sip.isdeleted(self):
                 # Worker outlived the tab; nothing safe left to update.
                 return
@@ -1698,7 +1810,15 @@ class WallpaperTab(QtWidgets.QWidget):
             if self.ssh_client.is_connected():
                 self._refresh_variant_previews()
             self._render_preview()
-            show_info(self, _rmtool.APP_NAME, "壁纸上传完成。")
+            if requires_reboot:
+                self._sleep_user_status = _sleep_wallpaper.SleepWallpaperStatus(
+                    True, enabled=True
+                )
+                self._sleep_user_requested = False
+                self._sync_user_partition_sleep_checkbox()
+                show_info(self, _rmtool.APP_NAME, "休眠壁纸已保存。请手动重启设备后生效。")
+            else:
+                show_info(self, _rmtool.APP_NAME, "壁纸上传完成。")
 
         def on_error(exc: Exception):
             if sip.isdeleted(self):
@@ -1708,13 +1828,26 @@ class WallpaperTab(QtWidgets.QWidget):
                 return
             self._close_wallpaper_progress(temp_path)
             logging.exception("Wallpaper upload failed")
+            self._sleep_user_requested = False
+            self._sync_user_partition_sleep_checkbox()
             show_error(self, _rmtool.APP_NAME, f"上传壁纸失败：{exc}")
 
         worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
         self.thread_pool.start(worker)
 
-    def _do_upload_wallpaper(self, temp_path: str, wallpaper_path: str):
+    def _do_upload_wallpaper(
+        self,
+        temp_path: str,
+        wallpaper_path: str,
+        use_user_partition: bool = False,
+        take_over: bool = False,
+    ):
+        if use_user_partition:
+            _sleep_wallpaper.enable(
+                self.ssh_client, Path(temp_path).read_bytes(), take_over=take_over
+            )
+            return True
         with self.ssh_client.operation_session(), remount_rw(self.ssh_client):
             backup = wallpaper_path + ".backup"
             if posixpath.dirname(wallpaper_path) == _CAROUSEL_DIR:
@@ -1724,6 +1857,7 @@ class WallpaperTab(QtWidgets.QWidget):
                 self._blank_carousel_overlays_locked(replacement)
             else:
                 self._replace_wallpaper_files_locked([replacement])
+        return False
 
     def _replace_wallpaper_files_locked(self, replacements):
         """Stage the whole wallpaper/overlay group before replacing live files."""

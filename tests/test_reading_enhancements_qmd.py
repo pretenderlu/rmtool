@@ -102,6 +102,9 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
             "rmtoolReadingEnhancementsPage",
             "privatePage: 1001",
             "masterEnabled",
+            "hlSnapAvailable",
+            "hlSnapCjk",
+            "中文划词精确选取",
             "rmtoolGlobalTapPageTurnEnabled",
             "rmtoolGlobalFastMonoEnabled",
             "rmtoolGlobalCleanupEnabled",
@@ -150,19 +153,20 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
             # (opacity follows the stock DisplayVisibleContent pattern).
             "opacity: enabled ? 1 : 0.5",
             "RMTOOL_EPUB_FONT_328_START",
-            "file:///home/root/.local/share/rmtool/epub-fonts/slot-1.ttf",
-            "file:///home/root/.local/share/rmtool/epub-fonts/slot-2.ttf",
-            "file:///home/root/.local/share/rmtool/epub-fonts/slot-3.ttf",
-            "file:///home/root/.local/share/rmtool/epub-fonts/slot-1.label",
-            "file:///home/root/.local/share/rmtool/epub-fonts/slot-3.label",
-            "XMLHttpRequest.DONE",
+            "file:///home/root/.local/share/rmtool/epub-fonts/index.json",
+            "JSON.parse(request.responseText)",
+            "rmtoolEpubFontFactory.createObject",
+            "rmtoolEpubEntries.length",
+            "rmtoolEpubLoaders.length",
             "FontLoader.Ready",
+            "if (loader && loader.status === FontLoader.Ready",
+            "if (!loader || loader.status !== FontLoader.Ready",
             "key: loader.name",
             "value: label",
-            "rmtoolEpubDisplayLabel(slot, loader.name)",
+            "rmtoolEpubDisplayLabel(entry.label, loader.name)",
             "rmtoolEpubLabelMetrics.elidedText(",
             "Qt.ElideRight",
-            "dropdown.width - 76",
+            "Math.max(1, dropdown.width - 76)",
             'fontModel.setProperty(existing, "value", label)',
             "rmtoolEpubInsertIndex",
             "return fontModel.count - 1",
@@ -175,7 +179,7 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
         )
         self.assertNotIn('label: "刷新方式"', source)
         self.assertNotIn("└", source)
-        self.assertEqual(source.count("opacity: enabled ? 1 : 0.5"), 5)
+        self.assertEqual(source.count("opacity: enabled ? 1 : 0.5"), 6)
 
         self.assertIn("Settings.rawValue(\"RmtoolReadingEnhancements\",", source)
         self.assertIn('property bool masterEnabled: false', source)
@@ -255,11 +259,34 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
         builder = _load_builder()
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source_327 = builder._source_for_release(SOURCE, "3.27.3.0", root / "327")
-            source_328 = builder._source_for_release(SOURCE, "3.28.0.169", root / "328")
+            packages = {
+                package.release_version: package
+                for package in reading._trusted_catalog()
+                if package.platform == "chiappa"
+            }
+            sources = []
+            for release, directory in (
+                ("3.27.3.0", "327"),
+                ("3.28.0.169", "328"),
+                ("3.28.0.172", "172"),
+            ):
+                package = packages[release]
+                sources.append(
+                    builder._source_for_target(
+                        SOURCE,
+                        package.firmware,
+                        package.release_version,
+                        package.platform,
+                        package.architecture,
+                        package.xochitl_sha256,
+                        root / directory,
+                    )
+                )
+            source_327, source_328, source_172 = sources
             text_327 = source_327.read_text(encoding="utf-8")
             text_328 = source_328.read_text(encoding="utf-8")
             bytes_328 = source_328.read_bytes()
+            text_172 = source_172.read_text(encoding="utf-8")
         self.assertIn("TRAVERSE DeviceKeyboardNavigationHandler#settings", text_327)
         self.assertNotIn("TRAVERSE Item#root", text_327)
         self.assertIn("rmtoolSettingsRoot._selectedIndex = page", text_327)
@@ -268,7 +295,9 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
         self.assertNotIn("TRAVERSE DeviceKeyboardNavigationHandler#settings", text_328)
         self.assertIn("rmtoolSettingsRoot._selectedPage = page", text_328)
         self.assertNotIn("rmtoolSettingsRoot.highlightedIndex = page", text_328)
-        self.assertEqual(bytes_328, SOURCE.read_bytes())
+        self.assertNotEqual(bytes_328, SOURCE.read_bytes())
+        self.assertNotIn("hlSnapAvailable", text_328)
+        self.assertIn("readonly property bool hlSnapAvailable: true", text_172)
         self.assertNotIn("RMTOOL_EPUB_FONT_328_START", text_327)
         self.assertNotIn("FormatFont.qml", text_327)
         self.assertIn("RMTOOL_EPUB_FONT_328_START", text_328)
@@ -320,7 +349,15 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
                 release = reading.ALLOWED_TARGETS[
                     (target["platform"], target["firmware"], "aarch64", target["xochitl_sha256"])
                 ][0]
-                source = builder._source_for_release(SOURCE, release, root / "sources")
+                source = builder._source_for_target(
+                    SOURCE,
+                    target["firmware"],
+                    release,
+                    target["platform"],
+                    "aarch64",
+                    target["xochitl_sha256"],
+                    root / "sources",
+                )
                 hashtab = Path(target["qrex_root"]) / target["hashtab"]
                 qrex = Path(target["qrex_root"]) / "qrex-out"
                 compiled = root / f"{target_id}.qmd"
@@ -458,19 +495,19 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
                     ).read_text(encoding="utf-8")
                     self.assertLess(
                         font_menu.index("id: fontModel"),
-                        font_menu.index("id: rmtoolEpubFont1"),
+                        font_menu.index("id: rmtoolEpubFontFactory"),
                         target_id,
                     )
                     self.assertEqual(
                         font_menu.count("key: loader.name"), 1, target_id
                     )
-                    for slot_number in (1, 2, 3):
-                        self.assertIn(
-                            f"id: rmtoolEpubFont{slot_number}", font_menu, target_id
-                        )
-                        self.assertIn(
-                            f"slot-{slot_number}.ttf", font_menu, target_id
-                        )
+                    self.assertIn("epub-fonts/index.json", font_menu, target_id)
+                    self.assertIn(
+                        "rmtoolEpubFontFactory.createObject", font_menu, target_id
+                    )
+                    self.assertIn(
+                        "order < rmtoolEpubEntries.length", font_menu, target_id
+                    )
                     self.assertIn(
                         'fontModel.setProperty(existing, "value", label)',
                         font_menu,
@@ -480,7 +517,12 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
                         "rmtoolEpubLabelMetrics.elidedText(", font_menu, target_id
                     )
                     self.assertIn("Qt.ElideRight", font_menu, target_id)
-                    self.assertIn("dropdown.width - 76", font_menu, target_id)
+                    self.assertIn(
+                        "Math.max(1, dropdown.width - 76)", font_menu, target_id
+                    )
+                    self.assertNotIn(
+                        "if (dropdown.width <= 76) return label", font_menu, target_id
+                    )
                     self.assertIn("return fontModel.count - 1", font_menu)
 
 

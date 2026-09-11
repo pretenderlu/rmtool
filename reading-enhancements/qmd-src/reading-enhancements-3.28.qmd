@@ -63,11 +63,17 @@ AFFECT /qml/device/view/settings/Settings.qml
                     readonly property string group: "RmtoolReadingEnhancements"
                     readonly property int privatePage: 1001
                     readonly property var intervalChoices: [5, 10, 15, 20, 25, 30]
+; RMTOOL_HL_SNAP_1_START
+                    readonly property bool hlSnapAvailable: false
+; RMTOOL_HL_SNAP_1_END
                     property bool masterEnabled: false
                     property bool tapPageTurnEnabled: false
                     property bool fastMonoEnabled: false
                     property bool cleanupEnabled: false
                     property bool cleanupByChapter: false
+; RMTOOL_HL_SNAP_2_START
+                    property bool hlSnapCjk: false
+; RMTOOL_HL_SNAP_2_END
                     property int cleanupInterval: 10
 
                     function readBool(key, fallback) {
@@ -90,6 +96,9 @@ AFFECT /qml/device/view/settings/Settings.qml
                         fastMonoEnabled = readBool("fastMonoEnabled", false)
                         cleanupEnabled = readBool("cleanupEnabled", false)
                         cleanupByChapter = readBool("cleanupByChapter", false)
+; RMTOOL_HL_SNAP_3_START
+                        hlSnapCjk = readBool("hlSnapCjk", false)
+; RMTOOL_HL_SNAP_3_END
                         cleanupInterval = normalizedInterval(Settings.rawValue(group, "cleanupInterval"))
                     }
 
@@ -178,6 +187,22 @@ AFFECT /qml/device/view/settings/Settings.qml
                                             "tapPageTurnEnabled", !rmtoolReadingPage.tapPageTurnEnabled)
                                     }
                                 }
+
+; RMTOOL_HL_SNAP_4_START
+                                ArkControls.Panel {
+                                    Layout.fillWidth: true
+                                    visible: rmtoolReadingPage.hlSnapAvailable
+                                    label: "中文划词精确选取"
+                                    description: "荧光笔划选中文时按字符边界截断，英文与其他手势保持原样。"
+                                    enabled: rmtoolReadingPage.masterEnabled
+                                    opacity: enabled ? 1 : 0.5
+                                    action: ArkToggleWrapper {
+                                        checked: rmtoolReadingPage.hlSnapCjk
+                                        extendedMouseArea.onPressed: rmtoolReadingPage.writeBool(
+                                            "hlSnapCjk", !rmtoolReadingPage.hlSnapCjk)
+                                    }
+                                }
+; RMTOOL_HL_SNAP_4_END
 
                                 ArkControls.Panel {
                                     Layout.fillWidth: true
@@ -273,52 +298,37 @@ AFFECT /qml/device/view/documentview/FormatFont.qml
     TRAVERSE Control#root
         LOCATE BEFORE ALL
         INSERT {
-            property string rmtoolEpubLabel1: ""
-            property string rmtoolEpubLabel2: ""
-            property string rmtoolEpubLabel3: ""
+            property var rmtoolEpubEntries: []
+            property var rmtoolEpubLoaders: []
 
             FontMetrics {
                 id: rmtoolEpubLabelMetrics
             }
 
-            function rmtoolEpubLoader(slot) {
-                if (slot === 1) return rmtoolEpubFont1
-                if (slot === 2) return rmtoolEpubFont2
-                return rmtoolEpubFont3
-            }
-
-            function rmtoolEpubLabel(slot) {
-                if (slot === 1) return rmtoolEpubLabel1
-                if (slot === 2) return rmtoolEpubLabel2
-                return rmtoolEpubLabel3
-            }
-
-            function rmtoolSetEpubLabel(slot, label) {
-                if (slot === 1) rmtoolEpubLabel1 = label
-                else if (slot === 2) rmtoolEpubLabel2 = label
-                else rmtoolEpubLabel3 = label
-            }
-
-            function rmtoolEpubDisplayLabel(slot, family) {
-                const label = rmtoolEpubLabel(slot) || family
-                if (dropdown.width <= 76) return label
+            function rmtoolEpubDisplayLabel(label, family) {
+                const display = label || family
                 rmtoolEpubLabelMetrics.font = Qt.font({
                     family: family,
                     pixelSize: Values.fontSizeH2
                 })
                 return rmtoolEpubLabelMetrics.elidedText(
-                    label, Qt.ElideRight, dropdown.width - 76
+                    display, Qt.ElideRight, Math.max(1, dropdown.width - 76)
                 )
             }
 
-            function rmtoolEpubLabelSource(slot) {
-                if (slot === 1) {
-                    return "file:///home/root/.local/share/rmtool/epub-fonts/slot-1.label"
+            function rmtoolReadEpubIndex() {
+                try {
+                    const request = new XMLHttpRequest()
+                    request.open("GET", "file:///home/root/.local/share/rmtool/epub-fonts/index.json", false)
+                    request.send()
+                    const document = JSON.parse(request.responseText)
+                    if (document.schema === 1 && document.fonts instanceof Array) {
+                        return document.fonts
+                    }
+                } catch (error) {
+                    console.warn("rmtool EPUB font index unavailable: " + error)
                 }
-                if (slot === 2) {
-                    return "file:///home/root/.local/share/rmtool/epub-fonts/slot-2.label"
-                }
-                return "file:///home/root/.local/share/rmtool/epub-fonts/slot-3.label"
+                return []
             }
 
             function rmtoolEpubModelIndex(family) {
@@ -328,70 +338,82 @@ AFFECT /qml/device/view/documentview/FormatFont.qml
                 return -1
             }
 
-            function rmtoolEpubOwnsFamily(slot, family) {
-                for (let previous = 1; previous < slot; previous++) {
-                    const loader = rmtoolEpubLoader(previous)
-                    if (loader.status === FontLoader.Ready && loader.name === family) {
+            function rmtoolEpubOwnsFamily(order, family) {
+                for (let previous = 0; previous < order; previous++) {
+                    const loader = rmtoolEpubLoaders[previous]
+                    if (loader && loader.status === FontLoader.Ready
+                        && loader.name === family) {
                         return false
                     }
                 }
                 return true
             }
 
-            function rmtoolEpubInsertIndex(slot) {
+            function rmtoolEpubInsertIndex(order) {
                 let insertAt = fontModel.count - 1
-                for (let following = slot + 1; following <= 3; following++) {
-                    const loader = rmtoolEpubLoader(following)
-                    if (loader.status !== FontLoader.Ready || !loader.name) continue
+                for (let following = order + 1; following < rmtoolEpubLoaders.length; following++) {
+                    const loader = rmtoolEpubLoaders[following]
+                    if (!loader || loader.status !== FontLoader.Ready || !loader.name) continue
                     const index = rmtoolEpubModelIndex(loader.name)
                     if (index >= 0 && index < insertAt) insertAt = index
                 }
                 return insertAt
             }
 
-            function rmtoolSyncEpubFont(slot) {
-                const loader = rmtoolEpubLoader(slot)
+            function rmtoolSyncEpubFont(order) {
+                const loader = rmtoolEpubLoaders[order]
+                const entry = rmtoolEpubEntries[order]
+                if (!loader || !entry) return
                 if (loader.status !== FontLoader.Ready || !loader.name
-                    || !rmtoolEpubOwnsFamily(slot, loader.name)) {
+                    || !rmtoolEpubOwnsFamily(order, loader.name)) {
                     return
                 }
-                const label = rmtoolEpubDisplayLabel(slot, loader.name)
+                const label = rmtoolEpubDisplayLabel(entry.label, loader.name)
                 const existing = rmtoolEpubModelIndex(loader.name)
                 if (existing >= 0) {
                     fontModel.setProperty(existing, "value", label)
                     return
                 }
-                fontModel.insert(rmtoolEpubInsertIndex(slot), {
+                fontModel.insert(rmtoolEpubInsertIndex(order), {
                     key: loader.name,
                     value: label
                 })
             }
 
-            function rmtoolLoadEpubLabel(slot) {
-                const request = new XMLHttpRequest()
-                request.onreadystatechange = function() {
-                    if (request.readyState !== XMLHttpRequest.DONE) return
-                    let label = ""
-                    if (request.status === 0
-                        || (request.status >= 200 && request.status < 300)) {
-                        label = request.responseText
-                    }
-                    rmtoolSetEpubLabel(slot, label)
-                    rmtoolSyncEpubFont(slot)
+            function rmtoolWatchEpubLoader(loader, order) {
+                loader.statusChanged.connect(function() {
+                    root.rmtoolSyncEpubFont(order)
+                })
+            }
+
+            function rmtoolLoadEpubFonts() {
+                rmtoolEpubEntries = rmtoolReadEpubIndex()
+                for (let order = 0; order < rmtoolEpubEntries.length; order++) {
+                    const entry = rmtoolEpubEntries[order]
+                    if (!entry || !entry.path || !entry.label) continue
+                    const loader = rmtoolEpubFontFactory.createObject(root, {
+                        source: "file://" + entry.path
+                    })
+                    if (!loader) continue
+                    rmtoolEpubLoaders[order] = loader
+                    rmtoolWatchEpubLoader(loader, order)
+                    rmtoolSyncEpubFont(order)
                 }
-                request.open("GET", rmtoolEpubLabelSource(slot))
-                request.send()
             }
 
             Component.onCompleted: {
-                for (let slot = 1; slot <= 3; slot++) rmtoolLoadEpubLabel(slot)
+                rmtoolLoadEpubFonts()
                 Qt.callLater(function() {
-                    for (let slot = 1; slot <= 3; slot++) rmtoolSyncEpubFont(slot)
+                    for (let order = 0; order < rmtoolEpubLoaders.length; order++) {
+                        rmtoolSyncEpubFont(order)
+                    }
                 })
             }
 
             onWidthChanged: Qt.callLater(function() {
-                for (let slot = 1; slot <= 3; slot++) rmtoolSyncEpubFont(slot)
+                for (let order = 0; order < rmtoolEpubLoaders.length; order++) {
+                    rmtoolSyncEpubFont(order)
+                }
             })
         }
     END TRAVERSE
@@ -399,22 +421,9 @@ AFFECT /qml/device/view/documentview/FormatFont.qml
     TRAVERSE Control#root > ColumnLayout
         LOCATE AFTER ListModel#fontModel
         INSERT {
-            FontLoader {
-                id: rmtoolEpubFont1
-                source: "file:///home/root/.local/share/rmtool/epub-fonts/slot-1.ttf"
-                onStatusChanged: root.rmtoolSyncEpubFont(1)
-            }
-
-            FontLoader {
-                id: rmtoolEpubFont2
-                source: "file:///home/root/.local/share/rmtool/epub-fonts/slot-2.ttf"
-                onStatusChanged: root.rmtoolSyncEpubFont(2)
-            }
-
-            FontLoader {
-                id: rmtoolEpubFont3
-                source: "file:///home/root/.local/share/rmtool/epub-fonts/slot-3.ttf"
-                onStatusChanged: root.rmtoolSyncEpubFont(3)
+            Component {
+                id: rmtoolEpubFontFactory
+                FontLoader {}
             }
         }
     END TRAVERSE

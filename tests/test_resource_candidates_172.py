@@ -21,7 +21,7 @@ class Candidate172Tests(unittest.TestCase):
             "fast-mono-reading": "f00f8f71423bf365e3aeb41e30e0d621f20cc00f2d07b800ac4c6e1ad32940cc",
             "native-chinese": "4c3f5c9eb081ac44538bbabfd923a626e978c6513ad9c5956fdbe4e183e61429",
             "pinyin-input": "d47c77d2ec9dedcaa0884226d3b6978591febd7f52958fd466c23c39b02d264f",
-            "reading-enhancements": "8985540f5dbcb501b1092b96ca6a965267ee06283e36e6903f781713ec2f0587",
+            "reading-enhancements": "600659df9a1f82c54a316e3660b023adc1a2eada0556d4c4e6c236a4d20298ea",
             "note-enhancements": "5dfd6e9c565e38201da517d9c8c578fcf63bcdf301bae19275b7d9eda09b61ea",
         }
         for feature, fingerprint in expected.items():
@@ -53,7 +53,7 @@ class Candidate172Tests(unittest.TestCase):
                 )
                 self.assertEqual(
                     tuple(reason for reason, _feature in predecessors),
-                    ("package-revision-8",),
+                    ("package-revision-9", "package-revision-8"),
                 )
             else:
                 self.assertIsNone(reading_package)

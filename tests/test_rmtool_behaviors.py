@@ -34,6 +34,7 @@ import _residue_migration
 import _pinyin_input
 import _reading_enhancements
 import _rmkit_cn
+import _sleep_wallpaper
 import _ssh
 import _tap_page_turn
 import _tab_connection
@@ -3259,6 +3260,49 @@ class WallpaperUiTests(unittest.TestCase):
             self.assertEqual(client.files[carousel_backup_path(path)], original)
             self.assertTrue(_tab_wallpaper._is_transparent_placeholder(client.files[path]))
 
+    def test_user_partition_sleep_upload_delegates_without_root_remount(self):
+        client = FakeConnectionClient(connected=True)
+        widget = rmtool.WallpaperTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        fd, temp_path = tempfile.mkstemp(suffix=".png")
+        os.close(fd)
+        self.addCleanup(lambda: os.path.exists(temp_path) and os.remove(temp_path))
+        payload = make_png_bytes((1, 2, 3))
+        Path(temp_path).write_bytes(payload)
+
+        with mock.patch.object(_sleep_wallpaper, "enable") as enable:
+            requires_reboot = widget._do_upload_wallpaper(
+                temp_path,
+                "/usr/share/remarkable/suspended.png",
+                True,
+                True,
+            )
+
+        self.assertTrue(requires_reboot)
+        enable.assert_called_once_with(client, payload, take_over=True)
+
+    def test_cancelled_sleep_takeover_clears_pending_checkbox(self):
+        client = FakeConnectionClient(connected=True)
+        config = rmtool._default_config()
+        config["paths"]["wallpaper"] = "/usr/share/remarkable/suspended.png"
+        widget = rmtool.WallpaperTab(client, config)
+        self.addCleanup(widget.deleteLater)
+        widget._cached_source_image = Image.new("RGB", (8, 8), "white")
+        widget._sleep_user_status = _sleep_wallpaper.SleepWallpaperStatus(
+            True, conflict=True
+        )
+        widget._sleep_user_requested = True
+        widget._sync_user_partition_sleep_checkbox()
+
+        with mock.patch.object(
+            _tab_wallpaper, "ask_confirmation", return_value=False
+        ), mock.patch.object(widget.thread_pool, "start") as start:
+            widget._upload_wallpaper()
+
+        start.assert_not_called()
+        self.assertFalse(widget._sleep_user_requested)
+        self.assertFalse(widget.user_partition_sleep_checkbox.isChecked())
+
 
 class DeviceFramePreviewTests(unittest.TestCase):
     SCREEN_RECT = (0.2, 0.1, 0.8, 0.9)
@@ -4488,77 +4532,50 @@ class FontUiTests(unittest.TestCase):
                 )
         set_slot.assert_not_called()
 
-    def test_epub_font_action_distinguishes_append_relabel_and_capacity(self):
+    def test_epub_font_action_supports_dynamic_order_without_three_item_capacity(self):
         widget = rmtool.FontTab(
             FakeConnectionClient(connected=True), rmtool._default_config()
         )
         self.addCleanup(widget.deleteLater)
-        first = _rmkit_cn.UserFont(
-            "中文字体.ttf",
-            "First",
-            f"{rmtool.DEFAULT_FONT_DIR}中文字体.ttf",
-            False,
-            True,
-            (1,),
-        )
-        second = _rmkit_cn.UserFont(
-            "second.ttf",
-            "Second",
-            f"{rmtool.DEFAULT_FONT_DIR}second.ttf",
+        selected = _rmkit_cn.UserFont(
+            "selected.ttf",
+            "Selected",
+            f"{rmtool.DEFAULT_FONT_DIR}selected.ttf",
             False,
         )
-        legacy_status = _rmkit_cn.EpubFontSlotStatus(
+        assigned = tuple(
+            _rmkit_cn.UserFont(
+                f"{number}.ttf",
+                f"Family {number}",
+                f"{rmtool.DEFAULT_FONT_DIR}{number}.ttf",
+                False,
+                True,
+                (number,),
+            )
+            for number in range(1, 5)
+        )
+        status = _rmkit_cn.EpubFontSlotStatus(
             "ready",
-            "支持",
-            slots=(
-                _rmkit_cn.EpubFontSlot(1, first.remote_path, ""),
-                _rmkit_cn.EpubFontSlot(2),
-                _rmkit_cn.EpubFontSlot(3),
+            "当前 EPUB 字体菜单有 4 项。",
+            slots=tuple(
+                _rmkit_cn.EpubFontSlot(
+                    number, font.remote_path, font.family
+                )
+                for number, font in enumerate(assigned, start=1)
             ),
         )
 
         widget._apply_font_inventory(
-            (first, second), select_filename="中文字体.ttf", epub_status=legacy_status
+            (*assigned, selected),
+            select_filename="selected.ttf",
+            epub_status=status,
         )
-        self.assertEqual(widget.epub_font_button.text(), "更新 EPUB 字体名称")
+        self.assertEqual(widget.epub_font_button.text(), "添加为 EPUB 第 5 项")
         self.assertTrue(widget.epub_font_button.isEnabled())
 
-        widget.font_table.selectRow(1)
-        self.assertEqual(widget.epub_font_button.text(), "添加为 EPUB 第 2 项")
+        widget.font_table.selectRow(0)
+        self.assertEqual(widget.epub_font_button.text(), "从 EPUB 字体菜单移除")
         self.assertTrue(widget.epub_font_button.isEnabled())
-
-        third = _rmkit_cn.UserFont(
-            "third.ttf",
-            "Third",
-            f"{rmtool.DEFAULT_FONT_DIR}third.ttf",
-            False,
-            True,
-            (2,),
-        )
-        fourth = _rmkit_cn.UserFont(
-            "fourth.ttf",
-            "Fourth",
-            f"{rmtool.DEFAULT_FONT_DIR}fourth.ttf",
-            False,
-            True,
-            (3,),
-        )
-        full_status = _rmkit_cn.EpubFontSlotStatus(
-            "ready",
-            "当前已使用 3/3 个 EPUB 字体位置。",
-            slots=(
-                _rmkit_cn.EpubFontSlot(1, first.remote_path, "中文字体"),
-                _rmkit_cn.EpubFontSlot(2, third.remote_path, "third"),
-                _rmkit_cn.EpubFontSlot(3, fourth.remote_path, "fourth"),
-            ),
-        )
-        widget._apply_font_inventory(
-            (first, second, third, fourth),
-            select_filename="second.ttf",
-            epub_status=full_status,
-        )
-        self.assertEqual(widget.epub_font_button.text(), "EPUB 字体已满（3/3）")
-        self.assertFalse(widget.epub_font_button.isEnabled())
 
     def test_disconnect_invalidates_in_flight_inventory_result(self):
         client = FakeConnectionClient(connected=False)

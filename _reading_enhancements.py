@@ -29,8 +29,10 @@ MANIFEST_URLS = tuple(f"{base}/manifest.json" for base in REMOTE_BASE_URLS)
 BUNDLED_MANIFEST = Path(__file__).with_name("reading-enhancements") / "manifest.json"
 
 QMD_PAYLOAD_PATH = "exthome/qt-resource-rebuilder/reading-enhancements.qmd"
+HIGHLIGHT_EXTENSION_PATH = "extensions.d/rmtool-highlight-snap.so"
+HIGHLIGHT_LICENSE_PATH = "LICENSE.rm-tweak"
 FEATURE_ID = "reading-enhancements"
-PACKAGE_REVISION = 9
+PACKAGE_REVISION = 10
 MAX_MANIFEST_BYTES = tap.MAX_MANIFEST_BYTES
 MAX_PACKAGE_BYTES = tap.MAX_PACKAGE_BYTES
 MAX_UNPACKED_BYTES = tap.MAX_UNPACKED_BYTES
@@ -44,6 +46,46 @@ _PAYLOAD_PATHS = _REQUIRED_PATHS | {
     "LICENSE.rm-xovi-extensions",
     "LICENSE.xovi",
 }
+
+
+_HIGHLIGHT_SNAP_IDENTITY = (
+    "20260827113527",
+    "3.28.0.172",
+    "chiappa",
+    "aarch64",
+    "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4",
+)
+
+
+def _highlight_snap_supported(
+    firmware: str,
+    release_version: str,
+    platform: str,
+    architecture: str,
+    xochitl_sha256: str,
+) -> bool:
+    return (
+        firmware,
+        release_version,
+        platform,
+        architecture,
+        xochitl_sha256,
+    ) == _HIGHLIGHT_SNAP_IDENTITY
+
+
+def _payload_paths_for(
+    firmware: str,
+    release_version: str,
+    platform: str,
+    architecture: str,
+    xochitl_sha256: str,
+) -> set[str]:
+    paths = set(_PAYLOAD_PATHS)
+    if _highlight_snap_supported(
+        firmware, release_version, platform, architecture, xochitl_sha256
+    ):
+        paths.update((HIGHLIGHT_EXTENSION_PATH, HIGHLIGHT_LICENSE_PATH))
+    return paths
 
 # Only package revisions shipped by a tagged rmtool release are accepted as
 # predecessors. Revisions 2 and 5, device canaries, and defect test builds were
@@ -115,6 +157,20 @@ _PUBLISHED_REVISION_QMDS = {
         "3.28": (
             "4ba71b466de622f2d0d3167e38ccdc2d9e1bf3841338997c79a9c1f1f24f70ef",
             57224,
+        ),
+    },
+    9: {
+        "3.27": (
+            "13bccfa0e159c61b863a03bae9a24351119e36364e34dae2e4157ba1a1c158d5",
+            51292,
+        ),
+        "3.28.0.162": (
+            "e702a8947b615f6943beed87a14bc4224abf0f117934ec7d861f125efaf3c970",
+            58156,
+        ),
+        "3.28": (
+            "bd8cd212d4dc5e765bc55c922014653237f4e70fda46c1f23a8eea4c473d96db",
+            58196,
         ),
     },
 }
@@ -345,7 +401,9 @@ def parse_manifest(
             raise RuntimeError("阅读增强资源包缺少文件清单。")
         files = tuple(tap._parse_payload_file(item) for item in raw_files)
         paths = {item.path for item in files}
-        if len(paths) != len(files) or paths != _PAYLOAD_PATHS:
+        if len(paths) != len(files) or paths != _payload_paths_for(
+            firmware, release_version, platform, architecture, xochitl_sha
+        ):
             raise RuntimeError("阅读增强资源包文件清单与固定白名单不匹配。")
         if sum(item.size for item in files) > MAX_UNPACKED_BYTES:
             raise RuntimeError("阅读增强资源包解压后过大。")
@@ -477,11 +535,24 @@ def select_package(
 
 
 def _shared_specs(package: ReadingEnhancementsPackage):
-    return shared.specs_from_package(package, FEATURE_ID, QMD_PAYLOAD_PATH)
+    extra_paths = (
+        (HIGHLIGHT_EXTENSION_PATH,)
+        if _highlight_snap_supported(
+            package.firmware,
+            package.release_version,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        else ()
+    )
+    return shared.specs_from_package(
+        package, FEATURE_ID, QMD_PAYLOAD_PATH, extra_paths
+    )
 
 
 def _known_published_revision_feature(package, current, revision):
-    if package.release_version == "3.28.0.172" and revision != 8:
+    if package.release_version == "3.28.0.172" and revision not in {8, 9}:
         return None
     fingerprints = _PUBLISHED_REVISION_QMDS.get(revision)
     if fingerprints is None:
@@ -490,7 +561,12 @@ def _known_published_revision_feature(package, current, revision):
     predecessor = fingerprints.get(package.release_version, fingerprints.get(variant))
     if predecessor is None:
         return None
-    return replace(current, sha256=predecessor[0], size=predecessor[1])
+    return replace(
+        current,
+        sha256=predecessor[0],
+        size=predecessor[1],
+        extra_files=(),
+    )
 
 
 def _known_shared_predecessor_specs(package, current):

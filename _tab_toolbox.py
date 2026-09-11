@@ -493,15 +493,10 @@ class FontTab(QtWidgets.QWidget):
         self.set_active_button.setText(
             "重新应用系统字体" if selected and selected.active else "设为系统字体"
         )
-        if selected_slot is not None and selected is not None:
-            expected_label = posixpath.splitext(selected.filename)[0]
-            epub_action = (
-                "从 EPUB 字体菜单移除"
-                if selected_slot.label == expected_label
-                else "更新 EPUB 字体名称"
-            )
-        elif len(assigned_slots) >= len(_rmkit_cn.EPUB_FONT_SLOT_NUMBERS):
-            epub_action = "EPUB 字体已满（3/3）"
+        if selected_slot is not None:
+            epub_action = "从 EPUB 字体菜单移除"
+        elif len(assigned_slots) >= _rmkit_cn.EPUB_FONT_INDEX_MAX_ENTRIES:
+            epub_action = "EPUB 字体菜单已达到安全上限"
         else:
             epub_action = f"添加为 EPUB 第 {len(assigned_slots) + 1} 项"
         self.epub_font_button.setText(epub_action)
@@ -519,7 +514,7 @@ class FontTab(QtWidgets.QWidget):
             and epub_supported
             and (
                 selected_slot is not None
-                or len(assigned_slots) < len(_rmkit_cn.EPUB_FONT_SLOT_NUMBERS)
+                or len(assigned_slots) < _rmkit_cn.EPUB_FONT_INDEX_MAX_ENTRIES
             )
         )
         self.delete_button.setEnabled(
@@ -954,10 +949,7 @@ class FontTab(QtWidgets.QWidget):
             (slot for slot in status.slots if slot.target_path == selected.remote_path),
             None,
         )
-        expected_label = posixpath.splitext(selected.filename)[0]
-        removing = (
-            selected_slot is not None and selected_slot.label == expected_label
-        )
+        removing = selected_slot is not None
         action = self.epub_font_button.text()
         if not ask_confirmation(
             self,
@@ -2405,11 +2397,13 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         cleaner=_cleanup_reading_enhancements,
         feature_name="阅读增强",
         description=(
-            "为 PDF 和 EPUB 阅读提供点击翻页、快速黑白阅读和翻页清残影。"
+            "为 PDF 和 EPUB 阅读提供点击翻页、快速黑白和翻页清残影；"
+            "已验证版本另提供中文划词精确选取。"
             "日常开关由设备的“设置 > 阅读增强”页面控制。"
         ),
         explanation=(
-            "阅读增强只作用于 PDF 和 EPUB 阅读页，包含点击翻页、快速黑白阅读和翻页清残影。"
+            "阅读增强只作用于 PDF 和 EPUB 阅读页，包含点击翻页、快速黑白阅读和"
+            "翻页清残影；已验证版本另提供中文划词精确选取。"
             "安装或迁移完成后请手动重启设备，再到“设置 > 阅读增强”开启需要的开关。"
             "快速黑白阅读每次重启后默认关闭。"
         ),

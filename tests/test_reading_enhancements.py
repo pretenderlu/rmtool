@@ -79,10 +79,17 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
             },
             {("chiappa", "3.27.3.0", "20260612085811")},
         )
-        self.assertEqual(
-            set(item.path for item in self.package.files), reading._PAYLOAD_PATHS
-        )
         for package in self.catalog:
+            self.assertEqual(
+                {item.path for item in package.files},
+                reading._payload_paths_for(
+                    package.firmware,
+                    package.release_version,
+                    package.platform,
+                    package.architecture,
+                    package.xochitl_sha256,
+                ),
+            )
             self.assertEqual(
                 package.asset,
                 reading._expected_asset_name(
@@ -100,6 +107,32 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
             self.assertEqual(
                 package.download_urls[1], f"{reading.COS_URL}/{package.asset}"
             )
+
+    def test_highlighter_payload_is_limited_to_verified_move_172(self):
+        carrying = [
+            package for package in self.catalog
+            if reading.HIGHLIGHT_EXTENSION_PATH in {item.path for item in package.files}
+        ]
+        self.assertEqual(
+            [(item.platform, item.release_version) for item in carrying],
+            [("chiappa", "3.28.0.172")],
+        )
+        extension = (
+            Path(__file__).resolve().parents[1]
+            / "reading-enhancements/native/rmtool-highlight-snap.so"
+        ).read_bytes()
+        spec = carrying[0].file(reading.HIGHLIGHT_EXTENSION_PATH)
+        self.assertEqual(spec.size, len(extension))
+        self.assertEqual(spec.sha256, hashlib.sha256(extension).hexdigest())
+
+    def test_highlighter_gate_requires_the_complete_exact_identity(self):
+        exact = reading._HIGHLIGHT_SNAP_IDENTITY
+        self.assertTrue(reading._highlight_snap_supported(*exact))
+        for index in range(len(exact)):
+            forged = list(exact)
+            forged[index] = "0" * 64 if index == 4 else "unknown"
+            with self.subTest(index=index):
+                self.assertFalse(reading._highlight_snap_supported(*forged))
 
     def test_only_tagged_package_revisions_are_trusted(self):
         self.assertEqual(
@@ -173,6 +206,20 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                         57224,
                     ),
                 },
+                9: {
+                    "3.27": (
+                        "13bccfa0e159c61b863a03bae9a24351119e36364e34dae2e4157ba1a1c158d5",
+                        51292,
+                    ),
+                    "3.28.0.162": (
+                        "e702a8947b615f6943beed87a14bc4224abf0f117934ec7d861f125efaf3c970",
+                        58156,
+                    ),
+                    "3.28": (
+                        "bd8cd212d4dc5e765bc55c922014653237f4e70fda46c1f23a8eea4c473d96db",
+                        58196,
+                    ),
+                },
             },
         )
         self.assertEqual(
@@ -184,6 +231,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 "package-revision-6",
                 "package-revision-7",
                 "package-revision-8",
+                "package-revision-9",
             },
         )
         for package in self.catalog:
@@ -207,11 +255,14 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                     ),
                 )
             elif package.release_version == "3.28.0.172":
-                self.assertEqual(reasons, ("package-revision-8",))
+                self.assertEqual(
+                    reasons, ("package-revision-9", "package-revision-8")
+                )
             else:
                 self.assertEqual(
                     reasons,
                     (
+                        "package-revision-9",
                         "package-revision-8",
                         "package-revision-7",
                         "package-revision-6",
