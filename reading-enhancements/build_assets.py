@@ -314,11 +314,12 @@ def _compile_and_validate(*, qmd_tool: Path, qmldiff: Path, source: Path, target
         raise RuntimeError(
             f"structure assertion {target['id']} nested the reading page component"
         )
-    highlighter_expected = (
-        target["platform"] == "chiappa"
-        and target["firmware"] == "20260827113527"
-        and target["xochitl_sha256"]
-        == "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"
+    highlighter_expected = reading._highlight_snap_supported(
+        target["firmware"],
+        target["release_version"],
+        target["platform"],
+        target["architecture"],
+        target["xochitl_sha256"],
     )
     if ('label: "中文划词精确选取"' in settings) != highlighter_expected:
         raise RuntimeError(
@@ -499,7 +500,11 @@ def main() -> int:
         for key in sorted(reading.ALLOWED_TARGETS, key=lambda item: (item[1], item[0], item[3])):
             platform, firmware, architecture, xochitl_sha = key
             release, channel, _offline, _device = reading.ALLOWED_TARGETS[key]
-            target = matrix[(platform, firmware, xochitl_sha)]
+            target = {
+                **matrix[(platform, firmware, xochitl_sha)],
+                "release_version": release,
+                "architecture": architecture,
+            }
             base_matches = [
                 item for item in tap_catalog
                 if (item.platform, item.firmware, item.architecture, item.xochitl_sha256) == key

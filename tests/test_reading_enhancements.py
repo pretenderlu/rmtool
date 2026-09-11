@@ -108,31 +108,58 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 package.download_urls[1], f"{reading.COS_URL}/{package.asset}"
             )
 
-    def test_highlighter_payload_is_limited_to_verified_move_172(self):
+    def test_highlighter_payload_is_limited_to_exact_color_172_targets(self):
         carrying = [
             package for package in self.catalog
             if reading.HIGHLIGHT_EXTENSION_PATH in {item.path for item in package.files}
         ]
         self.assertEqual(
-            [(item.platform, item.release_version) for item in carrying],
-            [("chiappa", "3.28.0.172")],
+            sorted((item.platform, item.release_version) for item in carrying),
+            [("chiappa", "3.28.0.172"), ("ferrari", "3.28.0.172")],
         )
         extension = (
             Path(__file__).resolve().parents[1]
             / "reading-enhancements/native/rmtool-highlight-snap.so"
         ).read_bytes()
-        spec = carrying[0].file(reading.HIGHLIGHT_EXTENSION_PATH)
-        self.assertEqual(spec.size, len(extension))
-        self.assertEqual(spec.sha256, hashlib.sha256(extension).hexdigest())
+        for package in carrying:
+            spec = package.file(reading.HIGHLIGHT_EXTENSION_PATH)
+            self.assertEqual(spec.size, len(extension))
+            self.assertEqual(spec.sha256, hashlib.sha256(extension).hexdigest())
 
     def test_highlighter_gate_requires_the_complete_exact_identity(self):
-        exact = reading._HIGHLIGHT_SNAP_IDENTITY
-        self.assertTrue(reading._highlight_snap_supported(*exact))
-        for index in range(len(exact)):
-            forged = list(exact)
-            forged[index] = "0" * 64 if index == 4 else "unknown"
-            with self.subTest(index=index):
-                self.assertFalse(reading._highlight_snap_supported(*forged))
+        identities = reading._HIGHLIGHT_SNAP_IDENTITIES
+        self.assertEqual({item[2] for item in identities}, {"chiappa", "ferrari"})
+        for exact in identities:
+            self.assertTrue(reading._highlight_snap_supported(*exact))
+            for index in range(len(exact)):
+                forged = list(exact)
+                forged[index] = "0" * 64 if index == 4 else "unknown"
+                with self.subTest(platform=exact[2], index=index):
+                    self.assertFalse(reading._highlight_snap_supported(*forged))
+        move = next(item for item in identities if item[2] == "chiappa")
+        paper_pro = next(item for item in identities if item[2] == "ferrari")
+        self.assertFalse(reading._highlight_snap_supported(*move[:4], paper_pro[4]))
+        self.assertFalse(reading._highlight_snap_supported(*paper_pro[:4], move[4]))
+
+    def test_published_move_highlighter_is_a_bounded_update_predecessor(self):
+        package = next(
+            item
+            for item in self.catalog
+            if item.platform == "chiappa" and item.release_version == "3.28.0.172"
+        )
+        _runtime, current = reading._shared_specs(package)
+        predecessor = reading._known_published_revision_feature(package, current, 10)
+        self.assertIsNotNone(predecessor)
+        self.assertEqual(
+            [(item.runtime_path, item.sha256, item.size) for item in predecessor.extra_files],
+            [
+                (
+                    reading.HIGHLIGHT_EXTENSION_PATH,
+                    "7bd078a8ed9c8b18f8134d7e5f7f7a7bf4e96b45f0ed2bea9d585fc5552c2352",
+                    9680,
+                )
+            ],
+        )
 
     def test_only_tagged_package_revisions_are_trusted(self):
         self.assertEqual(
@@ -220,6 +247,28 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                         58196,
                     ),
                 },
+                10: {
+                    "3.27": (
+                        "13bccfa0e159c61b863a03bae9a24351119e36364e34dae2e4157ba1a1c158d5",
+                        51292,
+                    ),
+                    "3.28.0.162": (
+                        "a4bf75ebe404f7f6000b60e1a21f9a6185915f6e4eafaab13bd64e5106ab1815",
+                        57817,
+                    ),
+                    "3.28": (
+                        "afe9f847b2a99bfe709f8dad6ab64b6bf679f418b8b89669e6505dd9d5198d40",
+                        57857,
+                    ),
+                    "chiappa:3.28.0.172": (
+                        "51784b64083880b4a8ee61eb189553101f950bd357f2bff9038b903fe157c7f0",
+                        59138,
+                    ),
+                    "ferrari:3.28.0.172": (
+                        "afe9f847b2a99bfe709f8dad6ab64b6bf679f418b8b89669e6505dd9d5198d40",
+                        57857,
+                    ),
+                },
             },
         )
         self.assertEqual(
@@ -232,6 +281,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 "package-revision-7",
                 "package-revision-8",
                 "package-revision-9",
+                "package-revision-10",
             },
         )
         for package in self.catalog:
@@ -256,7 +306,12 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 )
             elif package.release_version == "3.28.0.172":
                 self.assertEqual(
-                    reasons, ("package-revision-9", "package-revision-8")
+                    reasons,
+                    (
+                        "package-revision-10",
+                        "package-revision-9",
+                        "package-revision-8",
+                    ),
                 )
             else:
                 self.assertEqual(

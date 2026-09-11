@@ -1389,6 +1389,8 @@ class WallpaperUiTests(unittest.TestCase):
             section.explain_button.click()
         self.assertIn("PDF 和 EPUB", show_info.call_args.args[2])
         self.assertIn("设置 > 阅读增强", show_info.call_args.args[2])
+        self.assertIn("Paper Pro 与 Paper Pro Move 3.28.0.172", show_info.call_args.args[2])
+        self.assertIn("中文划词精确选取", show_info.call_args.args[2])
 
     def test_toolbox_detect_all_runs_supported_plugins_sequentially(self):
         toolbox = rmtool.ToolboxTab(

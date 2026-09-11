@@ -98,6 +98,41 @@ class FakeSleepSSH:
 
 
 class SleepWallpaperTests(unittest.TestCase):
+    def test_only_exact_move_and_paper_pro_172_identities_are_supported(self):
+        self.assertEqual(
+            {identity.platform for identity in sleep.SUPPORTED_IDENTITIES},
+            {"chiappa", "ferrari"},
+        )
+        for identity in sleep.SUPPORTED_IDENTITIES:
+            self.assertEqual(identity.firmware, "20260827113527")
+            self.assertEqual(identity.architecture, "aarch64")
+
+        move = next(
+            identity for identity in sleep.SUPPORTED_IDENTITIES
+            if identity.platform == "chiappa"
+        )
+        paper_pro = next(
+            identity for identity in sleep.SUPPORTED_IDENTITIES
+            if identity.platform == "ferrari"
+        )
+        forged = sleep.tap.DeviceIdentity(
+            move.firmware, move.platform, move.architecture, paper_pro.xochitl_sha256
+        )
+        self.assertNotIn(forged, sleep.SUPPORTED_IDENTITIES)
+
+    def test_both_exact_identities_complete_enable_disable_transaction(self):
+        for identity in sleep.SUPPORTED_IDENTITIES:
+            with self.subTest(platform=identity.platform), patch.object(
+                sleep.tap, "get_device_identity", return_value=identity
+            ):
+                original = b"[General]\nFoo=1\n"
+                ssh = FakeSleepSSH({sleep.CONFIG_PATH: original})
+                self.assertTrue(sleep.get_status(ssh).supported)
+                sleep.enable(ssh, b"png")
+                self.assertTrue(sleep.get_status(ssh).enabled)
+                sleep.disable(ssh)
+                self.assertEqual(ssh.files, {sleep.CONFIG_PATH: original})
+
     def test_config_key_round_trip_preserves_unrelated_changes(self):
         original = b"[General]\nFoo=1\nSleepScreenPath=/custom/old.png\n[Other]\nBar=2\n"
         managed = sleep._set_sleep_line(original, sleep.MANAGED_IMAGE_PATH)

@@ -2398,12 +2398,13 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         feature_name="阅读增强",
         description=(
             "为 PDF 和 EPUB 阅读提供点击翻页、快速黑白和翻页清残影；"
-            "已验证版本另提供中文划词精确选取。"
+            "Paper Pro 与 Paper Pro Move 3.28.0.172 另提供中文划词精确选取。"
             "日常开关由设备的“设置 > 阅读增强”页面控制。"
         ),
         explanation=(
             "阅读增强只作用于 PDF 和 EPUB 阅读页，包含点击翻页、快速黑白阅读和"
-            "翻页清残影；已验证版本另提供中文划词精确选取。"
+            "翻页清残影；精确匹配的 Paper Pro 与 Paper Pro Move 3.28.0.172 "
+            "另提供中文划词精确选取。"
             "安装或迁移完成后请手动重启设备，再到“设置 > 阅读增强”开启需要的开关。"
             "快速黑白阅读每次重启后默认关闭。"
         ),

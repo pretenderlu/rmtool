@@ -9,7 +9,8 @@ font index, migration, validation, atomic updates and menu integration.
 
 ## Chinese highlighter range selection
 
-The verified Move `3.28.0.172` range signature and CJK-only selection decision
+The offline-verified Paper Pro and Paper Pro Move `3.28.0.172` range signature
+and CJK-only selection decision
 in `reading-enhancements/native/highlight_snap.c` are adapted from
 [bbq191/rm-tweak](https://github.com/bbq191/rm-tweak/tree/1ccbdb03b1b79f8a9ec40f9bdee05f0b7839f87a) at commit `1ccbdb03b1b79f8a9ec40f9bdee05f0b7839f87a`,
 licensed under the Apache License 2.0. rmtool uses its own runtime identity

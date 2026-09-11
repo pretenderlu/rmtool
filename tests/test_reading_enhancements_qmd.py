@@ -298,6 +298,22 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
         self.assertNotEqual(bytes_328, SOURCE.read_bytes())
         self.assertNotIn("hlSnapAvailable", text_328)
         self.assertIn("readonly property bool hlSnapAvailable: true", text_172)
+        ferrari = next(
+            package
+            for package in reading._trusted_catalog()
+            if package.platform == "ferrari" and package.release_version == "3.28.0.172"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            ferrari_source = builder._source_for_target(
+                SOURCE,
+                ferrari.firmware,
+                ferrari.release_version,
+                ferrari.platform,
+                ferrari.architecture,
+                ferrari.xochitl_sha256,
+                Path(temporary),
+            ).read_text(encoding="utf-8")
+        self.assertIn("readonly property bool hlSnapAvailable: true", ferrari_source)
         self.assertNotIn("RMTOOL_EPUB_FONT_328_START", text_327)
         self.assertNotIn("FormatFont.qml", text_327)
         self.assertIn("RMTOOL_EPUB_FONT_328_START", text_328)

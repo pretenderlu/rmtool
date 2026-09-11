@@ -866,7 +866,8 @@ class WallpaperTab(QtWidgets.QWidget):
             "使用用户分区管理休眠壁纸"
         )
         self.user_partition_sleep_checkbox.setToolTip(
-            "休眠图片保存在用户分区，不占用系统根分区；仅适用于已验证的设备和固件。"
+            "休眠图片保存在用户分区，不占用系统根分区；当前精确支持 "
+            "Paper Pro 与 Paper Pro Move 3.28.0.172。"
         )
         self.user_partition_sleep_checkbox.setEnabled(False)
         variants_section_layout.addWidget(self.user_partition_sleep_checkbox)

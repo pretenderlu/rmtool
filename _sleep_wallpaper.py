@@ -37,11 +37,25 @@ _DIRECTORY_CHAINS = {
         (MANAGED_DIR, True),
     ),
 }
-SUPPORTED_IDENTITY = tap.DeviceIdentity(
-    "20260827113527",
-    "chiappa",
-    "aarch64",
-    "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4",
+SUPPORTED_IDENTITIES = frozenset(
+    {
+        tap.DeviceIdentity(
+            "20260827113527",
+            "chiappa",
+            "aarch64",
+            "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4",
+        ),
+        tap.DeviceIdentity(
+            "20260827113527",
+            "ferrari",
+            "aarch64",
+            "b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021",
+        ),
+    }
+)
+# Kept for older callers that use the previously exported Move test fixture.
+SUPPORTED_IDENTITY = next(
+    identity for identity in SUPPORTED_IDENTITIES if identity.platform == "chiappa"
 )
 
 
@@ -229,7 +243,7 @@ def _parse_marker(data: bytes) -> dict:
 
 def get_status(ssh) -> SleepWallpaperStatus:
     identity = tap.get_device_identity(ssh)
-    if identity != SUPPORTED_IDENTITY:
+    if identity not in SUPPORTED_IDENTITIES:
         return SleepWallpaperStatus(False, detail="当前设备或固件尚未完成实机验证。")
     config = _read_limited(ssh, CONFIG_PATH, MAX_CONFIG_BYTES) or b""
     _index, value, _line = _general_sleep_line(config)
@@ -348,7 +362,7 @@ def enable(ssh, image: bytes, *, take_over: bool = False) -> None:
     if not image or len(image) > MAX_IMAGE_BYTES:
         raise RuntimeError("休眠壁纸图片为空或过大。")
     with ssh.operation_session():
-        if tap.get_device_identity(ssh) != SUPPORTED_IDENTITY:
+        if tap.get_device_identity(ssh) not in SUPPORTED_IDENTITIES:
             raise RuntimeError("当前设备或固件尚未完成用户分区休眠壁纸验证。")
         snapshot = {
             CONFIG_PATH: _snapshot_file(ssh, CONFIG_PATH, MAX_CONFIG_BYTES),
@@ -427,7 +441,7 @@ def enable(ssh, image: bytes, *, take_over: bool = False) -> None:
 
 def disable(ssh) -> None:
     with ssh.operation_session():
-        if tap.get_device_identity(ssh) != SUPPORTED_IDENTITY:
+        if tap.get_device_identity(ssh) not in SUPPORTED_IDENTITIES:
             raise RuntimeError("当前设备或固件尚未完成用户分区休眠壁纸验证。")
         snapshot = {
             CONFIG_PATH: _snapshot_file(ssh, CONFIG_PATH, MAX_CONFIG_BYTES),

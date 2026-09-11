@@ -32,7 +32,7 @@ QMD_PAYLOAD_PATH = "exthome/qt-resource-rebuilder/reading-enhancements.qmd"
 HIGHLIGHT_EXTENSION_PATH = "extensions.d/rmtool-highlight-snap.so"
 HIGHLIGHT_LICENSE_PATH = "LICENSE.rm-tweak"
 FEATURE_ID = "reading-enhancements"
-PACKAGE_REVISION = 10
+PACKAGE_REVISION = 11
 MAX_MANIFEST_BYTES = tap.MAX_MANIFEST_BYTES
 MAX_PACKAGE_BYTES = tap.MAX_PACKAGE_BYTES
 MAX_UNPACKED_BYTES = tap.MAX_UNPACKED_BYTES
@@ -48,12 +48,23 @@ _PAYLOAD_PATHS = _REQUIRED_PATHS | {
 }
 
 
-_HIGHLIGHT_SNAP_IDENTITY = (
-    "20260827113527",
-    "3.28.0.172",
-    "chiappa",
-    "aarch64",
-    "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4",
+_HIGHLIGHT_SNAP_IDENTITIES = frozenset(
+    {
+        (
+            "20260827113527",
+            "3.28.0.172",
+            "chiappa",
+            "aarch64",
+            "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4",
+        ),
+        (
+            "20260827113527",
+            "3.28.0.172",
+            "ferrari",
+            "aarch64",
+            "b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021",
+        ),
+    }
 )
 
 
@@ -70,7 +81,7 @@ def _highlight_snap_supported(
         platform,
         architecture,
         xochitl_sha256,
-    ) == _HIGHLIGHT_SNAP_IDENTITY
+    ) in _HIGHLIGHT_SNAP_IDENTITIES
 
 
 def _payload_paths_for(
@@ -171,6 +182,28 @@ _PUBLISHED_REVISION_QMDS = {
         "3.28": (
             "bd8cd212d4dc5e765bc55c922014653237f4e70fda46c1f23a8eea4c473d96db",
             58196,
+        ),
+    },
+    10: {
+        "3.27": (
+            "13bccfa0e159c61b863a03bae9a24351119e36364e34dae2e4157ba1a1c158d5",
+            51292,
+        ),
+        "3.28.0.162": (
+            "a4bf75ebe404f7f6000b60e1a21f9a6185915f6e4eafaab13bd64e5106ab1815",
+            57817,
+        ),
+        "3.28": (
+            "afe9f847b2a99bfe709f8dad6ab64b6bf679f418b8b89669e6505dd9d5198d40",
+            57857,
+        ),
+        "chiappa:3.28.0.172": (
+            "51784b64083880b4a8ee61eb189553101f950bd357f2bff9038b903fe157c7f0",
+            59138,
+        ),
+        "ferrari:3.28.0.172": (
+            "afe9f847b2a99bfe709f8dad6ab64b6bf679f418b8b89669e6505dd9d5198d40",
+            57857,
         ),
     },
 }
@@ -552,20 +585,38 @@ def _shared_specs(package: ReadingEnhancementsPackage):
 
 
 def _known_published_revision_feature(package, current, revision):
-    if package.release_version == "3.28.0.172" and revision not in {8, 9}:
+    if package.release_version == "3.28.0.172" and revision not in {8, 9, 10}:
         return None
     fingerprints = _PUBLISHED_REVISION_QMDS.get(revision)
     if fingerprints is None:
         return None
     variant = "3.27" if package.release_version.startswith("3.27.") else "3.28"
-    predecessor = fingerprints.get(package.release_version, fingerprints.get(variant))
+    predecessor = fingerprints.get(
+        f"{package.platform}:{package.release_version}",
+        fingerprints.get(package.release_version, fingerprints.get(variant)),
+    )
     if predecessor is None:
         return None
+    extra_files = ()
+    if (
+        revision == 10
+        and package.platform == "chiappa"
+        and package.release_version == "3.28.0.172"
+    ):
+        extra_files = (
+            shared.SharedFeatureFileSpec(
+                HIGHLIGHT_EXTENSION_PATH,
+                HIGHLIGHT_EXTENSION_PATH,
+                "7bd078a8ed9c8b18f8134d7e5f7f7a7bf4e96b45f0ed2bea9d585fc5552c2352",
+                9680,
+                0o644,
+            ),
+        )
     return replace(
         current,
         sha256=predecessor[0],
         size=predecessor[1],
-        extra_files=(),
+        extra_files=extra_files,
     )
 
 

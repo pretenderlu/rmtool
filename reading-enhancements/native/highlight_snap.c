@@ -1,4 +1,4 @@
-/* Chinese highlighter range handling for the verified Move 3.28.0.172 build.
+/* Chinese highlighter range handling for exact Paper Pro and Move 3.28.0.172 builds.
  *
  * The target signature and CJK-only range decision are adapted from
  * bbq191/rm-tweak commit 1ccbdb0 (Apache-2.0). The trampoline, identity
@@ -15,7 +15,8 @@
 #include <unistd.h>
 
 #define EXPECTED_FIRMWARE "20260827113527"
-#define EXPECTED_XOCHITL_SHA256 "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"
+#define MOVE_XOCHITL_SHA256 "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"
+#define PAPER_PRO_XOCHITL_SHA256 "b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021"
 #define CONFIG_PATH "/home/root/.config/remarkable/xochitl.conf"
 #define PATCH_LEN 20
 
@@ -54,15 +55,17 @@ static int file_text_equals(const char *path, const char *expected) {
     FILE *f=fopen(path,"rb"); char buf[128]; size_t n; if(!f)return 0;n=fread(buf,1,sizeof(buf)-1,f);fclose(f);buf[n]=0;
     while(n && isspace((unsigned char)buf[n-1]))buf[--n]=0; return strcmp(buf,expected)==0;
 }
-static int xochitl_hash_matches(void) {
+static int xochitl_hash_matches(const char *expected) {
     FILE *f=fopen("/usr/bin/xochitl","rb"); uint8_t buf[65536]; size_t n; Sha256 s; char hex[65]; if(!f)return 0;
-    sha_init(&s); while((n=fread(buf,1,sizeof(buf),f))>0)sha_update(&s,buf,n); if(ferror(f)){fclose(f);return 0;}fclose(f);sha_final(&s,hex);return strcmp(hex,EXPECTED_XOCHITL_SHA256)==0;
+    sha_init(&s); while((n=fread(buf,1,sizeof(buf),f))>0)sha_update(&s,buf,n); if(ferror(f)){fclose(f);return 0;}fclose(f);sha_final(&s,hex);return strcmp(hex,expected)==0;
 }
-static int machine_matches(void) {
+static const char *machine_xochitl_hash(void) {
     FILE *f=fopen("/sys/devices/soc0/machine","rb"); char buf[256]; size_t n; if(!f)return 0;n=fread(buf,1,sizeof(buf)-1,f);fclose(f);buf[n]=0;
     while(n && isspace((unsigned char)buf[n-1]))buf[--n]=0;
     for(size_t i=0;i<n;i++)buf[i]=(char)tolower((unsigned char)buf[i]);
-    return strcmp(buf,"remarkable chiappa")==0 || strcmp(buf,"remarkable paper pro move")==0;
+    if(strcmp(buf,"remarkable chiappa")==0 || strcmp(buf,"remarkable paper pro move")==0)return MOVE_XOCHITL_SHA256;
+    if(strcmp(buf,"remarkable ferrari")==0 || strcmp(buf,"remarkable paper pro")==0)return PAPER_PRO_XOCHITL_SHA256;
+    return 0;
 }
 static uintptr_t unique_target(void) {
     FILE *f=fopen("/proc/self/maps","r"); char line[1024]; uintptr_t found=0; int count=0; if(!f)return 0;
@@ -95,7 +98,7 @@ typedef void (*ExpandFn)(long,void *); static ExpandFn original_expand;
 static void handler(long scene,void *range){if(setting_enabled()&&range){uint64_t *v=range;int *sub=(int *)(uintptr_t)v[1];long count=(long)v[2];if(sub&&count>0&&count<100000&&is_cjk(scene,sub[0]))return;}if(original_expand)original_expand(scene,range);}
 static int install(uintptr_t target){long ps=sysconf(_SC_PAGESIZE);if(ps<=0)ps=4096;uintptr_t page=target&~((uintptr_t)ps-1);size_t len=((target-page)+PATCH_LEN>(size_t)ps)?(size_t)ps*2:(size_t)ps;uint8_t *stub=mmap(NULL,PATCH_LEN+PATCH_LEN,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);if(stub==MAP_FAILED)return 0;memcpy(stub,(void *)target,PATCH_LEN);uint32_t jump[5];far_jump(jump,target+PATCH_LEN);memcpy(stub+PATCH_LEN,jump,PATCH_LEN);if(mprotect(stub,PATCH_LEN*2,PROT_READ|PROT_EXEC)!=0){munmap(stub,PATCH_LEN*2);return 0;}original_expand=(ExpandFn)stub;if(mprotect((void *)page,len,PROT_READ|PROT_WRITE|PROT_EXEC)!=0){original_expand=0;munmap(stub,PATCH_LEN*2);return 0;}far_jump(jump,(uintptr_t)handler);memcpy((void *)target,jump,PATCH_LEN);__builtin___clear_cache((char *)stub,(char *)stub+PATCH_LEN*2);__builtin___clear_cache((char *)target,(char *)target+PATCH_LEN);if(mprotect((void *)page,len,PROT_READ|PROT_EXEC)!=0){memcpy((void *)target,stub,PATCH_LEN);__builtin___clear_cache((char *)target,(char *)target+PATCH_LEN);mprotect((void *)page,len,PROT_READ|PROT_EXEC);original_expand=0;munmap(stub,PATCH_LEN*2);return 0;}return 1;}
 
-char _xovi_shouldLoad(void){return machine_matches()&&file_text_equals("/etc/version",EXPECTED_FIRMWARE)&&xochitl_hash_matches()&&unique_target()!=0;}
+char _xovi_shouldLoad(void){const char *hash=machine_xochitl_hash();return hash&&file_text_equals("/etc/version",EXPECTED_FIRMWARE)&&xochitl_hash_matches(hash)&&unique_target()!=0;}
 void _xovi_construct(void){if(!_xovi_shouldLoad())return;uintptr_t target=unique_target();if(target)install(target);}
 
 struct XoviMetadataEntry;
