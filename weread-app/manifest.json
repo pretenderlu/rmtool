@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "name": "RemarkableWeRead",
+  "version": "1.0.0",
+  "source_commit": "ba506af03a959092ecdea4e075e93ce9d204ac5e",
+  "asset": "remarkable-weread-v1.0.0-universal-release.zip",
+  "size": 43336015,
+  "sha256": "3b2a918d67ab0d8dfbc7b2ce1cb96145a44af1b5520a9b6310ef183bc2a0dfd5",
+  "urls": [
+    "https://cdn.weread.qq.com/app/remarkable/remarkable-weread-v1.0.0-universal-release.zip"
+  ],
+  "inner": {
+    "asset": "remarkable-weread-v1.0.0-universal-aarch64.tar.gz",
+    "size": 43329981,
+    "sha256": "b14398e9564e1e86f99329772f5eedc55c1cb65794cbba3ea89c175104ba8ccf"
+  },
+  "supported": {
+    "platforms": ["ferrari", "chiappa"],
+    "architectures": ["aarch64"],
+    "firmware_series": ["3.28"]
+  }
+}

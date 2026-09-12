@@ -442,6 +442,15 @@ def get_status(
             ssh_client, runtime, trusted, identity
         )
         record = inspection.states.get(FEATURE_ID)
+        if selected.get(FEATURE_ID) == shared.MANAGED_RECEIPT_REASON:
+            return NoteEnhancementsStatus(
+                NoteEnhancementsState.REPAIR_AVAILABLE,
+                identity,
+                package,
+                available,
+                "已验证为 rmtool 完成安装的旧版笔记增强，可直接更新。",
+                True,
+            )
         if FEATURE_ID in selected:
             raise RuntimeError("笔记增强旧版识别结果无效。")
         if record is None:

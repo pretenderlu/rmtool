@@ -22,6 +22,8 @@ import _plugin_recovery
 import _reading_enhancements
 import _residue_migration
 import _tap_page_turn
+import _weread_app
+import _weread_launcher
 from _ssh import SSHClientWrapper, remount_rw, require_connection
 import rmtool as _rmtool  # late-bound access to avoid circular import
 
@@ -55,7 +57,11 @@ def _show_package_download_error(
         parent,
         f"选择{exc.feature_label}资源包",
         "",
-        "资源包 (*.tar.gz);;所有文件 (*)",
+        (
+            "资源包 (*.zip);;所有文件 (*)"
+            if exc.asset.casefold().endswith(".zip")
+            else "资源包 (*.tar.gz);;所有文件 (*)"
+        ),
     )
     if not source_path:
         return
@@ -173,6 +179,32 @@ def _install_note_enhancements(
 def _cleanup_note_enhancements(ssh_client, state_dir: str):
     catalog = _note_enhancements.load_catalog(state_dir, refresh=True)
     return _note_enhancements.cleanup_legacy(ssh_client, catalog)
+
+
+def _weread_launcher_status(ssh_client, state_dir: str):
+    catalog = _weread_launcher.load_catalog(state_dir, refresh=True)
+    return _weread_launcher.get_status(ssh_client, catalog)
+
+
+def _weread_combined_status(ssh_client, state_dir: str):
+    app_status = _weread_app.get_status(ssh_client)
+    return app_status, _weread_launcher_status(ssh_client, state_dir)
+
+
+def _install_weread_app_and_status(ssh_client, state_dir: str):
+    app_status = _weread_app.install_online(ssh_client, state_dir)
+    return app_status, _weread_launcher_status(ssh_client, state_dir)
+
+
+def _install_weread_launcher(ssh_client, package, state_dir: str, migrate: bool):
+    del migrate
+    archive = _weread_launcher.download_package(package, state_dir)
+    return _weread_launcher.install(ssh_client, package, archive)
+
+
+def _cleanup_weread_launcher(ssh_client, state_dir: str):
+    catalog = _weread_launcher.load_catalog(state_dir, refresh=True)
+    return _weread_launcher.cleanup_legacy(ssh_client, catalog)
 
 
 def select_font_file(parent: QtWidgets.QWidget) -> Optional[str]:
@@ -2396,17 +2428,19 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         installer=_install_reading_enhancements,
         cleaner=_cleanup_reading_enhancements,
         feature_name="阅读增强",
+        device_page_name=None,
         description=(
-            "为 PDF 和 EPUB 阅读提供点击翻页、快速黑白和翻页清残影；"
+            "为 PDF 和 EPUB 阅读提供点击翻页、快刷模式和翻页清残影；"
+            "每本书可独立选择普通、彩色快刷或黑白快刷。"
             "Paper Pro 与 Paper Pro Move 3.28.0.172 另提供中文划词精确选取。"
             "日常开关由设备的“设置 > 阅读增强”页面控制。"
         ),
         explanation=(
-            "阅读增强只作用于 PDF 和 EPUB 阅读页，包含点击翻页、快速黑白阅读和"
-            "翻页清残影；精确匹配的 Paper Pro 与 Paper Pro Move 3.28.0.172 "
+            "阅读增强只作用于 PDF 和 EPUB 阅读页，包含点击翻页、快刷模式和"
+            "翻页清残影。全局设置只负责授权快刷，每本书可独立选择普通、"
+            "彩色快刷或黑白快刷；精确匹配的 Paper Pro 与 Paper Pro Move 3.28.0.172 "
             "另提供中文划词精确选取。"
             "安装或迁移完成后请手动重启设备，再到“设置 > 阅读增强”开启需要的开关。"
-            "快速黑白阅读每次重启后默认关闭。"
         ),
     ):
         super().__init__(parent)
@@ -2417,15 +2451,16 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         self.installer = installer
         self.cleaner = cleaner
         self.feature_name = feature_name
+        self.device_page_name = device_page_name or feature_name
         self.explanation = explanation
         self.thread_pool = QtCore.QThreadPool.globalInstance()
         self._status = None
         self._busy = False
 
-        title = QtWidgets.QLabel(feature_name)
-        title.setObjectName("toolboxFeatureTitle")
-        detail = QtWidgets.QLabel(description)
-        detail.setWordWrap(True)
+        self.title_label = QtWidgets.QLabel(feature_name)
+        self.title_label.setObjectName("toolboxFeatureTitle")
+        self.detail_label = QtWidgets.QLabel(description)
+        self.detail_label.setWordWrap(True)
 
         self.catalog_label = QtWidgets.QLabel(f"当前固件{feature_name}包：检测后显示")
         self.catalog_label.setObjectName("readingEnhancementsCatalog")
@@ -2460,8 +2495,8 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(_rmtool.SUBSECTION_GAP)
-        layout.addWidget(title)
-        layout.addWidget(detail)
+        layout.addWidget(self.title_label)
+        layout.addWidget(self.detail_label)
         layout.addWidget(self.catalog_label)
         layout.addWidget(self.status_label)
         layout.addLayout(buttons)
@@ -2518,6 +2553,7 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             connected
             and self._status is not None
             and self._status.package is not None
+            and getattr(self._status, "prerequisite_available", True)
             and state in install_states
         )
         self.disable_button.setEnabled(
@@ -2595,13 +2631,15 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             if on_done is not None:
                 on_done()
             return
+        ssh_client = self.ssh_client
+        feature_id = self.backend.FEATURE_ID
         self._set_busy(True, pending)
         worker = _rmtool.Worker(fn, *args)
 
         def on_finished(status):
             if sip.isdeleted(self):
                 if close_connection:
-                    self.ssh_client.close()
+                    ssh_client.close()
                 return
             self._set_busy(False)
             self._apply_status(status)
@@ -2615,10 +2653,10 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         def on_error(exc: Exception):
             if sip.isdeleted(self):
                 if close_connection:
-                    self.ssh_client.close()
+                    ssh_client.close()
                 logging.error(
                     "%s operation failed after tab close: %s",
-                    self.backend.FEATURE_ID,
+                    feature_id,
                     exc,
                 )
                 return
@@ -2626,7 +2664,7 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
                 # Download failed before any device change; keep the session.
                 self._set_busy(False, "资源包下载失败，可手动加载后重试")
                 logging.error(
-                    "%s package download failed: %s", self.backend.FEATURE_ID, exc
+                    "%s package download failed: %s", feature_id, exc
                 )
                 if show_errors:
                     _show_package_download_error(self, exc, retry=self._install)
@@ -2636,7 +2674,7 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             if close_connection:
                 self.ssh_client.close()
             self._set_busy(False, "操作失败，设备不会被自动重启；请检查日志后重试")
-            logging.error("%s operation failed: %s", self.backend.FEATURE_ID, exc)
+            logging.error("%s operation failed: %s", feature_id, exc)
             if show_errors:
                 show_error(
                     self,
@@ -2681,9 +2719,9 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             self,
             _rmtool.APP_NAME,
             f"将{action}，完成后 SSH 会话会关闭。"
-            f"本次不会自动重启设备；请手动重启后，在“设置 > {self.feature_name}”中"
-            "重新开启需要的开关。"
-            "迁移不会沿用旧版开关状态。是否继续？",
+            f"本次不会自动重启设备；请手动重启后前往“设置 > {self.device_page_name}”。"
+            + ("迁移不会沿用旧版开关状态。" if migration else "")
+            + "是否继续？",
             confirm_text=(
                 f"迁移到{self.feature_name}"
                 if migration
@@ -2714,7 +2752,7 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
                 if repair
                 else f"{self.feature_name}已部署并通过校验，SSH 会话已关闭。\n"
             )
-            + f"请手动重启设备，然后在“设置 > {self.feature_name}”中开启需要的开关。",
+            + f"请手动重启设备，然后前往“设置 > {self.device_page_name}”。",
             close_connection=True,
         )
 
@@ -2803,6 +2841,193 @@ class NoteEnhancementsSection(ReadingEnhancementsSection):
                 "每本笔记的设置菜单可单独覆盖开关和等待时间。关闭总开关或功能开关"
                 "会恢复系统原生 1 秒刷新；安装完成后需手动重启设备。"
             ),
+        )
+
+
+class WeReadLauncherSection(ReadingEnhancementsSection):
+    """Official WeRead application plus the exact-firmware device entry."""
+
+    def __init__(self, ssh_client: SSHClientWrapper, parent=None):
+        super().__init__(
+            ssh_client,
+            parent,
+            backend=_weread_launcher,
+            state_type=_weread_launcher.WeReadLauncherState,
+            status_loader=_weread_launcher_status,
+            installer=_install_weread_launcher,
+            cleaner=_cleanup_weread_launcher,
+            feature_name="设备启动入口",
+            device_page_name="微信读书",
+            description=(
+                "仅支持运行 3.28 系列固件的 Paper Pro 和 Move。"
+                "先安装官方微信读书 App，再安装当前固件精确匹配的设备启动入口。"
+            ),
+            explanation=(
+                "微信读书 App 直接从腾讯微信读书官方 CDN 下载 v1.0.0；"
+                "rmtool 校验外层 ZIP 和内层安装包，重装或修复会保留登录、下载和阅读数据。"
+                "设备启动入口提供普通、彩色快刷和黑白快刷。安装入口后请手动重启设备，"
+                "再从“设置 > 微信读书”启动官方应用。"
+                "两种快刷模式均保持手写笔最低延迟；彩色快刷保留彩色，黑白快刷减少彩色残影。"
+            ),
+        )
+        self.title_label.setText("微信读书")
+        self.app_status = None
+
+        app_title = QtWidgets.QLabel("微信读书 App")
+        app_title.setObjectName("toolboxFeatureTitle")
+        self.app_status_label = ToolboxStatusLabel("设备已连接，尚未检测")
+        self.app_status_label.setObjectName("wereadAppStatus")
+        self.app_status_label.setWordWrap(True)
+        self.app_detect_button = QtWidgets.QPushButton("检测 App")
+        self.app_install_button = QtWidgets.QPushButton("安装微信读书 App")
+        self.app_install_button.setProperty("btnRole", "primary")
+        app_buttons = QtWidgets.QHBoxLayout()
+        app_buttons.setContentsMargins(0, 0, 0, 0)
+        app_buttons.setSpacing(_rmtool.SUBSECTION_GAP)
+        app_buttons.addWidget(self.app_detect_button)
+        app_buttons.addWidget(self.app_install_button)
+        app_buttons.addStretch()
+        app_buttons_widget = QtWidgets.QWidget()
+        app_buttons_widget.setLayout(app_buttons)
+
+        launcher_title = QtWidgets.QLabel("设备启动入口")
+        launcher_title.setObjectName("toolboxFeatureTitle")
+        layout = self.layout()
+        layout.insertWidget(2, app_title)
+        layout.insertWidget(3, self.app_status_label)
+        layout.insertWidget(4, app_buttons_widget)
+        layout.insertWidget(5, launcher_title)
+        self.detect_button.setText("检测启动入口")
+
+        self.app_detect_button.clicked.connect(self._detect_status)
+        self.app_install_button.clicked.connect(self._install_app)
+        self._update_buttons()
+
+    def _on_connection_changed(self, connected: bool):
+        super()._on_connection_changed(connected)
+        if hasattr(self, "app_status_label"):
+            if not connected:
+                self.app_status = None
+                self.app_status_label.setText("设备未连接")
+            elif self.app_status is None:
+                self.app_status_label.setText("设备已连接，尚未检测")
+            self._update_buttons()
+
+    def _update_buttons(self):
+        super()._update_buttons()
+        if not hasattr(self, "app_install_button"):
+            return
+        connected = self.ssh_client.is_connected() and not self._busy
+        state = self.app_status.state if self.app_status else None
+        installable = state in (
+            _weread_app.WeReadAppState.NOT_INSTALLED,
+            _weread_app.WeReadAppState.REPAIR_AVAILABLE,
+        )
+        self.app_detect_button.setEnabled(connected)
+        self.app_install_button.setEnabled(connected and installable)
+        self.install_button.setEnabled(
+            self.install_button.isEnabled()
+            and state is _weread_app.WeReadAppState.INSTALLED
+        )
+        self.app_install_button.setText(
+            "修复微信读书 App"
+            if state is _weread_app.WeReadAppState.REPAIR_AVAILABLE
+            else "安装微信读书 App"
+        )
+
+    def _apply_app_status(self, status):
+        self.app_status = status
+        messages = {
+            _weread_app.WeReadAppState.INCOMPATIBLE: "当前设备不支持安装",
+            _weread_app.WeReadAppState.NOT_INSTALLED: "尚未安装官方微信读书 App",
+            _weread_app.WeReadAppState.REPAIR_AVAILABLE: "官方 App 可修复",
+            _weread_app.WeReadAppState.INSTALLED: "官方微信读书 App 已安装并通过校验",
+            _weread_app.WeReadAppState.BROKEN: "无法验证官方微信读书 App 状态",
+        }
+        message = messages[status.state]
+        if status.detail:
+            message += f"：{status.detail}"
+        self.app_status_label.setText(message)
+
+    def _start_status_detection(self, *, on_done=None, show_errors: bool = True):
+        self._start_combined_worker(
+            _weread_combined_status,
+            self.ssh_client,
+            str(_rmtool.app_state_dir()),
+            pending="正在检测微信读书 App 与设备启动入口…",
+            on_done=on_done,
+            show_errors=show_errors,
+        )
+
+    def _start_combined_worker(
+        self, fn, *args, pending: str, success: str = "", on_done=None,
+        show_errors: bool = True,
+    ):
+        if self._busy:
+            if on_done is not None:
+                on_done()
+            return
+        self._set_busy(True, pending)
+        self.app_status_label.setText(pending)
+        worker = _rmtool.Worker(fn, *args)
+
+        def on_finished(result):
+            if sip.isdeleted(self):
+                return
+            app_status, launcher_status = result
+            self._set_busy(False)
+            self._apply_app_status(app_status)
+            self._apply_status(launcher_status)
+            if success:
+                show_info(self, _rmtool.APP_NAME, success)
+            if on_done is not None:
+                on_done()
+
+        def on_error(exc: Exception):
+            if sip.isdeleted(self):
+                logging.error("WeRead operation failed after tab close: %s", exc)
+                return
+            self._set_busy(False, "操作失败，请检查日志后重试")
+            self.app_status_label.setText("操作失败，请检查日志后重试")
+            if isinstance(exc, _package_download.PackageDownloadError):
+                if show_errors:
+                    _show_package_download_error(self, exc, retry=self._install_app)
+            elif show_errors:
+                show_error(self, _rmtool.APP_NAME, f"操作失败：{exc}\n设备不会被自动重启。")
+            if on_done is not None:
+                on_done()
+
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self.thread_pool.start(worker)
+
+    @require_connection
+    def _install_app(self):
+        if not self.app_status or self.app_status.state not in (
+            _weread_app.WeReadAppState.NOT_INSTALLED,
+            _weread_app.WeReadAppState.REPAIR_AVAILABLE,
+        ):
+            return
+        repairing = self.app_status.state is _weread_app.WeReadAppState.REPAIR_AVAILABLE
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "将从腾讯微信读书官方 CDN 下载并严格校验 v1.0.0 安装包，"
+            + ("保留用户数据并修复程序文件。" if repairing else "安装到设备。")
+            + "仅支持 Paper Pro/Move 的 3.28 系列固件；不会重启 xochitl 或设备。是否继续？",
+            confirm_text="修复微信读书 App" if repairing else "安装微信读书 App",
+            cancel_text="取消",
+        ):
+            return
+        self._start_combined_worker(
+            _install_weread_app_and_status,
+            self.ssh_client,
+            str(_rmtool.app_state_dir()),
+            pending="正在下载、校验并安装官方微信读书 App…",
+            success=(
+                "微信读书 App 已修复，用户数据已保留。"
+                if repairing else "微信读书 App 已安装。"
+            ) + "\n现在可以安装设备启动入口；入口安装后需手动重启设备。",
         )
 
 
@@ -4043,6 +4268,7 @@ class ToolboxTab(QtWidgets.QWidget):
         self.pinyin_input_section = PinyinInputSection(ssh_client)
         self.reading_enhancements_section = ReadingEnhancementsSection(ssh_client)
         self.note_enhancements_section = NoteEnhancementsSection(ssh_client)
+        self.weread_launcher_section = WeReadLauncherSection(ssh_client)
         self.tap_page_turn_section = TapPageTurnSection(ssh_client)
         self.diagnostics_section = DiagnosticsSection(ssh_client)
         self.legacy_plugin_section = LegacyPluginMigrationSection(ssh_client)
@@ -4051,6 +4277,7 @@ class ToolboxTab(QtWidgets.QWidget):
             self.pinyin_input_section,
             self.reading_enhancements_section,
             self.note_enhancements_section,
+            self.weread_launcher_section,
             self.tap_page_turn_section,
             self.legacy_plugin_section,
         )
@@ -4088,6 +4315,13 @@ class ToolboxTab(QtWidgets.QWidget):
                 "keywords": "笔记 书写 彩色 提笔 刷新 闪烁 延迟 Paper Pro Move",
                 "section": self.note_enhancements_section,
                 "status": self.note_enhancements_section.status_label,
+            },
+            {
+                "title": "微信读书",
+                "category": "阅读增强",
+                "keywords": "微信读书 WeRead 启动 普通 黑白快刷 3.28",
+                "section": self.weread_launcher_section,
+                "status": self.weread_launcher_section.status_label,
             },
             {
                 "title": "点击翻页（RM1/RM2/Paper Pure）",

@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/rmtool">
+    <file alias="wereader.png">../assets/wereader.png</file>
+  </qresource>
+</RCC>

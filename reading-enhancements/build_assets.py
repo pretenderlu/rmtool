@@ -87,13 +87,15 @@ def _main_view_variant(source: str) -> str:
     )
     old = """    TRAVERSE ?[!mode][!visible]
         REPLACE visible WITH {
-            visible: (rmtoolFastMonoReadingAvailable && rmtoolFastMonoReadingEnabled)
+            visible: (rmtoolFastReadingAvailable && rmtoolReadingRefreshMode !== \"normal\")
                 || sceneView.globalScreenMode != undefined
         }
         REPLACE mode WITH {
-            mode: rmtoolFastMonoReadingAvailable && rmtoolFastMonoReadingEnabled
-                ? Epaper.ScreenModeItem.Mono
-                : (visible ? sceneView.globalScreenMode : Epaper.ScreenModeItem.UI)
+            mode: rmtoolFastReadingAvailable && rmtoolReadingRefreshMode === \"colorFast\"
+                ? Epaper.ScreenModeItem.Animation
+                : (rmtoolFastReadingAvailable && rmtoolReadingRefreshMode === \"monoFast\"
+                    ? Epaper.ScreenModeItem.Mono
+                    : (visible ? sceneView.globalScreenMode : Epaper.ScreenModeItem.UI))
         }
     END TRAVERSE
 END AFFECT
@@ -108,8 +110,8 @@ AFFECT /qml/device/view/main/MainView.qml
                     return false
                 }
                 if (documentView.visible
-                    && documentView.item.rmtoolFastMonoReadingAvailable
-                    && documentView.item.rmtoolFastMonoReadingEnabled) {
+                    && documentView.item.rmtoolFastReadingAvailable
+                    && documentView.item.rmtoolReadingRefreshMode !== \"normal\") {
                     return true
                 }
                 const mode = documentView.item.globalScreenMode
@@ -119,9 +121,13 @@ AFFECT /qml/device/view/main/MainView.qml
         REPLACE mode WITH {
             mode: {
                 if (documentView.visible
-                    && documentView.item?.rmtoolFastMonoReadingAvailable
-                    && documentView.item.rmtoolFastMonoReadingEnabled) {
-                    return Epaper.ScreenModeItem.Mono
+                    && documentView.item?.rmtoolFastReadingAvailable) {
+                    if (documentView.item.rmtoolReadingRefreshMode === \"colorFast\") {
+                        return Epaper.ScreenModeItem.Animation
+                    }
+                    if (documentView.item.rmtoolReadingRefreshMode === \"monoFast\") {
+                        return Epaper.ScreenModeItem.Mono
+                    }
                 }
                 if (documentView.item && documentView.item.globalScreenMode) {
                     return documentView.item.globalScreenMode
@@ -240,7 +246,15 @@ def _compile_and_validate(*, qmd_tool: Path, qmldiff: Path, source: Path, target
     menu = (replay / QREX_FILES[3]).read_text(encoding="utf-8")
     pages = (replay / QREX_FILES[5]).read_text(encoding="utf-8")
     for text, markers in (
-        (settings, ("rmtoolReadingEnhancementsPage", "RmtoolReadingEnhancements")),
+        (
+            settings,
+            (
+                "rmtoolReadingEnhancementsPage",
+                "RmtoolReadingEnhancements",
+                "fastModeEnabled",
+                "fastMonoEnabled",
+            ),
+        ),
         (gestures, ("rmtoolTapPageDirection",)),
         (
             document,
@@ -248,6 +262,11 @@ def _compile_and_validate(*, qmd_tool: Path, qmldiff: Path, source: Path, target
                 "rmtoolHasUsableToc",
                 "forceClearNow",
                 "onRmtoolReadingDocumentIdChanged",
+                "rmtoolGlobalFastModeEnabled",
+                "rmtoolDocumentRefreshMode",
+                "rmtoolReadingRefreshMode",
+                "rmtoolReadFastModeEnabled",
+                "rmtoolSetRefreshMode",
                 "rmtoolTableOfContentsAvailable",
                 "root.requestTableOfContents(true)",
                 "toolbar.selectLastTool()",
@@ -259,7 +278,11 @@ def _compile_and_validate(*, qmd_tool: Path, qmldiff: Path, source: Path, target
             (
                 "rmtoolTableOfContentsItem",
                 "rmtoolTapPageTurnToggle",
-                "rmtoolFastMonoToggle",
+                "rmtoolRefreshModeSelector",
+                "rmtoolRefreshModeOptions",
+                "rmtoolRefreshModeNormal",
+                "rmtoolRefreshModeColorFast",
+                "rmtoolRefreshModeMonoFast",
                 "rmtoolCleanupSelector",
                 'label: "强制刷新"',
                 'label: "刷新页数"',
@@ -337,8 +360,8 @@ def _compile_and_validate(*, qmd_tool: Path, qmldiff: Path, source: Path, target
                     f"structure assertion {target['id']} missing 3.27 navigation marker {marker}"
                 )
         main = (replay / "qml/device/view/main/MainView.qml").read_text(encoding="utf-8")
-        if "rmtoolFastMonoReadingEnabled" not in main:
-            raise RuntimeError(f"structure assertion {target['id']} missing MainView fast-mono hook")
+        if "rmtoolReadingRefreshMode" not in main:
+            raise RuntimeError(f"structure assertion {target['id']} missing MainView refresh-mode hook")
     else:
         font_menu = (replay / QREX_FILES[4]).read_text(encoding="utf-8")
         for marker in (

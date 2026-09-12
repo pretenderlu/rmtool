@@ -16,6 +16,7 @@ import _note_enhancements as note
 import _pinyin_input as pinyin
 import _reading_enhancements as reading
 import _tap_page_turn as tap
+import _weread_launcher as weread
 import _xovi_standalone
 
 
@@ -26,6 +27,7 @@ FEATURE_LABELS = {
     "pinyin-input": "拼音输入",
     "reading-enhancements": "阅读增强",
     "note-enhancements": "笔记增强",
+    "weread-launcher": "微信读书启动器",
     "appload": "AppLoad",
     "koreader": "KOReader",
 }
@@ -64,6 +66,7 @@ def _providers() -> Dict[str, object]:
         "pinyin-input": pinyin,
         "reading-enhancements": reading,
         "note-enhancements": note,
+        "weread-launcher": weread,
     }
 
 

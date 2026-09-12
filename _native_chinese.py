@@ -637,6 +637,10 @@ def get_status(
             raise RuntimeError("当前固件没有精确匹配的原生中文包。")
         if FEATURE_ID in revisions:
             detail = (
+                "已验证为 rmtool 完成安装的旧版原生中文包，可直接修复更新"
+                if revisions[FEATURE_ID]
+                == _xovi_standalone.MANAGED_RECEIPT_REASON
+                else
                 "已精确验证为缺少中文键盘名称翻译的旧版原生中文包，可直接修复更新"
                 if revisions[FEATURE_ID] == "keyboard_label_catalog_missing"
                 else "已精确验证为仍通过 QML 改写键盘名称的旧版原生中文包，可直接修复更新"

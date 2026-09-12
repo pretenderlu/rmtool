@@ -138,6 +138,25 @@ RESOURCES = {
                 "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets",
             ),
         ),
+        Resource(
+            "weread-launcher",
+            "weread-launcher-assets",
+            ROOT / "weread-launcher" / "manifest.json",
+            "weread-launcher",
+            "rmtool-weread-launcher-",
+            frozenset(
+                {
+                    "offline_verified",
+                    "device_verified",
+                    "package_revision",
+                    "urls",
+                }
+            ),
+            (
+                f"{COS_PUBLIC_BASE_URL}/weread-launcher",
+                "https://github.com/pretenderlu/rmtool/releases/download/weread-launcher-assets",
+            ),
+        ),
     )
 }
 
@@ -358,6 +377,7 @@ def _validate_feature(resource: Resource, release_dir: Path) -> Bundle:
             "fast-mono-reading",
             "reading-enhancements",
             "note-enhancements",
+            "weread-launcher",
         } and (
             type(package.get("package_revision")) is not int
             or package["package_revision"] <= 0

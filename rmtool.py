@@ -1110,6 +1110,9 @@ _ARROW_ICONS = _generate_arrow_icons()
 
 
 def main():
+    import _xovi_standalone
+
+    _xovi_standalone.configure_managed_receipt_store(app_state_dir())
     # -- High-DPI: let Qt scale the UI by the OS display factor (must be set
     # before QApplication is created) so text stays readable on 4K screens --
     QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling, True)

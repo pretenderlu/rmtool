@@ -626,7 +626,12 @@ def _inspect_shared_revision(
 
     try:
         inspection = inspect(trusted)
-        return inspection, trusted, False
+        installed = inspection.states.get("fast-mono-reading")
+        return inspection, trusted, bool(
+            installed is not None
+            and "fast-mono-reading" in inspection.receipt_features
+            and installed.spec != trusted["fast-mono-reading"]
+        )
     except RuntimeError as current_error:
         predecessors = _known_shared_predecessor_specs(package)
         if not predecessors:

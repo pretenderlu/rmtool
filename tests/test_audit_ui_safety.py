@@ -3,6 +3,7 @@
 import os
 import threading
 import unittest
+from contextlib import ExitStack
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -257,14 +258,19 @@ class UiSafetyTests(unittest.TestCase):
                 busy_section._start_worker(lambda: None, pending="installing")
                 toolbox._detect_all_statuses()
                 completed = 1
-                while toolbox._detect_all_busy:
-                    self.assertLess(completed, 7)
-                    worker = self.pool.start.call_args.args[0]
-                    section = toolbox._detectable_sections[toolbox._detect_all_index - 1]
-                    with mock.patch.object(section, "_apply_status"):
-                        worker.signals.finished.emit(None)
-                    completed += 1
-                self.assertEqual(self.pool.start.call_count, 6)
+                with ExitStack() as patches:
+                    for section in toolbox._detectable_sections:
+                        patches.enter_context(mock.patch.object(section, "_apply_status"))
+                        if hasattr(section, "_apply_app_status"):
+                            patches.enter_context(
+                                mock.patch.object(section, "_apply_app_status")
+                            )
+                    while toolbox._detect_all_busy:
+                        self.assertLess(completed, 7)
+                        worker = self.pool.start.call_args.args[0]
+                        worker.signals.finished.emit((mock.Mock(), mock.Mock()))
+                        completed += 1
+                self.assertEqual(self.pool.start.call_count, 7)
                 self.assertTrue(busy_section._busy)
                 self.assertEqual(busy_section.status_label.text(), "installing")
                 self.assertTrue(toolbox.detect_all_button.isEnabled())

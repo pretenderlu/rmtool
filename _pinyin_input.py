@@ -655,6 +655,9 @@ def get_status(
                 "missing_rcc": (
                     "已精确验证为缺少中文键盘布局资源的首版拼音包，可直接修复更新"
                 ),
+                _xovi_standalone.MANAGED_RECEIPT_REASON: (
+                    "已验证为 rmtool 完成安装的旧版拼音输入法，可直接修复更新"
+                ),
             }[reason]
             return PinyinInputStatus(
                 PinyinInputState.OUTDATED,

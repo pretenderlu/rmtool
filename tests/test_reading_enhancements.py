@@ -13,6 +13,7 @@ import _xovi_standalone as shared
 
 
 MANIFEST_PATH = Path("reading-enhancements/manifest.json")
+QMD_SOURCE_PATH = Path("reading-enhancements/qmd-src/reading-enhancements-3.28.qmd")
 
 
 class ReadingEnhancementsBackendTests(unittest.TestCase):
@@ -108,6 +109,34 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 package.download_urls[1], f"{reading.COS_URL}/{package.asset}"
             )
 
+    def test_reading_refresh_modes_are_document_scoped_and_mutually_exclusive(self):
+        source = QMD_SOURCE_PATH.read_text(encoding="utf-8")
+        self.assertIn('label: "快刷模式"', source)
+        self.assertIn('"fastModeEnabled"', source)
+        self.assertIn('"fastMonoEnabled"', source)
+        self.assertIn('return !!legacy ? "monoFast" : "normal"', source)
+        self.assertIn('"refreshMode"', source)
+        self.assertIn('"colorFast"', source)
+        self.assertIn('"monoFast"', source)
+        self.assertIn('function rmtoolSetRefreshMode(value)', source)
+        self.assertIn("Epaper.ScreenModeItem.Animation", source)
+        self.assertIn("Epaper.ScreenModeItem.Mono", source)
+        self.assertNotIn("function rmtoolSetFastMonoEnabled", source)
+        self.assertNotIn('Settings.setRawValue("RmtoolReadingEnhancements", "fastMonoEnabled"', source)
+
+        settings = source.split("AFFECT /qml/device/view/settings/Settings.qml", 1)[1].split(
+            "END AFFECT", 1
+        )[0]
+        menu = source.split("AFFECT /qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml", 1)[1].split(
+            "END AFFECT", 1
+        )[0]
+        self.assertEqual(settings.count('label: "普通"'), 0)
+        self.assertEqual(settings.count('label: "彩色快刷"'), 0)
+        self.assertEqual(settings.count('label: "黑白快刷"'), 0)
+        self.assertEqual(menu.count('label: "普通"'), 1)
+        self.assertEqual(menu.count('label: "彩色快刷"'), 1)
+        self.assertEqual(menu.count('label: "黑白快刷"'), 1)
+
     def test_highlighter_payload_is_limited_to_exact_color_172_targets(self):
         carrying = [
             package for package in self.catalog
@@ -160,6 +189,77 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 )
             ],
         )
+
+    def test_public_revision_11_is_an_exact_safe_update_for_every_target(self):
+        for package in self.catalog:
+            identity = tap.DeviceIdentity(
+                package.firmware,
+                package.platform,
+                package.architecture,
+                package.xochitl_sha256,
+            )
+            runtime, current = reading._shared_specs(package)
+            predecessor = reading._known_published_revision_feature(
+                package, current, 11
+            )
+            self.assertIsNotNone(predecessor, package.asset)
+            expected_extra = (
+                [
+                    (
+                        reading.HIGHLIGHT_EXTENSION_PATH,
+                        "a3fbed58347669545386d0aa5955339e578b00b066c15d11f131eead11cb19e5",
+                        9872,
+                    )
+                ]
+                if package.release_version == "3.28.0.172"
+                else []
+            )
+            self.assertEqual(
+                [
+                    (item.runtime_path, item.sha256, item.size)
+                    for item in predecessor.extra_files
+                ],
+                expected_extra,
+            )
+            inspection = shared.SharedInspection(
+                {
+                    reading.FEATURE_ID: shared.SharedFeatureState(
+                        predecessor, True, self.process
+                    )
+                },
+                True,
+                True,
+            )
+            with self.subTest(package=package.asset), patch.object(
+                reading.tap, "get_device_identity", return_value=identity
+            ), patch.object(
+                reading,
+                "_trusted_context",
+                return_value=(
+                    runtime,
+                    {reading.FEATURE_ID: current},
+                    (),
+                    current,
+                ),
+            ), patch.object(
+                reading.shared, "has_shared_artifacts", return_value=True
+            ), patch.object(
+                reading,
+                "_inspection_for_migration",
+                return_value=(
+                    inspection,
+                    {reading.FEATURE_ID: predecessor},
+                    {reading.FEATURE_ID: "package-revision-11"},
+                ),
+            ):
+                status = reading.get_status(Mock(), (package,))
+
+            self.assertEqual(
+                status.state, reading.ReadingEnhancementsState.REPAIR_AVAILABLE
+            )
+            self.assertIn("revision 11", status.detail)
+            self.assertTrue(status.recovery_available)
+            self.assertTrue(status.cleanup_available)
 
     def test_only_tagged_package_revisions_are_trusted(self):
         self.assertEqual(
@@ -269,6 +369,28 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                         57857,
                     ),
                 },
+                11: {
+                    "3.27": (
+                        "13bccfa0e159c61b863a03bae9a24351119e36364e34dae2e4157ba1a1c158d5",
+                        51292,
+                    ),
+                    "3.28.0.162": (
+                        "a4bf75ebe404f7f6000b60e1a21f9a6185915f6e4eafaab13bd64e5106ab1815",
+                        57817,
+                    ),
+                    "3.28": (
+                        "afe9f847b2a99bfe709f8dad6ab64b6bf679f418b8b89669e6505dd9d5198d40",
+                        57857,
+                    ),
+                    "chiappa:3.28.0.172": (
+                        "51784b64083880b4a8ee61eb189553101f950bd357f2bff9038b903fe157c7f0",
+                        59138,
+                    ),
+                    "ferrari:3.28.0.172": (
+                        "51784b64083880b4a8ee61eb189553101f950bd357f2bff9038b903fe157c7f0",
+                        59138,
+                    ),
+                },
             },
         )
         self.assertEqual(
@@ -282,6 +404,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 "package-revision-8",
                 "package-revision-9",
                 "package-revision-10",
+                "package-revision-11",
             },
         )
         for package in self.catalog:
@@ -296,6 +419,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 self.assertEqual(
                     reasons,
                     (
+                        "package-revision-11",
                         "package-revision-8",
                         "package-revision-7",
                         "package-revision-6",
@@ -308,6 +432,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 self.assertEqual(
                     reasons,
                     (
+                        "package-revision-11",
                         "package-revision-10",
                         "package-revision-9",
                         "package-revision-8",
@@ -317,6 +442,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 self.assertEqual(
                     reasons,
                     (
+                        "package-revision-11",
                         "package-revision-9",
                         "package-revision-8",
                         "package-revision-7",

@@ -32,7 +32,7 @@ QMD_PAYLOAD_PATH = "exthome/qt-resource-rebuilder/reading-enhancements.qmd"
 HIGHLIGHT_EXTENSION_PATH = "extensions.d/rmtool-highlight-snap.so"
 HIGHLIGHT_LICENSE_PATH = "LICENSE.rm-tweak"
 FEATURE_ID = "reading-enhancements"
-PACKAGE_REVISION = 11
+PACKAGE_REVISION = 12
 MAX_MANIFEST_BYTES = tap.MAX_MANIFEST_BYTES
 MAX_PACKAGE_BYTES = tap.MAX_PACKAGE_BYTES
 MAX_UNPACKED_BYTES = tap.MAX_UNPACKED_BYTES
@@ -204,6 +204,28 @@ _PUBLISHED_REVISION_QMDS = {
         "ferrari:3.28.0.172": (
             "afe9f847b2a99bfe709f8dad6ab64b6bf679f418b8b89669e6505dd9d5198d40",
             57857,
+        ),
+    },
+    11: {
+        "3.27": (
+            "13bccfa0e159c61b863a03bae9a24351119e36364e34dae2e4157ba1a1c158d5",
+            51292,
+        ),
+        "3.28.0.162": (
+            "a4bf75ebe404f7f6000b60e1a21f9a6185915f6e4eafaab13bd64e5106ab1815",
+            57817,
+        ),
+        "3.28": (
+            "afe9f847b2a99bfe709f8dad6ab64b6bf679f418b8b89669e6505dd9d5198d40",
+            57857,
+        ),
+        "chiappa:3.28.0.172": (
+            "51784b64083880b4a8ee61eb189553101f950bd357f2bff9038b903fe157c7f0",
+            59138,
+        ),
+        "ferrari:3.28.0.172": (
+            "51784b64083880b4a8ee61eb189553101f950bd357f2bff9038b903fe157c7f0",
+            59138,
         ),
     },
 }
@@ -585,7 +607,7 @@ def _shared_specs(package: ReadingEnhancementsPackage):
 
 
 def _known_published_revision_feature(package, current, revision):
-    if package.release_version == "3.28.0.172" and revision not in {8, 9, 10}:
+    if package.release_version == "3.28.0.172" and revision not in {8, 9, 10, 11}:
         return None
     fingerprints = _PUBLISHED_REVISION_QMDS.get(revision)
     if fingerprints is None:
@@ -598,7 +620,17 @@ def _known_published_revision_feature(package, current, revision):
     if predecessor is None:
         return None
     extra_files = ()
-    if (
+    if revision == 11 and package.release_version == "3.28.0.172":
+        extra_files = (
+            shared.SharedFeatureFileSpec(
+                HIGHLIGHT_EXTENSION_PATH,
+                HIGHLIGHT_EXTENSION_PATH,
+                "a3fbed58347669545386d0aa5955339e578b00b066c15d11f131eead11cb19e5",
+                9872,
+                0o644,
+            ),
+        )
+    elif (
         revision == 10
         and package.platform == "chiappa"
         and package.release_version == "3.28.0.172"
@@ -856,6 +888,17 @@ def get_status(
         )
         record = inspection.states.get(FEATURE_ID)
         predecessor = selected_predecessors.get(FEATURE_ID)
+        if predecessor == shared.MANAGED_RECEIPT_REASON:
+            return ReadingEnhancementsStatus(
+                ReadingEnhancementsState.REPAIR_AVAILABLE,
+                identity,
+                package,
+                available,
+                "已验证为 rmtool 完成安装的旧版阅读增强，可安全更新；"
+                "其他共享功能和阅读设置会保留。",
+                True,
+                True,
+            )
         if predecessor in _PUBLISHED_PREDECESSOR_REASONS:
             revision = predecessor.rsplit("-", 1)[-1]
             return ReadingEnhancementsStatus(

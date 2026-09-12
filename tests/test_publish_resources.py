@@ -476,6 +476,7 @@ class PublishResourcesTests(unittest.TestCase):
                 "pinyin-input",
                 "reading-enhancements",
                 "note-enhancements",
+                "weread-launcher",
             ),
         )
         reading = publisher.RESOURCES["reading-enhancements"]
@@ -496,6 +497,16 @@ class PublishResourcesTests(unittest.TestCase):
             (
                 f"{publisher.COS_PUBLIC_BASE_URL}/note-enhancements",
                 "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets",
+            ),
+        )
+        weread = publisher.RESOURCES["weread-launcher"]
+        self.assertEqual(weread.tag, "weread-launcher-assets")
+        self.assertEqual(weread.object_prefix, "weread-launcher")
+        self.assertEqual(
+            weread.url_bases,
+            (
+                f"{publisher.COS_PUBLIC_BASE_URL}/weread-launcher",
+                "https://github.com/pretenderlu/rmtool/releases/download/weread-launcher-assets",
             ),
         )
         wrapper = (publisher.ROOT / "publish-cos.ps1").read_text(encoding="utf-8")

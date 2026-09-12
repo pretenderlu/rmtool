@@ -57,6 +57,10 @@ _OPERATION_LOCK = "/tmp/rmtool-xovi-standalone.lock"
 _PROCESS_TOKEN_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9]+:[0-9]+"
 )
+MANAGED_RECEIPT_REASON = "managed-install-receipt"
+_MANAGED_RECEIPT_STORE: Optional[Path] = None
+_MANAGED_RECEIPT_STORE_SCHEMA = 1
+_MANAGED_RECEIPT_STORE_LIMIT = 512
 
 
 @dataclass(frozen=True)
@@ -160,6 +164,7 @@ class SharedInspection:
     # anchor already verified byte-exact against the trusted manifests.
     legacy_templates: bool = False
     launcher_update_available: bool = False
+    receipt_features: frozenset[str] = frozenset()
 
 
 _COMMON_ARCHIVE_PATHS = (
@@ -601,14 +606,164 @@ WatchdogSec=0
 """
 
 
+def _file_receipt(path: str, sha256: str, size: int, mode: int) -> dict:
+    return {
+        "path": path,
+        "sha256": sha256,
+        "size": size,
+        "mode": mode,
+    }
+
+
+def _receipt_document(
+    runtime: SharedRuntimeSpec,
+    states: Mapping[str, SharedFeatureState],
+) -> dict:
+    return {
+        "status": "complete",
+        "runtime_files": [
+            _file_receipt(item.path, item.sha256, item.size, item.mode)
+            for item in sorted(runtime.files, key=lambda value: value.path)
+        ],
+        "features": {
+            feature_id: {
+                "package_id": state.spec.package_id,
+                "files": [
+                    _file_receipt(
+                        item.runtime_path, item.sha256, item.size, item.mode
+                    )
+                    for item in sorted(
+                        state.spec.files, key=lambda value: value.runtime_path
+                    )
+                ],
+                "preload_paths": list(state.spec.preload_paths),
+                "sidecars": [
+                    {
+                        **_file_receipt(
+                            item.remote_path, item.sha256, item.size, item.mode
+                        ),
+                        "unit_name": item.unit_name,
+                        "unit_runtime_path": item.unit_runtime_path,
+                    }
+                    for item in sorted(
+                        state.spec.sidecars, key=lambda value: value.remote_path
+                    )
+                ],
+                "legacy_resource_path": state.spec.legacy_resource_path,
+                "strict_metadata_paths": list(
+                    state.spec.strict_metadata_paths
+                ),
+            }
+            for feature_id, state in sorted(states.items())
+        },
+    }
+
+
+def configure_managed_receipt_store(state_dir: str | Path | None) -> None:
+    """Select the computer-side trust store for completed local installs."""
+    global _MANAGED_RECEIPT_STORE
+    _MANAGED_RECEIPT_STORE = (
+        None
+        if state_dir is None
+        else Path(state_dir) / "managed-install-receipts.json"
+    )
+
+
+def _managed_receipt_digest(marker: Mapping[str, object]) -> str:
+    canonical = json.dumps(
+        dict(marker), ensure_ascii=True, sort_keys=True, separators=(",", ":")
+    ).encode("ascii")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _load_managed_receipt_digests() -> tuple[str, ...]:
+    path = _MANAGED_RECEIPT_STORE
+    if path is None or not path.is_file():
+        return ()
+    try:
+        document = json.loads(path.read_text(encoding="ascii"))
+    except Exception:
+        logging.warning("Could not read managed install receipt store", exc_info=True)
+        return ()
+    if not isinstance(document, dict) or set(document) != {
+        "schema_version", "marker_sha256"
+    } or document.get("schema_version") != _MANAGED_RECEIPT_STORE_SCHEMA:
+        return ()
+    records = document.get("marker_sha256")
+    if not isinstance(records, list) or len(records) > _MANAGED_RECEIPT_STORE_LIMIT:
+        return ()
+    digests = set(records)
+    if len(digests) != len(records) or not all(
+        isinstance(item, str) and re.fullmatch(r"[0-9a-f]{64}", item)
+        for item in digests
+    ):
+        return ()
+    return tuple(records)
+
+
+def _managed_receipt_is_known(marker: Mapping[str, object]) -> bool:
+    return _managed_receipt_digest(marker) in _load_managed_receipt_digests()
+
+
+def _remember_managed_receipt(marker: Mapping[str, object]) -> None:
+    path = _MANAGED_RECEIPT_STORE
+    if path is None:
+        return
+    temporary = path.with_name(f"{path.name}.tmp-{uuid.uuid4().hex}")
+    try:
+        records = list(_load_managed_receipt_digests())
+        digest = _managed_receipt_digest(marker)
+        if digest in records:
+            records.remove(digest)
+        records.append(digest)
+        records = records[-_MANAGED_RECEIPT_STORE_LIMIT:]
+        payload = (
+            json.dumps(
+                {
+                    "schema_version": _MANAGED_RECEIPT_STORE_SCHEMA,
+                    "marker_sha256": records,
+                },
+                ensure_ascii=True,
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("ascii")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary.write_bytes(payload)
+        try:
+            os.chmod(temporary, 0o600)
+        except OSError:
+            pass
+        os.replace(temporary, path)
+    except OSError:
+        logging.warning("Could not update managed install receipt store", exc_info=True)
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            logging.warning("Could not remove temporary receipt store", exc_info=True)
+
+
+def _receipt_matches_trusted(
+    states: Mapping[str, SharedFeatureState],
+    trusted: Mapping[str, SharedFeatureSpec],
+) -> bool:
+    return all(
+        feature_id in trusted and state.spec == trusted[feature_id]
+        for feature_id, state in states.items()
+    )
+
+
 def _marker_document(
     runtime: SharedRuntimeSpec,
     states: Mapping[str, SharedFeatureState],
     launcher_sha256: str,
     dropin_sha256: str,
+    *,
+    schema_version: int = 2,
 ) -> dict:
-    return {
-        "schema_version": 1,
+    document = {
+        "schema_version": schema_version,
         "deployment_mode": "rmtool_shared_standalone",
         "runtime_present": any(state.enabled for state in states.values()),
         "identity": {
@@ -631,6 +786,11 @@ def _marker_document(
         "launcher_sha256": launcher_sha256,
         "dropin_sha256": dropin_sha256,
     }
+    if schema_version == 2:
+        document["receipt"] = _receipt_document(runtime, states)
+    elif schema_version != 1:
+        raise RuntimeError("共享 Xovi 标记版本无效。")
+    return document
 
 
 def shared_marker(
@@ -638,8 +798,16 @@ def shared_marker(
     states: Mapping[str, SharedFeatureState],
     launcher_sha256: str,
     dropin_sha256: str,
+    *,
+    schema_version: int = 2,
 ) -> bytes:
-    document = _marker_document(runtime, states, launcher_sha256, dropin_sha256)
+    document = _marker_document(
+        runtime,
+        states,
+        launcher_sha256,
+        dropin_sha256,
+        schema_version=schema_version,
+    )
     return (json.dumps(document, ensure_ascii=True, sort_keys=True) + "\n").encode("ascii")
 
 
@@ -897,6 +1065,219 @@ def _parse_states(
     return states
 
 
+def _parse_receipt_files(
+    records: object,
+    expected: Mapping[str, object],
+    label: str,
+) -> dict[str, SharedFileSpec]:
+    if not isinstance(records, list) or len(records) != len(expected):
+        raise RuntimeError(f"{label}收据文件列表无效。")
+    parsed = {}
+    for record in records:
+        if not isinstance(record, dict) or set(record) != {
+            "path", "sha256", "size", "mode"
+        }:
+            raise RuntimeError(f"{label}收据文件格式无效。")
+        path = record["path"]
+        item = expected.get(path) if isinstance(path, str) else None
+        size = record["size"]
+        mode = record["mode"]
+        digest = record["sha256"]
+        if (
+            item is None
+            or path in parsed
+            or not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+            or type(size) is not int
+            or size < 0
+            or type(mode) is not int
+            or mode != item.mode
+        ):
+            raise RuntimeError(f"{label}收据文件不在固定布局中。")
+        parsed[path] = SharedFileSpec(path, digest, size, mode)
+    if set(parsed) != set(expected):
+        raise RuntimeError(f"{label}收据文件布局不完整。")
+    return parsed
+
+
+def _parse_receipt_sidecars(
+    records: object,
+    expected: tuple[SharedSidecarSpec, ...],
+    label: str,
+) -> tuple[SharedSidecarSpec, ...]:
+    if not isinstance(records, list) or len(records) != len(expected):
+        raise RuntimeError(f"{label}收据伴随进程列表无效。")
+    expected_by_path = {item.remote_path: item for item in expected}
+    parsed = {}
+    for record in records:
+        if not isinstance(record, dict) or set(record) != {
+            "path", "sha256", "size", "mode", "unit_name", "unit_runtime_path"
+        }:
+            raise RuntimeError(f"{label}收据伴随进程格式无效。")
+        path = record["path"]
+        current = expected_by_path.get(path) if isinstance(path, str) else None
+        size = record["size"]
+        mode = record["mode"]
+        digest = record["sha256"]
+        if (
+            current is None
+            or path in parsed
+            or not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+            or type(size) is not int
+            or size <= 0
+            or type(mode) is not int
+            or mode != current.mode
+            or record["unit_name"] != current.unit_name
+            or record["unit_runtime_path"] != current.unit_runtime_path
+        ):
+            raise RuntimeError(f"{label}收据伴随进程不在固定布局中。")
+        parsed[path] = SharedSidecarSpec(
+            path,
+            digest,
+            size,
+            mode,
+            current.unit_name,
+            current.unit_runtime_path,
+        )
+    if set(parsed) != set(expected_by_path):
+        raise RuntimeError(f"{label}收据伴随进程布局不完整。")
+    return tuple(parsed[item.remote_path] for item in expected)
+
+
+def _parse_receipt_states(
+    marker: dict,
+    runtime: SharedRuntimeSpec,
+    trusted: Mapping[str, SharedFeatureSpec],
+) -> dict[str, SharedFeatureState]:
+    receipt = marker.get("receipt")
+    if not isinstance(receipt, dict) or set(receipt) != {
+        "status", "runtime_files", "features"
+    } or receipt.get("status") != "complete":
+        raise RuntimeError("共享 Xovi 完成安装收据无效。")
+    runtime_files = _parse_receipt_files(
+        receipt["runtime_files"],
+        {item.path: item for item in runtime.files},
+        "共享 Xovi 运行资源",
+    )
+    if tuple(runtime_files[path] for path in sorted(runtime_files)) != tuple(
+        SharedFileSpec(item.path, item.sha256, item.size, item.mode)
+        for item in sorted(runtime.files, key=lambda value: value.path)
+    ):
+        raise RuntimeError("共享 Xovi 运行资源收据与内置信任清单不匹配。")
+
+    state_records = marker.get("features")
+    feature_receipts = receipt.get("features")
+    if (
+        not isinstance(state_records, dict)
+        or not state_records
+        or not isinstance(feature_receipts, dict)
+        or set(state_records) != set(feature_receipts)
+        or not set(state_records) <= set(trusted)
+    ):
+        raise RuntimeError("共享 Xovi 收据包含未知功能。")
+
+    states = {}
+    for feature_id, state_record in state_records.items():
+        if not isinstance(state_record, dict) or set(state_record) != {
+            "enabled", "package_id", "qmd_path", "qmd_sha256", "process_token"
+        }:
+            raise RuntimeError("共享 Xovi 功能状态格式无效。")
+        if type(state_record["enabled"]) is not bool or not _PROCESS_TOKEN_RE.fullmatch(
+            str(state_record["process_token"])
+        ):
+            raise RuntimeError("共享 Xovi 功能状态或进程身份无效。")
+        feature_receipt = feature_receipts[feature_id]
+        if not isinstance(feature_receipt, dict) or set(feature_receipt) != {
+            "package_id", "files", "preload_paths", "sidecars",
+            "legacy_resource_path", "strict_metadata_paths"
+        }:
+            raise RuntimeError("共享 Xovi 功能收据格式无效。")
+        package_id = feature_receipt["package_id"]
+        if (
+            not isinstance(package_id, str)
+            or not package_id
+            or len(package_id) > 256
+            or state_record["package_id"] != package_id
+        ):
+            raise RuntimeError("共享 Xovi 功能收据包身份无效。")
+
+        current = trusted[feature_id]
+        if (
+            feature_receipt["preload_paths"] != list(current.preload_paths)
+            or feature_receipt["legacy_resource_path"] != current.legacy_resource_path
+            or feature_receipt["strict_metadata_paths"]
+            != list(current.strict_metadata_paths)
+        ):
+            raise RuntimeError("共享 Xovi 功能收据布局与当前固定布局不匹配。")
+        receipt_files = _parse_receipt_files(
+            feature_receipt["files"],
+            {item.runtime_path: item for item in current.files},
+            f"共享 Xovi 功能 {feature_id}",
+        )
+        primary = receipt_files[current.runtime_path]
+        if (
+            state_record["qmd_path"] != current.runtime_path
+            or state_record["qmd_sha256"] != primary.sha256
+        ):
+            raise RuntimeError("共享 Xovi 功能状态与完成安装收据不匹配。")
+        sidecars = _parse_receipt_sidecars(
+            feature_receipt["sidecars"], current.sidecars, feature_id
+        )
+        extras = tuple(
+            SharedFeatureFileSpec(
+                item.archive_path,
+                item.runtime_path,
+                receipt_files[item.runtime_path].sha256,
+                receipt_files[item.runtime_path].size,
+                receipt_files[item.runtime_path].mode,
+            )
+            for item in current.extra_files
+        )
+        states[feature_id] = SharedFeatureState(
+            SharedFeatureSpec(
+                feature_id,
+                package_id,
+                current.archive_path,
+                current.runtime_path,
+                primary.sha256,
+                primary.size,
+                primary.mode,
+                extras,
+                current.preload_paths,
+                sidecars,
+                current.legacy_resource_path,
+                current.strict_metadata_paths,
+            ),
+            state_record["enabled"],
+            state_record["process_token"],
+        )
+    return states
+
+
+def _assert_receipt_sidecars(ssh_client, states: Mapping[str, SharedFeatureState]) -> None:
+    for state in states.values():
+        for sidecar in state.spec.sidecars:
+            if not state.enabled:
+                if _remote_entry_exists(ssh_client, sidecar.remote_path):
+                    raise RuntimeError(
+                        f"共享 Xovi 已停用功能仍残留伴随进程 {sidecar.remote_path}。"
+                    )
+                continue
+            path = shlex.quote(sidecar.remote_path)
+            metadata = ssh_client.exec_checked(
+                f"stat -c '%f|%u|%g|%s|%h' {path}; [ ! -L {path} ]"
+            ).strip().split("|")
+            if metadata != [
+                f"{0o100000 | sidecar.mode:x}",
+                "0",
+                "0",
+                str(sidecar.size),
+                "1",
+            ] or _remote_sha256(ssh_client, sidecar.remote_path) != sidecar.sha256:
+                raise RuntimeError(
+                    f"共享 Xovi 伴随进程 {sidecar.remote_path} 已被修改。"
+                )
+
+
 def inspect_shared(
     ssh_client,
     runtime: SharedRuntimeSpec,
@@ -971,6 +1352,10 @@ def inspect_shared_revisions(
             if current_error is None:
                 current_error = exc
             continue
+        for feature_id in inspection.receipt_features:
+            state = inspection.states[feature_id]
+            if state.spec != candidate[feature_id]:
+                selected[feature_id] = MANAGED_RECEIPT_REASON
         return inspection, candidate, selected
     if current_error is not None:
         raise current_error
@@ -981,6 +1366,31 @@ def assert_startup_guard_not_latched(inspection: SharedInspection) -> None:
     if inspection.startup_pending and not inspection.active:
         raise RuntimeError(
             "共享 Xovi 自动启动保护已触发；上一次插件启动未稳定，当前正使用原生 xochitl。"
+        )
+
+
+def _receipt_mismatch_ids(
+    inspection: SharedInspection,
+    trusted: Mapping[str, SharedFeatureSpec],
+) -> frozenset[str]:
+    return frozenset(
+        feature_id
+        for feature_id in inspection.receipt_features
+        if feature_id not in trusted
+        or inspection.states[feature_id].spec != trusted[feature_id]
+    )
+
+
+def _assert_receipt_operation_scope(
+    inspection: SharedInspection,
+    trusted: Mapping[str, SharedFeatureSpec],
+    replace_or_remove: Iterable[str],
+) -> None:
+    blocked = _receipt_mismatch_ids(inspection, trusted) - set(replace_or_remove)
+    if blocked:
+        raise RuntimeError(
+            "共享 Xovi 中存在仅由完成安装收据验证的其他旧版功能，"
+            "不能在本次操作中保留：" + "、".join(sorted(blocked)) + "。"
         )
 
 
@@ -1140,12 +1550,35 @@ def _inspect_shared(
         marker = json.loads(_remote_text(ssh_client, f"{layout.remote_base}/package.json"))
     except Exception as exc:
         raise RuntimeError("共享 Xovi 标记不是有效 JSON。") from exc
-    if not isinstance(marker, dict) or set(marker) != {
+    if not isinstance(marker, dict) or type(marker.get("schema_version")) is not int:
+        raise RuntimeError("共享 Xovi 标记字段无效。")
+    schema_version = marker["schema_version"]
+    expected_fields = {
         "schema_version", "deployment_mode", "identity", "runtime", "features",
         "runtime_present", "launcher_sha256", "dropin_sha256"
-    }:
+    }
+    if schema_version == 2:
+        expected_fields.add("receipt")
+    elif schema_version != 1:
+        raise RuntimeError("共享 Xovi 标记版本无效。")
+    if set(marker) != expected_fields:
         raise RuntimeError("共享 Xovi 标记字段无效。")
-    states = _parse_states(marker, trusted)
+    states = (
+        _parse_states(marker, trusted)
+        if schema_version == 1
+        else _parse_receipt_states(marker, runtime, trusted)
+    )
+    if (
+        schema_version == 2
+        and not _receipt_matches_trusted(states, trusted)
+        and not _managed_receipt_is_known(marker)
+    ):
+        raise RuntimeError(
+            "共享 Xovi 本地测试版没有当前电脑的完成安装登记。"
+        )
+    receipt_features = (
+        frozenset(states) if schema_version == 2 else frozenset()
+    )
     enabled = tuple(state.spec for state in states.values() if state.enabled)
     dropin_text = shared_dropin(runtime, enabled, layout=layout)
     dropin_sha = hashlib.sha256(dropin_text.encode()).hexdigest()
@@ -1158,7 +1591,13 @@ def _inspect_shared(
     launcher_sha = hashlib.sha256(launcher_text.encode()).hexdigest()
     legacy_templates = False
     launcher_update_available = False
-    if marker != _marker_document(runtime, states, launcher_sha, dropin_sha):
+    if marker != _marker_document(
+        runtime,
+        states,
+        launcher_sha,
+        dropin_sha,
+        schema_version=schema_version,
+    ):
         launcher_update_available = True
         candidates = (
             shared_launcher(
@@ -1200,13 +1639,17 @@ def _inspect_shared(
         for candidate in candidates:
             candidate_sha = hashlib.sha256(candidate.encode()).hexdigest()
             if marker == _marker_document(
-                runtime, states, candidate_sha, dropin_sha
+                runtime,
+                states,
+                candidate_sha,
+                dropin_sha,
+                schema_version=schema_version,
             ):
                 launcher_text = candidate
                 launcher_sha = candidate_sha
                 break
         else:
-            if not tolerate_legacy_templates:
+            if not tolerate_legacy_templates or schema_version != 1:
                 raise RuntimeError("共享 Xovi 标记与内置信任清单不匹配。")
             # Unreleased launcher/drop-in generation (development deployment).
             # Accept it only when identity, runtime, states, and the
@@ -1292,6 +1735,8 @@ def _inspect_shared(
         disabled_dirs,
         optional_files,
     )
+    if schema_version == 2:
+        _assert_receipt_sidecars(ssh_client, states)
     dropin_present = ssh_client.file_exists(SHARED_LAYOUT.dropin_path)
     dropin_required = bool(enabled) if expected_dropin is None else expected_dropin
     if dropin_present != dropin_required:
@@ -1305,6 +1750,8 @@ def _inspect_shared(
             ssh_client,
             {SHARED_LAYOUT.dropin_path: dropin_sha if dropin_required else None},
         )
+    if schema_version == 2:
+        _remember_managed_receipt(marker)
     return SharedInspection(
         states,
         _active(ssh_client, layout),
@@ -1313,6 +1760,7 @@ def _inspect_shared(
         layout,
         legacy_templates,
         launcher_update_available,
+        receipt_features,
     )
 
 
@@ -1982,6 +2430,11 @@ def replace_shared_features(
         )
         if not shared_exists and inspection.states:
             raise RuntimeError("共享 Xovi 初始状态无效。")
+        _assert_receipt_operation_scope(
+            inspection,
+            current_trusted,
+            set(incoming_roots) | (set(inspection.states) - set(target_states)),
+        )
         if inspection.layout != SHARED_LAYOUT and shared_exists:
             # The legacy layout is accepted only as a fully inspected source;
             # the transaction will move it to the current /data layout.
@@ -2069,6 +2522,7 @@ def remove_shared_features(
             raise RuntimeError(
                 "共享 Xovi 清理目标不存在或无法验证：" + "、".join(missing) + "。"
             )
+        _assert_receipt_operation_scope(inspection, trusted, remove_ids)
         remaining = {
             feature_id: state
             for feature_id, state in inspection.states.items()
@@ -2126,6 +2580,7 @@ def _enable_shared_locked(
         "koreader",
         "reading-enhancements",
         "note-enhancements",
+        "weread-launcher",
     }:
         raise RuntimeError("共享 Xovi 包含不受支持的功能。")
     assert_feature_layout(runtime, trusted.values())
@@ -2144,6 +2599,9 @@ def _enable_shared_locked(
     })
     shared_exists = has_shared_artifacts(ssh_client)
     inspection = inspect_shared(ssh_client, runtime, trusted, check_lower=True) if shared_exists else SharedInspection({}, False, False)
+    _assert_receipt_operation_scope(
+        inspection, trusted, (feature.feature_id,)
+    )
     present_legacy = [item for item in legacy_specs if validate_legacy(ssh_client, item)]
     if shared_exists and present_legacy:
         raise RuntimeError("检测到共享与旧版独立 Xovi 混合布局，拒绝修改。")
@@ -2151,7 +2609,7 @@ def _enable_shared_locked(
         raise RuntimeError("检测到两套旧版独立 Xovi 布局，拒绝自动合并。")
     installed_state = inspection.states.get(feature.feature_id)
     if installed_state is not None and installed_state.spec != feature:
-        if (
+        if feature.feature_id not in inspection.receipt_features and (
             installed_state.spec.feature_id != feature.feature_id
             or installed_state.spec.package_id != feature.package_id
             or installed_state.spec.runtime_path != feature.runtime_path
@@ -2257,17 +2715,26 @@ def _disable_shared_locked(
     replacement_spec: Optional[SharedFeatureSpec] = None,
 ) -> SharedInspection:
     inspection = inspect_shared(ssh_client, runtime, trusted, check_lower=True)
+    _assert_receipt_operation_scope(inspection, trusted, (feature_id,))
     state = inspection.states.get(feature_id)
     if state is None:
         raise RuntimeError("该功能尚未安装。")
     if not state.enabled and replacement_spec is None:
         return inspection
-    if replacement_spec is not None and (
-        replacement_spec.feature_id != feature_id
-        or replacement_spec.package_id != state.spec.package_id
-        or replacement_spec.runtime_path != state.spec.runtime_path
-    ):
-        raise RuntimeError("共享 Xovi 旧版功能替换规则无效。")
+    if replacement_spec is not None:
+        receipt_update = (
+            feature_id in inspection.receipt_features
+            and state.spec != trusted.get(feature_id)
+        )
+        if (
+            replacement_spec.feature_id != feature_id
+            or replacement_spec.runtime_path != state.spec.runtime_path
+            or (
+                not receipt_update
+                and replacement_spec.package_id != state.spec.package_id
+            )
+        ):
+            raise RuntimeError("共享 Xovi 旧版功能替换规则无效。")
     current = _process_token(ssh_client) if state.enabled else state.process_token
     states = dict(inspection.states)
     states[feature_id] = SharedFeatureState(
@@ -2442,6 +2909,7 @@ MIGRATABLE_FEATURE_IDS = frozenset(
         "koreader",
         "reading-enhancements",
         "note-enhancements",
+        "weread-launcher",
     }
 )
 

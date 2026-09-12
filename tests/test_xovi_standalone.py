@@ -2,6 +2,7 @@ import hashlib
 import io
 import json
 import posixpath
+import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -14,6 +15,7 @@ import _note_enhancements as note
 import _pinyin_input as pinyin
 import _reading_enhancements as reading
 import _tap_page_turn as tap
+import _weread_launcher as weread
 import _xovi_standalone as shared
 
 
@@ -85,6 +87,10 @@ class SharedXoviTests(unittest.TestCase):
         pending_mode=0o600,
         pending_size=0,
         legacy_unmatched_qmd_glob=False,
+        marker_schema=1,
+        modified_sidecar=False,
+        sidecar_links=1,
+        disabled_sidecar_present=False,
     ):
         layout = layout or shared.SHARED_LAYOUT
         identity = tap.DeviceIdentity(
@@ -125,6 +131,7 @@ class SharedXoviTests(unittest.TestCase):
             states,
             hashlib.sha256(launcher).hexdigest(),
             hashlib.sha256(dropin).hexdigest(),
+            schema_version=marker_schema,
         )
         if marker_bytes is not None:
             marker = marker_bytes
@@ -189,6 +196,15 @@ class SharedXoviTests(unittest.TestCase):
         hashes = {
             f"{base}/{path}": item.sha256 for path, item in expected.items()
         }
+        sidecars = tuple(
+            item
+            for state in states.values()
+            for item in state.spec.sidecars
+        )
+        for item in sidecars:
+            hashes[item.remote_path] = (
+                "0" * 64 if modified_sidecar else item.sha256
+            )
         if shared.SHARED_LAYOUT.dropin_path in visible_dropins:
             hashes[shared.SHARED_LAYOUT.dropin_path] = hashlib.sha256(
                 dropin
@@ -196,6 +212,9 @@ class SharedXoviTests(unittest.TestCase):
         if modified_path:
             hashes[f"{base}/{modified_path}"] = "0" * 64
         present = {base, f"{base}/package.json", *visible_dropins}
+        for state in states.values():
+            if state.enabled or disabled_sidecar_present:
+                present.update(item.remote_path for item in state.spec.sidecars)
         if startup_pending:
             present.add(f"{base}/startup.pending")
         ssh = Mock()
@@ -217,6 +236,17 @@ class SharedXoviTests(unittest.TestCase):
         def execute(command):
             if command.startswith("for file in /etc/systemd/system"):
                 return "\n".join(visible_dropins)
+            if (
+                command.startswith("stat -c '%f|%u|%g|%s|%h'")
+                and "; [ ! -L " in command
+            ):
+                sidecar = next(
+                    item for item in sidecars if item.remote_path in command
+                )
+                return (
+                    f"{0o100000 | sidecar.mode:x}|0|0|{sidecar.size}|"
+                    f"{sidecar_links}"
+                )
             if command.startswith("stat -c '%f|%u|%g"):
                 return "\n".join(records)
             if command.startswith("stat -c '%f %u %g'"):
@@ -275,6 +305,8 @@ class SharedXoviTests(unittest.TestCase):
                         expected_features.add(reading.FEATURE_ID)
                     if note.select_package(note._trusted_catalog(), identity):
                         expected_features.add(note.FEATURE_ID)
+                    if weread.select_package(weread._trusted_catalog(), identity):
+                        expected_features.add(weread.FEATURE_ID)
                     app_runtime, app_features = appload.trusted_specs(identity)
                     if app_runtime is not None:
                         self.assertEqual(app_runtime, tap_runtime)
@@ -778,6 +810,421 @@ class SharedXoviTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(RuntimeError, "未知功能"):
             shared._parse_states({"features": {}}, trusted)
+
+    def test_schema1_marker_remains_compatible(self):
+        tap_package, fast_package = next(iter(self.contexts()))
+        ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+            tap_package,
+            fast_package,
+            feature_ids=("tap-page-turn",),
+            visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+            marker_schema=1,
+        )
+
+        inspection = shared.inspect_shared(ssh, runtime, trusted)
+
+        self.assertEqual(set(inspection.states), {"tap-page-turn"})
+        self.assertEqual(inspection.receipt_features, frozenset())
+
+    def test_schema2_marker_accepts_current_exact_receipt(self):
+        tap_package, fast_package = next(iter(self.contexts()))
+        ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+            tap_package,
+            fast_package,
+            feature_ids=("tap-page-turn",),
+            visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+            marker_schema=2,
+        )
+
+        inspection = shared.inspect_shared(ssh, runtime, trusted)
+
+        self.assertEqual(set(inspection.states), {"tap-page-turn"})
+        self.assertEqual(inspection.receipt_features, frozenset({"tap-page-turn"}))
+
+    def test_schema2_exact_receipt_is_registered_on_this_computer(self):
+        tap_package, fast_package = next(iter(self.contexts()))
+        ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+            tap_package,
+            fast_package,
+            feature_ids=("tap-page-turn",),
+            visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+            marker_schema=2,
+        )
+        marker = json.loads(shared._remote_text(ssh, shared.SHARED_MARKER_PATH))
+        with tempfile.TemporaryDirectory() as temporary:
+            shared.configure_managed_receipt_store(temporary)
+            try:
+                shared.inspect_shared(ssh, runtime, trusted)
+                self.assertTrue(shared._managed_receipt_is_known(marker))
+            finally:
+                shared.configure_managed_receipt_store(None)
+
+    def test_schema2_unlisted_local_revision_can_update_same_feature(self):
+        tap_package, fast_package = next(iter(self.contexts()))
+        runtime, current = tap._shared_specs(tap_package)
+        local = replace(
+            current,
+            package_id=current.package_id + "-local-canary",
+            sha256="d" * 64,
+            size=current.size + 7,
+        )
+        ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+            tap_package,
+            fast_package,
+            feature_ids=("tap-page-turn",),
+            feature_overrides={"tap-page-turn": local},
+            visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+            marker_schema=2,
+        )
+
+        marker = json.loads(shared._remote_text(ssh, shared.SHARED_MARKER_PATH))
+        with tempfile.TemporaryDirectory() as temporary:
+            shared.configure_managed_receipt_store(temporary)
+            try:
+                shared._remember_managed_receipt(marker)
+                inspection, installed_trusted, selected = (
+                    shared.inspect_shared_revisions(ssh, runtime, trusted, {})
+                )
+            finally:
+                shared.configure_managed_receipt_store(None)
+
+        self.assertEqual(inspection.states["tap-page-turn"].spec, local)
+        self.assertEqual(
+            selected["tap-page-turn"], shared.MANAGED_RECEIPT_REASON
+        )
+        final = shared.SharedInspection({}, False, True)
+        with (
+            patch.object(shared, "has_shared_artifacts", return_value=True),
+            patch.object(
+                shared, "inspect_shared", side_effect=(inspection, final)
+            ),
+            patch.object(shared, "validate_legacy", return_value=False),
+            patch.object(shared, "_process_token", return_value=self.TOKEN),
+            patch.object(shared, "_stage_shared") as stage,
+            patch.object(
+                shared, "shared_transaction_script", return_value="#!/bin/sh\n:"
+            ),
+            patch.object(shared, "_upload_bytes"),
+        ):
+            result = shared._enable_shared_locked(
+                Mock(exec_checked=Mock(return_value="")),
+                runtime,
+                current,
+                Path("unused"),
+                installed_trusted,
+                (),
+            )
+        self.assertIs(result, final)
+        self.assertEqual(stage.call_args.args[2]["tap-page-turn"].spec, current)
+
+    def test_schema2_unregistered_local_revision_is_rejected(self):
+        tap_package, fast_package = next(iter(self.contexts()))
+        _runtime, current = tap._shared_specs(tap_package)
+        local = replace(current, sha256="d" * 64, size=current.size + 7)
+        ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+            tap_package,
+            fast_package,
+            feature_ids=("tap-page-turn",),
+            feature_overrides={"tap-page-turn": local},
+            visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+            marker_schema=2,
+        )
+        shared.configure_managed_receipt_store(None)
+
+        with self.assertRaisesRegex(RuntimeError, "当前电脑"):
+            shared.inspect_shared(ssh, runtime, trusted)
+
+    def test_schema2_rejects_tampered_qmd_and_extra_file(self):
+        tap_package, fast_package = next(iter(self.contexts()))
+        cases = (
+            ("tap-page-turn", None, tap._shared_specs(tap_package)[1].runtime_path),
+            (
+                native.FEATURE_ID,
+                {native.FEATURE_ID: self.multifile_feature()},
+                "native-chinese/reMarkable_zh_CN.qm",
+            ),
+        )
+        for feature_id, overrides, modified_path in cases:
+            with self.subTest(path=modified_path):
+                ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+                    tap_package,
+                    fast_package,
+                    feature_ids=(feature_id,),
+                    feature_overrides=overrides,
+                    modified_path=modified_path,
+                    visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+                    marker_schema=2,
+                )
+                marker = json.loads(
+                    shared._remote_text(ssh, shared.SHARED_MARKER_PATH)
+                )
+                with tempfile.TemporaryDirectory() as temporary:
+                    shared.configure_managed_receipt_store(temporary)
+                    try:
+                        shared._remember_managed_receipt(marker)
+                        with self.assertRaisesRegex(RuntimeError, "已被修改"):
+                            shared.inspect_shared(ssh, runtime, trusted)
+                    finally:
+                        shared.configure_managed_receipt_store(None)
+
+    def test_schema2_rejects_tampered_sidecar(self):
+        tap_package, fast_package = next(
+            pair
+            for pair in self.contexts()
+            if pinyin.FEATURE_ID in tap._trusted_shared_context(
+                tap.DeviceIdentity(
+                    pair[0].firmware,
+                    pair[0].platform,
+                    pair[0].architecture,
+                    pair[0].xochitl_sha256,
+                )
+            )[1]
+        )
+        ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+            tap_package,
+            fast_package,
+            feature_ids=(pinyin.FEATURE_ID,),
+            visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+            marker_schema=2,
+            modified_sidecar=True,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "伴随进程.*已被修改"):
+            shared.inspect_shared(ssh, runtime, trusted)
+
+    def test_schema2_rejects_hardlinked_sidecar(self):
+        tap_package, fast_package = next(
+            pair
+            for pair in self.contexts()
+            if pinyin.FEATURE_ID in tap._trusted_shared_context(
+                tap.DeviceIdentity(
+                    pair[0].firmware,
+                    pair[0].platform,
+                    pair[0].architecture,
+                    pair[0].xochitl_sha256,
+                )
+            )[1]
+        )
+        ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+            tap_package,
+            fast_package,
+            feature_ids=(pinyin.FEATURE_ID,),
+            visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+            marker_schema=2,
+            sidecar_links=2,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "伴随进程.*已被修改"):
+            shared.inspect_shared(ssh, runtime, trusted)
+
+    def test_schema2_rejects_disabled_sidecar_residue(self):
+        tap_package, fast_package = next(
+            pair
+            for pair in self.contexts()
+            if pinyin.FEATURE_ID in tap._trusted_shared_context(
+                tap.DeviceIdentity(
+                    pair[0].firmware,
+                    pair[0].platform,
+                    pair[0].architecture,
+                    pair[0].xochitl_sha256,
+                )
+            )[1]
+        )
+        ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+            tap_package,
+            fast_package,
+            feature_ids=("tap-page-turn", pinyin.FEATURE_ID),
+            disabled_feature_ids=(pinyin.FEATURE_ID,),
+            visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+            marker_schema=2,
+            disabled_sidecar_present=True,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "已停用功能仍残留伴随进程"):
+            shared.inspect_shared(ssh, runtime, trusted)
+
+    def test_schema2_receipt_rejects_unsafe_or_incomplete_metadata(self):
+        tap_package, fast_package = next(iter(self.contexts()))
+        base_ssh, _present, _runtime, _trusted, _identity = self.shared_residue_ssh(
+            tap_package,
+            fast_package,
+            feature_ids=("tap-page-turn",),
+            visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+            marker_schema=2,
+        )
+        with base_ssh.open_remote(shared.SHARED_MARKER_PATH, "r") as source:
+            original = json.loads(source.read())
+
+        def reject(mutator, message):
+            marker = json.loads(json.dumps(original))
+            mutator(marker)
+            marker_bytes = (
+                json.dumps(marker, ensure_ascii=True, sort_keys=True) + "\n"
+            ).encode("ascii")
+            ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+                tap_package,
+                fast_package,
+                feature_ids=("tap-page-turn",),
+                marker_bytes=marker_bytes,
+                visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+                marker_schema=2,
+            )
+            with self.assertRaisesRegex(RuntimeError, message):
+                shared.inspect_shared(ssh, runtime, trusted)
+
+        cases = (
+            (
+                lambda marker: marker["receipt"]["features"]["tap-page-turn"][
+                    "files"
+                ][0].update(path="../../foreign.qmd"),
+                "固定布局",
+            ),
+            (
+                lambda marker: marker["receipt"]["features"]["tap-page-turn"][
+                    "preload_paths"
+                ].append("foreign.so"),
+                "固定布局",
+            ),
+            (
+                lambda marker: marker["receipt"].update(status="staging"),
+                "完成安装收据",
+            ),
+            (
+                lambda marker: marker["identity"].update(firmware="999999999"),
+                "内置信任清单",
+            ),
+        )
+        for mutator, message in cases:
+            with self.subTest(message=message):
+                reject(mutator, message)
+
+        def add_unknown(marker):
+            marker["features"]["foreign"] = dict(
+                marker["features"]["tap-page-turn"]
+            )
+            marker["receipt"]["features"]["foreign"] = dict(
+                marker["receipt"]["features"]["tap-page-turn"]
+            )
+
+        reject(add_unknown, "未知功能")
+
+    def test_schema2_unrelated_operation_cannot_preserve_local_peer(self):
+        tap_package, fast_package = next(iter(self.contexts()))
+        runtime, current_tap = tap._shared_specs(tap_package)
+        _runtime, current_fast = fast._shared_specs(fast_package)
+        local_tap = replace(
+            current_tap,
+            package_id=current_tap.package_id + "-local",
+            sha256="e" * 64,
+        )
+        inspection = shared.SharedInspection(
+            {
+                "tap-page-turn": shared.SharedFeatureState(
+                    local_tap, True, self.TOKEN
+                ),
+                "fast-mono-reading": shared.SharedFeatureState(
+                    current_fast, True, self.TOKEN
+                ),
+            },
+            True,
+            True,
+            receipt_features=frozenset({"tap-page-turn", "fast-mono-reading"}),
+        )
+        trusted = {
+            "tap-page-turn": current_tap,
+            "fast-mono-reading": current_fast,
+        }
+        with self.assertRaisesRegex(RuntimeError, "其他旧版功能"):
+            shared._assert_receipt_operation_scope(
+                inspection, trusted, ("fast-mono-reading",)
+            )
+
+    def test_schema2_local_revision_is_recognized_as_firmware_residue(self):
+        tap_package, fast_package = next(iter(self.contexts()))
+        _runtime, current = tap._shared_specs(tap_package)
+        local = replace(
+            current,
+            package_id=current.package_id + "-local-residue",
+            sha256="f" * 64,
+            size=current.size + 3,
+        )
+        ssh, _present, runtime, trusted, _identity = self.shared_residue_ssh(
+            tap_package,
+            fast_package,
+            feature_ids=("tap-page-turn",),
+            feature_overrides={"tap-page-turn": local},
+            marker_schema=2,
+        )
+
+        marker = json.loads(shared._remote_text(ssh, shared.SHARED_MARKER_PATH))
+        with tempfile.TemporaryDirectory() as temporary:
+            shared.configure_managed_receipt_store(temporary)
+            try:
+                shared._remember_managed_receipt(marker)
+                inspection = shared.inspect_shared_firmware_residue(
+                    ssh,
+                    runtime,
+                    trusted,
+                    (
+                        "999999999",
+                        runtime.platform,
+                        runtime.architecture,
+                        "0" * 64,
+                    ),
+                )
+            finally:
+                shared.configure_managed_receipt_store(None)
+
+        self.assertEqual(inspection.states["tap-page-turn"].spec, local)
+        self.assertEqual(
+            inspection.receipt_features, frozenset({"tap-page-turn"})
+        )
+
+    def test_staged_transaction_writes_complete_schema2_receipt(self):
+        tap_package, _fast_package = next(iter(self.contexts()))
+        runtime, feature = tap._shared_specs(tap_package)
+        states = {
+            feature.feature_id: shared.SharedFeatureState(
+                feature, True, self.TOKEN
+            )
+        }
+        expected_hashes = {
+            item.path: item.sha256 for item in runtime.files
+        }
+        expected_hashes.update(
+            {item.runtime_path: item.sha256 for item in feature.files}
+        )
+        uploads = {}
+
+        def upload_bytes(_ssh, data, path, _mode):
+            uploads[path] = data
+
+        def remote_sha(_ssh, path):
+            relative = path.split("/stage/", 1)[1]
+            if relative in expected_hashes:
+                return expected_hashes[relative]
+            return hashlib.sha256(uploads[path]).hexdigest()
+
+        ssh = Mock(exec_checked=Mock(return_value=""))
+        with (
+            patch.object(shared, "_upload_path"),
+            patch.object(shared, "_upload_bytes", side_effect=upload_bytes),
+            patch.object(shared, "_remote_sha256", side_effect=remote_sha),
+        ):
+            shared._stage_shared(
+                ssh,
+                runtime,
+                states,
+                {feature.feature_id: Path("unused")},
+                {},
+                "/stage",
+            )
+        marker = json.loads(uploads["/stage/package.json"])
+        self.assertEqual(marker["schema_version"], 2)
+        self.assertEqual(marker["receipt"]["status"], "complete")
+        self.assertEqual(
+            set(marker["receipt"]["features"]), {feature.feature_id}
+        )
 
     def test_owned_tree_rejects_symlink_non_root_and_extra_paths(self):
         expected = {

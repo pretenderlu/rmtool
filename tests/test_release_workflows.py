@@ -20,6 +20,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("name: Verify Feature Assets", features)
         self.assertIn("reading-enhancements/manifest.json", features)
         self.assertIn("note-enhancements/manifest.json", features)
+        self.assertIn("weread-launcher/manifest.json", features)
         for name in (
             "tap-page-turn-assets",
             "fast-mono-reading-assets",
@@ -27,6 +28,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
             "pinyin-input-assets",
             "reading-enhancements-assets",
             "note-enhancements-assets",
+            "weread-launcher-assets",
         ):
             self.assertIn(name, features)
         for name in (
@@ -36,6 +38,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
             "pinyin-input",
             "reading-enhancements",
             "note-enhancements",
+            "weread-launcher",
         ):
             self.assertIn(f"--resource {name}", features)
 
@@ -58,6 +61,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("pinyin-input/manifest.json:pinyin-input", workflow)
         self.assertIn("reading-enhancements/manifest.json:reading-enhancements", workflow)
         self.assertIn("note-enhancements/manifest.json:note-enhancements", workflow)
+        self.assertIn("weread-app/manifest.json:weread-app", workflow)
+        self.assertIn("weread-launcher/manifest.json:weread-launcher", workflow)
         self.assertIn("--collect-data certifi", workflow)
         self.assertIn(
             "dist/rmtool.app/Contents/Resources/certifi/cacert.pem", workflow
@@ -71,6 +76,23 @@ class ReleaseWorkflowTests(unittest.TestCase):
         )
         self.assertIn('"--collect-data", "certifi"', windows_build)
         self.assertIn('"certifi\\cacert.pem"', windows_build)
+        self.assertIn(
+            'weread-app\\manifest.json\');weread-app', windows_build
+        )
+        self.assertIn(
+            'weread-launcher\\manifest.json\');weread-launcher', windows_build
+        )
+        feature_workflow = (
+            ROOT / ".github/workflows/sync-feature-assets.yml"
+        ).read_text(encoding="utf-8")
+        publisher = (ROOT / "tools/publish_resources.py").read_text(encoding="utf-8")
+        for source in (workflow, windows_build, feature_workflow, publisher):
+            for payload in (
+                "remarkable-weread-v1.0.0-universal-release.zip",
+                "remarkable-weread-v1.0.0-universal-aarch64.tar.gz",
+                "weread-app-assets",
+            ):
+                self.assertNotIn(payload, source)
         for name in (
             "rmtool-windows-x64.zip",
             "rmtool-windows-x64-onefile.exe",

@@ -80,6 +80,8 @@ jobs:
             --add-data "$root/pinyin-input/manifest.json:pinyin-input" \
             --add-data "$root/reading-enhancements/manifest.json:reading-enhancements" \
             --add-data "$root/note-enhancements/manifest.json:note-enhancements" \
+            --add-data "$root/weread-app/manifest.json:weread-app" \
+            --add-data "$root/weread-launcher/manifest.json:weread-launcher" \
             --distpath dist \
             --workpath build/macos \
             --specpath build \

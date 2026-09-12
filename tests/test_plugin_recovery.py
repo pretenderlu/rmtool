@@ -3,6 +3,7 @@ import io
 import json
 import shlex
 import stat
+import tempfile
 import unittest
 from contextlib import contextmanager
 from dataclasses import replace
@@ -48,7 +49,7 @@ class Device:
             size=len(data) if size is None else size, links=1,
             digest=digest or hashlib.sha256(data).hexdigest(), data=data)
 
-    def install(self, states):
+    def install(self, states, *, schema_version=2):
         for path in list(self.entries):
             if path == BASE or path.startswith(BASE + "/") or path == DROPIN:
                 del self.entries[path]
@@ -56,7 +57,12 @@ class Device:
         launcher = shared.shared_launcher(self.runtime, enabled).encode()
         dropin = shared.shared_dropin(self.runtime, enabled).encode()
         self.add(BASE + "/package.json", shared.shared_marker(
-            self.runtime, states, hashlib.sha256(launcher).hexdigest(), hashlib.sha256(dropin).hexdigest()))
+            self.runtime,
+            states,
+            hashlib.sha256(launcher).hexdigest(),
+            hashlib.sha256(dropin).hexdigest(),
+            schema_version=schema_version,
+        ))
         if enabled:
             for item in self.runtime.files:
                 self.add(BASE + "/" + item.path, mode=stat.S_IFREG | item.mode, digest=item.sha256, size=item.size)
@@ -183,6 +189,53 @@ class RecoveryInspectionTests(unittest.TestCase):
         self.device.entries.clear()
         self.assertEqual(self.inspect().state, recovery.RecoveryState.NOT_NEEDED)
 
+    def test_schema1_recovery_recognition_remains_compatible(self):
+        self.device.install(self.device.states, schema_version=1)
+        self.device.break_payload()
+
+        report = self.inspect()
+
+        self.assertTrue(report.can_repair)
+
+    def test_schema2_local_revision_is_recoverable_without_published_fingerprint(self):
+        current = self.device.states["tap-page-turn"].spec
+        local = replace(
+            current,
+            package_id=current.package_id + "-local-canary",
+            sha256="d" * 64,
+            size=current.size + 5,
+        )
+        self.device.install({
+            local.feature_id: shared.SharedFeatureState(local, True, TOKEN)
+        })
+        marker = json.loads(self.device.entries[BASE + "/package.json"].data)
+        with tempfile.TemporaryDirectory() as temporary:
+            shared.configure_managed_receipt_store(temporary)
+            try:
+                shared._remember_managed_receipt(marker)
+                self.device.break_payload()
+                report = self.inspect()
+            finally:
+                shared.configure_managed_receipt_store(None)
+
+        self.assertTrue(report.can_repair)
+        self.assertIn(local.feature_id, report.features)
+
+    def test_schema2_recovery_rejects_incomplete_or_unsafe_receipt(self):
+        mutations = (
+            lambda marker: marker["receipt"].update(status="staging"),
+            lambda marker: marker["receipt"]["features"]["tap-page-turn"][
+                "files"
+            ][0].update(path="../../foreign.qmd"),
+        )
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                self.device.install(self.device.states)
+                self.device.marker(mutate)
+                self.assertEqual(
+                    self.inspect().state, recovery.RecoveryState.BLOCKED
+                )
+
     def test_corrupt_missing_payload_does_not_weaken_strict_execution(self):
         for path in ("qmd-tool", "xovi.so", "launcher.sh", self.device.trusted["tap-page-turn"].runtime_path):
             for missing in (True, False):
@@ -300,7 +353,14 @@ class RecoveryInspectionTests(unittest.TestCase):
     def test_known_published_predecessor_and_firmware_residue(self):
         revisions = recovery._published_predecessors(self.device.identity, self.device.trusted)
         predecessor = revisions["reading-enhancements"][0][1]
-        self.device.install({predecessor.feature_id: shared.SharedFeatureState(predecessor, True, TOKEN)})
+        self.device.install(
+            {
+                predecessor.feature_id: shared.SharedFeatureState(
+                    predecessor, True, TOKEN
+                )
+            },
+            schema_version=1,
+        )
         self.assertTrue(self.inspect().can_repair)
         package = next(p for p in tap._trusted_catalog()
                        if p.release_version == "3.28.0.166" and p.platform == "chiappa")

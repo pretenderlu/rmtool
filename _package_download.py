@@ -63,7 +63,9 @@ def download_verified_package(
     # tap imports this module; resolve its helpers at call time to avoid a cycle.
     import _tap_page_turn as tap
 
-    if destination.is_file():
+    if not 0 < package.size <= maximum:
+        raise RuntimeError(f"{feature_label}资源包大小超过允许范围。")
+    if destination.is_file() and destination.stat().st_size == package.size:
         data = destination.read_bytes()
         if len(data) == package.size and hashlib.sha256(data).hexdigest() == package.sha256:
             return destination

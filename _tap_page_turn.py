@@ -742,6 +742,18 @@ def _trusted_shared_context(identity: DeviceIdentity):
     except ImportError:
         pass
     try:
+        import _weread_launcher as weread
+
+        peer = weread.select_package(weread._trusted_catalog(), identity)
+        if peer is not None:
+            peer_runtime, peer_feature = weread._shared_specs(peer)
+            if runtime is not None and peer_runtime != runtime:
+                raise RuntimeError("点击翻页与微信读书启动器的内置运行资源不一致。")
+            runtime = runtime or peer_runtime
+            trusted[peer_feature.feature_id] = peer_feature
+    except ImportError:
+        pass
+    try:
         import _appload as appload
 
         peer_runtime, peer_features = appload.trusted_specs(identity)
@@ -1342,6 +1354,12 @@ def get_status(
             if state_record is None:
                 state = TapPageTurnState.NOT_INSTALLED
                 detail = "共享 Xovi 正由另一项 rmtool 功能使用"
+            elif (
+                "tap-page-turn" in inspection.receipt_features
+                and state_record.spec != trusted["tap-page-turn"]
+            ):
+                state = TapPageTurnState.OUTDATED
+                detail = "已验证为 rmtool 完成安装的旧版点击翻页，可直接更新。"
             else:
                 current = _xochitl_process_token(ssh_client)
                 process_changed = current != state_record.process_token

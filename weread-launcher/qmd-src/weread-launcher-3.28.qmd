@@ -1,0 +1,307 @@
+; Single-entry WeRead launcher for exact supported 3.28 firmware.
+
+AFFECT /qml/device/view/settings/Settings.qml
+    IMPORT cn.rmtool.WeReadLauncher 1.0
+
+    TRAVERSE ?#settingsSidebar
+        LOCATE BEFORE ALL
+        INSERT {
+            property var rmtoolWeReadSettingsRoot: parent
+
+            function rmtoolWeReadSelectedPage() {
+                return ("_selectedPage" in rmtoolWeReadSettingsRoot)
+                    ? rmtoolWeReadSettingsRoot._selectedPage
+                    : rmtoolWeReadSettingsRoot._selectedIndex
+            }
+
+            function rmtoolSelectWeReadPage(page) {
+                if ("_selectedPage" in rmtoolWeReadSettingsRoot) {
+                    rmtoolWeReadSettingsRoot._selectedPage = page
+                } else {
+                    rmtoolWeReadSettingsRoot._selectedIndex = page
+                }
+            }
+        }
+    END TRAVERSE
+
+    TRAVERSE ?#settingsSidebar > ColumnLayout#settingsColumn
+        LOCATE AFTER ALL
+        INSERT {
+            ArkControls.SidebarItem {
+                id: rmtoolWeReadSidebarItem
+                objectName: "rmtoolWeReadSidebarItem"
+                type: ArkTokens.Sidebar.primary
+                text: showLabels ? "微信读书" : ""
+                iconSource: "qrc:/rmtool/wereader.png"
+                highlighted: settingsSidebar.rmtoolWeReadSelectedPage() === 1003
+                focusPolicy: Qt.StrongFocus
+                Layout.fillWidth: true
+
+                onTriggered: {
+                    settingsSidebar.rmtoolSelectWeReadPage(1003)
+                    sidebarTimer.running = true
+                }
+            }
+        }
+    END TRAVERSE
+
+    TRAVERSE ?#payloadLoader
+        REBUILD sourceComponent
+            LOCATE AFTER STREAM /{/
+            INSERT STREAM /if (settingsSidebar.rmtoolWeReadSelectedPage() === 1003) return rmtoolWeReadLauncher;/
+        END REBUILD
+    END TRAVERSE
+
+    TRAVERSE Item#root
+        LOCATE BEFORE Component#general
+        INSERT {
+            Component {
+                id: rmtoolWeReadLauncher
+
+                Item {
+                    id: rmtoolWeReadPage
+                    objectName: "rmtoolWeReadLauncherPage"
+
+                    readonly property string group: "RmtoolWeReadLauncher"
+                    readonly property bool fastModeAvailable: true
+                    property string mode: "normal"
+                    property int colorRefreshPages: 10
+                    property int monoRefreshPages: 10
+                    property string launchStatus: ""
+                    property string installationError: ""
+
+                    WeReadLauncher {
+                        id: rmtoolWeReadBridge
+                    }
+
+                    function normalizedMode(value) {
+                        if (value === "colorFast" || value === "monoFast") {
+                            return value
+                        }
+                        return value === "fast" ? "monoFast" : "normal"
+                    }
+
+                    function normalizedRefreshPages(value) {
+                        var number = Number(value)
+                        return number === 5 || number === 10 || number === 20
+                            || number === 30 || number === 0 ? number : 10
+                    }
+
+                    function readSettings() {
+                        mode = normalizedMode(Settings.rawValue(group, "mode"))
+                        colorRefreshPages = normalizedRefreshPages(
+                            Settings.rawValue(group, "colorRefreshPages"))
+                        monoRefreshPages = normalizedRefreshPages(
+                            Settings.rawValue(group, "monoRefreshPages"))
+                    }
+
+                    function setMode(value) {
+                        if (value !== "normal" && !fastModeAvailable) {
+                            return
+                        }
+                        Settings.setRawValue(group, "mode", normalizedMode(value))
+                        readSettings()
+                    }
+
+                    function activeRefreshPages() {
+                        return mode === "colorFast" ? colorRefreshPages : monoRefreshPages
+                    }
+
+                    function setRefreshPages(value) {
+                        var normalized = normalizedRefreshPages(value)
+                        if (mode === "colorFast") {
+                            Settings.setRawValue(group, "colorRefreshPages", normalized)
+                        } else if (mode === "monoFast") {
+                            Settings.setRawValue(group, "monoRefreshPages", normalized)
+                        }
+                        readSettings()
+                    }
+
+                    function nativeMode() {
+                        return mode === "colorFast" ? 2 : mode === "monoFast" ? 1 : 0
+                    }
+
+                    function launch() {
+                        launchStatus = ""
+                        if (installationError.length > 0) {
+                            launchStatus = installationError
+                            return
+                        }
+                        if (mode !== "normal" && !fastModeAvailable) {
+                            launchStatus = "快刷模式暂不支持当前固件"
+                            return
+                        }
+                        var refreshPages = mode === "normal" ? 0 : activeRefreshPages()
+                        if (!rmtoolWeReadBridge.launch(nativeMode(), refreshPages)) {
+                            launchStatus = rmtoolWeReadBridge.lastError()
+                        }
+                    }
+
+                    Component.onCompleted: {
+                        readSettings()
+                        installationError = rmtoolWeReadBridge.unavailableReason()
+                    }
+
+                    ScrollArea {
+                        anchors.fill: parent
+                        contentWidth: width
+                        contentHeight: rmtoolWeReadWrapper.childrenRect.height
+                            + ArkControls.Values.platform.spacing.x2large
+                        enableScrollbar: true
+                        permanentScrollbar: true
+                        scrollbarTopMargin: rmtoolWeReadHeader.y
+
+                        Item {
+                            id: rmtoolWeReadWrapper
+                            implicitWidth: parent.width
+
+                            ArkControls.PlaceholderBar {
+                                id: rmtoolWeReadPlaceholder
+                                width: parent.width
+                            }
+
+                            ArkControls.Title {
+                                id: rmtoolWeReadHeader
+                                type: ArkControls.Title.Large
+                                anchors {
+                                    top: rmtoolWeReadPlaceholder.bottom
+                                    left: parent.left
+                                    leftMargin: ArkControls.Values.margin.horizontal.large
+                                    right: parent.right
+                                    rightMargin: ArkControls.Values.margin.horizontal.large
+                                }
+                                text: "微信读书"
+                            }
+
+                            ColumnLayout {
+                                anchors {
+                                    top: rmtoolWeReadHeader.bottom
+                                    topMargin: ArkControls.Values.platform.spacing.x2large
+                                    left: parent.left
+                                    leftMargin: ArkControls.Values.margin.horizontal.large
+                                    right: parent.right
+                                    rightMargin: ArkControls.Values.margin.horizontal.large
+                                }
+                                spacing: ArkControls.Values.platform.spacing.x2large
+
+                                ArkControls.Panel {
+                                    Layout.fillWidth: true
+                                    label: "启动模式"
+                                    description: rmtoolWeReadPage.mode === "colorFast"
+                                        ? "保留彩色，交互更跟手；可能积累残影。手写笔保持最低延迟，可定期完整刷新。"
+                                        : rmtoolWeReadPage.mode === "monoFast"
+                                            ? "牺牲彩色，黑白显示更稳定、彩色残影更少。手写笔保持最低延迟，可定期完整刷新。"
+                                            : "使用微信读书官方显示与刷新方式。"
+                                    showAttachment: true
+                                    attachment: RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: ArkControls.Values.spacing.medium
+
+                                        ArkControls.Button {
+                                            text: "普通"
+                                            type: rmtoolWeReadPage.mode === "normal"
+                                                ? ArkTokens.Button.primary
+                                                : ArkTokens.Button.secondary
+                                            onClicked: rmtoolWeReadPage.setMode("normal")
+                                        }
+
+                                        ArkControls.Button {
+                                            text: "彩色快刷"
+                                            type: rmtoolWeReadPage.mode === "colorFast"
+                                                ? ArkTokens.Button.primary
+                                                : ArkTokens.Button.secondary
+                                            enabled: rmtoolWeReadPage.fastModeAvailable
+                                            opacity: enabled ? 1 : 0.5
+                                            onClicked: rmtoolWeReadPage.setMode("colorFast")
+                                        }
+
+                                        ArkControls.Button {
+                                            text: "黑白快刷"
+                                            type: rmtoolWeReadPage.mode === "monoFast"
+                                                ? ArkTokens.Button.primary
+                                                : ArkTokens.Button.secondary
+                                            enabled: rmtoolWeReadPage.fastModeAvailable
+                                            opacity: enabled ? 1 : 0.5
+                                            onClicked: rmtoolWeReadPage.setMode("monoFast")
+                                        }
+                                    }
+                                }
+
+                                ArkControls.Panel {
+                                    Layout.fillWidth: true
+                                    visible: rmtoolWeReadPage.mode !== "normal"
+                                    label: "强制完整刷新"
+                                    description: "按阅读页数定期恢复一次完整彩色刷新。"
+                                    showAttachment: true
+                                    attachment: RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: ArkControls.Values.spacing.medium
+
+                                        ArkControls.Button {
+                                            text: "5 页"
+                                            type: rmtoolWeReadPage.activeRefreshPages() === 5
+                                                ? ArkTokens.Button.primary
+                                                : ArkTokens.Button.secondary
+                                            onClicked: rmtoolWeReadPage.setRefreshPages(5)
+                                        }
+                                        ArkControls.Button {
+                                            text: "10 页"
+                                            type: rmtoolWeReadPage.activeRefreshPages() === 10
+                                                ? ArkTokens.Button.primary
+                                                : ArkTokens.Button.secondary
+                                            onClicked: rmtoolWeReadPage.setRefreshPages(10)
+                                        }
+                                        ArkControls.Button {
+                                            text: "20 页"
+                                            type: rmtoolWeReadPage.activeRefreshPages() === 20
+                                                ? ArkTokens.Button.primary
+                                                : ArkTokens.Button.secondary
+                                            onClicked: rmtoolWeReadPage.setRefreshPages(20)
+                                        }
+                                        ArkControls.Button {
+                                            text: "30 页"
+                                            type: rmtoolWeReadPage.activeRefreshPages() === 30
+                                                ? ArkTokens.Button.primary
+                                                : ArkTokens.Button.secondary
+                                            onClicked: rmtoolWeReadPage.setRefreshPages(30)
+                                        }
+                                        ArkControls.Button {
+                                            text: "从不"
+                                            type: rmtoolWeReadPage.activeRefreshPages() === 0
+                                                ? ArkTokens.Button.primary
+                                                : ArkTokens.Button.secondary
+                                            onClicked: rmtoolWeReadPage.setRefreshPages(0)
+                                        }
+                                    }
+                                }
+
+                                ArkControls.Panel {
+                                    Layout.fillWidth: true
+                                    label: "启动微信读书"
+                                    description: rmtoolWeReadPage.installationError.length === 0
+                                        ? "退出微信读书后会返回系统界面。"
+                                        : rmtoolWeReadPage.installationError
+                                    action: ArkControls.Button {
+                                        text: "启动"
+                                        type: ArkTokens.Button.primary
+                                        enabled: rmtoolWeReadPage.installationError.length === 0
+                                            && (rmtoolWeReadPage.mode === "normal"
+                                                || rmtoolWeReadPage.fastModeAvailable)
+                                        onClicked: rmtoolWeReadPage.launch()
+                                    }
+                                }
+
+                                ArkControls.Panel {
+                                    Layout.fillWidth: true
+                                    label: "无法启动"
+                                    description: rmtoolWeReadPage.launchStatus
+                                    visible: rmtoolWeReadPage.launchStatus.length > 0
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    END TRAVERSE
+END AFFECT

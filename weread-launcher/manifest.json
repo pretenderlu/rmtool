@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "firmware": "20260827113527",
+      "release_version": "3.28.0.172",
+      "channel": "stable",
+      "platform": "chiappa",
+      "architecture": "aarch64",
+      "xochitl_sha256": "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4",
+      "offline_verified": true,
+      "device_verified": true,
+      "package_revision": 5,
+      "asset": "rmtool-weread-launcher-chiappa-20260827113527-3.28.0.172.tar.gz",
+      "sha256": "6e41f7aa6d1270ece647029faec2693e1f62ed4fb38f53d7c2712af7f422e0a6",
+      "size": 4381224,
+      "urls": [
+        "https://github.com/pretenderlu/rmtool/releases/download/weread-launcher-assets/rmtool-weread-launcher-chiappa-20260827113527-3.28.0.172.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/weread-launcher/rmtool-weread-launcher-chiappa-20260827113527-3.28.0.172.tar.gz"
+      ],
+      "files": [
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "size": 9496456,
+          "mode": 420
+        },
+        {
+          "path": "extensions.d/rmtool-weread-launcher.so",
+          "sha256": "4e964dde3bd502f6748f303c92a937311106e05597073ac3ec8d4d0d59325aa6",
+          "size": 1925400,
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "sha256": "d947afca520b16a06efc0e5462d9c4db68928f2b4591ac67d59bc2e1f519c27d",
+          "size": 618942,
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/weread-launcher.qmd",
+          "sha256": "f0f045f21466aadaa79cd044a50f43d16eea0b63d8ccaed99c8ee4e0b019b59d",
+          "size": 19498,
+          "mode": 420
+        },
+        {
+          "path": "helpers/rmtool-weread-fast.so",
+          "sha256": "5e1f04ad8f98a32cb0c68d7567f8dc13044cd2e5d8425f8afb7800bf96207b7b",
+          "size": 210272,
+          "mode": 420
+        },
+        {
+          "path": "qmd-tool",
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "size": 1966264,
+          "mode": 493
+        },
+        {
+          "path": "xovi.so",
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "size": 103008,
+          "mode": 420
+        }
+      ]
+    },
+    {
+      "firmware": "20260827113527",
+      "release_version": "3.28.0.172",
+      "channel": "stable",
+      "platform": "ferrari",
+      "architecture": "aarch64",
+      "xochitl_sha256": "b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021",
+      "offline_verified": true,
+      "device_verified": false,
+      "package_revision": 5,
+      "asset": "rmtool-weread-launcher-ferrari-20260827113527-3.28.0.172.tar.gz",
+      "sha256": "e509448b0899054c94f227af4a1264846a7ac62b4a668d4a846a927a9a24c17f",
+      "size": 4384014,
+      "urls": [
+        "https://github.com/pretenderlu/rmtool/releases/download/weread-launcher-assets/rmtool-weread-launcher-ferrari-20260827113527-3.28.0.172.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/weread-launcher/rmtool-weread-launcher-ferrari-20260827113527-3.28.0.172.tar.gz"
+      ],
+      "files": [
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "size": 9496456,
+          "mode": 420
+        },
+        {
+          "path": "extensions.d/rmtool-weread-launcher.so",
+          "sha256": "4e964dde3bd502f6748f303c92a937311106e05597073ac3ec8d4d0d59325aa6",
+          "size": 1925400,
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "sha256": "ffd4712a4e59904388a7aaa40e6781cb4c8eaf79b0d8fa0d0004f30a1dc9f8eb",
+          "size": 624183,
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/weread-launcher.qmd",
+          "sha256": "f0f045f21466aadaa79cd044a50f43d16eea0b63d8ccaed99c8ee4e0b019b59d",
+          "size": 19498,
+          "mode": 420
+        },
+        {
+          "path": "helpers/rmtool-weread-fast.so",
+          "sha256": "5e1f04ad8f98a32cb0c68d7567f8dc13044cd2e5d8425f8afb7800bf96207b7b",
+          "size": 210272,
+          "mode": 420
+        },
+        {
+          "path": "qmd-tool",
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "size": 1966264,
+          "mode": 493
+        },
+        {
+          "path": "xovi.so",
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "size": 103008,
+          "mode": 420
+        }
+      ]
+    }
+  ]
+}

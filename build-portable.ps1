@@ -22,6 +22,8 @@ $required = @(
     "pinyin-input\manifest.json",
     "reading-enhancements\manifest.json",
     "note-enhancements\manifest.json",
+    "weread-app\manifest.json",
+    "weread-launcher\manifest.json",
     "rmrl\__init__.py"
 )
 foreach ($path in $required) {
@@ -86,6 +88,8 @@ $commonArguments = @(
     "--add-data", "$(Join-Path $root 'pinyin-input\manifest.json');pinyin-input",
     "--add-data", "$(Join-Path $root 'reading-enhancements\manifest.json');reading-enhancements",
     "--add-data", "$(Join-Path $root 'note-enhancements\manifest.json');note-enhancements",
+    "--add-data", "$(Join-Path $root 'weread-app\manifest.json');weread-app",
+    "--add-data", "$(Join-Path $root 'weread-launcher\manifest.json');weread-launcher",
     "--distpath", (Join-Path $root "dist"),
     "--specpath", (Join-Path $root "build")
 )

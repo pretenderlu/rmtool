@@ -50,6 +50,94 @@ def _targets() -> tuple[dict, ...]:
 
 
 class ReadingEnhancementsQmdTests(unittest.TestCase):
+    def test_refresh_settings_migrate_without_enabling_fast_mode_for_new_users(self):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PyQt5 import QtQml, QtWidgets
+
+        app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        source = SOURCE.read_text(encoding="utf-8").split(
+            "AFFECT /qml/device/view/documentview/DocumentView.qml", 1
+        )[1]
+        functions = []
+        for name in (
+            "rmtoolDocumentKey", "readBool", "rmtoolNormalizedRefreshMode",
+            "rmtoolReadFastModeEnabled", "rmtoolReadRefreshMode",
+            "rmtoolNormalizedInterval", "rmtoolReadScopedBool",
+            "rmtoolReadScopedInterval", "rmtoolReadReadingSettings",
+            "rmtoolSetRefreshMode",
+        ):
+            match = re.search(
+                rf"(?ms)^            function {name}\(.*?^            \}}", source
+            )
+            self.assertIsNotNone(match, name)
+            functions.append(match.group())
+        engine = QtQml.QJSEngine()
+        result = engine.evaluate("\n".join(functions) + """
+            var values = {};
+            var Settings = {
+                rawValue: function(group, key) { return values[key]; },
+                setRawValue: function(group, key, value) { values[key] = value; }
+            };
+            var rmtoolReadingDocumentId = "book-a";
+            var rmtoolFastReadingAvailable = true;
+            var rmtoolCleanupLastDocumentId = "";
+            var rmtoolCleanupEnabled = false;
+            var rmtoolCleanupByChapter = false;
+            var rmtoolCleanupInterval = 10;
+            var currentPage = 0;
+            function rmtoolResetReadingCleanup() {}
+            function rmtoolTocBoundaryForPage(page) { return 0; }
+        """)
+        self.assertFalse(result.isError(), result.toString())
+
+        def evaluate(expression):
+            result = engine.evaluate(expression)
+            self.assertFalse(result.isError(), result.toString())
+            return result.toVariant()
+
+        cases = (
+            ({}, "normal", False),
+            ({"fastModeEnabled": True}, "normal", True),
+            ({"fastMonoEnabled": True}, "monoFast", True),
+            ({"fastMonoEnabled": False}, "normal", False),
+            ({"fastMonoEnabled": None, "fastModeEnabled": True}, "normal", True),
+            ({"fastMonoEnabled": True, "fastModeEnabled": False}, "monoFast", False),
+            ({"fastMonoEnabled": False, "fastModeEnabled": True}, "normal", True),
+            ({"fastMonoEnabled": True, "documents/book-a/fastMonoEnabled": False}, "normal", True),
+            ({"fastModeEnabled": True, "documents/book-a/fastMonoEnabled": True}, "monoFast", True),
+            ({"fastMonoEnabled": True, "documents/book-a/refreshMode": "colorFast"}, "colorFast", True),
+            ({"fastMonoEnabled": True, "documents/book-a/refreshMode": "normal"}, "normal", True),
+            ({"fastMonoEnabled": True, "documents/book-a/refreshMode": "invalid"}, "normal", True),
+        )
+        for settings, expected_mode, authorized in cases:
+            with self.subTest(settings=settings):
+                values = {"masterEnabled": True, **settings}
+                evaluate("values = " + json.dumps(values) + "; rmtoolReadReadingSettings();")
+                self.assertEqual(evaluate("rmtoolDocumentRefreshMode"), expected_mode)
+                self.assertEqual(evaluate("rmtoolGlobalFastModeEnabled"), authorized)
+                self.assertEqual(evaluate("rmtoolReadingRefreshMode"), expected_mode if authorized else "normal")
+                self.assertEqual(evaluate("values"), values)  # Reads never rewrite old settings.
+
+        evaluate('values = {masterEnabled: true, fastModeEnabled: true}; rmtoolSetRefreshMode("colorFast");')
+        for gate in ("rmtoolFastReadingAvailable = false", "values.masterEnabled = false", "values.fastModeEnabled = false"):
+            evaluate('rmtoolFastReadingAvailable = true; values.masterEnabled = true; values.fastModeEnabled = true; ' + gate + '; rmtoolReadReadingSettings();')
+            self.assertEqual(evaluate("rmtoolReadingRefreshMode"), "normal")
+            self.assertEqual(evaluate("rmtoolDocumentRefreshMode"), "colorFast")
+        evaluate('rmtoolFastReadingAvailable = true; values.fastModeEnabled = true; rmtoolReadingDocumentId = "book-b"; rmtoolReadReadingSettings();')
+        self.assertEqual(evaluate("rmtoolReadingRefreshMode"), "normal")
+        evaluate('rmtoolReadingDocumentId = "book-a"; rmtoolReadReadingSettings();')
+        self.assertEqual(evaluate("rmtoolReadingRefreshMode"), "colorFast")
+        self.assertIsNotNone(app)
+
+    def test_global_authorization_has_no_modes_and_book_choices_explain_tradeoffs(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        settings = source.split("END AFFECT", 1)[0]
+        self.assertEqual(settings.count('label: "快刷模式"'), 1)
+        for mode in ("normal", "colorFast", "monoFast"):
+            self.assertNotIn('"' + mode + '"', settings)
+        self.assertIn("彩色快刷保留色彩、响应灵敏，但可能累积彩色残影。", source)
+        self.assertIn("黑白快刷不显示色彩，提供更稳定的黑白显示。", source)
+
     def test_qt_elides_long_epub_labels_within_the_available_width(self):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         from PyQt5 import QtCore, QtGui, QtWidgets
@@ -106,7 +194,12 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
             "hlSnapCjk",
             "中文划词精确选取",
             "rmtoolGlobalTapPageTurnEnabled",
-            "rmtoolGlobalFastMonoEnabled",
+            "rmtoolGlobalFastModeEnabled",
+            "rmtoolDocumentRefreshMode",
+            "rmtoolReadingRefreshMode",
+            "rmtoolReadFastModeEnabled",
+            "rmtoolSetRefreshMode",
+            'return !!legacy ? "monoFast" : "normal"',
             "rmtoolGlobalCleanupEnabled",
             "rmtoolDocumentKey",
             "function rmtoolNormalizedInterval(value)",
@@ -145,6 +238,11 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
             "textSelectionMode",
             "ArkControls.FoldoutToggle",
             "ArkControls.FoldoutItem",
+            "refreshMode",
+            'label: "普通"',
+            'label: "彩色快刷"',
+            'label: "黑白快刷"',
+            "Epaper.ScreenModeItem.Animation",
             "stackView.push(rmtoolCleanupOptions)",
             'label: "刷新页数"',
             "每 15 次翻页",
@@ -195,7 +293,11 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            'description: "作为全局授权；开启后可在每本 PDF/EPUB 的阅读菜单中独立开关。"',
+            'label: "快刷模式"',
+            source,
+        )
+        self.assertIn(
+            '"fastModeEnabled", !rmtoolReadingPage.fastModeEnabled',
             source,
         )
         self.assertNotIn("重启后默认关闭", source)
@@ -482,7 +584,8 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
                     r"readonly property\s+bool\s+rmtoolReadingAvailable:\s*!!document\s*&&\s*!notePage",
                 )
                 self.assertIn("rmtoolTapPageTurnToggle", menu)
-                self.assertIn("rmtoolFastMonoToggle", menu)
+                self.assertIn("rmtoolRefreshModeSelector", menu)
+                self.assertIn("rmtoolRefreshModeOptions", menu)
                 self.assertIn("rmtoolCleanupSelector", menu)
                 self.assertIn("rmtoolTableOfContentsItem", menu)
                 self.assertIn('reportPageAction("Table of Content")', pages)
@@ -499,7 +602,7 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
                     main = (replay / "qml/device/view/main/MainView.qml").read_text(
                         encoding="utf-8"
                     )
-                    self.assertIn("rmtoolFastMonoReadingEnabled", main)
+                    self.assertIn("rmtoolReadingRefreshMode", main)
                 else:
                     self.assertIn("rmtoolSettingsRoot._selectedPage = page", settings)
                     self.assertIn("root.sideBarItemClicked(root._selectedPage);", settings)

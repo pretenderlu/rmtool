@@ -100,26 +100,53 @@ def _known_dropin_hashes(runtime, states):
 def _recognized_marker(marker, runtime, trusted, revisions):
     if not isinstance(marker, dict) or type(marker.get("schema_version")) is not int:
         raise RuntimeError("共享插件标记格式无效，不能确认归属。")
+    schema_version = marker["schema_version"]
     records = marker.get("features")
     if not isinstance(records, dict) or not records or not set(records) <= set(trusted):
         raise RuntimeError("共享插件标记包含未知功能，拒绝自动修复。")
-    choices = []
-    for feature_id, record in sorted(records.items()):
-        candidates = (trusted[feature_id], *(item[1] for item in revisions.get(feature_id, ())))
-        matches = []
-        for spec in dict.fromkeys(candidates):
-            try:
-                state = shared._parse_states({"features": {feature_id: record}}, {feature_id: spec})
-            except RuntimeError:
-                continue
-            matches.append(state[feature_id])
-        if not matches:
-            raise RuntimeError(f"{feature_id} 标记不属于已发布的受信版本。")
-        choices.append(matches)
-    for combination in product(*choices):
-        states = {state.spec.feature_id: state for state in combination}
-        shared.assert_feature_layout(runtime, (state.spec for state in combination))
-        enabled = tuple(state.spec for state in combination if state.enabled)
+    if schema_version == 2:
+        states = shared._parse_receipt_states(marker, runtime, trusted)
+        published = all(
+            state.spec
+            in {
+                trusted[feature_id],
+                *(item[1] for item in revisions.get(feature_id, ())),
+            }
+            for feature_id, state in states.items()
+        )
+        if not published and not shared._managed_receipt_is_known(marker):
+            raise RuntimeError(
+                "共享插件本地测试版没有当前电脑的完成安装登记。"
+            )
+        state_sets = (states,)
+    elif schema_version == 1:
+        choices = []
+        for feature_id, record in sorted(records.items()):
+            candidates = (
+                trusted[feature_id],
+                *(item[1] for item in revisions.get(feature_id, ())),
+            )
+            matches = []
+            for spec in dict.fromkeys(candidates):
+                try:
+                    state = shared._parse_states(
+                        {"features": {feature_id: record}}, {feature_id: spec}
+                    )
+                except RuntimeError:
+                    continue
+                matches.append(state[feature_id])
+            if not matches:
+                raise RuntimeError(f"{feature_id} 标记不属于已发布的受信版本。")
+            choices.append(matches)
+        state_sets = (
+            {state.spec.feature_id: state for state in combination}
+            for combination in product(*choices)
+        )
+    else:
+        raise RuntimeError("共享插件标记版本无效，不能确认归属。")
+    for states in state_sets:
+        shared.assert_feature_layout(runtime, (state.spec for state in states.values()))
+        enabled = tuple(state.spec for state in states.values() if state.enabled)
         dropin = shared.shared_dropin(runtime, enabled)
         dropin_sha = hashlib.sha256(dropin.encode()).hexdigest()
         for guard, sentinel, unmatched in (
@@ -131,7 +158,13 @@ def _recognized_marker(marker, runtime, trusted, revisions):
                 recovery_sentinel=sentinel, legacy_unmatched_qmd_glob=unmatched,
             )
             launcher_sha = hashlib.sha256(launcher.encode()).hexdigest()
-            if marker == shared._marker_document(runtime, states, launcher_sha, dropin_sha):
+            if marker == shared._marker_document(
+                runtime,
+                states,
+                launcher_sha,
+                dropin_sha,
+                schema_version=schema_version,
+            ):
                 if type(marker["runtime_present"]) is not bool:
                     break
                 return states
@@ -363,7 +396,12 @@ def _inspect(ssh_client):
     tap._preflight_device(ssh_client)
     if "native-chinese" in states and states["native-chinese"].enabled:
         migration.native._reject_active_french_slot(ssh_client, identity)
-    return RecoveryReport(RecoveryState.REPAIR_AVAILABLE, "归属与已发布标记已确认；可隔离原安装并用受信新包重建，保留外部设置及紧急停用标记。", features, tuple(issues)), plan
+    return RecoveryReport(
+        RecoveryState.REPAIR_AVAILABLE,
+        "归属已由 rmtool 完成安装收据或已发布标记确认；可隔离原安装并用受信新包重建，保留外部设置及紧急停用标记。",
+        features,
+        tuple(issues),
+    ), plan
 
 
 def inspect_recovery(ssh_client) -> RecoveryReport:

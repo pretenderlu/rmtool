@@ -430,6 +430,16 @@ def get_status(ssh_client) -> AppLoadStatus:
         record = inspection.states.get(FEATURE_ID)
         if record is None:
             return AppLoadStatus(AppLoadState.NOT_INSTALLED, identity, asset)
+        if (
+            FEATURE_ID in inspection.receipt_features
+            and record.spec != trusted[FEATURE_ID]
+        ):
+            return AppLoadStatus(
+                AppLoadState.REPAIRABLE,
+                identity,
+                asset,
+                "已验证为 rmtool 完成安装的旧版 AppLoad，可直接修复更新",
+            )
         if inspection.launcher_update_available:
             return AppLoadStatus(
                 AppLoadState.REPAIRABLE,
