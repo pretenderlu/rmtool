@@ -15,14 +15,14 @@ import stage_172 as staging
 
 class Candidate172Tests(unittest.TestCase):
     def test_resource_records_match_reviewed_baselines(self):
-        # Non-.172 rows remain pinned. Reading was deliberately rebuilt for r12;
+        # Non-.172 rows remain pinned. Reading was deliberately rebuilt for r13;
         # historical package trust is independently pinned by its backend tests.
         expected = {
             "tap-page-turn": "c1e4118012d7660c189e6026760ebabfd5681ccf3d56a2832dc19ae23f7783b5",
             "fast-mono-reading": "f00f8f71423bf365e3aeb41e30e0d621f20cc00f2d07b800ac4c6e1ad32940cc",
             "native-chinese": "4c3f5c9eb081ac44538bbabfd923a626e978c6513ad9c5956fdbe4e183e61429",
             "pinyin-input": "d47c77d2ec9dedcaa0884226d3b6978591febd7f52958fd466c23c39b02d264f",
-            "reading-enhancements": "7221a7ce7bcb64ee909a0756678337cb9655e20a86f514a49c606230d57f00d5",
+            "reading-enhancements": "079cc59f2f57117dd7e3a33f5f7334b9a4fcad2195097f44cef89c3a3d14799e",
             "note-enhancements": "5dfd6e9c565e38201da517d9c8c578fcf63bcdf301bae19275b7d9eda09b61ea",
         }
         for feature, fingerprint in expected.items():
@@ -55,6 +55,7 @@ class Candidate172Tests(unittest.TestCase):
                 self.assertEqual(
                     tuple(reason for reason, _feature in predecessors),
                     (
+                        "package-revision-12",
                         "package-revision-11",
                         "package-revision-10",
                         "package-revision-9",

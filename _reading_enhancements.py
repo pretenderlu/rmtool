@@ -32,7 +32,7 @@ QMD_PAYLOAD_PATH = "exthome/qt-resource-rebuilder/reading-enhancements.qmd"
 HIGHLIGHT_EXTENSION_PATH = "extensions.d/rmtool-highlight-snap.so"
 HIGHLIGHT_LICENSE_PATH = "LICENSE.rm-tweak"
 FEATURE_ID = "reading-enhancements"
-PACKAGE_REVISION = 12
+PACKAGE_REVISION = 13
 MAX_MANIFEST_BYTES = tap.MAX_MANIFEST_BYTES
 MAX_PACKAGE_BYTES = tap.MAX_PACKAGE_BYTES
 MAX_UNPACKED_BYTES = tap.MAX_UNPACKED_BYTES
@@ -228,6 +228,24 @@ _PUBLISHED_REVISION_QMDS = {
             59138,
         ),
     },
+    12: {
+        "3.27": (
+            "8c7914802d104427e1c23887471978320d99dacac6e2a70363e5f2f8f55274b8",
+            56542,
+        ),
+        "3.28.0.162": (
+            "b2374c2c8ab94d6c22b00dcb07764af6c727e8cece4f03f970d2c042af0de545",
+            62993,
+        ),
+        "3.28": (
+            "036c2eba91fdf53285cb3470c092f8e9faf44eb15b708e2792ab7c792e5df7b7",
+            63033,
+        ),
+        "3.28.0.172": (
+            "95aa9368690d0cc81d8256dd34b919aac87f01df8936c5c1feec6d66762fbffa",
+            64314,
+        ),
+    },
 }
 _PUBLISHED_PREDECESSOR_REASONS = frozenset(
     f"package-revision-{revision}" for revision in _PUBLISHED_REVISION_QMDS
@@ -235,7 +253,7 @@ _PUBLISHED_PREDECESSOR_REASONS = frozenset(
 
 ALLOWED_TARGETS = {
     ("ferrari", "20260827113527", "aarch64", "b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021"): ("3.28.0.172", "stable", True, False),
-    ("chiappa", "20260827113527", "aarch64", "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"): ("3.28.0.172", "stable", True, False),
+    ("chiappa", "20260827113527", "aarch64", "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"): ("3.28.0.172", "stable", True, True),
     (
         "ferrari",
         "20260506100933",
@@ -607,7 +625,7 @@ def _shared_specs(package: ReadingEnhancementsPackage):
 
 
 def _known_published_revision_feature(package, current, revision):
-    if package.release_version == "3.28.0.172" and revision not in {8, 9, 10, 11}:
+    if package.release_version == "3.28.0.172" and revision not in {8, 9, 10, 11, 12}:
         return None
     fingerprints = _PUBLISHED_REVISION_QMDS.get(revision)
     if fingerprints is None:
@@ -620,7 +638,7 @@ def _known_published_revision_feature(package, current, revision):
     if predecessor is None:
         return None
     extra_files = ()
-    if revision == 11 and package.release_version == "3.28.0.172":
+    if revision in {11, 12} and package.release_version == "3.28.0.172":
         extra_files = (
             shared.SharedFeatureFileSpec(
                 HIGHLIGHT_EXTENSION_PATH,

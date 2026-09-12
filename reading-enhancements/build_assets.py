@@ -35,6 +35,8 @@ QREX_FILES = (
 )
 EPUB_FONT_328_START = "; RMTOOL_EPUB_FONT_328_START"
 EPUB_FONT_328_END = "; RMTOOL_EPUB_FONT_328_END"
+FULL_WINDOW_COLOR_328_START = "; RMTOOL_FULL_WINDOW_COLOR_328_START"
+FULL_WINDOW_COLOR_328_END = "; RMTOOL_FULL_WINDOW_COLOR_328_END"
 HIGHLIGHT_AVAILABLE_MARKER = "readonly property bool hlSnapAvailable: false"
 HIGHLIGHT_BLOCKS = tuple(
     (f"; RMTOOL_HL_SNAP_{index}_START", f"; RMTOOL_HL_SNAP_{index}_END")
@@ -61,6 +63,7 @@ def _variant_for_release(release_version: str) -> str:
 
 
 def _main_view_variant(source: str) -> str:
+    source = _strip_full_window_color_328(source)
     navigation_fallback = """                } else {
                     rmtoolSettingsRoot._selectedIndex = page
                 }
@@ -95,7 +98,8 @@ def _main_view_variant(source: str) -> str:
                 ? Epaper.ScreenModeItem.Animation
                 : (rmtoolFastReadingAvailable && rmtoolReadingRefreshMode === \"monoFast\"
                     ? Epaper.ScreenModeItem.Mono
-                    : (visible ? sceneView.globalScreenMode : Epaper.ScreenModeItem.UI))
+                    : (sceneView.globalScreenMode != undefined
+                        ? sceneView.globalScreenMode : Epaper.ScreenModeItem.UI))
         }
     END TRAVERSE
 END AFFECT
@@ -148,6 +152,15 @@ def _strip_epub_font_328(source: str) -> str:
         raise RuntimeError("reading-enhancements source lacks one 3.28 EPUB font block")
     before, remainder = source.split(EPUB_FONT_328_START, 1)
     _block, after = remainder.split(EPUB_FONT_328_END, 1)
+    return before.rstrip() + "\n" + after.lstrip("\n")
+
+
+def _strip_full_window_color_328(source: str) -> str:
+    if (source.count(FULL_WINDOW_COLOR_328_START) != 1
+            or source.count(FULL_WINDOW_COLOR_328_END) != 1):
+        raise RuntimeError("reading-enhancements source lacks one 3.28 full-window color block")
+    before, remainder = source.split(FULL_WINDOW_COLOR_328_START, 1)
+    _block, after = remainder.split(FULL_WINDOW_COLOR_328_END, 1)
     return before.rstrip() + "\n" + after.lstrip("\n")
 
 

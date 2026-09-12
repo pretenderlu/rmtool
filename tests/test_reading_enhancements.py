@@ -78,7 +78,10 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 for item in self.catalog
                 if item.device_verified
             },
-            {("chiappa", "3.27.3.0", "20260612085811")},
+            {
+                ("chiappa", "3.27.3.0", "20260612085811"),
+                ("chiappa", "3.28.0.172", "20260827113527"),
+            },
         )
         for package in self.catalog:
             self.assertEqual(
@@ -121,6 +124,18 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         self.assertIn('function rmtoolSetRefreshMode(value)', source)
         self.assertIn("Epaper.ScreenModeItem.Animation", source)
         self.assertIn("Epaper.ScreenModeItem.Mono", source)
+        self.assertEqual(source.count('objectName: "rmtoolFullWindowColorFast"'), 1)
+        self.assertIn("anchors.margins: -16", source)
+        self.assertIn('root.rmtoolReadingRefreshMode === "colorFast"', source)
+        self.assertIn("&& !root.penClose && !root.inSuspend", source)
+        self.assertIn("保留低质量色彩", source)
+        self.assertIn(
+            "sceneView.globalScreenMode : Epaper.ScreenModeItem.UI",
+            source,
+        )
+        self.assertNotIn("visible ? sceneView.globalScreenMode", source)
+        self.assertNotIn("EPScreenModeMap", source)
+        self.assertNotIn("LD_PRELOAD", source)
         self.assertNotIn("function rmtoolSetFastMonoEnabled", source)
         self.assertNotIn('Settings.setRawValue("RmtoolReadingEnhancements", "fastMonoEnabled"', source)
 
@@ -391,6 +406,24 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                         59138,
                     ),
                 },
+                12: {
+                    "3.27": (
+                        "8c7914802d104427e1c23887471978320d99dacac6e2a70363e5f2f8f55274b8",
+                        56542,
+                    ),
+                    "3.28.0.162": (
+                        "b2374c2c8ab94d6c22b00dcb07764af6c727e8cece4f03f970d2c042af0de545",
+                        62993,
+                    ),
+                    "3.28": (
+                        "036c2eba91fdf53285cb3470c092f8e9faf44eb15b708e2792ab7c792e5df7b7",
+                        63033,
+                    ),
+                    "3.28.0.172": (
+                        "95aa9368690d0cc81d8256dd34b919aac87f01df8936c5c1feec6d66762fbffa",
+                        64314,
+                    ),
+                },
             },
         )
         self.assertEqual(
@@ -405,6 +438,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 "package-revision-9",
                 "package-revision-10",
                 "package-revision-11",
+                "package-revision-12",
             },
         )
         for package in self.catalog:
@@ -419,6 +453,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 self.assertEqual(
                     reasons,
                     (
+                        "package-revision-12",
                         "package-revision-11",
                         "package-revision-8",
                         "package-revision-7",
@@ -432,6 +467,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 self.assertEqual(
                     reasons,
                     (
+                        "package-revision-12",
                         "package-revision-11",
                         "package-revision-10",
                         "package-revision-9",
@@ -442,6 +478,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 self.assertEqual(
                     reasons,
                     (
+                        "package-revision-12",
                         "package-revision-11",
                         "package-revision-9",
                         "package-revision-8",

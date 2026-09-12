@@ -505,7 +505,7 @@ AFFECT /qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml
                             root.toolbar.rmtoolDocumentView.rmtoolSetRefreshMode("colorFast")
                             stackView.popCurrentItem()
                             root.toolbar.rmtoolDocumentView.showNotification({
-                                message: "彩色快刷保留色彩、响应灵敏，但可能累积彩色残影。"
+                                message: "彩色快刷保留低质量色彩、响应灵敏，但颜色质量会降低，也可能累积彩色残影。"
                             })
                         }
                     }
@@ -1126,7 +1126,35 @@ AFFECT /qml/device/view/documentview/DocumentView.qml
                 ? Epaper.ScreenModeItem.Animation
                 : (rmtoolFastReadingAvailable && rmtoolReadingRefreshMode === "monoFast"
                     ? Epaper.ScreenModeItem.Mono
-                    : (visible ? sceneView.globalScreenMode : Epaper.ScreenModeItem.UI))
+                    : (sceneView.globalScreenMode != undefined
+                        ? sceneView.globalScreenMode : Epaper.ScreenModeItem.UI))
         }
     END TRAVERSE
 END AFFECT
+
+; RMTOOL_FULL_WINDOW_COLOR_328_START
+AFFECT /qml/device/view/documentview/DocumentView.qml
+    TRAVERSE FocusScope#root
+        LOCATE BEFORE ALL
+        INSERT {
+            Epaper.ScreenModeItem {
+                id: rmtoolFullWindowColorFast
+                objectName: "rmtoolFullWindowColorFast"
+                parent: {
+                    var item = root
+                    while (item.parent) item = item.parent
+                    return item
+                }
+                anchors.fill: parent
+                anchors.margins: -16
+                z: 1000000
+                visible: root.visible && root.activeFocus
+                    && root.rmtoolFastReadingAvailable
+                    && root.rmtoolReadingRefreshMode === "colorFast"
+                    && !root.penClose && !root.inSuspend
+                mode: Epaper.ScreenModeItem.Animation
+            }
+        }
+    END TRAVERSE
+END AFFECT
+; RMTOOL_FULL_WINDOW_COLOR_328_END

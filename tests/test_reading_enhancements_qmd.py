@@ -135,7 +135,10 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
         self.assertEqual(settings.count('label: "快刷模式"'), 1)
         for mode in ("normal", "colorFast", "monoFast"):
             self.assertNotIn('"' + mode + '"', settings)
-        self.assertIn("彩色快刷保留色彩、响应灵敏，但可能累积彩色残影。", source)
+        self.assertIn(
+            "彩色快刷保留低质量色彩、响应灵敏，但颜色质量会降低，也可能累积彩色残影。",
+            source,
+        )
         self.assertIn("黑白快刷不显示色彩，提供更稳定的黑白显示。", source)
 
     def test_qt_elides_long_epub_labels_within_the_available_width(self):
@@ -288,6 +291,9 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
         self.assertNotIn("TRAVERSE ?#general", source)
         self.assertIn("SettingsMenu.qml", source)
         self.assertNotIn("AFFECT /qml/device/view/main/MainView.qml", source)
+        self.assertNotIn("visible ? sceneView.globalScreenMode", source)
+        self.assertNotIn("EPScreenModeMap", source)
+        self.assertNotIn("LD_PRELOAD", source)
         self.assertNotIn(
             'Settings.setRawValue("RmtoolReadingEnhancements", "fastMonoEnabled", false)',
             source,
@@ -420,6 +426,10 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
         self.assertNotIn("FormatFont.qml", text_327)
         self.assertIn("RMTOOL_EPUB_FONT_328_START", text_328)
         self.assertIn("FormatFont.qml", text_328)
+        self.assertNotIn("RMTOOL_FULL_WINDOW_COLOR_328_START", text_327)
+        self.assertNotIn("rmtoolFullWindowColorFast", text_327)
+        self.assertIn("RMTOOL_FULL_WINDOW_COLOR_328_START", text_328)
+        self.assertEqual(text_328.count("rmtoolFullWindowColorFast"), 2)
         for source in (text_327, text_328):
             self.assertIn("LOCATE BEFORE Component#general", source)
             self.assertNotIn("TRAVERSE ?#general", source)
