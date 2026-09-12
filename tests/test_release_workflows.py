@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 
@@ -6,6 +7,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_current_release_notes_hide_internal_revision_terms(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        match = re.search(r"当前发布版为 `(?P<tag>v\d+(?:\.\d+)+)`", readme)
+        self.assertIsNotNone(match)
+        notes = (
+            ROOT / "docs" / "releases" / f"{match.group('tag')}.md"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("revision", notes.casefold())
+
     def test_resource_workflows_only_validate_fixed_releases(self):
         localization = (
             ROOT / ".github/workflows/sync-localization-assets.yml"
