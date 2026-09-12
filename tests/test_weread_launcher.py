@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import unittest
@@ -6,6 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import _tap_page_turn as tap
+import _package_download as package_download
 import _weread_launcher as weread
 import _xovi_standalone as shared
 
@@ -50,6 +52,58 @@ class WeReadLauncherTests(unittest.TestCase):
                 {f"{base}/{package.asset}" for base in weread.REMOTE_BASE_URLS},
             )
             self.assertEqual({item.path for item in package.files}, weread._PAYLOAD_PATHS)
+            self.assertEqual(package.download_urls, package.urls)
+            self.assertEqual(package.download_url, package.download_urls[0])
+
+    def test_download_uses_cache_then_both_verified_mirrors(self):
+        payload = b"verified launcher fixture"
+        package = replace(
+            self.package,
+            size=len(payload),
+            sha256=hashlib.sha256(payload).hexdigest(),
+        )
+        with tempfile.TemporaryDirectory() as state:
+            cache = (
+                Path(state) / "cache" / weread.FEATURE_ID
+                / package.firmware / package.asset
+            )
+            cache.parent.mkdir(parents=True)
+            cache.write_bytes(payload)
+            with patch.object(tap, "_download_limited") as download:
+                self.assertEqual(weread.download_package(package, state), cache)
+            download.assert_not_called()
+
+        with tempfile.TemporaryDirectory() as state:
+            with patch.object(tap, "_download_limited", return_value=payload) as download:
+                destination = weread.download_package(package, state)
+            self.assertEqual(destination.read_bytes(), payload)
+            download.assert_called_once_with(package.download_urls[0], weread.MAX_PACKAGE_BYTES)
+
+        with tempfile.TemporaryDirectory() as state:
+            with patch.object(
+                tap,
+                "_download_limited",
+                side_effect=(RuntimeError("GitHub unavailable"), payload),
+            ) as download:
+                destination = weread.download_package(package, state)
+            self.assertEqual(destination.read_bytes(), payload)
+            self.assertEqual(
+                [item.args[0] for item in download.call_args_list],
+                list(package.download_urls),
+            )
+
+        with tempfile.TemporaryDirectory() as state:
+            with (
+                patch.object(
+                    tap,
+                    "_download_limited",
+                    side_effect=RuntimeError("offline"),
+                ),
+                self.assertRaises(package_download.PackageDownloadError) as caught,
+            ):
+                weread.download_package(package, state)
+            self.assertEqual(caught.exception.urls, package.download_urls)
+            self.assertTrue(callable(caught.exception.store))
 
     def test_manifest_rejects_non_object_and_non_boolean_verification(self):
         with self.assertRaises(RuntimeError):

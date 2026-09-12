@@ -156,6 +156,10 @@ class WeReadLauncherPackage:
     def download_url(self) -> str:
         return self.urls[0]
 
+    @property
+    def download_urls(self) -> tuple[str, ...]:
+        return self.urls
+
     def file(self, path: str) -> tap.PayloadFile:
         for item in self.files:
             if item.path == path:
