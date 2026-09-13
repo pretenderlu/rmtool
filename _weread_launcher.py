@@ -542,6 +542,30 @@ def disable(ssh_client, catalog) -> WeReadLauncherStatus:
     return get_status(ssh_client, packages)
 
 
+def uninstall(ssh_client, catalog) -> WeReadLauncherStatus:
+    packages = tuple(catalog)
+    status = get_status(ssh_client, packages)
+    if status.state in (
+        WeReadLauncherState.NOT_INSTALLED,
+        WeReadLauncherState.INCOMPATIBLE,
+    ):
+        return status
+    if status.state is WeReadLauncherState.BROKEN or status.package is None:
+        raise RuntimeError(status.detail or "微信读书启动入口状态无法验证，拒绝卸载。")
+    runtime, trusted, _legacies, _feature = _trusted_context(
+        status.identity, status.package
+    )
+    inspection, installed_trusted, _selected = _inspect_shared(
+        ssh_client, runtime, trusted, status.identity, check_lower=True
+    )
+    if FEATURE_ID not in inspection.states:
+        return get_status(ssh_client, packages)
+    shared.remove_shared_features(
+        ssh_client, runtime, installed_trusted, (FEATURE_ID,)
+    )
+    return get_status(ssh_client, packages)
+
+
 def cleanup_legacy(ssh_client, catalog):
     del ssh_client, catalog
     raise RuntimeError("微信读书启动器没有可清理的旧版。")

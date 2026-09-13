@@ -589,18 +589,93 @@ def uninstall_managed(ssh_client: SSHClientWrapper) -> ManagedStatus:
         raise RuntimeError("KOReader 正在运行，请退出后重试。")
     identity = status.identity
     runtime, trusted, _legacies = tap._trusted_shared_context(identity)
-    if _test_path(ssh_client, "d", PRESERVED_INSTALL_DIR):
-        raise RuntimeError(
-            "已存在上次保留的 KOReader 数据，请先处理该目录后重试："
-            f"{PRESERVED_INSTALL_DIR}"
-        )
+    token = uuid.uuid4().hex
+    backup = f"{APPLOAD_INSTALL_DIR}.rmtool-uninstall-backup-{token}"
+    preserved_stage = f"{PRESERVED_INSTALL_DIR}.staging-{token}"
+    target = shlex.quote(APPLOAD_INSTALL_DIR)
+    preserved = shlex.quote(PRESERVED_INSTALL_DIR)
+    backup_q = shlex.quote(backup)
+    preserved_stage_q = shlex.quote(preserved_stage)
+    migration_paths = " ".join(shlex.quote(path) for path in MIGRATED_USER_PATHS)
     ssh_client.exec_checked(
-        f"mkdir -p {shlex.quote(posixpath.dirname(PRESERVED_INSTALL_DIR))}; "
-        f"mv {shlex.quote(APPLOAD_INSTALL_DIR)} "
-        f"{shlex.quote(PRESERVED_INSTALL_DIR)}"
+        f"""
+set -eu
+TARGET={target}
+BACKUP={backup_q}
+PRESERVED={preserved}
+STAGE={preserved_stage_q}
+for directory in /home/root/xovi /home/root/xovi/exthome \
+    /home/root/.local/share/rmtool; do
+    if [ -L "$directory" ]; then
+        echo "unsafe KOReader uninstall parent" >&2
+        exit 1
+    fi
+    if [ ! -e "$directory" ]; then mkdir "$directory"; fi
+    if [ ! -d "$directory" ] || [ -L "$directory" ]; then
+        echo "unsafe KOReader uninstall parent" >&2
+        exit 1
+    fi
+done
+[ -d "$TARGET" ] && [ ! -L "$TARGET" ] || {{
+    echo "KOReader target is not a real directory" >&2
+    exit 1
+}}
+if find -P "$TARGET" -type l -print -quit | grep -q .; then
+    echo "KOReader install contains a symlink" >&2
+    exit 1
+fi
+[ ! -e "$PRESERVED" ] && [ ! -L "$PRESERVED" ] || {{
+    echo "KOReader preserved-data directory already exists" >&2
+    exit 1
+}}
+rm -rf "$BACKUP" "$STAGE"
+mv "$TARGET" "$BACKUP"
+rollback() {{
+    rc=$?
+    trap - EXIT HUP INT TERM
+    if [ "$rc" -ne 0 ]; then
+        if [ -e "$PRESERVED" ] && [ ! -L "$PRESERVED" ]; then
+            for item in {migration_paths}; do
+                if [ -e "$PRESERVED/$item" ] || [ -L "$PRESERVED/$item" ]; then
+                    mkdir -p "$(dirname "$BACKUP/$item")"
+                    mv "$PRESERVED/$item" "$BACKUP/$item"
+                fi
+            done
+            rm -rf "$PRESERVED"
+        fi
+        rm -rf "$TARGET"
+        if [ -d "$BACKUP" ]; then mv "$BACKUP" "$TARGET"; fi
+    fi
+    rm -rf "$STAGE"
+    exit "$rc"
+}}
+trap rollback EXIT HUP INT TERM
+mkdir "$STAGE"
+for item in {migration_paths}; do
+    if [ -e "$BACKUP/$item" ] || [ -L "$BACKUP/$item" ]; then
+        [ ! -L "$BACKUP/$item" ] || {{
+            echo "unsafe KOReader user-data link: $item" >&2
+            exit 1
+        }}
+        if [ -d "$BACKUP/$item" ] && \
+            find -P "$BACKUP/$item" -type l -print -quit | grep -q .; then
+            echo "unsafe KOReader user-data tree: $item" >&2
+            exit 1
+        fi
+        mkdir -p "$(dirname "$STAGE/$item")"
+        mv "$BACKUP/$item" "$STAGE/$item"
+    fi
+done
+if find -P "$STAGE" -mindepth 1 -print -quit | grep -q .; then
+    mv "$STAGE" "$PRESERVED"
+else
+    rmdir "$STAGE"
+fi
+trap - EXIT HUP INT TERM
+""".strip()
     )
     try:
-        shared.disable_shared(
+        shared.remove_shared_features(
             ssh_client,
             runtime,
             _appload.KOREADER_FEATURE_ID,
@@ -609,12 +684,30 @@ def uninstall_managed(ssh_client: SSHClientWrapper) -> ManagedStatus:
     except Exception:
         try:
             ssh_client.exec_checked(
-                f"mv {shlex.quote(PRESERVED_INSTALL_DIR)} "
-                f"{shlex.quote(APPLOAD_INSTALL_DIR)}"
+                f"""
+set -eu
+TARGET={target}
+BACKUP={backup_q}
+PRESERVED={preserved}
+for item in {migration_paths}; do
+    if [ -e "$PRESERVED/$item" ] || [ -L "$PRESERVED/$item" ]; then
+        [ ! -L "$PRESERVED/$item" ]
+        mkdir -p "$(dirname "$BACKUP/$item")"
+        mv "$PRESERVED/$item" "$BACKUP/$item"
+    fi
+done
+rm -rf "$PRESERVED"
+[ ! -e "$TARGET" ] && [ ! -L "$TARGET" ]
+mv "$BACKUP" "$TARGET"
+""".strip()
             )
         except Exception:
             logging.exception("Could not restore KOReader after bridge failure")
         raise
+    ssh_client.exec_checked(
+        f"rm -rf {backup_q}; "
+        f"[ ! -e {backup_q} ] && [ ! -L {backup_q} ]"
+    )
     return get_managed_status(ssh_client)
 
 

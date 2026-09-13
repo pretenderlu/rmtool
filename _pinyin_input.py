@@ -818,3 +818,36 @@ def disable(
         if had_payload:
             ssh_client.exec_checked(f"rm -rf {shlex.quote(backup)}")
     return get_status(ssh_client, tuple(catalog) or _trusted_catalog())
+
+
+def uninstall(
+    ssh_client,
+    catalog: Iterable[PinyinInputPackage] = ()
+) -> PinyinInputStatus:
+    packages = tuple(catalog) or _trusted_catalog()
+    identity = tap.get_device_identity(ssh_client)
+    package = select_package(packages, identity)
+    if package is None:
+        raise RuntimeError("当前设备没有可验证的拼音输入法包。")
+    runtime, trusted, _legacies = _trusted_shared_context(identity)
+    with _xovi_standalone._operation_lock(ssh_client):
+        inspection, installed_trusted, _outdated = _inspect_shared_revision(
+            ssh_client, runtime, trusted, package, check_lower=True
+        )
+        if FEATURE_ID not in inspection.states:
+            return get_status(ssh_client, packages)
+        had_payload = _has_external_payload(ssh_client)
+        if had_payload:
+            _validate_external_payload(ssh_client, package)
+            if _server_running(ssh_client):
+                raise RuntimeError("拼音输入法服务正在运行，请退出后重试。")
+        _xovi_standalone.remove_shared_features(
+            ssh_client, runtime, installed_trusted, (FEATURE_ID,)
+        )
+        if had_payload:
+            ssh_client.exec_checked(
+                f"rm -rf {shlex.quote(REMOTE_BASE)}; "
+                f"[ ! -e {shlex.quote(REMOTE_BASE)} ] && "
+                f"[ ! -L {shlex.quote(REMOTE_BASE)} ]"
+            )
+    return get_status(ssh_client, packages)

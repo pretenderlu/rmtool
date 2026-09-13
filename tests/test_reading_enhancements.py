@@ -936,7 +936,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 reading.FEATURE_ID: self._state(self.feature, True),
                 "native-chinese": self._state(peer, True),
             },
-            True,
+            False,
             True,
         )
         ssh = Mock()
@@ -970,7 +970,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 native.feature_id: self._state(native, False),
                 pinyin.feature_id: self._state(pinyin, False),
             },
-            True,
+            False,
             True,
         )
         trusted = {
@@ -1032,7 +1032,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
 
     def test_remove_shared_features_removes_complete_tree_when_last_peer_is_gone(self):
         inspection = shared.SharedInspection(
-            {reading.FEATURE_ID: self._state(self.feature, True)}, True, True
+            {reading.FEATURE_ID: self._state(self.feature, True)}, False, True
         )
         ssh = Mock()
         with patch.object(shared, "_operation_lock", lambda _ssh: contextlib.nullcontext()), patch.object(
@@ -1046,6 +1046,37 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
             )
         self.assertEqual(replace.call_args.args[5], {})
         self.assertTrue(replace.call_args.kwargs["remove_base_when_empty"])
+
+    def test_uninstall_removes_only_reading_feature_and_refreshes_status(self):
+        status = reading.ReadingEnhancementsStatus(
+            reading.ReadingEnhancementsState.ENABLED,
+            self.identity,
+            self.package,
+            (self.package,),
+            recovery_available=True,
+        )
+        final = reading.ReadingEnhancementsStatus(
+            reading.ReadingEnhancementsState.NOT_INSTALLED,
+            self.identity,
+            self.package,
+        )
+        inspection = shared.SharedInspection(
+            {reading.FEATURE_ID: self._state(self.feature, False)}, False, False
+        )
+        with patch.object(reading, "get_status", side_effect=(status, final)), patch.object(
+            reading,
+            "_trusted_context",
+            return_value=(self.runtime, self._trusted(), (), self.feature),
+        ), patch.object(
+            reading,
+            "_inspection_for_migration",
+            return_value=(inspection, self._trusted(), {}),
+        ), patch.object(reading.shared, "remove_shared_features") as remove:
+            result = reading.uninstall(Mock(), (self.package,))
+        self.assertIs(result, final)
+        remove.assert_called_once_with(
+            unittest.mock.ANY, self.runtime, self._trusted(), (reading.FEATURE_ID,)
+        )
 
     def test_cleanup_legacy_removes_verified_standalone_batch(self):
         legacy = self._legacy_mock("tap-page-turn")

@@ -1790,6 +1790,8 @@ class NativeChineseSection(QtWidgets.QWidget):
         self.detect_button = QtWidgets.QPushButton("检测状态")
         self.enable_button = QtWidgets.QPushButton("启用原生中文")
         self.disable_button = QtWidgets.QPushButton("停用")
+        self.uninstall_button = QtWidgets.QPushButton("卸载")
+        self.uninstall_button.setProperty("btnRole", "danger")
         self.set_emergency_button = QtWidgets.QPushButton("紧急停用共享 Xovi")
         self.clear_emergency_button = QtWidgets.QPushButton("清除紧急停用")
         buttons = QtWidgets.QHBoxLayout()
@@ -1799,6 +1801,7 @@ class NativeChineseSection(QtWidgets.QWidget):
             self.detect_button,
             self.enable_button,
             self.disable_button,
+            self.uninstall_button,
             self.set_emergency_button,
             self.clear_emergency_button,
         ):
@@ -1817,6 +1820,7 @@ class NativeChineseSection(QtWidgets.QWidget):
         self.detect_button.clicked.connect(self._detect_status)
         self.enable_button.clicked.connect(self._enable)
         self.disable_button.clicked.connect(self._disable)
+        self.uninstall_button.clicked.connect(self._uninstall)
         self.set_emergency_button.clicked.connect(self._set_emergency)
         self.clear_emergency_button.clicked.connect(self._clear_emergency)
         self.ssh_client.connection_changed.connect(self._on_connection_changed)
@@ -1864,6 +1868,19 @@ class NativeChineseSection(QtWidgets.QWidget):
             not in (
                 _native_chinese.NativeChineseState.INSTALLED_DISABLED,
                 _native_chinese.NativeChineseState.DISABLE_PENDING_REBOOT,
+            )
+        )
+        self.uninstall_button.setEnabled(
+            connected
+            and self._status is not None
+            and self._status.installed
+            and state in (
+                _native_chinese.NativeChineseState.OUTDATED,
+                _native_chinese.NativeChineseState.INSTALLED_DISABLED,
+                _native_chinese.NativeChineseState.ENABLE_PENDING_REBOOT,
+                _native_chinese.NativeChineseState.ENABLED,
+                _native_chinese.NativeChineseState.DISABLE_PENDING_REBOOT,
+                _native_chinese.NativeChineseState.EMERGENCY_DISABLED,
             )
         )
         self.clear_emergency_button.setEnabled(
@@ -2100,6 +2117,29 @@ class NativeChineseSection(QtWidgets.QWidget):
         )
 
     @require_connection
+    def _uninstall(self):
+        if not self._status or not self._status.installed:
+            return
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "将卸载原生简体中文及其 rmtool 管理的共享文件；其他插件和共享运行时会保留。"
+            "本次不会自动重启设备，完成后请手动重启。是否继续？",
+            confirm_text="卸载原生中文",
+            cancel_text="取消",
+            danger=True,
+        ):
+            return
+        self._start_worker(
+            _native_chinese.uninstall,
+            self.ssh_client,
+            _native_chinese._trusted_catalog(),
+            pending="正在验证并卸载原生简体中文…",
+            success="原生简体中文已卸载，SSH 会话已关闭。\n请手动重启设备。",
+            close_connection=True,
+        )
+
+    @require_connection
     def _set_emergency(self):
         if (
             not self._status
@@ -2169,6 +2209,8 @@ class PinyinInputSection(QtWidgets.QWidget):
         self.detect_button = QtWidgets.QPushButton("检测状态")
         self.enable_button = QtWidgets.QPushButton("安装并启用")
         self.disable_button = QtWidgets.QPushButton("停用")
+        self.uninstall_button = QtWidgets.QPushButton("卸载")
+        self.uninstall_button.setProperty("btnRole", "danger")
         self.project_button = QtWidgets.QPushButton("查看来源")
         buttons = QtWidgets.QHBoxLayout()
         buttons.setContentsMargins(0, 0, 0, 0)
@@ -2177,6 +2219,7 @@ class PinyinInputSection(QtWidgets.QWidget):
             self.detect_button,
             self.enable_button,
             self.disable_button,
+            self.uninstall_button,
             self.project_button,
         ):
             buttons.addWidget(button)
@@ -2194,6 +2237,7 @@ class PinyinInputSection(QtWidgets.QWidget):
         self.detect_button.clicked.connect(self._detect_status)
         self.enable_button.clicked.connect(self._enable)
         self.disable_button.clicked.connect(self._disable)
+        self.uninstall_button.clicked.connect(self._uninstall)
         self.project_button.clicked.connect(
             lambda: QtGui.QDesktopServices.openUrl(
                 QtCore.QUrl("https://github.com/boangs/rmkit")
@@ -2239,6 +2283,19 @@ class PinyinInputSection(QtWidgets.QWidget):
                 _pinyin_input.PinyinInputState.INSTALLED_DISABLED,
                 _pinyin_input.PinyinInputState.DISABLE_PENDING_REBOOT,
                 _pinyin_input.PinyinInputState.BROKEN,
+            )
+        )
+        self.uninstall_button.setEnabled(
+            connected
+            and self._status is not None
+            and self._status.installed
+            and state in (
+                _pinyin_input.PinyinInputState.OUTDATED,
+                _pinyin_input.PinyinInputState.INSTALLED_DISABLED,
+                _pinyin_input.PinyinInputState.ENABLE_PENDING_REBOOT,
+                _pinyin_input.PinyinInputState.ENABLED,
+                _pinyin_input.PinyinInputState.DISABLE_PENDING_REBOOT,
+                _pinyin_input.PinyinInputState.EMERGENCY_DISABLED,
             )
         )
 
@@ -2413,6 +2470,29 @@ class PinyinInputSection(QtWidgets.QWidget):
             close_connection=True,
         )
 
+    @require_connection
+    def _uninstall(self):
+        if not self._status or not self._status.installed:
+            return
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "将卸载拼音输入法及其 rmtool 管理的服务文件；其他插件和共享运行时会保留。"
+            "本次不会自动重启设备，完成后请手动重启。是否继续？",
+            confirm_text="卸载拼音输入法",
+            cancel_text="取消",
+            danger=True,
+        ):
+            return
+        self._start_worker(
+            _pinyin_input.uninstall,
+            self.ssh_client,
+            _pinyin_input._trusted_catalog(),
+            pending="正在验证并卸载拼音输入法…",
+            success="拼音输入法已卸载，SSH 会话已关闭。\n请手动重启设备。",
+            close_connection=True,
+        )
+
 
 class ReadingEnhancementsSection(QtWidgets.QWidget):
     """Combined browser entry for the native reading-enhancement package."""
@@ -2475,6 +2555,8 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         self.install_button = QtWidgets.QPushButton(f"安装{feature_name}")
         self.install_button.setProperty("btnRole", "primary")
         self.disable_button = QtWidgets.QPushButton("停用")
+        self.uninstall_button = QtWidgets.QPushButton("卸载")
+        self.uninstall_button.setProperty("btnRole", "danger")
         self.cleanup_legacy_button = QtWidgets.QPushButton("清理旧版")
         self.cleanup_legacy_button.setProperty("btnRole", "danger")
         self.explain_button = QtWidgets.QPushButton("查看说明")
@@ -2486,6 +2568,7 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             self.detect_button,
             self.install_button,
             self.disable_button,
+            self.uninstall_button,
             self.cleanup_legacy_button,
             self.explain_button,
         ):
@@ -2504,6 +2587,7 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         self.detect_button.clicked.connect(self._detect_status)
         self.install_button.clicked.connect(self._install)
         self.disable_button.clicked.connect(self._disable)
+        self.uninstall_button.clicked.connect(self._uninstall)
         self.cleanup_legacy_button.clicked.connect(self._cleanup_legacy)
         self.explain_button.clicked.connect(self._show_explanation)
         self.ssh_client.connection_changed.connect(self._on_connection_changed)
@@ -2578,6 +2662,20 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
                 states.MIGRATION_AVAILABLE,
                 states.REPAIR_AVAILABLE,
             )
+        )
+        uninstall_states = (
+            states.REPAIR_AVAILABLE,
+            states.INSTALLED_DISABLED,
+            states.ENABLE_PENDING_REBOOT,
+            states.ENABLED,
+            states.DISABLE_PENDING_REBOOT,
+        )
+        if self.backend is _weread_launcher:
+            uninstall_states += (states.MIGRATION_AVAILABLE,)
+        self.uninstall_button.setEnabled(
+            connected
+            and self._status is not None
+            and state in uninstall_states
         )
         self.explain_button.setEnabled(True)
 
@@ -2810,6 +2908,29 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             close_connection=True,
         )
 
+    @require_connection
+    def _uninstall(self):
+        if not self._status or self._status.package is None:
+            return
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            f"将卸载{self.feature_name}及其 rmtool 管理的文件；其他插件和设备设置会保留。"
+            "本次不会自动重启设备，完成后请手动重启。是否继续？",
+            confirm_text=f"卸载{self.feature_name}",
+            cancel_text="取消",
+            danger=True,
+        ):
+            return
+        self._start_worker(
+            self.backend.uninstall,
+            self.ssh_client,
+            self._status.available_packages,
+            pending=f"正在验证并卸载{self.feature_name}…",
+            success=f"{self.feature_name}已卸载，SSH 会话已关闭。\n请手动重启设备。",
+            close_connection=True,
+        )
+
     def _show_explanation(self):
         show_info(
             self,
@@ -3031,6 +3152,31 @@ class WeReadLauncherSection(ReadingEnhancementsSection):
             ) + "\n现在可以安装设备启动入口；入口安装后需手动重启设备。",
         )
 
+    @require_connection
+    def _uninstall(self):
+        if not self._status or self._status.package is None:
+            return
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "将只卸载 rmtool 管理的微信读书设备启动入口，保留官方微信读书 App、"
+            "登录信息、下载内容和阅读数据。其他插件及共享运行时会按需保留。"
+            "本次不会自动重启设备，完成后请手动重启。是否继续？",
+            confirm_text="卸载启动入口",
+            cancel_text="取消",
+            danger=True,
+        ):
+            return
+        self._start_worker(
+            self.backend.uninstall,
+            self.ssh_client,
+            self._status.available_packages,
+            pending="正在验证并卸载微信读书设备启动入口…",
+            success="微信读书设备启动入口已卸载，官方 App 和用户数据已保留。\n"
+            "SSH 会话已关闭，请手动重启设备。",
+            close_connection=True,
+        )
+
 
 _LEGACY_PLATFORM_LABELS = {
     "ferrari": "Paper Pro",
@@ -3097,6 +3243,8 @@ class TapPageTurnSection(QtWidgets.QWidget):
         self.enable_button = QtWidgets.QPushButton("启用点击翻页")
         self.enable_button.setProperty("btnRole", "primary")
         self.disable_button = QtWidgets.QPushButton("停用")
+        self.uninstall_button = QtWidgets.QPushButton("卸载")
+        self.uninstall_button.setProperty("btnRole", "danger")
         self.load_package_button = QtWidgets.QPushButton("加载本地资源包…")
         self.vellum_help_button = QtWidgets.QPushButton("Vellum 官方卸载说明")
         self.vellum_help_button.hide()
@@ -3109,6 +3257,7 @@ class TapPageTurnSection(QtWidgets.QWidget):
             self.detect_button,
             self.enable_button,
             self.disable_button,
+            self.uninstall_button,
             self.load_package_button,
             self.vellum_help_button,
             self.project_button,
@@ -3131,6 +3280,7 @@ class TapPageTurnSection(QtWidgets.QWidget):
         self.detect_button.clicked.connect(self._detect_status)
         self.enable_button.clicked.connect(self._enable)
         self.disable_button.clicked.connect(self._disable)
+        self.uninstall_button.clicked.connect(self._uninstall)
         self.load_package_button.clicked.connect(self._load_local_package)
         self.vellum_help_button.clicked.connect(
             lambda: QtGui.QDesktopServices.openUrl(
@@ -3217,6 +3367,16 @@ class TapPageTurnSection(QtWidgets.QWidget):
                 _tap_page_turn.TapPageTurnState.LEGACY_VELLUM,
                 _tap_page_turn.TapPageTurnState.FIRMWARE_RESIDUE,
                 _tap_page_turn.TapPageTurnState.BROKEN,
+            )
+        )
+        self.uninstall_button.setEnabled(
+            connected
+            and self._status is not None
+            and state in (
+                _tap_page_turn.TapPageTurnState.INSTALLED_DISABLED,
+                _tap_page_turn.TapPageTurnState.ENABLE_PENDING_REBOOT,
+                _tap_page_turn.TapPageTurnState.ENABLED,
+                _tap_page_turn.TapPageTurnState.DISABLE_PENDING_REBOOT,
             )
         )
         self.load_package_button.setEnabled(
@@ -3483,6 +3643,29 @@ class TapPageTurnSection(QtWidgets.QWidget):
             self._status.available_packages,
             pending=pending,
             success=success,
+            close_connection=True,
+        )
+
+    @require_connection
+    def _uninstall(self):
+        if not self._status or self._status.package is None:
+            return
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "将卸载点击翻页及其 rmtool 管理的共享文件；其他插件和共享运行时会保留。"
+            "本次不会自动重启设备，完成后请手动重启。是否继续？",
+            confirm_text="卸载点击翻页",
+            cancel_text="取消",
+            danger=True,
+        ):
+            return
+        self._start_worker(
+            _tap_page_turn.uninstall,
+            self.ssh_client,
+            self._status.available_packages,
+            pending="正在验证并卸载点击翻页…",
+            success="点击翻页已卸载，SSH 会话已关闭。\n请手动重启设备。",
             close_connection=True,
         )
 

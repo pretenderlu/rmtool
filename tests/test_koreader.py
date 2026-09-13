@@ -314,6 +314,41 @@ class DetectionTests(unittest.TestCase):
                 _koreader.purge_legacy_install(ssh)
         ssh.exec_checked.assert_not_called()
 
+    def test_uninstall_managed_removes_program_and_shared_feature(self):
+        identity = SimpleNamespace(architecture="aarch64")
+        asset = SimpleNamespace(version="v1")
+        installed = _koreader.ManagedStatus(
+            _koreader.ManagedState.REPAIRABLE, identity, asset, version="v1"
+        )
+        removed = _koreader.ManagedStatus(
+            _koreader.ManagedState.NOT_INSTALLED, identity, asset
+        )
+        runtime = object()
+        trusted = {"koreader": object()}
+        ssh = mock.Mock()
+        ssh.exec_command.return_value = ("", "", 1)
+        with (
+            mock.patch.object(
+                _koreader, "get_managed_status", side_effect=(installed, removed)
+            ),
+            mock.patch.object(_koreader, "_koreader_running", return_value=False),
+            mock.patch.object(
+                _koreader.tap,
+                "_trusted_shared_context",
+                return_value=(runtime, trusted, ()),
+            ),
+            mock.patch.object(_koreader.shared, "remove_shared_features") as remove,
+        ):
+            result = _koreader.uninstall_managed(ssh)
+        self.assertIs(result, removed)
+        remove.assert_called_once_with(
+            ssh, runtime, "koreader", trusted
+        )
+        transaction = ssh.exec_checked.call_args_list[0].args[0]
+        self.assertIn('mv "$TARGET" "$BACKUP"', transaction)
+        self.assertIn('rm -rf "$BACKUP"', transaction)
+        self.assertIn("settings.reader.lua", transaction)
+
     def test_payload_archive_restores_official_unix_modes(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary, "koreader")
@@ -918,6 +953,7 @@ class TabStateTests(TabTestBase):
         self.assertTrue(self.tab.install_koreader_button.isEnabled())
         self.assertTrue(self.tab.load_official_button.isEnabled())
         self.assertFalse(self.tab.uninstall_koreader_button.isEnabled())
+        self.assertTrue(self.tab.disable_appload_button.isEnabled())
         self.assertTrue(self.tab.uninstall_appload_button.isEnabled())
         self.assertIn("GitHub 官方发布", self.tab.management_status_label.text())
 

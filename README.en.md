@@ -235,6 +235,10 @@ Note Enhancements targets color handwriting on Paper Pro and Paper Pro Move. Aft
 
 The exact-package matrix covers sixteen Paper Pro and Paper Pro Move 3.27/3.28 targets, including stable 3.28.0.172. Move 3.27.3 has passed real-device installation, reboot, global settings, per-notebook settings, and policy-switching tests; the remaining targets are verified offline against official firmware. Installation, update, disable, and cleanup preserve the other verified shared-Xovi features and never reboot the device automatically.
 
+### Plugin disable and uninstall
+
+All removable rmtool plugins now distinguish **Disable** from **Uninstall**. Disable keeps the verified plugin files; uninstall requires a second confirmation and removes only that plugin's controlled resources, preserving the shared runtime while other plugins still use it. Uninstalling native Chinese switches the selected language back to English first. **Uninstall WeRead launcher** removes only rmtool's registered entry, icon, and launcher plugin; the official WeRead app, login, downloads, and reading data remain. KOReader uninstall preserves rmtool-allowlisted user data, while **Permanently Remove Legacy Files** remains a separate irreversible action. Unknown, modified, mixed, or running installations are never deleted automatically. SSH closes after a completed operation; follow the prompt and restart the device manually.
+
 ## Usage recommendations
 
 1. After connecting, confirm the current device and connection method on the dashboard.

@@ -630,6 +630,47 @@ class WeReadLauncherTests(unittest.TestCase):
             replacement_spec=None,
         )
 
+    def test_uninstall_removes_only_launcher_and_preserves_shared_peer(self):
+        client = Mock()
+        peer = Mock(feature_id="reading-enhancements")
+        trusted = {peer.feature_id: peer, weread.FEATURE_ID: self.feature}
+        states = {
+            peer.feature_id: shared.SharedFeatureState(peer, False, "token"),
+            weread.FEATURE_ID: shared.SharedFeatureState(self.feature, False, "token"),
+        }
+        status = weread.WeReadLauncherStatus(
+            weread.WeReadLauncherState.INSTALLED_DISABLED,
+            self.identity,
+            self.package,
+            self.catalog,
+        )
+        final = weread.WeReadLauncherStatus(
+            weread.WeReadLauncherState.NOT_INSTALLED,
+            self.identity,
+            self.package,
+            self.catalog,
+        )
+        inspection = shared.SharedInspection(states, False, False)
+        with (
+            patch.object(weread, "get_status", side_effect=(status, final)),
+            patch.object(
+                weread,
+                "_trusted_context",
+                return_value=(self.runtime, trusted, (), self.feature),
+            ),
+            patch.object(
+                weread,
+                "_inspect_shared",
+                return_value=(inspection, trusted, {}),
+            ),
+            patch.object(shared, "remove_shared_features") as remove,
+        ):
+            result = weread.uninstall(client, self.catalog)
+        self.assertIs(result, final)
+        remove.assert_called_once_with(
+            client, self.runtime, trusted, (weread.FEATURE_ID,)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

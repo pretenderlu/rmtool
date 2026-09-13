@@ -610,3 +610,24 @@ def disable(ssh_client) -> AppLoadStatus:
     shared.disable_shared(ssh_client, runtime, FEATURE_ID, trusted)
     remove_shim_links(ssh_client, identity)
     return get_status(ssh_client)
+
+
+def uninstall(ssh_client) -> AppLoadStatus:
+    """Remove the verified AppLoad feature and its shim links."""
+    status = get_status(ssh_client)
+    if status.state in (
+        AppLoadState.INCOMPATIBLE,
+        AppLoadState.NOT_INSTALLED,
+    ):
+        return status
+    if status.state == AppLoadState.BROKEN:
+        raise RuntimeError(status.detail or "AppLoad 状态无法验证，拒绝卸载。")
+    if ssh_client.file_exists(KOREADER_INSTALL_DIR):
+        raise RuntimeError("检测到 KOReader 目录；请先卸载 KOReader。")
+    identity = status.identity
+    runtime, trusted, _legacies = tap._trusted_shared_context(identity)
+    shared.remove_shared_features(
+        ssh_client, runtime, trusted, (FEATURE_ID,)
+    )
+    remove_shim_links(ssh_client, identity)
+    return get_status(ssh_client)

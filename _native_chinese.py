@@ -885,6 +885,36 @@ def disable(
     return get_status(ssh_client, tuple(catalog) or _trusted_catalog())
 
 
+def uninstall(
+    ssh_client,
+    catalog: Iterable[NativeChinesePackage] = (),
+) -> NativeChineseStatus:
+    packages = tuple(catalog) or _trusted_catalog()
+    status = get_status(ssh_client, packages)
+    if status.state in (
+        NativeChineseState.NOT_INSTALLED,
+        NativeChineseState.INCOMPATIBLE,
+    ):
+        return status
+    if status.state is NativeChineseState.FIRMWARE_RESIDUE:
+        raise RuntimeError("检测到旧固件残留，请使用“清理残留”操作。")
+    if status.state is NativeChineseState.BROKEN:
+        raise RuntimeError(status.detail or "原生中文状态无法验证，拒绝卸载。")
+    if status.package is None:
+        raise RuntimeError("当前设备没有可验证的原生中文包。")
+    runtime, trusted, _legacies = _trusted_shared_context(status.identity)
+    inspection, installed_trusted, _revisions = _inspect_shared_revision(
+        ssh_client, runtime, trusted, status.package, check_lower=True
+    )
+    if FEATURE_ID not in inspection.states:
+        return get_status(ssh_client, packages)
+    _switch_selected_chinese_to_english(ssh_client)
+    _xovi_standalone.remove_shared_features(
+        ssh_client, runtime, installed_trusted, (FEATURE_ID,)
+    )
+    return get_status(ssh_client, packages)
+
+
 def set_emergency_disable(
     ssh_client,
     catalog: Iterable[NativeChinesePackage] = (),

@@ -579,6 +579,34 @@ def disable(
     return get_status(ssh_client, packages)
 
 
+def uninstall(
+    ssh_client, catalog: Iterable[NoteEnhancementsPackage]
+) -> NoteEnhancementsStatus:
+    packages = tuple(catalog)
+    status = get_status(ssh_client, packages)
+    if status.state in (
+        NoteEnhancementsState.NOT_INSTALLED,
+        NoteEnhancementsState.INCOMPATIBLE,
+    ):
+        return status
+    if status.state is NoteEnhancementsState.BROKEN:
+        raise RuntimeError(status.detail or "笔记增强状态无法验证，拒绝卸载。")
+    if status.package is None:
+        raise RuntimeError("当前设备没有精确匹配的笔记增强包。")
+    runtime, trusted, _legacies, _feature = _trusted_context(
+        status.identity, status.package
+    )
+    inspection, installed_trusted, _selected = _inspect_shared(
+        ssh_client, runtime, trusted, status.identity
+    )
+    if FEATURE_ID not in inspection.states:
+        return get_status(ssh_client, packages)
+    shared.remove_shared_features(
+        ssh_client, runtime, installed_trusted, (FEATURE_ID,)
+    )
+    return get_status(ssh_client, packages)
+
+
 def cleanup_legacy(
     ssh_client, catalog: Iterable[NoteEnhancementsPackage]
 ) -> NoteEnhancementsStatus:

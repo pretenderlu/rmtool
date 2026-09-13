@@ -1064,6 +1064,35 @@ def disable(ssh_client, catalog: Iterable[ReadingEnhancementsPackage]) -> Readin
     return get_status(ssh_client, (package,))
 
 
+def uninstall(
+    ssh_client, catalog: Iterable[ReadingEnhancementsPackage]
+) -> ReadingEnhancementsStatus:
+    packages = tuple(catalog)
+    status = get_status(ssh_client, packages)
+    if status.state in (
+        ReadingEnhancementsState.NOT_INSTALLED,
+        ReadingEnhancementsState.INCOMPATIBLE,
+    ):
+        return status
+    if status.state is ReadingEnhancementsState.BROKEN:
+        raise RuntimeError(status.detail or "阅读增强状态无法验证，拒绝卸载。")
+    if status.package is None:
+        raise RuntimeError("当前设备没有精确匹配的阅读增强包。")
+    identity = status.identity
+    runtime, trusted, _legacies, _feature = _trusted_context(
+        identity, status.package
+    )
+    inspection, installed_trusted, _selected = _inspection_for_migration(
+        ssh_client, runtime, trusted, status.package
+    )
+    if FEATURE_ID not in inspection.states:
+        return get_status(ssh_client, packages)
+    shared.remove_shared_features(
+        ssh_client, runtime, installed_trusted, (FEATURE_ID,)
+    )
+    return get_status(ssh_client, packages)
+
+
 def cleanup_legacy(
     ssh_client,
     catalog: Iterable[ReadingEnhancementsPackage],

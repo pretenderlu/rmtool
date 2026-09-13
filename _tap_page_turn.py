@@ -38,6 +38,7 @@ MANIFEST_URL = MANIFEST_URLS[0]
 BUNDLED_MANIFEST = Path(__file__).resolve().parent / "tap-page-turn" / "manifest.json"
 
 REMOTE_BASE = "/home/root/.local/share/rmtool/tap-page-turn"
+FEATURE_ID = "tap-page-turn"
 DROPIN_NAME = "90-rmtool-tap-page-turn.conf"
 DROPIN_PATH = f"/etc/systemd/system/xochitl.service.d/{DROPIN_NAME}"
 MARKER_PATH = f"{REMOTE_BASE}/package.json"
@@ -1838,3 +1839,36 @@ def disable(
         except Exception:
             logging.exception("Could not remove tap-to-turn disable script")
     return get_status(ssh_client, catalog)
+
+
+def uninstall(
+    ssh_client,
+    catalog: Iterable[TapPageTurnPackage] = (),
+) -> TapPageTurnStatus:
+    packages = tuple(catalog)
+    status = get_status(ssh_client, packages)
+    if status.state in (
+        TapPageTurnState.NOT_INSTALLED,
+        TapPageTurnState.INCOMPATIBLE,
+    ):
+        return status
+    if status.state in (
+        TapPageTurnState.OUTDATED,
+        TapPageTurnState.LEGACY_VELLUM,
+        TapPageTurnState.FIRMWARE_RESIDUE,
+    ):
+        raise RuntimeError("旧版或固件残留请使用现有的清理/卸载旧版操作。")
+    if status.state is TapPageTurnState.BROKEN:
+        raise RuntimeError(status.detail or "点击翻页状态无法验证，拒绝卸载。")
+    if status.package is None:
+        raise RuntimeError("当前设备没有精确匹配的点击翻页包。")
+    runtime, trusted, _legacies = _trusted_shared_context(status.identity)
+    inspection = _xovi_standalone.inspect_shared(
+        ssh_client, runtime, trusted, check_lower=True
+    )
+    if FEATURE_ID not in inspection.states:
+        return get_status(ssh_client, packages)
+    _xovi_standalone.remove_shared_features(
+        ssh_client, runtime, trusted, (FEATURE_ID,)
+    )
+    return get_status(ssh_client, packages)

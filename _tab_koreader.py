@@ -71,7 +71,9 @@ class KOReaderTab(QtWidgets.QWidget):
         self.purge_legacy_button.setProperty("btnRole", "danger")
         self.uninstall_koreader_button = QtWidgets.QPushButton("卸载 KOReader")
         self.uninstall_koreader_button.setProperty("btnRole", "danger")
-        self.uninstall_appload_button = QtWidgets.QPushButton("停用 AppLoad")
+        self.disable_appload_button = QtWidgets.QPushButton("停用 AppLoad")
+        self.disable_appload_button.setProperty("btnRole", "danger")
+        self.uninstall_appload_button = QtWidgets.QPushButton("卸载 AppLoad")
         self.uninstall_appload_button.setProperty("btnRole", "danger")
 
         install_actions = QtWidgets.QHBoxLayout()
@@ -90,6 +92,7 @@ class KOReaderTab(QtWidgets.QWidget):
         for button in (
             self.purge_legacy_button,
             self.uninstall_koreader_button,
+            self.disable_appload_button,
             self.uninstall_appload_button,
         ):
             cleanup_actions.addWidget(button)
@@ -218,6 +221,7 @@ class KOReaderTab(QtWidgets.QWidget):
         self.load_official_button.clicked.connect(self._load_official_package)
         self.purge_legacy_button.clicked.connect(self._purge_legacy_install)
         self.uninstall_koreader_button.clicked.connect(self._uninstall_koreader)
+        self.disable_appload_button.clicked.connect(self._disable_appload)
         self.uninstall_appload_button.clicked.connect(self._uninstall_appload)
         self.set_connection_state(False)
         self._update_results_summary()
@@ -277,6 +281,7 @@ class KOReaderTab(QtWidgets.QWidget):
                 self.load_official_button,
                 self.purge_legacy_button,
                 self.uninstall_koreader_button,
+                self.disable_appload_button,
                 self.uninstall_appload_button,
             ):
                 button.setEnabled(False)
@@ -335,7 +340,11 @@ class KOReaderTab(QtWidgets.QWidget):
             )
         )
         self.uninstall_koreader_button.setEnabled(
-            managed.state == _koreader.ManagedState.INSTALLED
+            managed.state
+            in (
+                _koreader.ManagedState.INSTALLED,
+                _koreader.ManagedState.REPAIRABLE,
+            )
         )
         self.uninstall_appload_button.setEnabled(
             app.state
@@ -345,6 +354,13 @@ class KOReaderTab(QtWidgets.QWidget):
                 _appload.AppLoadState.BROKEN,
             )
             and managed.state == _koreader.ManagedState.NOT_INSTALLED
+        )
+        self.disable_appload_button.setEnabled(
+            app.state
+            in (
+                _appload.AppLoadState.ENABLED,
+                _appload.AppLoadState.ENABLE_PENDING_REBOOT,
+            )
         )
 
     @staticmethod
@@ -423,7 +439,9 @@ class KOReaderTab(QtWidgets.QWidget):
         worker.signals.error.connect(on_error)
         self.thread_pool.start(worker)
 
-    def _run_management_operation(self, title: str, pending: str, operation) -> None:
+    def _run_management_operation(
+        self, title: str, pending: str, operation, *, close_connection=False
+    ) -> None:
         if self._management_loading or self._loading:
             return
         self._management_loading = True
@@ -436,6 +454,8 @@ class KOReaderTab(QtWidgets.QWidget):
                 return
             self._management_loading = False
             self._close_progress_dialog()
+            if close_connection:
+                self.ssh_client.close()
             show_info(
                 self,
                 _rmtool.APP_NAME,
@@ -580,6 +600,7 @@ class KOReaderTab(QtWidgets.QWidget):
             "卸载 KOReader",
             "正在卸载 KOReader 并保留用户数据…",
             lambda: _koreader.uninstall_managed(self.ssh_client),
+            close_connection=True,
         )
 
     @require_connection
@@ -603,12 +624,12 @@ class KOReaderTab(QtWidgets.QWidget):
         )
 
     @require_connection
-    def _uninstall_appload(self) -> None:
+    def _disable_appload(self) -> None:
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
             "将从 rmtool 共享 Xovi 中停用 AppLoad；其他 rmtool 插件会保留。"
-            "操作不会自动重启设备，是否继续？",
+            "AppLoad 文件会保留，操作不会自动重启设备，是否继续？",
             confirm_text="停用",
             cancel_text="取消",
             danger=True,
@@ -618,6 +639,26 @@ class KOReaderTab(QtWidgets.QWidget):
             "停用 AppLoad",
             "正在安全停用 AppLoad…",
             lambda: _appload.disable(self.ssh_client),
+        )
+
+    @require_connection
+    def _uninstall_appload(self) -> None:
+        if not ask_confirmation(
+            self,
+            _rmtool.APP_NAME,
+            "将卸载 rmtool 管理的 AppLoad 和 QTFB shim；其他 rmtool 插件会保留。"
+            "如果设备中仍有 KOReader，必须先卸载 KOReader。操作不会自动重启设备，"
+            "完成后请手动重启。是否继续？",
+            confirm_text="卸载 AppLoad",
+            cancel_text="取消",
+            danger=True,
+        ):
+            return
+        self._run_management_operation(
+            "卸载 AppLoad",
+            "正在验证并卸载 AppLoad…",
+            lambda: _appload.uninstall(self.ssh_client),
+            close_connection=True,
         )
 
     def _update_action_state(self) -> None:

@@ -153,6 +153,46 @@ class DisableOrderTests(unittest.TestCase):
             _appload.disable(ssh)
         self.assertEqual(order, ["disable", "shims"])
 
+    def test_uninstall_removes_feature_before_shim_links(self):
+        package = next(
+            item for item in tap._trusted_catalog() if item.channel == "stable"
+        )
+        identity = tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        status = _appload.AppLoadStatus(
+            _appload.AppLoadState.INSTALLED_DISABLED,
+            identity,
+            _appload.APPLOAD_ASSETS[identity.architecture],
+        )
+        feature = mock.Mock(feature_id=_appload.FEATURE_ID)
+        ssh = mock.Mock()
+        ssh.file_exists.return_value = False
+        order = []
+        with (
+            mock.patch.object(_appload, "get_status", side_effect=(status, status)),
+            mock.patch.object(
+                _appload.tap,
+                "_trusted_shared_context",
+                return_value=(mock.Mock(), {_appload.FEATURE_ID: feature}, ()),
+            ),
+            mock.patch.object(
+                _appload.shared,
+                "remove_shared_features",
+                side_effect=lambda *_args: order.append("feature"),
+            ),
+            mock.patch.object(
+                _appload,
+                "remove_shim_links",
+                side_effect=lambda *_args: order.append("shims"),
+            ),
+        ):
+            _appload.uninstall(ssh)
+        self.assertEqual(order, ["feature", "shims"])
+
 
 class StatusTests(unittest.TestCase):
     def test_predecessor_launcher_is_offered_as_repairable(self):

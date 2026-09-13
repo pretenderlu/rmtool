@@ -123,6 +123,7 @@ ALLOWED_TARGETS = {
 }
 
 REMOTE_BASE = "/home/root/.local/share/rmtool/fast-mono-reading"
+FEATURE_ID = "fast-mono-reading"
 DROPIN_NAME = "91-rmtool-fast-mono-reading.conf"
 DROPIN_PATH = f"/etc/systemd/system/xochitl.service.d/{DROPIN_NAME}"
 MARKER_PATH = f"{REMOTE_BASE}/package.json"
@@ -1494,3 +1495,35 @@ def disable(
         except Exception:
             logging.exception("Could not remove fast-mono disable script")
     return get_status(ssh_client, catalog)
+
+
+def uninstall(
+    ssh_client, catalog: Iterable[FastMonoReadingPackage] = ()
+) -> FastMonoReadingStatus:
+    packages = tuple(catalog)
+    status = get_status(ssh_client, packages)
+    if status.state in (
+        FastMonoReadingState.NOT_INSTALLED,
+        FastMonoReadingState.INCOMPATIBLE,
+    ):
+        return status
+    if status.state in (
+        FastMonoReadingState.OUTDATED,
+        FastMonoReadingState.LEGACY_VELLUM,
+        FastMonoReadingState.FIRMWARE_RESIDUE,
+    ):
+        raise RuntimeError("旧版或固件残留请使用现有的清理/卸载旧版操作。")
+    if status.state is FastMonoReadingState.BROKEN:
+        raise RuntimeError(status.detail or "快速黑白状态无法验证，拒绝卸载。")
+    if status.package is None:
+        raise RuntimeError("当前设备没有精确匹配的快速黑白包。")
+    runtime, trusted, _legacies = _trusted_shared_context(status.identity)
+    inspection, installed_trusted, _outdated = _inspect_shared_revision(
+        ssh_client, runtime, trusted, status.package, check_lower=True
+    )
+    if FEATURE_ID not in inspection.states:
+        return get_status(ssh_client, packages)
+    _xovi_standalone.remove_shared_features(
+        ssh_client, runtime, installed_trusted, (FEATURE_ID,)
+    )
+    return get_status(ssh_client, packages)
