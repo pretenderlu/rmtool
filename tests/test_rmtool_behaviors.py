@@ -1191,6 +1191,24 @@ class ConnectionSidebarUiTests(unittest.TestCase):
         widget = rmtool.ConnectionWidget(FakeConnectionClient(), rmtool._default_config())
         self.addCleanup(widget.deleteLater)
 
+        self.assertEqual(
+            widget.brand_label.text(),
+            f"{rmtool.APP_NAME} v{rmtool.APP_VERSION}",
+        )
+        self.assertEqual(widget.brand_label.toolTip(), "")
+        widget.set_update_available("v1.16.5")
+        self.assertIn("span", widget.brand_label.text())
+        self.assertIn(rmtool.GITHUB_RELEASES_URL, widget.brand_label.text())
+        self.assertIn("v1.16.5", widget.brand_label.toolTip())
+        with mock.patch.object(QtGui.QDesktopServices, "openUrl") as open_url:
+            widget.brand_label.linkActivated.emit(rmtool.GITHUB_RELEASES_URL)
+        open_url.assert_called_once_with(QtCore.QUrl(rmtool.GITHUB_RELEASES_URL))
+        widget.set_update_available(None)
+        self.assertEqual(
+            widget.brand_label.text(),
+            f"{rmtool.APP_NAME} v{rmtool.APP_VERSION}",
+        )
+
         self.assertIsInstance(widget.theme_button, QtWidgets.QToolButton)
         self.assertEqual(widget.theme_button.text(), "")
         self.assertFalse(widget.theme_button.icon().isNull())

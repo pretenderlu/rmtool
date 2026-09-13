@@ -216,7 +216,8 @@ def _ancestors(ssh_client, path):
 def _unhidden_paths(ssh_client):
     # A bind of / in the transaction exposes lower-root systemd files. Without
     # temporary inspection mounts we cannot authenticate hidden lower copies.
-    # Refuse such layouts rather than describe the read-only check as complete.
+    # The stock 3.28 layout overlays /etc at runtime, but a non-recursive bind
+    # of / deliberately omits that child mount and still exposes lower /etc.
     mounts = shared._remote_text(ssh_client, "/proc/self/mountinfo").splitlines()
     if not mounts:
         raise RuntimeError("无法读取挂载边界，拒绝自动修复。")
@@ -229,6 +230,9 @@ def _unhidden_paths(ssh_client):
         root_seen |= path == "/"
         if path == "/" and fields[fields.index("-") + 1] == "overlay":
             raise RuntimeError("根目录为 overlay，无法只读确认底层配置归属。")
+        separator = fields.index("-")
+        if path == "/etc" and _is_stock_etc_overlay(fields, separator):
+            continue
         for target in (shared.SHARED_LAYOUT.dropin_path, shared.SHARED_LAYOUT.remote_base):
             if path == "/" or path == "/data":
                 continue
@@ -236,6 +240,24 @@ def _unhidden_paths(ssh_client):
                 raise RuntimeError(f"插件路径存在独立挂载，无法确认底层归属：{path}")
     if not root_seen:
         raise RuntimeError("无法确认根挂载边界。")
+
+
+def _is_stock_etc_overlay(fields, separator):
+    """Recognize the stock runtime overlay mounted over the root /etc tree."""
+    if len(fields) <= separator + 3 or fields[3:5] != ["/", "/etc"]:
+        return False
+    if fields[separator + 1] != "overlay" or fields[separator + 2] != "overlay":
+        return False
+    options = {}
+    for item in ",".join(fields[separator + 3:]).split(","):
+        key, marker, value = item.partition("=")
+        if marker:
+            options[key] = value
+    return (
+        options.get("lowerdir") == "/etc"
+        and options.get("upperdir") == "/var/volatile/etc"
+        and options.get("workdir") == "/var/volatile/.etc-work"
+    )
 
 
 def _external_loaders(ssh_client):

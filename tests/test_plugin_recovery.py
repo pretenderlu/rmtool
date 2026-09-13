@@ -350,6 +350,20 @@ class RecoveryInspectionTests(unittest.TestCase):
         self.device.maps = "a-b r-xp 0 0:0 0 /external/xovi.so"
         self.assertEqual(self.inspect().state, recovery.RecoveryState.BLOCKED)
 
+    def test_stock_etc_overlay_is_safe_for_lower_layer_probe(self):
+        self.device.mountinfo += (
+            "3 1 0:41 / /etc rw,relatime shared:24 - overlay overlay "
+            "rw,lowerdir=/etc,upperdir=/var/volatile/etc,"
+            "workdir=/var/volatile/.etc-work,uuid=on\n"
+        )
+        self.assertEqual(self.inspect().state, recovery.RecoveryState.NOT_NEEDED)
+
+        self.device.mountinfo = self.device.mountinfo.replace(
+            "upperdir=/var/volatile/etc",
+            "upperdir=/var/volatile/foreign",
+        )
+        self.assertEqual(self.inspect().state, recovery.RecoveryState.BLOCKED)
+
     def test_unsupported_firmware_and_operational_preflight(self):
         self.device.identity = replace(self.device.identity, xochitl_sha256="0" * 64)
         self.assertEqual(self.inspect().state, recovery.RecoveryState.UNSUPPORTED)

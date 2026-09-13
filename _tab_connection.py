@@ -185,10 +185,21 @@ class ConnectionWidget(QtWidgets.QWidget):
 
         layout.addLayout(footer_actions)
         layout.addSpacing(4)
-        brand_label = QtWidgets.QLabel(_rmtool.APP_NAME)
-        brand_label.setObjectName("sidebarBrand")
-        brand_label.setAlignment(QtCore.Qt.AlignCenter)
-        layout.addWidget(brand_label)
+        self.brand_label = QtWidgets.QLabel(
+            f"{_rmtool.APP_NAME} v{_rmtool.APP_VERSION}"
+        )
+        self.brand_label.setObjectName("sidebarBrand")
+        self.brand_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.brand_label.setOpenExternalLinks(False)
+        self.brand_label.setTextInteractionFlags(
+            QtCore.Qt.LinksAccessibleByMouse | QtCore.Qt.LinksAccessibleByKeyboard
+        )
+        self.brand_label.linkActivated.connect(self._open_update_link)
+        self.brand_label.setSizePolicy(
+            QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed
+        )
+        self.brand_label.setMinimumHeight(35)
+        layout.addWidget(self.brand_label)
 
         self.setLayout(layout)
 
@@ -832,6 +843,33 @@ class ConnectionWidget(QtWidgets.QWidget):
         self.github_button.setIcon(
             _rmtool._make_sidebar_icon("github", icon_color, icon_hover_color)
         )
+
+    def set_update_available(self, latest_version: Optional[str]) -> None:
+        available = bool(latest_version)
+        if available:
+            danger = _tokens.LIGHT_TOKENS["danger"]
+            self.brand_label.setText(
+                f"{_rmtool.APP_NAME} v{_rmtool.APP_VERSION} "
+                f"<a href=\"{_rmtool.GITHUB_RELEASES_URL}\">"
+                f"<span style=\"color:{danger};\">●</span></a>"
+            )
+            self.brand_label.setToolTip(f"有新版本 {latest_version} 可用")
+            self.brand_label.setAccessibleName(
+                f"{_rmtool.APP_NAME} v{_rmtool.APP_VERSION}，有新版本 {latest_version} 可用"
+            )
+            self.brand_label.setCursor(QtCore.Qt.PointingHandCursor)
+        else:
+            self.brand_label.setText(f"{_rmtool.APP_NAME} v{_rmtool.APP_VERSION}")
+            self.brand_label.setToolTip("")
+            self.brand_label.setAccessibleName(
+                f"{_rmtool.APP_NAME} v{_rmtool.APP_VERSION}"
+            )
+            self.brand_label.unsetCursor()
+
+    def _open_update_link(self, url: str) -> None:
+        if url != _rmtool.GITHUB_RELEASES_URL:
+            return
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl(url))
 
     def add_sidebar_section(self, widget: QtWidgets.QWidget) -> None:
         """Insert a sidebar section above the pinned footer row."""
