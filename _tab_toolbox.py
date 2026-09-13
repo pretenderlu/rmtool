@@ -3709,6 +3709,8 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         self._report_session = None
         self._recovery_report = None
         self._recovery_session = None
+        self._incomplete_report = None
+        self._incomplete_session = None
         self._connection_generation = 0
         self._connected = None
 
@@ -3729,6 +3731,9 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         )
         self.repair_button = QtWidgets.QPushButton("修复并重装")
         self.repair_button.clicked.connect(self._repair)
+        self.cleanup_incomplete_button = QtWidgets.QPushButton("清理不完整状态")
+        self.cleanup_incomplete_button.setProperty("btnRole", "danger")
+        self.cleanup_incomplete_button.clicked.connect(self._cleanup_incomplete)
         self.migrate_button = QtWidgets.QPushButton("迁移到当前固件")
         self.migrate_button.clicked.connect(self._migrate)
         self.cleanup_residue_button = QtWidgets.QPushButton("清理固件残留")
@@ -3760,6 +3765,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         recovery_row.setSpacing(_rmtool.SUBSECTION_GAP)
         recovery_row.addWidget(self.recovery_detect_button)
         recovery_row.addWidget(self.repair_button)
+        recovery_row.addWidget(self.cleanup_incomplete_button)
         recovery_row.addStretch(1)
         layout.addLayout(recovery_row)
         detect_row = QtWidgets.QHBoxLayout()
@@ -3790,6 +3796,8 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             self._report_session = None
             self._recovery_report = None
             self._recovery_session = None
+            self._incomplete_report = None
+            self._incomplete_session = None
             self._busy = False
             self.status_label.setText(
                 "设备已连接，尚未检测恢复或迁移状态" if connected else "设备未连接"
@@ -3800,6 +3808,14 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         self.repair_button.setEnabled(
             active and self._recovery_report is not None
             and self._recovery_report.can_repair
+        )
+        self.cleanup_incomplete_button.setEnabled(
+            active and self._incomplete_report is not None
+            and not (
+                self._recovery_report is not None
+                and getattr(self._recovery_report, "can_repair", False)
+            )
+            and getattr(self._incomplete_report, "can_cleanup", False)
         )
         self.cleanup_button.setEnabled(active)
         self.migrate_button.setEnabled(
@@ -3831,12 +3847,18 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             if self._session_current(session):
                 self.ssh_client.close()
 
-    def _apply_status(self, report):
+    def _apply_status(self, report, incomplete_report=None):
         self._recovery_report = report
         self._recovery_session = self._session_token()
+        allow_incomplete_cleanup = not getattr(report, "can_repair", False)
+        self._incomplete_report = incomplete_report if allow_incomplete_cleanup else None
+        self._incomplete_session = (
+            self._session_token() if self._incomplete_report is not None else None
+        )
         labels = {
             _plugin_recovery.RecoveryState.NOT_NEEDED: "无需修复",
             _plugin_recovery.RecoveryState.REPAIR_AVAILABLE: "可修复并重装",
+            _plugin_recovery.RecoveryState.CLEANUP_AVAILABLE: "可清理不完整状态",
             _plugin_recovery.RecoveryState.UNSUPPORTED: "当前固件不支持自动修复，请等待精确匹配的资源包",
             _plugin_recovery.RecoveryState.BLOCKED: (
                 "无法安全自动修复，请导出诊断日志交由维护者核对；不要手动跳过校验"
@@ -3850,6 +3872,13 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         for issue in report.issues:
             if issue and issue not in lines:
                 lines.append(issue)
+        if self._incomplete_report is not None:
+            if getattr(self._incomplete_report, "can_cleanup", False):
+                lines.append("残缺共享 Xovi：可清理不完整状态")
+            elif self._incomplete_report.state == _plugin_recovery.RecoveryState.BLOCKED:
+                lines.append(
+                    "残缺共享 Xovi 清理已阻止：" + self._incomplete_report.detail
+                )
         if report.backup_path:
             lines.append("原安装备份：" + report.backup_path)
         self.status_label.setText("\n".join(line for line in lines if line))
@@ -3857,7 +3886,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
 
     def _start_worker(
         self, fn, *args, pending: str, on_done=None, show_errors=True,
-        session=None, repairing=False,
+        session=None, repairing=False, close_on_success=False, success="",
     ):
         if self._busy or not self.ssh_client.is_connected():
             if on_done is not None:
@@ -3870,6 +3899,8 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             return
         if repairing:
             self._report = None
+            self._incomplete_report = None
+            self._incomplete_session = None
         self._busy = True
         self._on_connection_changed(True)
         self.status_label.setText(pending)
@@ -3892,7 +3923,15 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                 self._busy = False
                 self._on_connection_changed(True)
                 if exc is None:
-                    self._apply_status(report)
+                    incomplete_report = None
+                    if (
+                        isinstance(report, tuple)
+                        and len(report) == 2
+                        and hasattr(report[0], "state")
+                        and (report[1] is None or hasattr(report[1], "state"))
+                    ):
+                        report, incomplete_report = report
+                    self._apply_status(report, incomplete_report)
                     if (
                         repairing
                         and report.state == _plugin_recovery.RecoveryState.NOT_NEEDED
@@ -3918,6 +3957,11 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                         self._close_session(session)
                         self.status_label.setText(message)
                         show_info(self, _rmtool.APP_NAME, message)
+                    elif close_on_success:
+                        self._close_session(session)
+                        self.status_label.setText(success)
+                        if success:
+                            show_info(self, _rmtool.APP_NAME, success)
                 elif isinstance(exc, _package_download.PackageDownloadError):
                     self.status_label.setText("资源包下载失败，可手动加载后重试")
 
@@ -3929,6 +3973,8 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                         _show_package_download_error(self, exc, retry=retry)
                 else:
                     self._recovery_report = None
+                    self._incomplete_report = None
+                    self._incomplete_session = None
                     self._on_connection_changed(True)
                     guidance = (
                         "未自动重启设备。恢复的旧程序不代表已通过校验；请勿重启或解除紧急停用，"
@@ -3952,8 +3998,15 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             finish(exc=exc)
 
     def _start_status_detection(self, *, on_done=None, show_errors=True):
+        def inspect():
+            report = _plugin_recovery.inspect_recovery(self.ssh_client)
+            incomplete = None
+            if not getattr(report, "can_repair", False):
+                incomplete = _plugin_recovery.inspect_incomplete(self.ssh_client)
+            return report, incomplete
+
         self._start_worker(
-            _plugin_recovery.inspect_recovery, self.ssh_client,
+            inspect,
             pending="正在只读检测共享插件恢复状态…",
             on_done=on_done, show_errors=show_errors,
         )
@@ -3990,6 +4043,48 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             pending="正在校验资源包并修复共享插件…", session=session, repairing=True,
         )
 
+    @require_connection
+    def _cleanup_incomplete(self):
+        report = self._incomplete_report
+        session = self._incomplete_session
+        if self._busy or report is None or not getattr(report, "can_cleanup", False):
+            return
+        if session is None or not self._session_current(session):
+            return
+        if not ask_confirmation(
+            self,
+            "清理不完整共享 Xovi",
+            "rmtool 会在删除前再次只读核对固定路径、root 权限、文件指纹、挂载边界和外部启动配置。"
+            "只有能确认归属于 rmtool 的残缺共享状态才会清理；未知文件、符号链接、权限异常、"
+            "Vellum/AppLoad/Xovi、未知 drop-in 或双布局都会拒绝操作。"
+            "清理只删除 rmtool 共享基座、受校验的 drop-in 和紧急停用标记，不会删除微信读书、"
+            "KOReader、字体、书籍或其他 /data/rmtool 内容。不会自动重启设备，是否继续？",
+            confirm_text="清理不完整状态",
+            cancel_text="取消",
+            danger=True,
+        ):
+            return
+        if (
+            sip.isdeleted(self)
+            or not self._session_current(session)
+            or self._incomplete_report is not report
+            or self._busy
+        ):
+            return
+        self._recovery_report = None
+        self._recovery_session = None
+        self._start_worker(
+            _plugin_recovery.cleanup_incomplete,
+            self.ssh_client,
+            pending="正在重新验证并清理不完整共享 Xovi 状态…",
+            session=session,
+            close_on_success=True,
+            success=(
+                "不完整共享 Xovi 已清理，插件状态已恢复为未安装。SSH 会话已关闭；"
+                "请手动重启设备后重新安装当前固件对应的插件。"
+            ),
+        )
+
     def _report_text(self, report) -> str:
         if report is None:
             return "未检测到固件升级残留；如需清理历史 Vellum 包请使用下方按钮。"
@@ -4023,6 +4118,10 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         session = self._session_token()
         self._report = None
         self._report_session = None
+        self._recovery_report = None
+        self._recovery_session = None
+        self._incomplete_report = None
+        self._incomplete_session = None
         self._busy = True
         self._on_connection_changed(True)
         self.status_label.setText("正在验证共享 Xovi 固件残留…")
@@ -4081,6 +4180,8 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             return
         self._recovery_report = None
         self._recovery_session = None
+        self._incomplete_report = None
+        self._incomplete_session = None
         self._busy = True
         self._on_connection_changed(True)
         self.status_label.setText("正在验证并迁移共享 Xovi 插件…")
@@ -4153,6 +4254,8 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             return
         self._recovery_report = None
         self._recovery_session = None
+        self._incomplete_report = None
+        self._incomplete_session = None
         self._busy = True
         self._on_connection_changed(True)
         self.status_label.setText("正在重新验证并清理共享 Xovi 固件残留…")
@@ -4211,6 +4314,8 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             return
         self._recovery_report = None
         self._recovery_session = None
+        self._incomplete_report = None
+        self._incomplete_session = None
         self._busy = True
         self._on_connection_changed(True)
         self.cleanup_status_label.setText("正在验证并卸载 rmtool 历史 Vellum 功能包…")
@@ -4746,6 +4851,8 @@ class ToolboxTab(QtWidgets.QWidget):
             return "待重启"
         if text.startswith("可修复并重装"):
             return "可修复"
+        if text.startswith("可清理不完整状态") or "可清理不完整状态" in text:
+            return "可清理"
         if text.startswith("无法安全自动修复"):
             return "已阻止"
         if text.startswith("当前固件不支持自动修复"):

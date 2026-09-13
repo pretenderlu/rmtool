@@ -92,6 +92,30 @@ class RecoveryUiTests(unittest.TestCase):
         done.assert_called_once_with()
         self.assertTrue(self.section.repair_button.isEnabled())
 
+    def test_status_detection_checks_incomplete_cleanup_when_repair_is_unavailable(self):
+        main = report(recovery.RecoveryState.UNSUPPORTED)
+        incomplete = report(recovery.RecoveryState.CLEANUP_AVAILABLE)
+        incomplete.can_repair = False
+        incomplete.can_cleanup = True
+        with mock.patch.object(recovery, "inspect_recovery", return_value=main), \
+                mock.patch.object(recovery, "inspect_incomplete", return_value=incomplete) as inspect:
+            self.section._start_status_detection()
+            worker = self.pool.start.call_args.args[0]
+            worker.signals.finished.emit(worker.execute())
+
+        inspect.assert_called_once_with(self.ssh)
+        self.assertTrue(self.section.cleanup_incomplete_button.isEnabled())
+
+    def test_repairable_report_keeps_incomplete_cleanup_button_disabled(self):
+        incomplete = report(recovery.RecoveryState.CLEANUP_AVAILABLE)
+        incomplete.can_repair = False
+        incomplete.can_cleanup = True
+        self.section._apply_status(report(), incomplete)
+
+        self.assertTrue(self.section.repair_button.isEnabled())
+        self.assertFalse(self.section.cleanup_incomplete_button.isEnabled())
+        self.assertNotIn("残缺共享 Xovi：可清理不完整状态", self.section.status_label.text())
+
     def test_report_states_gate_repair_and_expose_details(self):
         summaries = {
             recovery.RecoveryState.NOT_NEEDED: "无需修复",

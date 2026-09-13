@@ -32,6 +32,7 @@ class Device:
         self.runtime, self.trusted, _ = tap._trusted_shared_context(self.identity)
         self.states = {"tap-page-turn": shared.SharedFeatureState(self.trusted["tap-page-turn"], enabled, TOKEN)}
         self.entries = {}
+        self.symlinks = set()
         self.events = []
         self.pinned = False
         self.free_kib = 1024 * 1024
@@ -48,6 +49,11 @@ class Device:
         self.entries[path] = SimpleNamespace(mode=mode, uid=0, gid=0,
             size=len(data) if size is None else size, links=1,
             digest=digest or hashlib.sha256(data).hexdigest(), data=data)
+
+    def add_symlink(self, path, target):
+        del target
+        self.symlinks.add(path)
+        self.add(path, mode=stat.S_IFLNK | 0o777)
 
     def install(self, states, *, schema_version=2):
         for path in list(self.entries):
@@ -109,6 +115,11 @@ class Device:
 
     def exec_checked(self, command):
         self.events.append(command)
+        if command.startswith("[ ! -L "):
+            path = shlex.split(command)[3]
+            if path in self.symlinks:
+                raise RuntimeError("symbolic link: " + path)
+            return ""
         if command.startswith("stat -c '%f|%u|%g|%s|%h'"):
             path = shlex.split(command)[-1]
             if path not in self.entries:
@@ -196,6 +207,7 @@ class RecoveryInspectionTests(unittest.TestCase):
         report = self.inspect()
 
         self.assertTrue(report.can_repair)
+
 
     def test_schema2_local_revision_is_recoverable_without_published_fingerprint(self):
         current = self.device.states["tap-page-turn"].spec
@@ -391,6 +403,120 @@ class RecoveryInspectionTests(unittest.TestCase):
                 report = self.inspect()
                 self.assertTrue(report.can_repair)
                 self.assertIn(feature_id, report.features)
+
+
+class IncompleteSharedCleanupTests(unittest.TestCase):
+    def setUp(self):
+        self.device = Device()
+        self.identity = mock.patch.object(
+            tap, "get_device_identity", side_effect=lambda ssh: ssh.identity
+        )
+        self.identity.start()
+        self.addCleanup(self.identity.stop)
+        self.lower = mock.patch.object(
+            recovery, "_lower_dropin_snapshot", return_value=None
+        )
+        self.lower_mock = self.lower.start()
+        self.addCleanup(self.lower.stop)
+
+    def inspect(self):
+        return recovery.inspect_incomplete(self.device)
+
+    def test_no_artifacts_returns_without_mount_probe(self):
+        self.device.entries.clear()
+
+        report = self.inspect()
+
+        self.assertEqual(report.state, recovery.RecoveryState.NOT_NEEDED)
+        self.lower_mock.assert_not_called()
+
+    def test_missing_marker_with_verified_core_files_is_cleanup_available(self):
+        self.device.entries.pop(BASE + "/package.json")
+
+        report = self.inspect()
+
+        self.assertEqual(report.state, recovery.RecoveryState.CLEANUP_AVAILABLE)
+        self.assertTrue(report.can_cleanup)
+        self.assertIn("残缺共享 Xovi", report.detail)
+
+    def test_verified_dropin_without_shared_base_is_cleanup_available(self):
+        for path in tuple(self.device.entries):
+            if path == BASE or path.startswith(BASE + "/"):
+                del self.device.entries[path]
+
+        report = self.inspect()
+
+        self.assertEqual(report.state, recovery.RecoveryState.CLEANUP_AVAILABLE)
+
+        _report, plan = recovery._inspect_incomplete(self.device)
+        script = recovery._incomplete_cleanup_script(plan, "a" * 32)
+        self.assertIn('[ ! -e "$BASE" ] && [ ! -L "$BASE" ]', script)
+        self.assertNotIn('mv "$BASE" "$BACKUP_DIR/base"', script)
+        self.assertNotIn("/data/rmtool/keep.txt", script)
+
+    def test_verified_lower_dropin_with_incomplete_visible_base_is_cleanup_available(self):
+        for path in tuple(self.device.entries):
+            if path == DROPIN:
+                del self.device.entries[path]
+        dropin = shared.shared_dropin(self.device.runtime, ()).encode()
+        lower = (DROPIN, stat.S_IFREG | 0o644, len(dropin), hashlib.sha256(dropin).hexdigest())
+        with mock.patch.object(recovery, "_lower_dropin_snapshot", return_value=lower):
+            report = self.inspect()
+
+        self.assertEqual(report.state, recovery.RecoveryState.CLEANUP_AVAILABLE)
+
+    def test_unknown_file_blocks_cleanup(self):
+        self.device.add(BASE + "/unknown", b"not-rmtool")
+
+        report = self.inspect()
+
+        self.assertEqual(report.state, recovery.RecoveryState.BLOCKED)
+        self.assertIn("未知文件", report.detail)
+
+    def test_symlinked_shared_base_blocks_cleanup(self):
+        for path in tuple(self.device.entries):
+            if path == BASE or path.startswith(BASE + "/"):
+                del self.device.entries[path]
+        self.device.add_symlink(BASE, "/tmp/foreign-xovi")
+
+        report = self.inspect()
+
+        self.assertEqual(report.state, recovery.RecoveryState.BLOCKED)
+        self.assertIn("symbolic link", report.detail)
+
+    def test_symlinked_shared_parent_blocks_cleanup(self):
+        self.device.add_symlink("/data/rmtool", "/tmp/foreign-rmtool")
+
+        report = self.inspect()
+
+        self.assertEqual(report.state, recovery.RecoveryState.BLOCKED)
+        self.assertIn("symbolic link", report.detail)
+
+    def test_cleanup_does_not_claim_success_when_state_changes_before_write(self):
+        self.device.entries.pop(BASE + "/package.json")
+        report, plan = recovery._inspect_incomplete(self.device)
+        self.assertTrue(report.can_cleanup)
+
+        changed = mock.Mock(
+            state=recovery.RecoveryState.CLEANUP_AVAILABLE,
+            can_cleanup=True,
+        )
+        with mock.patch.object(
+            recovery,
+            "_inspect_incomplete",
+            side_effect=((report, plan), (changed, None)),
+        ), mock.patch.object(recovery.shared, "_upload_bytes") as upload:
+            with self.assertRaisesRegex(RuntimeError, "状态发生变化"):
+                recovery.cleanup_incomplete(self.device)
+        upload.assert_not_called()
+
+    def test_cleanup_rollback_does_not_delete_recreated_base(self):
+        self.device.entries.pop(BASE + "/package.json")
+        _report, plan = recovery._inspect_incomplete(self.device)
+        script = recovery._incomplete_cleanup_script(plan, "a" * 32)
+
+        self.assertNotIn('rm -rf "$BASE"', script)
+        self.assertIn('if [ -e "$BASE" ] || [ -L "$BASE" ]; then ROLLBACK_OK=0;', script)
 
 
 class RecoveryRepairTests(unittest.TestCase):

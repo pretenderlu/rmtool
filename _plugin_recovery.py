@@ -37,6 +37,7 @@ _MAX_MARKER_BYTES = 256 * 1024
 class RecoveryState(str, Enum):
     NOT_NEEDED = "not_needed"
     REPAIR_AVAILABLE = "repair_available"
+    CLEANUP_AVAILABLE = "cleanup_available"
     UNSUPPORTED = "unsupported"
     BLOCKED = "blocked"
 
@@ -53,6 +54,10 @@ class RecoveryReport:
     def can_repair(self) -> bool:
         return self.state == RecoveryState.REPAIR_AVAILABLE
 
+    @property
+    def can_cleanup(self) -> bool:
+        return self.state == RecoveryState.CLEANUP_AVAILABLE
+
 
 @dataclass(frozen=True)
 class _Plan:
@@ -62,6 +67,19 @@ class _Plan:
     states: dict[str, shared.SharedFeatureState]
     fingerprint: tuple
     sentinels: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _CleanupPlan:
+    base_entries: tuple[tuple[str, int, int, str], ...]
+    dropin: tuple[str, int, int, str] | None
+    lower_dropin: tuple[str, int, int, str] | None
+    sentinels: tuple[tuple[str, int, int, str], ...]
+    features: tuple[str, ...]
+
+    @property
+    def fingerprint(self) -> tuple:
+        return (self.base_entries, self.dropin, self.lower_dropin, self.sentinels)
 
 
 def _published_predecessors(identity, trusted):
@@ -243,6 +261,583 @@ def _external_loaders(ssh_client):
             fields = line.split(None, 5)
             if len(fields) < 6 or not fields[5].startswith(shared.SHARED_LAYOUT.remote_base + "/"):
                 raise RuntimeError("xochitl 正在加载未知外部插件，拒绝自动修复。")
+
+
+def _assert_no_symlink_chain(ssh_client, path):
+    candidates = tuple(reversed(PurePosixPath(path).parents)) + (PurePosixPath(path),)
+    for candidate in candidates:
+        ssh_client.exec_checked(f"[ ! -L {shlex.quote(str(candidate))} ]")
+
+
+def _trusted_cleanup_contexts(identity):
+    candidates = [identity]
+    seen = {identity}
+    for module in (tap, *migration._providers().values()):
+        try:
+            catalog = module._trusted_catalog()
+        except (AttributeError, RuntimeError, OSError, ValueError, TypeError):
+            continue
+        for package in catalog:
+            fields = tuple(
+                getattr(package, name, None)
+                for name in ("firmware", "platform", "architecture", "xochitl_sha256")
+            )
+            if any(value is None for value in fields):
+                continue
+            candidate = tap.DeviceIdentity(*fields)
+            if candidate not in seen:
+                seen.add(candidate)
+                candidates.append(candidate)
+    contexts = []
+    seen_runtimes = set()
+    for candidate in candidates:
+        try:
+            runtime, trusted, _legacies = tap._trusted_shared_context(candidate)
+        except (RuntimeError, OSError, ValueError, TypeError):
+            continue
+        if runtime is None or not trusted:
+            continue
+        key = (runtime, tuple(sorted(trusted.items())))
+        if key in seen_runtimes:
+            continue
+        seen_runtimes.add(key)
+        contexts.append((runtime, trusted))
+    return tuple(contexts)
+
+
+def _cleanup_trust_data(contexts):
+    allowed_files = {"package.json", "startup.pending"}
+    allowed_dirs = set()
+    core_specs = {}
+    file_specs = {}
+    launcher_specs = set()
+    dropin_hashes = set()
+
+    def add_spec(path, digest, size, mode):
+        allowed_files.add(path)
+        file_specs.setdefault(path, set()).add((digest, size, mode))
+
+    for runtime, trusted in contexts:
+        for item in runtime.files:
+            add_spec(item.path, item.sha256, item.size, item.mode)
+            core_specs.setdefault(item.path, set()).add((item.sha256, item.size, item.mode))
+        feature_values = tuple(trusted.values())
+        for feature in feature_values:
+            for item in feature.files:
+                add_spec(item.runtime_path, item.sha256, item.size, item.mode)
+        for flags in product((False, True), repeat=len(feature_values)):
+            enabled = tuple(
+                feature for feature, flag in zip(feature_values, flags) if flag
+            )
+            for recovery_sentinel, startup_guard, unmatched in product(
+                (False, True), repeat=3
+            ):
+                try:
+                    launcher = shared.shared_launcher(
+                        runtime,
+                        enabled,
+                        recovery_sentinel=recovery_sentinel,
+                        startup_guard=startup_guard,
+                        legacy_unmatched_qmd_glob=unmatched,
+                    ).encode()
+                except (RuntimeError, OSError, ValueError, TypeError):
+                    continue
+                launcher_specs.add(
+                    (hashlib.sha256(launcher).hexdigest(), len(launcher), 0o755)
+                )
+        try:
+            dropin = shared.shared_dropin(runtime, ())
+        except (RuntimeError, OSError, ValueError, TypeError):
+            continue
+        dropin_bytes = dropin.encode()
+        dropin_hashes.add(hashlib.sha256(dropin_bytes).hexdigest())
+
+    add_spec("launcher.sh", "", -1, 0o755)
+    file_specs["launcher.sh"] = launcher_specs
+    dropin_path = f"systemd/{shared.SHARED_LAYOUT.dropin_name}"
+    add_spec(dropin_path, "", -1, 0o644)
+    file_specs[dropin_path] = {
+        (digest, -1, 0o644) for digest in dropin_hashes
+    }
+    allowed_dirs.update(shared._parent_directories(allowed_files))
+    allowed_dirs.discard("")
+    return allowed_files, allowed_dirs, core_specs, file_specs, dropin_hashes
+
+
+def _cleanup_tree_snapshot(ssh_client, contexts):
+    base = shared.SHARED_LAYOUT.remote_base
+    allowed_files, allowed_dirs, core_specs, file_specs, _dropin_hashes = (
+        _cleanup_trust_data(contexts)
+    )
+    if not shared._remote_entry_exists(ssh_client, base):
+        return (), 0
+    _ancestors(ssh_client, base)
+    ssh_client.exec_checked(
+        f"[ ! -L {shlex.quote(base)} ] && "
+        f"! find -P {shlex.quote(base)} -mindepth 1 -type l -print -quit | grep -q ."
+    )
+    paths = ssh_client.exec_checked(f"find -P {shlex.quote(base)} -print").splitlines()
+    if not paths or paths[0] != base or len(paths) != len(set(paths)):
+        raise RuntimeError("共享 Xovi 残留目录清单无效。")
+    snapshot = []
+    core_matches = 0
+    for index, path in enumerate(paths):
+        if index == 0:
+            relative = ""
+        else:
+            prefix = base + "/"
+            if not path.startswith(prefix):
+                raise RuntimeError("共享 Xovi 残留包含越界路径。")
+            relative = path[len(prefix):]
+        mode, size = _metadata(ssh_client, path)
+        if stat.S_ISDIR(mode):
+            if relative not in allowed_dirs and relative != "":
+                raise RuntimeError(f"共享 Xovi 残留包含未知目录：{relative}")
+            if stat.S_IMODE(mode) != 0o755:
+                raise RuntimeError(f"共享 Xovi 残留目录权限不安全：{path}")
+            snapshot.append((path, mode, size, ""))
+            continue
+        if not stat.S_ISREG(mode) or relative not in allowed_files:
+            raise RuntimeError(f"共享 Xovi 残留包含未知文件：{relative}")
+        digest = shared._remote_sha256(ssh_client, path)
+        if relative == "package.json":
+            if stat.S_IMODE(mode) != 0o644 or size > _MAX_MARKER_BYTES:
+                raise RuntimeError("共享 Xovi 残留标记类型或权限不安全。")
+        elif relative == "startup.pending":
+            if stat.S_IMODE(mode) != 0o600 or size != 0 or digest != shared._EMPTY_SHA256:
+                raise RuntimeError("共享 Xovi 残留启动标记不安全。")
+        else:
+            matches = file_specs.get(relative, set())
+            if not any(
+                digest == expected_digest
+                and (expected_size < 0 or size == expected_size)
+                and stat.S_IMODE(mode) == expected_mode
+                for expected_digest, expected_size, expected_mode in matches
+            ):
+                raise RuntimeError(f"共享 Xovi 残留文件指纹未知：{relative}")
+            if (digest, size, stat.S_IMODE(mode)) in core_specs.get(relative, set()):
+                core_matches += 1
+        snapshot.append((path, mode, size, digest))
+    if not core_matches:
+        raise RuntimeError("共享 Xovi 残留没有可由受信清单确认的核心文件。")
+    return tuple(snapshot), core_matches
+
+
+def _lower_dropin_snapshot(ssh_client, known_hashes):
+    token = uuid.uuid4().hex
+    mount_dir = f"/tmp/rmtool-xovi-incomplete-check-{token}"
+    directory = str(PurePosixPath(shared.SHARED_LAYOUT.dropin_path).parent)
+    output = ssh_client.exec_checked(f"""set -eu
+MOUNT_DIR={shlex.quote(mount_dir)}
+cleanup() {{
+    umount "$MOUNT_DIR" 2>/dev/null || true
+    rmdir "$MOUNT_DIR" 2>/dev/null || true
+}}
+trap cleanup EXIT INT TERM
+mkdir -m 0700 "$MOUNT_DIR"
+mount --bind / "$MOUNT_DIR"
+for file in "$MOUNT_DIR"{directory}/*.conf; do
+    [ -e "$file" ] || continue
+    path="${{file#"$MOUNT_DIR"}}"
+    if [ -L "$file" ]; then
+        printf '%s|symlink\\n' "$path"
+    else
+        printf '%s|%s|%s|%s|%s|%s|%s\\n' "$path" \\
+            "$(stat -c '%f' "$file")" "$(stat -c '%u' "$file")" \\
+            "$(stat -c '%g' "$file")" "$(stat -c '%a' "$file")" \\
+            "$(stat -c '%s' "$file")" "$(sha256sum "$file" | awk '{{print $1}}')"
+    fi
+done
+cleanup
+trap - EXIT INT TERM
+""").splitlines()
+    found = []
+    for line in output:
+        parts = line.split("|")
+        if len(parts) == 2 and parts[1] == "symlink":
+            raise RuntimeError("底层 xochitl 配置包含符号链接，拒绝清理。")
+        if len(parts) != 7:
+            raise RuntimeError("底层 xochitl 配置清单无效。")
+        path, raw_mode, uid, gid, permissions, size, digest = parts
+        if path != shared.SHARED_LAYOUT.dropin_path:
+            raise RuntimeError(f"检测到未知底层 xochitl drop-in，拒绝清理：{path}")
+        if (
+            raw_mode != "81a4"
+            or uid != "0"
+            or gid != "0"
+            or permissions != "644"
+            or digest not in known_hashes
+        ):
+            raise RuntimeError("底层 rmtool drop-in 类型、权限、所有权或内容已变化。")
+        found.append((path, int(raw_mode, 16), int(size), digest))
+    if len(found) > 1:
+        raise RuntimeError("底层 xochitl drop-in 清单包含重复路径。")
+    return found[0] if found else None
+
+
+def _incomplete_forbidden_paths():
+    paths = {
+        tap.VELLUM_ROOT,
+        tap.SHARED_XOVI_BASE,
+        tap.SHARED_XOVI_LIBRARY,
+        tap.SHARED_QRR_LIBRARY,
+        tap.SHARED_QRR_HOME,
+        tap.SHARED_APPLOAD_LIBRARY,
+        tap.REMOTE_BASE,
+        migration.fast.REMOTE_BASE,
+        tap.DROPIN_PATH,
+        migration.fast.DROPIN_PATH,
+    }
+    for module in migration._providers().values():
+        for name in ("REMOTE_BASE", "DROPIN_PATH"):
+            value = getattr(module, name, None)
+            if value:
+                paths.add(value)
+    return tuple(sorted(paths))
+
+
+def _complete_shared_exists(ssh_client, contexts):
+    for runtime, trusted in contexts:
+        try:
+            inspection = shared.inspect_shared(ssh_client, runtime, trusted)
+        except (RuntimeError, OSError, ValueError, TypeError):
+            continue
+        if inspection.states:
+            return True
+    return False
+
+
+def _inspect_incomplete(ssh_client):
+    base = shared.SHARED_LAYOUT.remote_base
+    legacy_base = shared.LEGACY_SHARED_LAYOUT.remote_base
+    artifacts = (
+        base,
+        legacy_base,
+        shared.SHARED_LAYOUT.dropin_path,
+        shared.SHARED_RECOVERY_SENTINEL,
+        shared.LEGACY_RECOVERY_SENTINEL,
+    )
+    visible_artifacts = any(
+        shared._remote_entry_exists(ssh_client, path) for path in artifacts
+    )
+    if not visible_artifacts:
+        return RecoveryReport(RecoveryState.NOT_NEEDED, "未检测到共享 Xovi 残留，无需清理。"), None
+    if shared._remote_entry_exists(ssh_client, legacy_base):
+        raise RuntimeError("检测到旧 /home 共享布局，拒绝自动清理；请使用迁移或人工恢复。")
+
+    identity = tap.get_device_identity(ssh_client)
+    contexts = _trusted_cleanup_contexts(identity)
+    if not contexts:
+        raise RuntimeError("当前或历史受信清单无法确认共享 Xovi 文件归属。")
+    for path in (base, shared.SHARED_LAYOUT.dropin_path,
+                 shared.SHARED_RECOVERY_SENTINEL, shared.LEGACY_RECOVERY_SENTINEL):
+        if shared._remote_entry_exists(ssh_client, path):
+            _assert_no_symlink_chain(ssh_client, path)
+            _ancestors(ssh_client, path)
+    _unhidden_paths(ssh_client)
+    forbidden = _incomplete_forbidden_paths()
+    if any(
+        shared._remote_entry_exists(ssh_client, path)
+        for path in forbidden
+        if path not in (base, shared.SHARED_LAYOUT.dropin_path)
+    ):
+        raise RuntimeError("检测到 Vellum、AppLoad、非托管 Xovi 或旧版插件，拒绝自动清理。")
+    _external_loaders(ssh_client)
+    if shared._active(ssh_client):
+        raise RuntimeError("共享 Xovi 仍在当前 xochitl 中载入，拒绝自动清理。")
+
+    allowed_files, _allowed_dirs, _core_specs, _file_specs, dropin_hashes = (
+        _cleanup_trust_data(contexts)
+    )
+    del allowed_files
+    lower_dropin = _lower_dropin_snapshot(ssh_client, dropin_hashes)
+    if lower_dropin is not None:
+        _assert_no_symlink_chain(ssh_client, shared.SHARED_LAYOUT.dropin_path)
+        _ancestors(ssh_client, shared.SHARED_LAYOUT.dropin_path)
+    base_entries, core_matches = _cleanup_tree_snapshot(ssh_client, contexts)
+    visible_dropin = None
+    dropin = shared.SHARED_LAYOUT.dropin_path
+    if shared._remote_entry_exists(ssh_client, dropin):
+        ssh_client.exec_checked(f"[ ! -L {shlex.quote(dropin)} ]")
+        mode, size = _metadata(ssh_client, dropin)
+        digest = shared._remote_sha256(ssh_client, dropin)
+        if not stat.S_ISREG(mode) or stat.S_IMODE(mode) != 0o644 or digest not in dropin_hashes:
+            raise RuntimeError("rmtool 可见 drop-in 类型、权限或内容无法确认。")
+        visible_dropin = (dropin, mode, size, digest)
+    if not core_matches and visible_dropin is None and lower_dropin is None:
+        raise RuntimeError("共享 Xovi 残留没有可由受信清单确认的核心文件。")
+    sentinels = []
+    for sentinel in (shared.SHARED_RECOVERY_SENTINEL, shared.LEGACY_RECOVERY_SENTINEL):
+        if not shared._remote_entry_exists(ssh_client, sentinel):
+            continue
+        ssh_client.exec_checked(f"[ ! -L {shlex.quote(sentinel)} ]")
+        mode, size = _metadata(ssh_client, sentinel)
+        digest = shared._remote_sha256(ssh_client, sentinel)
+        if not stat.S_ISREG(mode) or stat.S_IMODE(mode) != 0o600 or size != 0 or digest != shared._EMPTY_SHA256:
+            raise RuntimeError(f"紧急停用标记类型、权限或内容不安全：{sentinel}")
+        sentinels.append((sentinel, mode, size, digest))
+
+    if _complete_shared_exists(ssh_client, contexts):
+        return RecoveryReport(RecoveryState.NOT_NEEDED, "共享 Xovi 完整，无需清理残缺状态。"), None
+    plan = _CleanupPlan(
+        tuple(base_entries),
+        visible_dropin,
+        lower_dropin,
+        tuple(sentinels),
+        (),
+    )
+    return RecoveryReport(
+        RecoveryState.CLEANUP_AVAILABLE,
+        "已确认这是固定 rmtool 路径中的残缺共享 Xovi；可安全清理并恢复为未安装。"
+        "清理不会删除微信读书、KOReader、字体、书籍或其他 /data/rmtool 内容。",
+    ), plan
+
+
+def inspect_incomplete(ssh_client) -> RecoveryReport:
+    """Read-only proof that only safely attributable shared residue can be removed."""
+    try:
+        report, _plan = _inspect_incomplete(ssh_client)
+        return report
+    except (RuntimeError, OSError, ValueError, TypeError) as exc:
+        return RecoveryReport(RecoveryState.BLOCKED, str(exc), issues=(str(exc),))
+
+
+def _incomplete_cleanup_script(plan: _CleanupPlan, token: str) -> str:
+    base = shlex.quote(shared.SHARED_LAYOUT.remote_base)
+    dropin = shlex.quote(shared.SHARED_LAYOUT.dropin_path)
+    backup = shlex.quote(f"/tmp/rmtool-xovi-incomplete-backup-{token}")
+    mount_dir = shlex.quote(f"/tmp/rmtool-xovi-incomplete-root-{token}")
+    sentinel_paths = tuple(item[0] for item in plan.sentinels)
+    base_checks = []
+    for path, mode, size, digest in plan.base_entries:
+        quoted = shlex.quote(path)
+        if stat.S_ISDIR(mode):
+            base_checks.append(
+                f'[ -d {quoted} ] && [ ! -L {quoted} ] && '
+                f'[ "$(stat -c \'%a:%u:%g:%s\' {quoted})" = {shlex.quote(f"755:0:0:{size}")} ]'
+            )
+        else:
+            base_checks.append(
+                f'[ -f {quoted} ] && [ ! -L {quoted} ] && '
+                f'[ "$(stat -c \'%a:%u:%g:%s\' {quoted})" = {shlex.quote(f"{stat.S_IMODE(mode):o}:0:0:{size}")} ] && '
+                f'[ "$(sha256sum {quoted} | awk \'{{print $1}}\')" = {shlex.quote(digest)} ]'
+            )
+    sentinel_checks = []
+    for path, mode, size, digest in plan.sentinels:
+        quoted = shlex.quote(path)
+        sentinel_checks.append(
+            f'[ -f {quoted} ] && [ ! -L {quoted} ] && '
+            f'[ "$(stat -c \'%a:%u:%g:%s\' {quoted})" = \'600:0:0:0\' ] && '
+            f'[ "$(sha256sum {quoted} | awk \'{{print $1}}\')" = {shlex.quote(digest)} ]'
+        )
+    backup_sentinels = "\n".join(
+        f'cp -p {shlex.quote(path)} "$BACKUP_DIR/sentinel-{index}"; '
+        f'rm -f {shlex.quote(path)}'
+        for index, path in enumerate(sentinel_paths)
+    ) or ":"
+    restore_sentinels = "\n".join(
+        f'if [ -e "$BACKUP_DIR/sentinel-{index}" ] || [ -L "$BACKUP_DIR/sentinel-{index}" ]; then '
+        f'if [ -e {shlex.quote(path)} ] || [ -L {shlex.quote(path)} ]; then ROLLBACK_OK=0; '
+        f'elif cp -p "$BACKUP_DIR/sentinel-{index}" {shlex.quote(path)}.tmp && '
+        f'mv -f {shlex.quote(path)}.tmp {shlex.quote(path)}; then :; else ROLLBACK_OK=0; fi; fi'
+        for index, path in enumerate(sentinel_paths)
+    ) or ":"
+    upper_backup_line = (
+        f'cp -p {dropin} "$BACKUP_DIR/dropin-upper"; rm -f {dropin}'
+        if plan.dropin else ":"
+    )
+    upper_restore_line = (
+        f'if [ -e "$BACKUP_DIR/dropin-upper" ] || [ -L "$BACKUP_DIR/dropin-upper" ]; then '
+        f'if [ -e {dropin} ] || [ -L {dropin} ]; then ROLLBACK_OK=0; '
+        f'elif cp -p "$BACKUP_DIR/dropin-upper" {dropin}.tmp && '
+        f'mv -f {dropin}.tmp {dropin}; then :; else ROLLBACK_OK=0; fi; fi'
+        if plan.dropin else ":"
+    )
+    lower_backup_line = (
+        f'cp -p "$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}" "$BACKUP_DIR/dropin-lower"; '
+        f'rm -f "$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}"'
+        if plan.lower_dropin else ":"
+    )
+    lower_restore_line = (
+        f'if [ -e "$BACKUP_DIR/dropin-lower" ] || [ -L "$BACKUP_DIR/dropin-lower" ]; then '
+        f'if [ -e "$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}" ] || '
+        f'[ -L "$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}" ]; then ROLLBACK_OK=0; '
+        f'elif cp -p "$BACKUP_DIR/dropin-lower" "$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}.tmp" && '
+        f'mv -f "$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}.tmp" '
+        f'"$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}"; then :; else ROLLBACK_OK=0; fi; fi'
+        if plan.lower_dropin else ":"
+    )
+    upper_check = ":"
+    if plan.dropin:
+        _path, mode, size, digest = plan.dropin
+        upper_check = (
+            f'[ -f {dropin} ] && [ ! -L {dropin} ] && '
+            f'[ "$(stat -c \'%a:%u:%g:%s\' {dropin})" = '
+            f'{shlex.quote(f"{stat.S_IMODE(mode):o}:0:0:{size}")} ] && '
+            f'[ "$(sha256sum {dropin} | awk \'{{print $1}}\')" = {shlex.quote(digest)} ]'
+        )
+    lower_check = ":"
+    if plan.lower_dropin:
+        _path, mode, size, digest = plan.lower_dropin
+        lower_path = f'"$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}"'
+        lower_check = (
+            f'[ -f {lower_path} ] && [ ! -L {lower_path} ] && '
+            f'[ "$(stat -c \'%a:%u:%g:%s\' {lower_path})" = '
+            f'{shlex.quote(f"{stat.S_IMODE(mode):o}:0:0:{size}")} ] && '
+            f'[ "$(sha256sum {lower_path} | awk \'{{print $1}}\')" = {shlex.quote(digest)} ]'
+        )
+    base_check = (
+        "[ ! -e \"$BASE\" ] && [ ! -L \"$BASE\" ]"
+        if not plan.base_entries
+        else "[ ! -L \"$BASE\" ]"
+    )
+    base_move = (
+        'mv "$BASE" "$BACKUP_DIR/base"\nBASE_MOVED=1'
+        if plan.base_entries
+        else ":"
+    )
+    base_restore = (
+        'if [ -e "$BACKUP_DIR/base" ] || [ -L "$BACKUP_DIR/base" ]; then '
+        'if [ -e "$BASE" ] || [ -L "$BASE" ]; then ROLLBACK_OK=0; '
+        'elif mv "$BACKUP_DIR/base" "$BASE"; then :; else ROLLBACK_OK=0; fi; '
+        'else ROLLBACK_OK=0; fi'
+        if plan.base_entries
+        else ":"
+    )
+    parent_paths = (
+        "/data",
+        "/data/rmtool",
+        "/etc",
+        "/etc/systemd",
+        "/etc/systemd/system",
+        "/etc/systemd/system/xochitl.service.d",
+    )
+    parent_checks = "\n".join(
+        f"[ ! -L {shlex.quote(path)} ]" for path in parent_paths
+    )
+    return f"""#!/bin/sh
+set -eu
+BASE={base}
+DROPIN={dropin}
+BACKUP_DIR={backup}
+MOUNT_DIR={mount_dir}
+BASE_MOVED=0
+MOUNTED=0
+COMMITTED=0
+ROLLBACK_OK=1
+
+unmount_root() {{
+    [ "$MOUNTED" -eq 1 ] || return 0
+    sync
+    mount -o remount,ro "$MOUNT_DIR"
+    umount "$MOUNT_DIR"
+    MOUNTED=0
+    rmdir "$MOUNT_DIR"
+}}
+
+rollback() {{
+    rc=$?
+    [ "$rc" -ne 0 ] || rc=1
+    trap - EXIT INT TERM
+    set +e
+    if [ "$COMMITTED" -eq 0 ]; then
+        if [ "$MOUNTED" -eq 1 ]; then
+            mount -o remount,ro "$MOUNT_DIR" 2>/dev/null || true
+            umount "$MOUNT_DIR" 2>/dev/null || ROLLBACK_OK=0
+            MOUNTED=0
+        fi
+        if [ "$BASE_MOVED" -eq 1 ]; then
+            {base_restore}
+        fi
+        {upper_restore_line}
+        {restore_sentinels}
+        mkdir -m 0700 "$MOUNT_DIR"
+        if mount --bind / "$MOUNT_DIR"; then
+            MOUNTED=1
+            if mount -o remount,rw "$MOUNT_DIR"; then
+                {lower_restore_line}
+                mount -o remount,ro "$MOUNT_DIR" 2>/dev/null || ROLLBACK_OK=0
+            else
+                ROLLBACK_OK=0
+            fi
+            umount "$MOUNT_DIR" 2>/dev/null || ROLLBACK_OK=0
+            MOUNTED=0
+            rmdir "$MOUNT_DIR" 2>/dev/null || true
+        else
+            ROLLBACK_OK=0
+        fi
+        systemctl daemon-reload 2>/dev/null || ROLLBACK_OK=0
+    fi
+    if [ "$ROLLBACK_OK" -eq 1 ]; then
+        rm -rf "$BACKUP_DIR"
+    else
+        echo "rmtool incomplete Xovi cleanup rollback incomplete; recovery kept at $BACKUP_DIR" >&2
+    fi
+    exit "$rc"
+}}
+trap rollback EXIT INT TERM
+
+{parent_checks}
+{base_check}
+{chr(10).join(base_checks) or ":"}
+{upper_check}
+{chr(10).join(sentinel_checks) or ":"}
+mkdir -m 0700 "$BACKUP_DIR"
+{base_move}
+{upper_backup_line}
+{backup_sentinels}
+mkdir -m 0700 "$MOUNT_DIR"
+mount --bind / "$MOUNT_DIR"
+MOUNTED=1
+mount -o remount,rw "$MOUNT_DIR"
+{lower_check}
+{lower_backup_line}
+mount -o remount,ro "$MOUNT_DIR"
+umount "$MOUNT_DIR"
+MOUNTED=0
+rmdir "$MOUNT_DIR"
+systemctl daemon-reload
+rm -rf "$BACKUP_DIR"
+COMMITTED=1
+trap - EXIT INT TERM
+"""
+
+
+def cleanup_incomplete(ssh_client) -> RecoveryReport:
+    """Revalidate and atomically remove only confirmed rmtool residue."""
+    session = getattr(ssh_client, "operation_session", None)
+    with session() if callable(session) else nullcontext():
+        with shared._operation_lock(ssh_client):
+            report, plan = _inspect_incomplete(ssh_client)
+            if not report.can_cleanup or plan is None:
+                raise RuntimeError(report.detail)
+            current_report, current_plan = _inspect_incomplete(ssh_client)
+            if not current_report.can_cleanup or current_plan != plan:
+                raise RuntimeError("清理前共享 Xovi 状态发生变化，请重新检测后重试。")
+            token = uuid.uuid4().hex
+            script_path = f"/tmp/rmtool-xovi-incomplete-cleanup-{token}.sh"
+            script = _incomplete_cleanup_script(plan, token).encode()
+            try:
+                if shared._remote_entry_exists(ssh_client, script_path):
+                    raise RuntimeError("残缺状态清理临时脚本已存在，拒绝覆盖。")
+                shared._upload_bytes(ssh_client, script, script_path, 0o700)
+                if shared._remote_sha256(ssh_client, script_path) != hashlib.sha256(script).hexdigest():
+                    raise RuntimeError("残缺状态清理脚本上传校验失败。")
+                ssh_client.exec_checked(f"/bin/sh {shlex.quote(script_path)}")
+                final = inspect_incomplete(ssh_client)
+                if final.state != RecoveryState.NOT_NEEDED:
+                    raise RuntimeError("清理后仍检测到共享 Xovi 残留。")
+            except Exception as exc:
+                raise RuntimeError(f"清理不完整共享 Xovi 失败：{exc}") from exc
+            finally:
+                try:
+                    ssh_client.exec_checked(f"rm -f {shlex.quote(script_path)}")
+                except Exception:
+                    logging.exception("Could not remove incomplete Xovi cleanup script")
+    return RecoveryReport(
+        RecoveryState.NOT_NEEDED,
+        "不完整共享 Xovi 已清理，插件状态已恢复为未安装；SSH 会话关闭后请手动重启设备。",
+    )
 
 
 def _check_capacity(ssh_client, plan, *, staged=False):
