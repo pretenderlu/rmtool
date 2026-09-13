@@ -100,6 +100,8 @@ class FakeSSH:
     @contextmanager
     def open_remote(self, path, mode):
         if mode == "r":
+            if path not in self.files:
+                raise FileNotFoundError(path)
             yield io.BytesIO(self.files[path])
         else:
             stream = io.BytesIO()
@@ -455,7 +457,8 @@ class TransactionTests(unittest.TestCase):
         self.ssh.files = {f.BASE + "/current": self.job.encode(),
                           self.directory + "/job.json": json.dumps(dict(job=self.job, target="b", platform="chiappa", version="3.28.0.172", boot_id="old")).encode(),
                           self.directory + "/result": b"success",
-                          self.directory + "/target": ("version=3.28.0.172\nxochitl=" + "a" * 64).encode(),
+                          self.directory + "/target": ("version=3.28.0.172\ninternal=20260827113527\n"
+                                                        "xochitl=" + "a" * 64 + "\nhardware=-H chiappa:1.0\n").encode(),
                           "/proc/sys/kernel/random/boot_id": b"old"}
 
     def test_success_remain_after_exit_is_not_running(self):
@@ -469,6 +472,61 @@ class TransactionTests(unittest.TestCase):
         self.ssh.props = "LoadState=not-found\nActiveState=inactive\nSubState=dead"
         self.assertEqual(f.query_transaction(self.ssh)[0], "unknown")
         del self.ssh.files[self.directory + "/result"]
+        self.assertEqual(f.query_transaction(self.ssh)[0], "unknown")
+
+    def test_missing_result_reconciles_after_exact_target_reboot(self):
+        self.ssh.props = "LoadState=not-found\nActiveState=inactive\nSubState=dead"
+        del self.ssh.files[self.directory + "/result"]
+        self.ssh.files["/proc/sys/kernel/random/boot_id"] = b"new"
+        self.ssh.probe = state_text(
+            root="/dev/mmcblk0p3", root_part="b", boot="2", version="3.28.0.172"
+        )
+        self.assertEqual(f.query_transaction(self.ssh), (
+            "completed", "已重启进入目标固件，已核销未完成的事务记录。"
+        ))
+
+    def test_missing_result_reconciliation_requires_exact_healthy_target(self):
+        self.ssh.props = "LoadState=not-found\nActiveState=inactive\nSubState=dead"
+        del self.ssh.files[self.directory + "/result"]
+        self.ssh.files["/proc/sys/kernel/random/boot_id"] = b"new"
+        self.ssh.probe = state_text(
+            root="/dev/mmcblk0p3", root_part="b", boot="2", version="3.28.0.172"
+        )
+        target = self.directory + "/target"
+        original_target = self.ssh.files[target]
+        for changes in (
+            {"version": "3.28.0.169"},
+            {"xochitl": "b" * 64},
+        ):
+            lines = original_target.decode().splitlines()
+            lines = [
+                f"{key}={changes.get(key, value)}"
+                for key, value in (line.split("=", 1) for line in lines)
+            ]
+            self.ssh.files[target] = ("\n".join(lines) + "\n").encode()
+            self.assertEqual(f.query_transaction(self.ssh)[0], "unknown")
+        self.ssh.files[target] = original_target
+        self.ssh.files.pop(target)
+        self.assertEqual(f.query_transaction(self.ssh)[0], "unknown")
+        self.ssh.files[target] = original_target
+        self.ssh.probe = state_text(
+            machine="reMarkable Paper Pro",
+            root="/dev/mmcblk0p3", root_part="b", boot="2", version="3.28.0.172",
+        )
+        self.assertEqual(f.query_transaction(self.ssh)[0], "unknown")
+        self.ssh.probe = state_text(
+            root="/dev/mmcblk0p2", root_part="a", boot="1", version="3.28.0.172"
+        )
+        self.assertEqual(f.query_transaction(self.ssh)[0], "unknown")
+        self.ssh.probe = state_text(
+            root="/dev/mmcblk0p3", root_part="b", boot="2", version="3.28.0.172",
+            writer="busy",
+        )
+        self.assertEqual(f.query_transaction(self.ssh)[0], "unknown")
+        self.ssh.probe = state_text(
+            root="/dev/mmcblk0p3", root_part="b", boot="2", version="3.28.0.172",
+            swu_status="1",
+        )
         self.assertEqual(f.query_transaction(self.ssh)[0], "unknown")
 
     def test_reboot_success_without_transient_unit(self):

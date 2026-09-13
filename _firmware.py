@@ -527,8 +527,33 @@ def firmware_session(ssh, token=None):
             local.allowed = previous
 
 
+def _reconciled_target_state(ssh, metadata, directory, boot_id):
+    if boot_id == metadata["boot_id"]:
+        return False
+    state = parse_state(ssh.exec_checked(PROBE))
+    target = key_values(_remote_text(ssh, directory + "/target"))
+    if set(target) != {"version", "internal", "xochitl", "hardware"}:
+        return False
+    if (state.active != metadata["target"]
+            or state.next_boot != state.active
+            or state.platform != metadata["platform"]
+            or state.values["version"] != metadata["version"]
+            or target["version"] != metadata["version"]
+            or target["hardware"].replace("CT-PCBA-IMX8MM", "ferrari")
+                != "-H " + metadata["platform"] + ":1.0"
+            or state.pending
+            or state.values["writer"] != "idle"
+            or state.values["holders"] != "idle"
+            or state.values["shared_lock"] != "idle"
+            or any(state.values[key] != "0" for key in (
+                "swu_status", "swu_recovery", "roota_errcnt", "rootb_errcnt"))):
+        return False
+    digest = ssh.exec_checked("sha256sum /usr/bin/xochitl").split()[0]
+    return digest == target["xochitl"]
+
+
 def query_transaction(ssh):
-    """Missing/collected units and transport loss never imply success."""
+    """Missing results are reconciled only after exact post-reboot proof."""
     with firmware_session(ssh):
         try:
             if ssh.exec_checked(f"if [ -e {BASE}/current ] || [ -L {BASE}/current ]; then echo yes; else echo no; fi").strip() == "no":
@@ -549,16 +574,15 @@ def query_transaction(ssh):
                 "-p", "LoadState", "-p", "ActiveState", "-p", "SubState", "-p", "Result", "-p", "ExecMainStatus")))
             if props.get("ActiveState") in ("activating", "deactivating") or props.get("SubState") == "running":
                 return "running", "设备端事务仍在运行；断线不会中止安装。"
-            result = _remote_text(ssh, directory + "/result", 64).strip()
             boot_id = _remote_text(ssh, "/proc/sys/kernel/random/boot_id", 64).strip()
+            try:
+                result = _remote_text(ssh, directory + "/result", 64).strip()
+            except FileNotFoundError:
+                if _reconciled_target_state(ssh, metadata, directory, boot_id):
+                    return "completed", "已重启进入目标固件，已核销未完成的事务记录。"
+                return "unknown", "事务结果缺失，且尚未确认设备已进入目标固件。"
             if result == "success" and boot_id != metadata["boot_id"]:
-                state = parse_state(ssh.exec_checked(PROBE))
-                target = key_values(_remote_text(ssh, directory + "/target"))
-                digest = ssh.exec_checked("sha256sum /usr/bin/xochitl").split()[0]
-                if (state.active == metadata["target"] and state.platform == metadata["platform"]
-                        and state.values["version"] == metadata["version"] == target["version"]
-                        and digest == target["xochitl"] and not state.pending
-                        and all(state.values[k] == "0" for k in ("swu_status", "swu_recovery", "roota_errcnt", "rootb_errcnt"))):
+                if _reconciled_target_state(ssh, metadata, directory, boot_id):
                     return "completed", "已重启进入目标固件，分区与系统指纹一致。"
                 return "unknown", "重启后目标固件或分区不一致，需检查回退与更新状态。"
             if (result == "success" and props.get("Result") == "success"
