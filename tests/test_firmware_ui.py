@@ -24,6 +24,11 @@ class UIConnection(QtCore.QObject):
     def is_connected(self):
         return self.connected
 
+    def exec_checked(self, command):
+        if command.startswith("cat /sys/devices/soc0/machine"):
+            return getattr(self, "machine", "")
+        raise AssertionError(command)
+
 
 class FirmwareUITests(unittest.TestCase):
     @classmethod
@@ -56,6 +61,22 @@ class FirmwareUITests(unittest.TestCase):
         self.assertFalse(self.page.buttons["reboot"].isEnabled())
         self.assertFalse(self.page.advanced.isVisible())
         self.assertNotIn("pause", self.page.buttons)
+
+    def test_legacy_device_shows_unsupported_firmware_status(self):
+        self.ssh.connected = True
+        self.ssh.machine = "reMarkable 1"
+        with mock.patch.object(self.page, "_run") as run:
+            self.page.refresh()
+            inspect = run.call_args.args[0]
+            result = inspect()
+
+        self.assertIsNone(result[0])
+        self.assertIn("旧版双系统分区", result[3])
+        self.page._device_loaded(result)
+        self.assertTrue(self.page.legacy_unsupported)
+        self.assertIn("暂不支持", self.page.status.text())
+        self.assertFalse(self.page.buttons["list"].isEnabled())
+        self.assertFalse(self.page.buttons["install"].isEnabled())
 
     def test_primary_actions_follow_firmware_workflow_order(self):
         expected = {

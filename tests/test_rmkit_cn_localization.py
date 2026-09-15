@@ -432,6 +432,33 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "/data 分区可用空间"):
             _rmkit_cn._data_free_bytes(HeaderOnlyProbe())
 
+    def test_data_free_bytes_marks_root_fallback_as_legacy_storage(self):
+        class RootFallbackProbe:
+            def exec_checked(self, command):
+                self.command = command
+                return "/=9000\n"
+
+        probe = RootFallbackProbe()
+        free = _rmkit_cn._data_free_bytes(probe)
+
+        self.assertEqual(free, 9000 * 1024)
+        self.assertTrue(free.legacy_storage)
+        self.assertIn("mountpoint -q /data", probe.command)
+
+    def test_legacy_storage_uses_eight_mib_reserve(self):
+        available = 9 * 1024 * 1024
+        with patch.object(
+            _rmkit_cn,
+            "_data_free_bytes",
+            return_value=_rmkit_cn._DataFreeBytes(available, legacy_storage=True),
+        ):
+            plan = _rmkit_cn._prepare_system_font_mirror(
+                self.make_ssh(), b"small-font", ".ttf"
+            )
+
+        self.assertEqual(plan.free_reserve, 8 * 1024 * 1024)
+        self.assertTrue(plan.legacy_storage)
+
     def make_qm(self, data=None):
         data = self.LOCALIZED_QM if data is None else data
         temp = tempfile.NamedTemporaryFile(delete=False, suffix=".qm")

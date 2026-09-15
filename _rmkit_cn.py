@@ -113,8 +113,12 @@ LEGACY_SYSTEM_FONT_BACKUP_PATHS = {
     for remote_path in (*LEGACY_SYSTEM_FONT_PATHS.values(), SYSTEM_FONTCONFIG_FILE)
 }
 SYSTEM_FONT_FREE_RESERVE = 24 * 1024 * 1024
+LEGACY_SYSTEM_FONT_FREE_RESERVE = 8 * 1024 * 1024
 SYSTEM_FONT_FREE_COMMAND = (
-    "df -Pk /data | awk 'NR > 1 && $4 ~ /^[0-9]+$/ {print $4; exit}'"
+    "target=/; if mountpoint -q /data 2>/dev/null; then target=/data; fi; "
+    "printf '%s=' \"$target\"; "
+    "df -Pk \"$target\" 2>/dev/null | "
+    "awk 'NR > 1 && $4 ~ /^[0-9]+$/ {print $4; exit}'"
 )
 SYSTEM_FONT_VALIDATION_ARTIFACTS = (
     f"{SYSTEM_FONT_DIR}/99-rmtool-ui-font.conf",
@@ -214,6 +218,15 @@ class _SystemFontMirrorPlan:
     extension: str
     previous_files: dict[str, Optional[bytes]]
     reclaim_before_write: bool
+    free_reserve: int = SYSTEM_FONT_FREE_RESERVE
+    legacy_storage: bool = False
+
+
+class _DataFreeBytes(int):
+    def __new__(cls, value: int, *, legacy_storage: bool = False):
+        result = int.__new__(cls, value)
+        result.legacy_storage = legacy_storage
+        return result
 
 
 @dataclass(frozen=True)
@@ -221,6 +234,7 @@ class FontMirrorVerification:
     level: str
     label: str
     detail: str
+    platform: str = ""
 
 
 @dataclass(frozen=True)
@@ -255,17 +269,20 @@ def get_font_mirror_verification(ssh_client) -> FontMirrorVerification:
             "verified",
             "已实机验证",
             "Paper Pro 3.28.0.166 测试版已验证锁屏、解锁与重启。",
+            identity.platform,
         )
     if key == FONT_MIRROR_MOVE_PENDING_IDENTITY:
         return FontMirrorVerification(
             "pending",
             "待实机验证",
             "Paper Pro Move 3.27.3.0 正式版尚待实机验证。",
+            identity.platform,
         )
     return FontMirrorVerification(
         "unverified",
         "未实机验证",
         "当前设备与固件尚未完成 /data 系统字体方案的实机验证。",
+        identity.platform,
     )
 
 
@@ -878,7 +895,14 @@ def _system_font_snapshot(ssh_client) -> dict[str, Optional[bytes]]:
 def _data_free_bytes(ssh_client) -> int:
     output = ssh_client.exec_checked(SYSTEM_FONT_FREE_COMMAND).strip()
     values = []
+    legacy_storage = False
     for line in output.splitlines():
+        prefix, separator, value = line.partition("=")
+        if separator and prefix in ("/", "/data"):
+            if re.fullmatch(r"[0-9]+", value):
+                values.append(value)
+                legacy_storage = prefix == "/"
+            continue
         fields = line.split()
         if len(fields) == 1 and re.fullmatch(r"[0-9]+", fields[0]):
             values.append(fields[0])
@@ -892,7 +916,7 @@ def _data_free_bytes(ssh_client) -> int:
         raise RuntimeError("无法读取设备 /data 分区可用空间，已停止设置系统字体。") from exc
     if free_kib < 0:
         raise RuntimeError("设备返回了无效的 /data 分区可用空间，已停止设置系统字体。")
-    return free_kib * 1024
+    return _DataFreeBytes(free_kib * 1024, legacy_storage=legacy_storage)
 
 
 def _prepare_system_font_mirror(
@@ -903,27 +927,35 @@ def _prepare_system_font_mirror(
         raise RuntimeError("锁屏字体镜像仅支持非空的 TTF/OTF 字体文件。")
     previous_files = _system_font_snapshot(ssh_client)
     available = _data_free_bytes(ssh_client)
+    legacy_storage = bool(getattr(available, "legacy_storage", False))
+    free_reserve = (
+        LEGACY_SYSTEM_FONT_FREE_RESERVE
+        if legacy_storage
+        else SYSTEM_FONT_FREE_RESERVE
+    )
     reclaimable = sum(
         len(previous_files[path])
         for path in SYSTEM_FONT_PATHS.values()
         if previous_files[path] is not None
     )
-    if available + reclaimable - len(font_data) < SYSTEM_FONT_FREE_RESERVE:
+    if available + reclaimable - len(font_data) < free_reserve:
         final_mib = max(available + reclaimable - len(font_data), 0) // (
             1024 * 1024
         )
         raise RuntimeError(
             "设备 /data 分区空间不足，无法保存当前系统字体："
             f"替换后约剩余 {final_mib} MiB，至少需保留 "
-            f"{SYSTEM_FONT_FREE_RESERVE // (1024 * 1024)} MiB。"
+            f"{free_reserve // (1024 * 1024)} MiB。"
         )
     return _SystemFontMirrorPlan(
         font_data=font_data,
         extension=normalized_extension,
         previous_files=previous_files,
         reclaim_before_write=(
-            available - len(font_data) < SYSTEM_FONT_FREE_RESERVE
+            available - len(font_data) < free_reserve
         ),
+        free_reserve=free_reserve,
+        legacy_storage=legacy_storage,
     )
 
 
@@ -1235,7 +1267,7 @@ def _install_system_font_mirror(
                 )
             )
             ssh_client.exec_checked("sync")
-            required = len(plan.font_data) + SYSTEM_FONT_FREE_RESERVE
+            required = len(plan.font_data) + plan.free_reserve
             if _data_free_bytes(ssh_client) < required:
                 raise RuntimeError(
                     "回收旧锁屏字体后 /data 分区空间仍不足，"

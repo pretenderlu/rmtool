@@ -5,6 +5,7 @@ from PyQt5 import QtCore, QtWidgets, sip
 
 import _firmware as firmware
 import _residue_migration as residue_migration
+import _tap_page_turn as tap
 from _dialogs import ask_confirmation, show_error, show_info
 import rmtool as _rmtool
 
@@ -23,6 +24,7 @@ class FirmwareTab(QtWidgets.QWidget):
         self.worker = None
         self._transaction_action = "install"
         self._transaction_poll_scheduled = False
+        self.legacy_unsupported = False
         outer = QtWidgets.QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         scroll = QtWidgets.QScrollArea()
@@ -216,6 +218,11 @@ class FirmwareTab(QtWidgets.QWidget):
             enabled = not self.busy
             if key in ("refresh", "restore", "install", "switch", "reboot", "restore_plugins"):
                 enabled &= connected
+            if self.legacy_unsupported and key in (
+                "local", "list", "download", "install", "switch", "restore",
+                "reboot", "restore_plugins",
+            ):
+                enabled = False
             if key in ("restore", "install", "switch"):
                 enabled &= safe
             if key == "install":
@@ -234,8 +241,8 @@ class FirmwareTab(QtWidgets.QWidget):
         self.buttons["restore"].setVisible(
             bool(self.state and self.state.values.get("engine_file") == "masked-runtime")
         )
-        self.platform.setEnabled(not self.busy)
-        self.releases.setEnabled(not self.busy)
+        self.platform.setEnabled(not self.busy and not self.legacy_unsupported)
+        self.releases.setEnabled(not self.busy and not self.legacy_unsupported)
         self._update_partition_cards()
 
     def _toggle_advanced(self, expanded):
@@ -247,6 +254,7 @@ class FirmwareTab(QtWidgets.QWidget):
         self.standby_slot = None
         self.standby_error = ""
         self.restore_report = None
+        self.legacy_unsupported = False
         self.transaction = ("unknown", "请检测设备状态")
         self.status.setText("已连接，请检测设备状态" if connected else "未连接；已提交的安装不会因断线停止")
         self._update()
@@ -296,6 +304,8 @@ class FirmwareTab(QtWidgets.QWidget):
         self.progress.setValue(done)
 
     def load_releases(self):
+        if self.legacy_unsupported:
+            return
         platform = self.platform.currentData()
 
         def done(releases):
@@ -324,6 +334,17 @@ class FirmwareTab(QtWidgets.QWidget):
     def _device_loaded(self, result):
         self.state, self.transaction, self.standby_slot, self.standby_error = result
         state = self.state
+        if state is None:
+            self.legacy_unsupported = True
+            self.status.setText(
+                self.standby_error
+                or "当前设备使用旧版分区架构，rmtool 暂不支持固件管理。"
+            )
+            self.advanced_status.setText("旧版设备暂不支持 A/B 固件管理")
+            self.restore_report = None
+            self._update()
+            return
+        self.legacy_unsupported = False
         self.platform.setCurrentIndex(self.platform.findData(state.platform))
         device = "Paper Pro" if state.platform == "ferrari" else "Paper Pro Move"
         self.status.setText(f"{device} · 当前固件 {state.values['version']} · 电量 {state.values['battery']}%\n"
@@ -385,6 +406,19 @@ class FirmwareTab(QtWidgets.QWidget):
 
     def refresh(self):
         def inspect():
+            machine = self.ssh_client.exec_checked(
+                "cat /sys/devices/soc0/machine 2>/dev/null || "
+                "tr -d '\\0' < /proc/device-tree/model 2>/dev/null || true"
+            ).strip()
+            platform = tap._platform_from_machine(machine)
+            if platform in {"rm1", "rm2"}:
+                label = "reMarkable 1" if platform == "rm1" else "reMarkable 2"
+                detail = (
+                    f"当前设备为 {label}，使用旧版双系统分区；"
+                    "rmtool 暂不支持该设备的固件升级、降级或分区切换。"
+                    "请使用官方更新方式或 reManager。"
+                )
+                return None, ("unsupported", detail), None, detail
             state, transaction = firmware.inspect_device(self.ssh_client)
             try:
                 slot, error = firmware.inspect_slot_metadata(self.ssh_client, state), ""

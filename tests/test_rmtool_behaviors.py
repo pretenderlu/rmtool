@@ -4192,6 +4192,31 @@ class FontUiTests(unittest.TestCase):
             widget.manager_status_label.toolTip(), verification.detail
         )
 
+    def test_legacy_font_confirmation_warns_about_small_system_storage(self):
+        widget = rmtool.FontTab(
+            FakeConnectionClient(connected=True), rmtool._default_config()
+        )
+        self.addCleanup(widget.deleteLater)
+        widget._apply_font_inventory(
+            (
+                _rmkit_cn.UserFont(
+                    "cjk.ttf", "CJK", f"{rmtool.DEFAULT_FONT_DIR}cjk.ttf", False
+                ),
+            ),
+            select_filename="cjk.ttf",
+            verification=_rmkit_cn.FontMirrorVerification(
+                "unverified", "未实机验证", "测试", "rm1"
+            ),
+        )
+
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=False
+        ) as confirm:
+            widget._set_selected_active()
+
+        self.assertIn("老设备", confirm.call_args.args[2])
+        self.assertIn("不要继续上传过多或过大的自定义字体", confirm.call_args.args[2])
+
     def test_font_inventory_enables_only_validated_legacy_migration(self):
         widget = rmtool.FontTab(
             FakeConnectionClient(connected=True), rmtool._default_config()

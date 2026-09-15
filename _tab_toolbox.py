@@ -787,6 +787,12 @@ class FontTab(QtWidgets.QWidget):
             if self._font_verification is not None
             else ""
         )
+        legacy_space_note = (
+            "；老设备提示：系统空间较小，建议只保留少量小型自定义字体"
+            if self._font_verification is not None
+            and self._font_verification.platform in {"rm1", "rm2"}
+            else ""
+        )
         migration_note = (
             f"；{self._legacy_font_migration.detail}"
             if self._legacy_font_migration is not None
@@ -800,7 +806,8 @@ class FontTab(QtWidgets.QWidget):
         )
         self.manager_status_label.setText(
             f"已读取 {len(self._fonts)} 个用户字体；当前系统字体：{active}"
-            f"{legacy_note}{verification_note}{migration_note}{epub_note}。"
+            f"{legacy_note}{verification_note}{legacy_space_note}"
+            f"{migration_note}{epub_note}。"
         )
         tooltip = "\n".join(
             detail
@@ -949,10 +956,20 @@ class FontTab(QtWidgets.QWidget):
             if reapply
             else f"将 {selected.filename} 设为系统界面字体。"
         )
+        legacy_warning = ""
+        if (
+            self._font_verification is not None
+            and self._font_verification.platform in {"rm1", "rm2"}
+        ):
+            legacy_warning = (
+                "\n\n当前为 RM1/RM2 老设备，系统空间较小，本次使用低空间兼容模式。"
+                "建议不要继续上传过多或过大的自定义字体。"
+            )
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
-            f"{message}操作完成后需手动重启设备才会完整生效，是否继续？",
+            f"{message}{legacy_warning}"
+            "操作完成后需手动重启设备才会完整生效，是否继续？",
             confirm_text=action,
             cancel_text="取消",
         ):
