@@ -113,7 +113,9 @@ LEGACY_SYSTEM_FONT_BACKUP_PATHS = {
     for remote_path in (*LEGACY_SYSTEM_FONT_PATHS.values(), SYSTEM_FONTCONFIG_FILE)
 }
 SYSTEM_FONT_FREE_RESERVE = 24 * 1024 * 1024
-SYSTEM_FONT_FREE_COMMAND = "df -Pk /data | awk 'END {print $4}'"
+SYSTEM_FONT_FREE_COMMAND = (
+    "df -Pk /data | awk 'NR > 1 && $4 ~ /^[0-9]+$/ {print $4; exit}'"
+)
 SYSTEM_FONT_VALIDATION_ARTIFACTS = (
     f"{SYSTEM_FONT_DIR}/99-rmtool-ui-font.conf",
     f"{SYSTEM_FONT_DIR}/test-fonts.conf",
@@ -875,9 +877,18 @@ def _system_font_snapshot(ssh_client) -> dict[str, Optional[bytes]]:
 
 def _data_free_bytes(ssh_client) -> int:
     output = ssh_client.exec_checked(SYSTEM_FONT_FREE_COMMAND).strip()
+    values = []
+    for line in output.splitlines():
+        fields = line.split()
+        if len(fields) == 1 and re.fullmatch(r"[0-9]+", fields[0]):
+            values.append(fields[0])
+        elif len(fields) >= 4 and re.fullmatch(r"[0-9]+", fields[3]):
+            values.append(fields[3])
+    if len(values) != 1:
+        raise RuntimeError("无法读取设备 /data 分区可用空间，已停止设置系统字体。")
     try:
-        free_kib = int(output.splitlines()[-1])
-    except (IndexError, ValueError) as exc:
+        free_kib = int(values[0])
+    except ValueError as exc:
         raise RuntimeError("无法读取设备 /data 分区可用空间，已停止设置系统字体。") from exc
     if free_kib < 0:
         raise RuntimeError("设备返回了无效的 /data 分区可用空间，已停止设置系统字体。")

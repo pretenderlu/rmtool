@@ -409,6 +409,29 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             **kwargs,
         )
 
+    def test_data_free_bytes_ignores_df_header(self):
+        commands = []
+
+        class SpaceProbe:
+            def exec_checked(self, command):
+                commands.append(command)
+                return (
+                    "Filesystem 1024-blocks Used Available Capacity Mounted on\n"
+                    "/dev/mmcblk0p1 100000 20000 80000 20% /data\n"
+                )
+
+        self.assertEqual(_rmkit_cn._data_free_bytes(SpaceProbe()), 80000 * 1024)
+        self.assertIn("NR > 1", commands[0])
+        self.assertIn("$4 ~ /^[0-9]+$/", commands[0])
+
+    def test_data_free_bytes_rejects_header_only_output(self):
+        class HeaderOnlyProbe:
+            def exec_checked(self, _command):
+                return "Filesystem 1024-blocks Used Available Capacity Mounted on\n"
+
+        with self.assertRaisesRegex(RuntimeError, "/data 分区可用空间"):
+            _rmkit_cn._data_free_bytes(HeaderOnlyProbe())
+
     def make_qm(self, data=None):
         data = self.LOCALIZED_QM if data is None else data
         temp = tempfile.NamedTemporaryFile(delete=False, suffix=".qm")
