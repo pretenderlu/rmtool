@@ -228,6 +228,7 @@ class NativeChineseStatus:
     detail: str = ""
     installed: bool = False
     emergency_disabled: bool = False
+    has_cjk_font: Optional[bool] = None
 
 
 @dataclass(frozen=True)
@@ -552,6 +553,14 @@ def get_status(
     packages = tuple(catalog) or _trusted_catalog()
     identity = tap.get_device_identity(ssh_client)
     package = select_package(packages, identity)
+    cjk_font_available = None
+    if package is not None:
+        try:
+            cjk_font_available = _rmkit_cn.has_cjk_font(ssh_client)
+        except Exception as exc:
+            # Fontconfig probing is advisory for status detection. Keep the
+            # plugin state usable; enable() performs the authoritative check.
+            logging.warning("Could not probe CJK font coverage: %s", exc)
     emergency = _xovi_standalone.recovery_sentinel_present(ssh_client)
     shared_exists = _xovi_standalone.has_shared_artifacts(ssh_client)
     if not shared_exists:
@@ -567,6 +576,7 @@ def get_status(
             identity,
             package,
             emergency_disabled=emergency,
+            has_cjk_font=cjk_font_available,
         )
     try:
         marker_identity = tap.DeviceIdentity(*_xovi_standalone.read_shared_identity(ssh_client))
@@ -615,6 +625,7 @@ def get_status(
                 detail,
                 True,
                 emergency,
+                cjk_font_available,
             )
         runtime, trusted, _legacies = _trusted_shared_context(identity)
         if package is None:
@@ -652,9 +663,18 @@ def get_status(
                 detail,
                 True,
                 emergency,
+                cjk_font_available,
             )
         state, detail, installed = _state_from_inspection(ssh_client, inspection, emergency)
-        return NativeChineseStatus(state, identity, package, detail, installed, emergency)
+        return NativeChineseStatus(
+            state,
+            identity,
+            package,
+            detail,
+            installed,
+            emergency,
+            cjk_font_available,
+        )
     except Exception as exc:
         return NativeChineseStatus(
             NativeChineseState.BROKEN,
@@ -749,40 +769,61 @@ def enable(
     package: NativeChinesePackage,
     archive_path: str | Path,
     state_dir: str,
+    fallback_font_local_path: Optional[str] = None,
+    fallback_font_family: Optional[str] = None,
 ) -> NativeChineseStatus:
     identity = tap.get_device_identity(ssh_client)
     trusted = select_package(_trusted_catalog(), identity)
     if trusted is None or trusted != package:
         raise RuntimeError("设备与原生中文包不精确匹配，未执行修改。")
+    fallback_font_installed = False
     if not _rmkit_cn.has_cjk_font(ssh_client):
-        raise RuntimeError(
-            "当前 sans-serif 字体不支持简体中文。请先在字体管理中上传并设为"
-            "系统字体，确认字体状态正常后再启用原生简体中文。"
+        if identity.platform not in {"rm1", "rm2"} or not fallback_font_local_path:
+            raise RuntimeError(
+                "当前 sans-serif 字体不支持简体中文。请先在字体管理中上传并设为"
+                "系统字体，确认字体状态正常后再启用原生简体中文。"
+            )
+        tap._preflight_device(ssh_client)
+        _rmkit_cn.install_bundled_fallback_font(
+            ssh_client, fallback_font_local_path, fallback_font_family
         )
-    tap._preflight_device(ssh_client)
-    _reject_active_french_slot(ssh_client, identity)
-    runtime, feature_trust, legacies = _trusted_shared_context(identity)
-    _runtime, feature = _shared_specs(package)
-    with tempfile.TemporaryDirectory() as temporary:
-        extracted = tap.extract_verified_package(archive_path, package, temporary)
-        with _xovi_standalone._operation_lock(ssh_client):
-            installed_trust = feature_trust
-            if _xovi_standalone.has_shared_artifacts(ssh_client):
-                _inspection, installed_trust, _revisions = _inspect_shared_revision(
+        fallback_font_installed = True
+    else:
+        tap._preflight_device(ssh_client)
+
+    try:
+        _reject_active_french_slot(ssh_client, identity)
+        runtime, feature_trust, legacies = _trusted_shared_context(identity)
+        _runtime, feature = _shared_specs(package)
+        with tempfile.TemporaryDirectory() as temporary:
+            extracted = tap.extract_verified_package(archive_path, package, temporary)
+            with _xovi_standalone._operation_lock(ssh_client):
+                installed_trust = feature_trust
+                if _xovi_standalone.has_shared_artifacts(ssh_client):
+                    _inspection, installed_trust, _revisions = _inspect_shared_revision(
+                        ssh_client,
+                        runtime,
+                        feature_trust,
+                        package,
+                        check_lower=True,
+                    )
+                _xovi_standalone._enable_shared_locked(
                     ssh_client,
                     runtime,
-                    feature_trust,
-                    package,
-                    check_lower=True,
+                    feature,
+                    extracted,
+                    installed_trust,
+                    legacies,
                 )
-            _xovi_standalone._enable_shared_locked(
-                ssh_client,
-                runtime,
-                feature,
-                extracted,
-                installed_trust,
-                legacies,
-            )
+    except Exception as exc:
+        if fallback_font_installed:
+            try:
+                _rmkit_cn._remove_managed_font(ssh_client)
+            except Exception as rollback_exc:
+                raise RuntimeError(
+                    f"{exc}；兜底字体回滚未完整完成：{rollback_exc}"
+                ) from exc
+        raise
     return get_status(ssh_client, (package,))
 
 
@@ -790,8 +831,17 @@ def enable_cloud(
     ssh_client,
     package: NativeChinesePackage,
     state_dir: str,
+    fallback_font_local_path: Optional[str] = None,
+    fallback_font_family: Optional[str] = None,
 ) -> NativeChineseStatus:
-    return enable(ssh_client, package, download_package(package, state_dir), state_dir)
+    return enable(
+        ssh_client,
+        package,
+        download_package(package, state_dir),
+        state_dir,
+        fallback_font_local_path,
+        fallback_font_family,
+    )
 
 
 def _switch_selected_chinese_to_english(ssh_client) -> None:

@@ -606,6 +606,118 @@ class NativeChineseTests(unittest.TestCase):
         french.assert_not_called()
         deploy.assert_not_called()
 
+    def test_enable_installs_verified_fallback_for_rm1_without_cjk(self):
+        package = next(
+            item for item in native._trusted_catalog() if item.platform == "rm1"
+        )
+        identity = tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        runtime, feature = native._shared_specs(package)
+        expected = native.NativeChineseStatus(
+            native.NativeChineseState.ENABLE_PENDING_REBOOT,
+            identity,
+            package,
+            installed=True,
+            has_cjk_font=True,
+        )
+        ssh = Mock()
+        with patch.object(
+            tap, "get_device_identity", return_value=identity
+        ), patch.object(
+            _rmkit_cn, "has_cjk_font", return_value=False
+        ), patch.object(
+            _rmkit_cn, "install_bundled_fallback_font"
+        ) as install_font, patch.object(
+            tap, "_preflight_device"
+        ), patch.object(
+            native, "_reject_active_french_slot"
+        ), patch.object(
+            native,
+            "_trusted_shared_context",
+            return_value=(runtime, {native.FEATURE_ID: feature}, ()),
+        ), patch.object(
+            native, "_shared_specs", return_value=(runtime, feature)
+        ), patch.object(
+            tap, "extract_verified_package", return_value=Path("extracted")
+        ), patch.object(
+            shared, "_operation_lock", return_value=nullcontext()
+        ), patch.object(
+            shared, "has_shared_artifacts", return_value=False
+        ), patch.object(
+            shared, "_enable_shared_locked"
+        ) as deploy, patch.object(
+            native, "get_status", return_value=expected
+        ):
+            result = native.enable(
+                ssh,
+                package,
+                "package.tar.gz",
+                ".rmtool",
+                "fallback.otf",
+                "Fallback CJK",
+            )
+
+        self.assertIs(result, expected)
+        install_font.assert_called_once_with(ssh, "fallback.otf", "Fallback CJK")
+        deploy.assert_called_once()
+
+    def test_enable_rolls_back_fallback_font_when_deployment_fails(self):
+        package = next(
+            item for item in native._trusted_catalog() if item.platform == "rm2"
+        )
+        identity = tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        runtime, feature = native._shared_specs(package)
+        ssh = Mock()
+        with patch.object(
+            tap, "get_device_identity", return_value=identity
+        ), patch.object(
+            _rmkit_cn, "has_cjk_font", return_value=False
+        ), patch.object(
+            _rmkit_cn, "install_bundled_fallback_font"
+        ), patch.object(
+            _rmkit_cn, "_remove_managed_font"
+        ) as remove_font, patch.object(
+            tap, "_preflight_device"
+        ), patch.object(
+            native, "_reject_active_french_slot"
+        ), patch.object(
+            native,
+            "_trusted_shared_context",
+            return_value=(runtime, {native.FEATURE_ID: feature}, ()),
+        ), patch.object(
+            native, "_shared_specs", return_value=(runtime, feature)
+        ), patch.object(
+            tap, "extract_verified_package", return_value=Path("extracted")
+        ), patch.object(
+            shared, "_operation_lock", return_value=nullcontext()
+        ), patch.object(
+            shared, "has_shared_artifacts", return_value=False
+        ), patch.object(
+            shared,
+            "_enable_shared_locked",
+            side_effect=RuntimeError("deployment failed"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "deployment failed"):
+                native.enable(
+                    ssh,
+                    package,
+                    "package.tar.gz",
+                    ".rmtool",
+                    "fallback.otf",
+                    "Fallback CJK",
+                )
+
+        remove_font.assert_called_once_with(ssh)
+
     def test_repair_preserves_exact_old_pinyin_peer_revision(self):
         package = native.select_package(native._trusted_catalog(), self.identity())
         pinyin_package = pinyin.select_package(pinyin._trusted_catalog(), self.identity())

@@ -9,6 +9,7 @@ $required = @(
     "requirements.txt",
     "assets\rmtool-icon.ico",
     "assets\fonts\NotoSansCJKsc-Regular.otf",
+    "assets\fonts\NotoSansCJKsc-Common.otf",
     "assets\fonts\LICENSE",
     "assets\device_frames\paper-pro.png",
     "assets\device_frames\paper-pro-move.png",

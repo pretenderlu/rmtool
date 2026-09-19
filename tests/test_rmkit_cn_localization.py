@@ -1396,6 +1396,49 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertTrue(all(slot.label == "设备字体" for slot in result.slots))
         self.assertIn("5 项", result.detail)
 
+    def test_epub_font_assignment_does_not_probe_system_font_space(self):
+        font_dir = "/home/root/.local/share/rmtool/fonts"
+        ssh = FakeSSH({f"{font_dir}/reader.ttf": b"reader"})
+
+        with patch.object(
+            tap, "get_device_identity", return_value=self._trusted_328_identity()
+        ), patch.object(
+            _rmkit_cn,
+            "_prepare_system_font_mirror",
+            side_effect=AssertionError("EPUB fonts must not use /data mirror checks"),
+        ):
+            result = _rmkit_cn.set_epub_font_slot(ssh, font_dir, "reader.ttf")
+
+        self.assertEqual(len(result.slots), 1)
+        self.assertEqual(result.slots[0].target_path, f"{font_dir}/reader.ttf")
+
+    def test_bundled_fallback_font_requires_its_verified_asset(self):
+        asset = (
+            Path(__file__).resolve().parents[1]
+            / "assets"
+            / "fonts"
+            / _rmkit_cn.BUNDLED_FALLBACK_FONT_NAME
+        )
+        ssh = FakeSSH()
+
+        with patch.object(_rmkit_cn, "_install_managed_font") as install, patch.object(
+            _rmkit_cn, "has_cjk_font", return_value=True
+        ):
+            _rmkit_cn.install_bundled_fallback_font(ssh, str(asset), "Fallback CJK")
+
+        install.assert_called_once_with(
+            ssh,
+            str(asset),
+            "Fallback CJK",
+            preserve_previous_managed_font=True,
+        )
+
+        wrong = self.make_font(b"not the bundled font", _rmkit_cn.BUNDLED_FALLBACK_FONT_NAME)
+        with patch.object(_rmkit_cn, "_install_managed_font") as install:
+            with self.assertRaisesRegex(RuntimeError, "兜底字体校验失败"):
+                _rmkit_cn.install_bundled_fallback_font(ssh, wrong)
+        install.assert_not_called()
+
     def test_epub_font_display_name_prefers_chinese_family_then_family_then_filename(self):
         remote_path = "/home/root/.local/share/rmtool/fonts/reader.ttf"
         chinese = SimpleNamespace(

@@ -1005,10 +1005,12 @@ class FontTab(QtWidgets.QWidget):
             _rmtool.APP_NAME,
             f"{action}：{selected.filename}。"
             + (
-                "操作完成后需手动重启设备，EPUB 字体菜单才会更新。是否继续？"
+                "操作完成后需手动重启设备，EPUB 字体菜单才会更新；"
+                "EPUB 字体保存在 /home，不占用系统字体的 /data 镜像空间。是否继续？"
                 if removing
                 else "若设备尚未具备 EPUB 字体菜单支持，rmtool 会先自动安装或更新所需组件；"
-                "不会开启任何阅读功能。操作完成后需手动重启设备，是否继续？"
+                "不会开启任何阅读功能。字体仅供 EPUB 阅读器使用，保存在 /home，"
+                "不触发系统字体的 /data 空间限制。操作完成后需手动重启设备，是否继续？"
             ),
             confirm_text=action,
             cancel_text="取消",
@@ -1953,6 +1955,13 @@ class NativeChineseSection(QtWidgets.QWidget):
         message = messages[status.state]
         if status.detail:
             message += f"：{status.detail}"
+        if (
+            status.has_cjk_font is False
+            and status.identity.platform in {"rm1", "rm2"}
+        ):
+            message += (
+                "\n当前系统字体不含简体中文；启用时可安装 rmtool 内置的常用字兜底字体。"
+            )
         if status.emergency_disabled and status.state != _native_chinese.NativeChineseState.EMERGENCY_DISABLED:
             message += "\n紧急停用标记存在，共享 Xovi 不会在下次启动时载入。"
         self.status_label.setText(message)
@@ -2038,6 +2047,25 @@ class NativeChineseSection(QtWidgets.QWidget):
             show_errors=show_errors,
         )
 
+    def _bundled_fallback_font(self) -> Optional[tuple[str, str]]:
+        path = _rmtool.resource_path(
+            "assets", "fonts", _rmkit_cn.BUNDLED_FALLBACK_FONT_NAME
+        )
+        if not path.is_file() or path.stat().st_size != _rmkit_cn.BUNDLED_FALLBACK_FONT_SIZE:
+            show_error(
+                self,
+                _rmtool.APP_NAME,
+                "rmtool 内置中文兜底字体缺失或大小不正确，请重新安装当前版本。",
+            )
+            return None
+        font_id, family = load_font_file(str(path))
+        if font_id != -1:
+            QtGui.QFontDatabase.removeApplicationFont(font_id)
+        if not family:
+            show_error(self, _rmtool.APP_NAME, "无法识别 rmtool 内置中文兜底字体。")
+            return None
+        return str(path), family
+
     @require_connection
     def _enable(self):
         if not self._status or not self._status.package:
@@ -2049,10 +2077,25 @@ class NativeChineseSection(QtWidgets.QWidget):
             if package.device_verified
             else "该精确包已完成官方固件离线验证，尚待对应真机验证。"
         )
+        fallback_font = None
+        fallback_notice = ""
+        if (
+            self._status.has_cjk_font is False
+            and package.platform in {"rm1", "rm2"}
+        ):
+            fallback_font = self._bundled_fallback_font()
+            if fallback_font is None:
+                return
+            fallback_notice = (
+                "当前设备的系统 sans-serif 不含简体中文。继续后，rmtool 会在同一套"
+                f"系统字体镜像与空间检查中安装约 { _rmkit_cn.BUNDLED_FALLBACK_FONT_SIZE / 1024 / 1024:.1f} MiB "
+                "的常用简体中文兜底字体；它会同时供解锁前后的系统界面使用。"
+            )
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
             f"{verification_notice}"
+            + fallback_notice
             + (
                 "将把键盘中文名称补丁迁移到原生中文功能，并保留其他插件。"
                 if updating
@@ -2073,6 +2116,7 @@ class NativeChineseSection(QtWidgets.QWidget):
             self.ssh_client,
             self._status.package,
             str(_rmtool.app_state_dir()),
+            *(fallback_font or (None, None)),
             pending=(
                 "正在验证并更新原生中文资源…"
                 if updating

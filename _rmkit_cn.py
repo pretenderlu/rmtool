@@ -66,6 +66,26 @@ BUNDLED_FONT_NAME = "NotoSansCJKsc-Regular.otf"
 BUNDLED_FONT_SHA256 = (
     "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b"
 )
+BUNDLED_FONT_SIZE = 16_437_364
+# A GB2312/common-character subset used only when an older device has no
+# active CJK font.  Keep it separate from the full font so existing font
+# manager choices and their hashes remain unchanged.
+BUNDLED_FALLBACK_FONT_NAME = "NotoSansCJKsc-Common.otf"
+BUNDLED_FALLBACK_FONT_SHA256 = (
+    "4c24d3fcfe5d0c0e87202d9d591d29c792dc74935b25912296e5cf38ebb0f6a1"
+)
+BUNDLED_FALLBACK_FONT_SIZE = 3_541_824
+BUNDLED_FONT_FAMILY = "Noto Sans CJK SC"
+BUNDLED_FONT_SPECS = {
+    BUNDLED_FONT_NAME: (BUNDLED_FONT_SHA256, BUNDLED_FONT_SIZE),
+    BUNDLED_FALLBACK_FONT_NAME: (
+        BUNDLED_FALLBACK_FONT_SHA256,
+        BUNDLED_FALLBACK_FONT_SIZE,
+    ),
+}
+BUNDLED_MANAGED_FONT_DIGESTS = frozenset(
+    (BUNDLED_FONT_SHA256, BUNDLED_FALLBACK_FONT_SHA256)
+)
 FONT_DIR = "/home/root/.local/share/fonts/rmtool-localization"
 BUNDLED_FONT_PATH = f"{FONT_DIR}/{BUNDLED_FONT_NAME}"
 CUSTOM_FONT_PATHS = {
@@ -2973,18 +2993,25 @@ def _remove_managed_font(ssh_client) -> bool:
 
 
 def _install_managed_font(
-    ssh_client, local_path: str, font_family: Optional[str]
+    ssh_client,
+    local_path: str,
+    font_family: Optional[str],
+    *,
+    preserve_previous_managed_font: bool = False,
 ) -> None:
     path = _validate_font_file(local_path)
     font_data = path.read_bytes()
     digest = hashlib.sha256(font_data).hexdigest()
-    mirror_plan = _prepare_system_font_mirror(ssh_client, font_data, path.suffix)
-    if path.name == BUNDLED_FONT_NAME and digest != BUNDLED_FONT_SHA256:
+    bundled_spec = BUNDLED_FONT_SPECS.get(path.name)
+    if bundled_spec is not None and (
+        digest != bundled_spec[0] or len(font_data) != bundled_spec[1]
+    ):
         raise RuntimeError("内置 Noto 字体校验失败，已停止操作。")
+    mirror_plan = _prepare_system_font_mirror(ssh_client, font_data, path.suffix)
 
     target = (
         BUNDLED_FONT_PATH
-        if digest == BUNDLED_FONT_SHA256
+        if digest in BUNDLED_MANAGED_FONT_DIGESTS
         else CUSTOM_FONT_PATHS[path.suffix.lower()]
     )
     override = fontconfig_override(font_family or "", target)
@@ -3075,7 +3102,11 @@ def _install_managed_font(
             had_original_fontconfig,
             system_backup_state,
         )
-        if previous and previous[0] != target:
+        if (
+            previous
+            and previous[0] != target
+            and not preserve_previous_managed_font
+        ):
             try:
                 _remove_matching_font(ssh_client, previous[0], previous[1])
             except Exception:
@@ -3177,6 +3208,47 @@ def _install_managed_font(
         raise
     finally:
         Path(local_config_path).unlink(missing_ok=True)
+
+
+def install_bundled_fallback_font(
+    ssh_client, local_path: str, font_family: Optional[str] = None
+) -> None:
+    """Install the verified small CJK fallback through the system-font transaction."""
+    path = _validate_font_file(local_path)
+    font_data = path.read_bytes()
+    digest = hashlib.sha256(font_data).hexdigest()
+    if (
+        path.name != BUNDLED_FALLBACK_FONT_NAME
+        or digest != BUNDLED_FALLBACK_FONT_SHA256
+        or len(font_data) != BUNDLED_FALLBACK_FONT_SIZE
+    ):
+        raise RuntimeError("rmtool 内置中文兜底字体校验失败，已停止操作。")
+    _install_managed_font(
+        ssh_client,
+        str(path),
+        font_family or BUNDLED_FONT_FAMILY,
+        preserve_previous_managed_font=True,
+    )
+    try:
+        has_coverage = has_cjk_font(ssh_client)
+    except Exception as exc:
+        verification_error = RuntimeError(
+            f"内置中文兜底字体安装后无法确认简体中文覆盖：{exc}"
+        )
+    else:
+        verification_error = (
+            RuntimeError("内置中文兜底字体安装后仍不支持简体中文，已撤销操作。")
+            if not has_coverage
+            else None
+        )
+    if verification_error is not None:
+        try:
+            _remove_managed_font(ssh_client)
+        except Exception as rollback_exc:
+            raise RuntimeError(
+                f"{verification_error}；自动回滚未完成：{rollback_exc}"
+            ) from rollback_exc
+        raise verification_error
 
 
 def _qm_sha256(ssh_client, path: str) -> str:

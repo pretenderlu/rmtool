@@ -1996,6 +1996,39 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertIn("硬件 Chiappa", section.catalog_label.text())
         self.assertIn("已实机验证", section.catalog_label.text())
 
+    def test_native_chinese_rm1_fallback_prompt_can_cancel_without_starting_worker(self):
+        section = _tab_toolbox.NativeChineseSection(
+            FakeConnectionClient(connected=True, host="10.11.99.1")
+        )
+        self.addCleanup(section.deleteLater)
+        package = next(
+            item for item in _native_chinese._trusted_catalog() if item.platform == "rm1"
+        )
+        identity = _native_chinese.tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        section._apply_status(
+            _native_chinese.NativeChineseStatus(
+                _native_chinese.NativeChineseState.NOT_INSTALLED,
+                identity,
+                package,
+                has_cjk_font=False,
+            )
+        )
+
+        with mock.patch.object(
+            section, "_bundled_fallback_font", return_value=("fallback.otf", "Fallback CJK")
+        ), mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=False
+        ) as confirm, mock.patch.object(section, "_start_worker") as start:
+            section._enable()
+
+        self.assertIn("兜底字体", confirm.call_args.args[2])
+        start.assert_not_called()
+
     def test_native_and_pinyin_download_failures_keep_session_and_offer_manual_retry(self):
         cases = []
 
@@ -4399,9 +4432,10 @@ class FontUiTests(unittest.TestCase):
         self.assertIn("手动重启", confirmation)
         self.assertIn("自动安装或更新", confirmation)
         self.assertIn("不会开启任何阅读功能", confirmation)
+        self.assertIn("/home", confirmation)
+        self.assertIn("/data", confirmation)
         self.assertNotIn("revision", confirmation)
         self.assertNotIn("阅读增强", confirmation)
-        self.assertNotIn("/home", confirmation)
         self.assertEqual(
             start_worker.call_args.args[1:5],
             (
@@ -4440,9 +4474,10 @@ class FontUiTests(unittest.TestCase):
         confirmation = confirm.call_args.args[2]
         self.assertIn("手动重启", confirmation)
         self.assertNotIn("自动安装或更新", confirmation)
+        self.assertIn("/home", confirmation)
+        self.assertIn("/data", confirmation)
         self.assertNotIn("revision", confirmation)
         self.assertNotIn("阅读增强", confirmation)
-        self.assertNotIn("/home", confirmation)
         self.assertEqual(
             start_worker.call_args.args[1:4],
             (client, posixpath.normpath(rmtool.DEFAULT_FONT_DIR), "reader.ttf"),

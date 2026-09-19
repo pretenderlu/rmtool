@@ -29,10 +29,12 @@ passcode cold boot, unlock, emergency fail-open, and normal reboot checks. Every
 other package passed exact firmware, archive, QMD/hashtab, and shared-runtime
 checks offline, including Move 3.28.0.166 against the official 3.28.0.166
 firmware image.
-Because stable Chiappa firmware has no stock CJK font, rmtool refuses
-deployment until the active sans-serif font has Simplified Chinese coverage.
-The selected system font can be supplied through rmtool's
-`/data/rmtool/fonts` active mirror; the plugin itself does not carry a font.
+Stable 3.28.0.172 ferrari, chiappa, and tatsu firmware includes stock CJK
+coverage. The RM1 and RM2 images do not, so rmtool detects the active
+sans-serif coverage before deployment and offers its verified small
+common-character fallback font. The fallback uses the same `/data/rmtool/fonts`
+active mirror and space checks as any other system font; the plugin itself does
+not silently replace a user's font or bypass the `/data` reserve.
 
 ## Local build
 

@@ -70,6 +70,11 @@ Simplified Chinese font from [notofonts/noto-cjk](https://github.com/notofonts/n
 It is distributed under the SIL Open Font License 1.1; the complete upstream
 license is included at `assets/fonts/LICENSE`.
 
+`assets/fonts/NotoSansCJKsc-Common.otf` is a reduced common-character subset
+of the same Noto Sans CJK SC source, prepared for RM1/RM2 system localization
+where `/data` space is limited. It is distributed under the same SIL Open Font
+License 1.1 and the same license file applies.
+
 ## Persistent tap-to-turn dependencies
 
 Firmware-specific tap-to-turn release archives redistribute unmodified builds
