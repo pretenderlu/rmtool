@@ -901,6 +901,60 @@ def get_status(
                 package,
                 available,
             )
+        try:
+            marker_values = shared.read_shared_identity(ssh_client)
+            marker_identity = DeviceIdentity(*marker_values)
+        except (RuntimeError, TypeError, ValueError):
+            marker_identity = identity
+        if not all(
+            isinstance(value, str)
+            for value in (
+                marker_identity.firmware,
+                marker_identity.platform,
+                marker_identity.architecture,
+                marker_identity.xochitl_sha256,
+            )
+        ):
+            marker_identity = identity
+        if marker_identity != identity:
+            old_runtime, old_trusted, _old_legacies = tap._trusted_shared_context(
+                marker_identity
+            )
+            current_identity = (
+                identity.firmware,
+                identity.platform,
+                identity.architecture,
+                identity.xochitl_sha256,
+            )
+            residue = shared.inspect_shared_firmware_residue(
+                ssh_client,
+                old_runtime,
+                old_trusted,
+                current_identity,
+                trusted_alternatives=tap._trusted_alternatives_for_identity(
+                    old_trusted, current_identity
+                ),
+            )
+            if FEATURE_ID in residue.states:
+                return ReadingEnhancementsStatus(
+                    ReadingEnhancementsState.REPAIR_AVAILABLE,
+                    identity,
+                    package,
+                    available,
+                    "已验证为同一 rmtool 信源的固件升级残留；请在固件管理中迁移共享插件，"
+                    "不要单独重装这一项。",
+                    True,
+                    True,
+                )
+            return ReadingEnhancementsStatus(
+                ReadingEnhancementsState.MIGRATION_AVAILABLE,
+                identity,
+                package,
+                available,
+                "已验证为同一 rmtool 信源的其他共享插件固件升级残留；请在固件管理中统一迁移。",
+                True,
+                True,
+            )
         inspection, installed_trusted, selected_predecessors = _inspection_for_migration(
             ssh_client, runtime, trusted, package
         )

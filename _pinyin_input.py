@@ -601,7 +601,46 @@ def get_status(
     try:
         marker_identity = tap.DeviceIdentity(*_xovi_standalone.read_shared_identity(ssh_client))
         if marker_identity != identity:
-            raise RuntimeError("检测到固件升级后的旧共享 Xovi 状态，请先清理旧插件。")
+            old_runtime, old_trusted, _legacies = _trusted_shared_context(
+                marker_identity
+            )
+            current_identity = (
+                identity.firmware,
+                identity.platform,
+                identity.architecture,
+                identity.xochitl_sha256,
+            )
+            inspection = _xovi_standalone.inspect_shared_firmware_residue(
+                ssh_client,
+                old_runtime,
+                old_trusted,
+                current_identity,
+                trusted_alternatives=tap._trusted_alternatives_for_identity(
+                    old_trusted, current_identity
+                ),
+            )
+            if FEATURE_ID not in inspection.states:
+                state = (
+                    PinyinInputState.NOT_INSTALLED
+                    if package
+                    else PinyinInputState.INCOMPATIBLE
+                )
+                return PinyinInputStatus(
+                    state,
+                    identity,
+                    package,
+                    "共享 Xovi 正由其他已验证功能使用",
+                    False,
+                    emergency,
+                )
+            return PinyinInputStatus(
+                PinyinInputState.OUTDATED,
+                identity,
+                package,
+                "已验证为同一 rmtool 信源的固件升级残留，请在固件管理中迁移共享插件后再操作",
+                True,
+                emergency,
+            )
         runtime, trusted, _legacies = _trusted_shared_context(identity)
         if package is None:
             inspection = _xovi_standalone.inspect_shared(

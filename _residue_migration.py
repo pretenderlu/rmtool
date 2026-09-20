@@ -126,6 +126,22 @@ def inspect_residue(ssh_client) -> ResidueReport | None:
             (str(exc),),
             "旧固件没有内置信任清单，残留只能手动清理，不能迁移。",
         )
+    new_trusted: Dict[str, object] = {}
+    new_runtime = None
+    blockers = []
+    try:
+        new_runtime, new_trusted, _legacy = tap._trusted_shared_context(new_identity)
+    except RuntimeError as exc:
+        blockers.append(f"当前固件没有精确匹配的插件包（{exc}）")
+    trusted_alternatives = tap._trusted_alternatives_for_identity(
+        old_trusted,
+        (
+            new_identity.firmware,
+            new_identity.platform,
+            new_identity.architecture,
+            new_identity.xochitl_sha256,
+        ),
+    )
     try:
         residue = _xovi_standalone.inspect_shared_firmware_residue(
             ssh_client,
@@ -137,6 +153,7 @@ def inspect_residue(ssh_client) -> ResidueReport | None:
                 new_identity.architecture,
                 new_identity.xochitl_sha256,
             ),
+            trusted_alternatives=trusted_alternatives,
         )
         legacy_templates = False
     except RuntimeError:
@@ -157,6 +174,7 @@ def inspect_residue(ssh_client) -> ResidueReport | None:
                     new_identity.xochitl_sha256,
                 ),
                 tolerate_legacy_templates=True,
+                trusted_alternatives=trusted_alternatives,
             )
             legacy_templates = residue.legacy_templates
         except RuntimeError as exc:
@@ -169,12 +187,6 @@ def inspect_residue(ssh_client) -> ResidueReport | None:
                 "残留无法通过旧固件受信清单验证（含宽容校验），既不能自动迁移，"
                 "也不能自动清理；请截图反馈以便分析。",
             )
-    new_trusted: Dict[str, object] = {}
-    blockers = []
-    try:
-        _new_runtime, new_trusted, _legacy = tap._trusted_shared_context(new_identity)
-    except RuntimeError as exc:
-        blockers.append(f"当前固件没有精确匹配的插件包（{exc}）")
     features = []
     for feature_id, state in sorted(residue.states.items()):
         label = FEATURE_LABELS.get(feature_id, feature_id)
@@ -297,6 +309,15 @@ def migrate(ssh_client, state_dir: str) -> ResidueReport:
             roots,
             (),
             tolerate_legacy_templates=report.legacy_templates,
+            trusted_alternatives=tap._trusted_alternatives_for_identity(
+                old_trusted,
+                (
+                    report.new_identity.firmware,
+                    report.new_identity.platform,
+                    report.new_identity.architecture,
+                    report.new_identity.xochitl_sha256,
+                ),
+            ),
         )
         if skipped_external:
             appload.remove_shim_links(ssh_client, report.new_identity)
@@ -313,6 +334,20 @@ def cleanup(ssh_client) -> ResidueReport:
     old_runtime, old_trusted, _legacy = tap._trusted_shared_context(
         report.old_identity
     )
+    cleanup_kwargs = {
+        "tolerate_legacy_templates": report.legacy_templates,
+    }
+    trusted_alternatives = tap._trusted_alternatives_for_identity(
+        old_trusted,
+        (
+            report.new_identity.firmware,
+            report.new_identity.platform,
+            report.new_identity.architecture,
+            report.new_identity.xochitl_sha256,
+        ),
+    )
+    if trusted_alternatives:
+        cleanup_kwargs["trusted_alternatives"] = trusted_alternatives
     _xovi_standalone.remove_shared_firmware_residue(
         ssh_client,
         old_runtime,
@@ -323,6 +358,6 @@ def cleanup(ssh_client) -> ResidueReport:
             report.new_identity.architecture,
             report.new_identity.xochitl_sha256,
         ),
-        tolerate_legacy_templates=report.legacy_templates,
+        **cleanup_kwargs,
     )
     return report

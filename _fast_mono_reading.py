@@ -608,7 +608,13 @@ def _inspect_shared_revision(
     check_lower: bool = False,
     firmware_residue_identity: Optional[tuple[str, str, str, str]] = None,
     tolerate_legacy_templates: bool = False,
+    trusted_alternatives=None,
 ):
+    if firmware_residue_identity is not None and trusted_alternatives is None:
+        trusted_alternatives = tap._trusted_alternatives_for_identity(
+            trusted, firmware_residue_identity
+        )
+
     def inspect(candidate):
         if firmware_residue_identity is not None:
             return _xovi_standalone.inspect_shared_firmware_residue(
@@ -617,6 +623,7 @@ def _inspect_shared_revision(
                 candidate,
                 firmware_residue_identity,
                 tolerate_legacy_templates=tolerate_legacy_templates,
+                trusted_alternatives=trusted_alternatives,
             )
         return _xovi_standalone.inspect_shared(
             ssh_client,
@@ -628,7 +635,11 @@ def _inspect_shared_revision(
     try:
         inspection = inspect(trusted)
         installed = inspection.states.get("fast-mono-reading")
-        return inspection, trusted, bool(
+        installed_trusted = dict(trusted)
+        installed_trusted.update(
+            {feature_id: state.spec for feature_id, state in inspection.states.items()}
+        )
+        return inspection, installed_trusted, bool(
             installed is not None
             and "fast-mono-reading" in inspection.receipt_features
             and installed.spec != trusted["fast-mono-reading"]
@@ -644,7 +655,14 @@ def _inspect_shared_revision(
                 inspection = inspect(predecessor_trusted)
             except RuntimeError:
                 continue
-            return inspection, predecessor_trusted, True
+            installed_trusted = dict(predecessor_trusted)
+            installed_trusted.update(
+                {
+                    feature_id: state.spec
+                    for feature_id, state in inspection.states.items()
+                }
+            )
+            return inspection, installed_trusted, True
         raise current_error
 
 

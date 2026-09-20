@@ -507,7 +507,9 @@ class ResidueMigrationTests(unittest.TestCase):
         ):
             self.assertIs(_residue_migration.cleanup(ssh), report)
 
-        remove.assert_called_once_with(
+        remove.assert_called_once()
+        call = remove.call_args
+        self.assertEqual(call.args[:4], (
             ssh,
             self.old_context[0],
             self.old_context[1],
@@ -517,8 +519,10 @@ class ResidueMigrationTests(unittest.TestCase):
                 self.new_identity.architecture,
                 self.new_identity.xochitl_sha256,
             ),
-            tolerate_legacy_templates=True,
-        )
+        ))
+        self.assertTrue(call.kwargs["tolerate_legacy_templates"])
+        self.assertIn("trusted_alternatives", call.kwargs)
+        self.assertTrue(call.kwargs["trusted_alternatives"])
 
     def test_cleanup_rejects_unverified_residue_before_mutation(self):
         report = _residue_migration.ResidueReport(

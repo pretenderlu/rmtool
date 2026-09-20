@@ -167,6 +167,25 @@ class SharedInspection:
     receipt_features: frozenset[str] = frozenset()
 
 
+def trusted_feature_alternatives(
+    installed: Mapping[str, SharedFeatureSpec],
+    current: Mapping[str, SharedFeatureSpec],
+) -> dict[str, tuple[SharedFeatureSpec, ...]]:
+    """Return exact current rmtool specs that may coexist in old residue.
+
+    Firmware upgrades can leave the shared marker/runtime at the old identity
+    while one feature has already been replaced by the current package.  The
+    caller supplies both exact, locally trusted contexts; this helper only
+    exposes same-feature current specs as alternatives and never broadens
+    trust to arbitrary package ids or hashes.
+    """
+    return {
+        feature_id: (spec,)
+        for feature_id, spec in current.items()
+        if feature_id in installed and spec != installed[feature_id]
+    }
+
+
 _COMMON_ARCHIVE_PATHS = (
     "xovi.so",
     "extensions.d/qt-resource-rebuilder.so",
@@ -754,6 +773,19 @@ def _receipt_matches_trusted(
     )
 
 
+def _receipt_matches_any_trusted(
+    states: Mapping[str, SharedFeatureState],
+    trusted: Mapping[str, SharedFeatureSpec],
+    trusted_alternatives: Mapping[str, Iterable[SharedFeatureSpec]],
+) -> bool:
+    return all(
+        state.spec in _feature_spec_options(
+            feature_id, trusted, trusted_alternatives
+        )
+        for feature_id, state in states.items()
+    )
+
+
 def _marker_document(
     runtime: SharedRuntimeSpec,
     states: Mapping[str, SharedFeatureState],
@@ -1040,6 +1072,7 @@ done
 def _parse_states(
     marker: dict,
     trusted: Mapping[str, SharedFeatureSpec],
+    trusted_alternatives: Optional[Mapping[str, Iterable[SharedFeatureSpec]]] = None,
 ) -> dict[str, SharedFeatureState]:
     records = marker.get("features")
     if not isinstance(records, dict) or not records or not set(records) <= set(trusted):
@@ -1050,7 +1083,12 @@ def _parse_states(
             "enabled", "package_id", "qmd_path", "qmd_sha256", "process_token"
         }:
             raise RuntimeError("共享 Xovi 功能状态格式无效。")
-        spec = trusted[feature_id]
+        spec = _match_feature_state_spec(
+            feature_id,
+            record,
+            trusted,
+            trusted_alternatives,
+        )
         if type(record["enabled"]) is not bool or not _PROCESS_TOKEN_RE.fullmatch(
             str(record["process_token"])
         ):
@@ -1063,6 +1101,39 @@ def _parse_states(
             spec, record["enabled"], record["process_token"]
         )
     return states
+
+
+def _feature_spec_options(
+    feature_id: str,
+    trusted: Mapping[str, SharedFeatureSpec],
+    trusted_alternatives: Optional[Mapping[str, Iterable[SharedFeatureSpec]]],
+) -> tuple[SharedFeatureSpec, ...]:
+    current = trusted.get(feature_id)
+    if current is None:
+        raise RuntimeError("共享 Xovi 功能不在当前信任清单中。")
+    options = [current]
+    seen = {current}
+    for candidate in (trusted_alternatives or {}).get(feature_id, ()):
+        if candidate.feature_id != feature_id or candidate in seen:
+            raise RuntimeError("共享 Xovi 兼容功能规格无效。")
+        seen.add(candidate)
+        options.append(candidate)
+    return tuple(options)
+
+
+def _match_feature_state_spec(
+    feature_id: str,
+    record: Mapping[str, object],
+    trusted: Mapping[str, SharedFeatureSpec],
+    trusted_alternatives: Optional[Mapping[str, Iterable[SharedFeatureSpec]]],
+) -> SharedFeatureSpec:
+    actual = (record["package_id"], record["qmd_path"], record["qmd_sha256"])
+    for spec in _feature_spec_options(
+        feature_id, trusted, trusted_alternatives
+    ):
+        if actual == (spec.package_id, spec.runtime_path, spec.sha256):
+            return spec
+    raise RuntimeError("共享 Xovi 功能状态与内置信任清单不匹配。")
 
 
 def _parse_receipt_files(
@@ -1147,6 +1218,7 @@ def _parse_receipt_states(
     marker: dict,
     runtime: SharedRuntimeSpec,
     trusted: Mapping[str, SharedFeatureSpec],
+    trusted_alternatives: Optional[Mapping[str, Iterable[SharedFeatureSpec]]] = None,
 ) -> dict[str, SharedFeatureState]:
     receipt = marker.get("receipt")
     if not isinstance(receipt, dict) or set(receipt) != {
@@ -1201,6 +1273,18 @@ def _parse_receipt_states(
             raise RuntimeError("共享 Xovi 功能收据包身份无效。")
 
         current = trusted[feature_id]
+        try:
+            current = _match_feature_state_spec(
+                feature_id,
+                state_record,
+                trusted,
+                trusted_alternatives,
+            )
+        except RuntimeError:
+            # Schema-2 local test receipts are admitted below only when their
+            # marker was recorded by this rmtool installation.  Keep that
+            # existing path while recognizing exact old/current alternatives.
+            pass
         if (
             feature_receipt["preload_paths"] != list(current.preload_paths)
             or feature_receipt["legacy_resource_path"] != current.legacy_resource_path
@@ -1284,6 +1368,7 @@ def inspect_shared(
     trusted: Mapping[str, SharedFeatureSpec],
     *,
     check_lower: bool = False,
+    trusted_alternatives: Optional[Mapping[str, Iterable[SharedFeatureSpec]]] = None,
 ) -> SharedInspection:
     assert_feature_layout(runtime, trusted.values())
     current = ssh_client.file_exists(SHARED_LAYOUT.remote_base)
@@ -1298,6 +1383,7 @@ def inspect_shared(
         layout=layout,
         check_lower=check_lower,
         expected_dropin=None,
+        trusted_alternatives=trusted_alternatives,
     )
 
 
@@ -1308,6 +1394,7 @@ def inspect_shared_revisions(
     revisions: Mapping[str, Iterable[tuple[str, SharedFeatureSpec]]],
     *,
     check_lower: bool = False,
+    trusted_alternatives: Optional[Mapping[str, Iterable[SharedFeatureSpec]]] = None,
 ) -> tuple[SharedInspection, dict[str, SharedFeatureSpec], dict[str, str]]:
     """Inspect one exact combination of current and explicitly trusted revisions."""
     choices = []
@@ -1347,6 +1434,7 @@ def inspect_shared_revisions(
                 runtime,
                 candidate,
                 check_lower=check_lower,
+                trusted_alternatives=trusted_alternatives,
             )
         except RuntimeError as exc:
             if current_error is None:
@@ -1359,7 +1447,17 @@ def inspect_shared_revisions(
         return inspection, candidate, selected
     if current_error is not None:
         raise current_error
-    return inspect_shared(ssh_client, runtime, trusted, check_lower=check_lower), dict(trusted), {}
+    return (
+        inspect_shared(
+            ssh_client,
+            runtime,
+            trusted,
+            check_lower=check_lower,
+            trusted_alternatives=trusted_alternatives,
+        ),
+        dict(trusted),
+        {},
+    )
 
 
 def assert_startup_guard_not_latched(inspection: SharedInspection) -> None:
@@ -1482,6 +1580,7 @@ def inspect_shared_firmware_residue(
     current_identity: tuple[str, str, str, str],
     *,
     tolerate_legacy_templates: bool = False,
+    trusted_alternatives: Optional[Mapping[str, Iterable[SharedFeatureSpec]]] = None,
 ) -> SharedInspection:
     """Verify an inactive shared tree left behind by a firmware update.
 
@@ -1515,6 +1614,7 @@ def inspect_shared_firmware_residue(
         check_lower=True,
         expected_dropin=False,
         tolerate_legacy_templates=tolerate_legacy_templates,
+        trusted_alternatives=trusted_alternatives,
     )
     if not inspection.states:
         raise RuntimeError("未检测到可验证的共享 Xovi 固件升级残留。")
@@ -1533,6 +1633,7 @@ def _inspect_shared(
     check_lower: bool,
     expected_dropin: Optional[bool],
     tolerate_legacy_templates: bool = False,
+    trusted_alternatives: Optional[Mapping[str, Iterable[SharedFeatureSpec]]] = None,
 ) -> SharedInspection:
     artifacts = has_shared_artifacts(ssh_client)
     if not artifacts:
@@ -1564,13 +1665,17 @@ def _inspect_shared(
     if set(marker) != expected_fields:
         raise RuntimeError("共享 Xovi 标记字段无效。")
     states = (
-        _parse_states(marker, trusted)
+        _parse_states(marker, trusted, trusted_alternatives)
         if schema_version == 1
-        else _parse_receipt_states(marker, runtime, trusted)
+        else _parse_receipt_states(
+            marker, runtime, trusted, trusted_alternatives
+        )
     )
     if (
         schema_version == 2
-        and not _receipt_matches_trusted(states, trusted)
+        and not _receipt_matches_any_trusted(
+            states, trusted, trusted_alternatives
+        )
         and not _managed_receipt_is_known(marker)
     ):
         raise RuntimeError(
@@ -2857,14 +2962,20 @@ def remove_shared_firmware_residue(
     current_identity: tuple[str, str, str, str],
     *,
     tolerate_legacy_templates: bool = False,
+    trusted_alternatives: Optional[Mapping[str, Iterable[SharedFeatureSpec]]] = None,
 ) -> SharedInspection:
     with _operation_lock(ssh_client):
+        inspection_kwargs = {
+            "tolerate_legacy_templates": tolerate_legacy_templates,
+        }
+        if trusted_alternatives:
+            inspection_kwargs["trusted_alternatives"] = trusted_alternatives
         inspection = inspect_shared_firmware_residue(
             ssh_client,
             runtime,
             trusted,
             current_identity,
-            tolerate_legacy_templates=tolerate_legacy_templates,
+            **inspection_kwargs,
         )
         token = uuid.uuid4().hex
         stage = f"{SHARED_LAYOUT.remote_base}.staging-{token}"
@@ -2924,6 +3035,7 @@ def migrate_shared(
     legacy_specs: Iterable[LegacyStandaloneSpec] = (),
     *,
     tolerate_legacy_templates: bool = False,
+    trusted_alternatives: Optional[Mapping[str, Iterable[SharedFeatureSpec]]] = None,
 ) -> SharedInspection:
     """Move a verified firmware-upgrade residue onto current-identity packages.
 
@@ -2959,6 +3071,7 @@ def migrate_shared(
                 new_runtime.xochitl_sha256,
             ),
             tolerate_legacy_templates=tolerate_legacy_templates,
+            trusted_alternatives=trusted_alternatives,
         )
         if any(validate_legacy(ssh_client, item) for item in legacy_specs):
             raise RuntimeError("检测到旧版独立 Xovi 布局，拒绝迁移。")

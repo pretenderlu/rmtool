@@ -522,6 +522,27 @@ def _trusted_shared_context(identity: tap.DeviceIdentity):
     return tap._trusted_shared_context(identity)
 
 
+def _inspect_shared_firmware_residue(
+    ssh_client,
+    runtime,
+    trusted,
+    current_identity,
+    *,
+    tolerate_legacy_templates: bool = False,
+):
+    kwargs = {}
+    if tolerate_legacy_templates:
+        kwargs["tolerate_legacy_templates"] = True
+    alternatives = tap._trusted_alternatives_for_identity(
+        trusted, current_identity
+    )
+    if alternatives:
+        kwargs["trusted_alternatives"] = alternatives
+    return _xovi_standalone.inspect_shared_firmware_residue(
+        ssh_client, runtime, trusted, current_identity, **kwargs
+    )
+
+
 def _state_from_inspection(
     ssh_client,
     inspection: _xovi_standalone.SharedInspection,
@@ -583,7 +604,7 @@ def get_status(
         if marker_identity != identity:
             runtime, trusted, _legacies = _trusted_shared_context(marker_identity)
             try:
-                inspection = _xovi_standalone.inspect_shared_firmware_residue(
+                inspection = _inspect_shared_firmware_residue(
                     ssh_client,
                     runtime,
                     trusted,
@@ -598,7 +619,7 @@ def get_status(
                 # Development-era deployments carry an unreleased
                 # launcher/drop-in generation; tolerate them for residue
                 # cleanup only when every payload anchor still verifies.
-                inspection = _xovi_standalone.inspect_shared_firmware_residue(
+                inspection = _inspect_shared_firmware_residue(
                     ssh_client,
                     runtime,
                     trusted,
@@ -880,7 +901,7 @@ def disable(
     runtime, trusted, _legacies = _trusted_shared_context(marker_identity)
     if marker_identity != identity:
         try:
-            inspection = _xovi_standalone.inspect_shared_firmware_residue(
+            inspection = _inspect_shared_firmware_residue(
                 ssh_client,
                 runtime,
                 trusted,
@@ -894,7 +915,7 @@ def disable(
         except RuntimeError:
             # Development-era launcher/drop-in generation: tolerate for
             # residue cleanup only when every payload anchor still verifies.
-            inspection = _xovi_standalone.inspect_shared_firmware_residue(
+            inspection = _inspect_shared_firmware_residue(
                 ssh_client,
                 runtime,
                 trusted,
@@ -909,6 +930,18 @@ def disable(
         if FEATURE_ID not in inspection.states:
             raise RuntimeError("旧共享 Xovi 不包含原生简体中文。")
         _switch_selected_chinese_to_english(ssh_client)
+        cleanup_kwargs = {"tolerate_legacy_templates": True}
+        alternatives = tap._trusted_alternatives_for_identity(
+            trusted,
+            (
+                identity.firmware,
+                identity.platform,
+                identity.architecture,
+                identity.xochitl_sha256,
+            ),
+        )
+        if alternatives:
+            cleanup_kwargs["trusted_alternatives"] = alternatives
         _xovi_standalone.remove_shared_firmware_residue(
             ssh_client,
             runtime,
@@ -919,7 +952,7 @@ def disable(
                 identity.architecture,
                 identity.xochitl_sha256,
             ),
-            tolerate_legacy_templates=True,
+            **cleanup_kwargs,
         )
         return get_status(ssh_client, tuple(catalog) or _trusted_catalog())
     with _xovi_standalone._operation_lock(ssh_client):

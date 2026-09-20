@@ -1615,6 +1615,114 @@ class SharedXoviTests(unittest.TestCase):
                     installed_trusted["fast-mono-reading"], old_fast_r2
                 )
 
+    def test_firmware_residue_accepts_exact_current_feature_in_old_shared_tree(self):
+        old_tap = next(
+            item
+            for item in tap._trusted_catalog()
+            if item.platform == "ferrari" and item.release_version == "3.28.0.169"
+        )
+        old_fast = next(
+            item
+            for item in fast._trusted_catalog()
+            if item.platform == "ferrari" and item.release_version == "3.28.0.169"
+        )
+        new_tap = next(
+            item
+            for item in tap._trusted_catalog()
+            if item.platform == "ferrari" and item.release_version == "3.28.0.172"
+        )
+        old_identity = tap.DeviceIdentity(
+            old_tap.firmware,
+            old_tap.platform,
+            old_tap.architecture,
+            old_tap.xochitl_sha256,
+        )
+        new_identity = tap.DeviceIdentity(
+            new_tap.firmware,
+            new_tap.platform,
+            new_tap.architecture,
+            new_tap.xochitl_sha256,
+        )
+        old_runtime, old_trusted, _legacies = tap._trusted_shared_context(old_identity)
+        _new_runtime, new_trusted, _legacies = tap._trusted_shared_context(new_identity)
+        ssh, _present, _runtime, _trusted, _identity = self.shared_residue_ssh(
+            old_tap,
+            old_fast,
+            feature_overrides={
+                "reading-enhancements": new_trusted["reading-enhancements"],
+            },
+        )
+
+        inspection = shared.inspect_shared_firmware_residue(
+            ssh,
+            old_runtime,
+            old_trusted,
+            (
+                new_identity.firmware,
+                new_identity.platform,
+                new_identity.architecture,
+                new_identity.xochitl_sha256,
+            ),
+            trusted_alternatives=shared.trusted_feature_alternatives(
+                old_trusted, new_trusted
+            ),
+        )
+
+        self.assertEqual(
+            inspection.states["reading-enhancements"].spec,
+            new_trusted["reading-enhancements"],
+        )
+        self.assertEqual(
+            inspection.states["tap-page-turn"].spec,
+            old_trusted["tap-page-turn"],
+        )
+        self.assertFalse(inspection.active)
+
+    def test_same_source_historical_payload_keeps_old_package_identity(self):
+        old_tap = next(
+            item
+            for item in tap._trusted_catalog()
+            if item.platform == "ferrari" and item.release_version == "3.28.0.169"
+        )
+        new_tap = next(
+            item
+            for item in tap._trusted_catalog()
+            if item.platform == "ferrari" and item.release_version == "3.28.0.172"
+        )
+        old_identity = tap.DeviceIdentity(
+            old_tap.firmware,
+            old_tap.platform,
+            old_tap.architecture,
+            old_tap.xochitl_sha256,
+        )
+        new_identity = tap.DeviceIdentity(
+            new_tap.firmware,
+            new_tap.platform,
+            new_tap.architecture,
+            new_tap.xochitl_sha256,
+        )
+        old_trusted = tap._trusted_shared_context(old_identity)[1]
+        alternatives = tap._trusted_alternatives_for_identity(
+            old_trusted,
+            (
+                new_identity.firmware,
+                new_identity.platform,
+                new_identity.architecture,
+                new_identity.xochitl_sha256,
+            ),
+        )
+        historical = next(
+            item
+            for item in alternatives["reading-enhancements"]
+            if item.sha256
+            == "4ba71b466de622f2d0d3167e38ccdc2d9e1bf3841338997c79a9c1f1f24f70ef"
+        )
+        self.assertEqual(
+            historical.package_id,
+            old_trusted["reading-enhancements"].package_id,
+        )
+        self.assertEqual(historical.size, 57224)
+
     def test_164_upgrade_rejects_unknown_old_shared_state(self):
         new_tap = next(
             item

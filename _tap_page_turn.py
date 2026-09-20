@@ -15,7 +15,7 @@ import tarfile
 import tempfile
 import urllib.request
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
@@ -791,6 +791,87 @@ def _trusted_shared_context_from_marker(ssh_client):
     return _trusted_shared_context(identity)
 
 
+def _trusted_alternatives_for_identity(
+    installed_trusted: dict[str, _xovi_standalone.SharedFeatureSpec],
+    current_identity: tuple[str, str, str, str],
+):
+    """Return exact same-source specs accepted in verified old residue.
+
+    A firmware upgrade can leave a shared marker from one rmtool package while
+    the payload of an individual feature comes from another rmtool package
+    deployed during local testing.  The compatibility set is still fail-closed:
+    only current specs and predecessor fingerprints exposed by the bundled
+    feature manifests are accepted.  Arbitrary package ids or hashes are never
+    inferred from the device.
+    """
+    try:
+        identity = DeviceIdentity(*current_identity)
+        _runtime, current_trusted, _legacies = _trusted_shared_context(identity)
+    except (RuntimeError, StopIteration):
+        return {}
+    alternatives = _xovi_standalone.trusted_feature_alternatives(
+        installed_trusted, current_trusted
+    )
+
+    # Carry exact historical payload fingerprints across a package-identity
+    # change.  This is what lets a locally tested feature remain recognizable
+    # after the shared marker still names the pre-upgrade firmware package.
+    providers = (
+        "_fast_mono_reading",
+        "_native_chinese",
+        "_note_enhancements",
+        "_pinyin_input",
+        "_reading_enhancements",
+        "_weread_launcher",
+    )
+    for module_name in providers:
+        try:
+            module = __import__(module_name)
+            feature_id = module.FEATURE_ID
+            installed = installed_trusted.get(feature_id)
+            current = current_trusted.get(feature_id)
+            if installed is None or current is None:
+                continue
+            package = module.select_package(module._trusted_catalog(), identity)
+            predecessor_builder = getattr(
+                module, "_known_shared_predecessor_specs", None
+            )
+            if package is None or predecessor_builder is None:
+                continue
+            try:
+                records = predecessor_builder(package, current)
+            except TypeError:
+                records = predecessor_builder(package)
+            for record in records:
+                predecessor = getattr(record, "feature", None)
+                if predecessor is None and isinstance(record, tuple) and len(record) == 2:
+                    predecessor = record[1]
+                if not isinstance(
+                    predecessor, _xovi_standalone.SharedFeatureSpec
+                ):
+                    continue
+                candidate = replace(
+                    installed,
+                    sha256=predecessor.sha256,
+                    size=predecessor.size,
+                    extra_files=predecessor.extra_files,
+                    preload_paths=predecessor.preload_paths,
+                    sidecars=predecessor.sidecars,
+                    legacy_resource_path=predecessor.legacy_resource_path,
+                    strict_metadata_paths=predecessor.strict_metadata_paths,
+                )
+                if candidate != installed and candidate != current:
+                    existing = list(alternatives.get(feature_id, ()))
+                    if candidate not in existing:
+                        existing.append(candidate)
+                    alternatives[feature_id] = tuple(existing)
+        except (ImportError, RuntimeError, TypeError, ValueError):
+            # A feature without a compatible predecessor must not prevent
+            # other same-source features from being recognized.
+            continue
+    return alternatives
+
+
 def _inspect_shared_firmware_residue(
     ssh_client,
     runtime: _xovi_standalone.SharedRuntimeSpec,
@@ -800,6 +881,8 @@ def _inspect_shared_firmware_residue(
     tolerate_legacy_templates: bool = False,
 ):
     import _fast_mono_reading as fast
+
+    alternatives = _trusted_alternatives_for_identity(trusted, current_identity)
 
     installed_identity = DeviceIdentity(
         runtime.firmware,
@@ -816,18 +899,22 @@ def _inspect_shared_firmware_residue(
             fast_package,
             firmware_residue_identity=current_identity,
             tolerate_legacy_templates=tolerate_legacy_templates,
+            trusted_alternatives=alternatives,
         )
         return inspection, installed_trusted
-    return (
-        _xovi_standalone.inspect_shared_firmware_residue(
+    inspection = _xovi_standalone.inspect_shared_firmware_residue(
             ssh_client,
             runtime,
             trusted,
             current_identity,
             tolerate_legacy_templates=tolerate_legacy_templates,
-        ),
-        trusted,
+            trusted_alternatives=alternatives,
     )
+    installed_trusted = dict(trusted)
+    installed_trusted.update(
+        {feature_id: state.spec for feature_id, state in inspection.states.items()}
+    )
+    return inspection, installed_trusted
 
 
 def _vellum_marker(
