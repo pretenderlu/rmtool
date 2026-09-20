@@ -2634,6 +2634,29 @@ class WallpaperUiTests(unittest.TestCase):
             "可更新",
         )
 
+    def test_pinyin_orphaned_state_offers_direct_repair(self):
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.PinyinInputSection(client)
+        self.addCleanup(section.deleteLater)
+        package = _pinyin_input._trusted_catalog()[0]
+        identity = _tap_page_turn.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        section._apply_status(
+            _pinyin_input.PinyinInputStatus(
+                _pinyin_input.PinyinInputState.BROKEN,
+                identity,
+                package,
+                "已验证为同一 rmtool 信源的拼音服务残留，但共享 Xovi 入口缺失",
+                True,
+            )
+        )
+        self.assertTrue(section.enable_button.isEnabled())
+        self.assertEqual(section.enable_button.text(), "修复并更新")
+
     def test_pinyin_catalog_label_uses_exact_channel_and_hardware(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")
         section = _tab_toolbox.PinyinInputSection(client)

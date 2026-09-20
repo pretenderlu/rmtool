@@ -291,6 +291,49 @@ class PinyinInputTests(unittest.TestCase):
         self.assertEqual(status.state, pinyin.PinyinInputState.NOT_INSTALLED)
         self.assertFalse(status.installed)
 
+    def test_orphaned_trusted_external_payload_is_repairable(self):
+        package = self.package()
+        ssh = Mock()
+        with patch.object(
+            tap, "get_device_identity", return_value=self.identity()
+        ), patch.object(
+            shared, "recovery_sentinel_present", return_value=False
+        ), patch.object(
+            shared, "has_shared_artifacts", return_value=False
+        ), patch.object(
+            pinyin, "_has_external_payload", return_value=True
+        ), patch.object(
+            pinyin, "_validate_external_payload", return_value=True
+        ) as validate:
+            status = pinyin.get_status(ssh, (package,))
+
+        self.assertEqual(status.state, pinyin.PinyinInputState.OUTDATED)
+        self.assertTrue(status.installed)
+        self.assertIn("共享 Xovi 入口缺失", status.detail)
+        validate.assert_called_once_with(ssh, package)
+
+    def test_orphaned_untrusted_external_payload_stays_broken(self):
+        package = self.package()
+        ssh = Mock()
+        with patch.object(
+            tap, "get_device_identity", return_value=self.identity()
+        ), patch.object(
+            shared, "recovery_sentinel_present", return_value=False
+        ), patch.object(
+            shared, "has_shared_artifacts", return_value=False
+        ), patch.object(
+            pinyin, "_has_external_payload", return_value=True
+        ), patch.object(
+            pinyin,
+            "_validate_external_payload",
+            side_effect=RuntimeError("untrusted"),
+        ):
+            status = pinyin.get_status(ssh, (package,))
+
+        self.assertEqual(status.state, pinyin.PinyinInputState.BROKEN)
+        self.assertTrue(status.installed)
+        self.assertIn("无法通过 rmtool 清单验证", status.detail)
+
     def test_unsupported_firmware_with_verified_peer_is_not_broken(self):
         peer = next(
             item for item in tap._trusted_catalog()

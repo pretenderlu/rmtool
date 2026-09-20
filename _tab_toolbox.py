@@ -2415,11 +2415,15 @@ class PinyinInputSection(QtWidgets.QWidget):
                 _pinyin_input.PinyinInputState.NOT_INSTALLED,
                 _pinyin_input.PinyinInputState.INSTALLED_DISABLED,
                 _pinyin_input.PinyinInputState.OUTDATED,
+                _pinyin_input.PinyinInputState.BROKEN,
             )
         )
         self.enable_button.setText(
             "修复并更新"
-            if state == _pinyin_input.PinyinInputState.OUTDATED
+            if state in (
+                _pinyin_input.PinyinInputState.OUTDATED,
+                _pinyin_input.PinyinInputState.BROKEN,
+            )
             else "安装并启用"
         )
         self.disable_button.setEnabled(
@@ -2565,9 +2569,13 @@ class PinyinInputSection(QtWidgets.QWidget):
     def _enable(self):
         if not self._status or not self._status.package:
             return
-        repairing = self._status.state == _pinyin_input.PinyinInputState.OUTDATED
+        repairing = self._status.state in (
+            _pinyin_input.PinyinInputState.OUTDATED,
+            _pinyin_input.PinyinInputState.BROKEN,
+        )
         action = (
-            "将严格验证并修复已安装的旧版拼音包，把中文键盘布局资源迁移到 QRR 可读取的位置。"
+            "将严格验证并修复设备上已存在的 rmtool 拼音服务，重新接入共享 Xovi，"
+            "并把中文键盘布局资源迁移到 QRR 可读取的位置。"
             if repairing
             else "将下载并验证离线拼音输入法包，把候选栏和输入拦截器接入 rmtool 共享 Xovi。"
         )

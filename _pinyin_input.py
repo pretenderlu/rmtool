@@ -591,6 +591,34 @@ def get_status(
     external_exists = _has_external_payload(ssh_client)
     if not shared_exists:
         if external_exists:
+            if package is not None:
+                try:
+                    external_outdated = (
+                        _validate_external_payload(ssh_client, package) is True
+                    )
+                except RuntimeError:
+                    return PinyinInputStatus(
+                        PinyinInputState.BROKEN,
+                        identity,
+                        package,
+                        "存在未被共享 Xovi 引用且无法通过 rmtool 清单验证的拼音服务残留",
+                        True,
+                        emergency,
+                    )
+                detail = (
+                    "已验证为同一 rmtool 信源的拼音服务残留，但共享 Xovi 入口缺失，"
+                    "可直接修复并重新接入"
+                    if external_outdated
+                    else "已验证为当前 rmtool 拼音服务，但共享 Xovi 入口缺失，可直接修复并重新接入"
+                )
+                return PinyinInputStatus(
+                    PinyinInputState.OUTDATED,
+                    identity,
+                    package,
+                    detail,
+                    True,
+                    emergency,
+                )
             return PinyinInputStatus(
                 PinyinInputState.BROKEN, identity, package,
                 "存在未被共享 Xovi 引用的拼音服务残留", True, emergency,
