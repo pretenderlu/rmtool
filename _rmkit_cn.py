@@ -1229,7 +1229,15 @@ def _restore_system_font_mirror(
     ssh_client, previous_files: dict[str, Optional[bytes]], token: str
 ) -> None:
     desired = {path: previous_files.get(path) for path in SYSTEM_FONT_STATE_PATHS}
-    _restore_data_font_files(ssh_client, desired, token)
+    if any(desired[path] is not None for path in SYSTEM_FONT_PATHS.values()):
+        _restore_data_font_files(ssh_client, desired, token)
+    else:
+        ssh_client.exec_checked(
+            "rm -f "
+            + " ".join(
+                shlex.quote(path) for path in SYSTEM_FONT_PATHS.values()
+            )
+        )
     target = (
         _system_font_config_target(desired[SYSTEM_FONTCONFIG_FILE] or b"")
         if desired[SYSTEM_FONTCONFIG_FILE]
@@ -1243,6 +1251,55 @@ def _restore_system_font_mirror(
         token,
         expected_target=target,
     )
+
+
+def _clear_system_font_mirror(
+    ssh_client,
+) -> dict[str, Optional[bytes]]:
+    """Remove rmtool's pre-unlock font mirror and return its exact prior state."""
+    previous_files = _system_font_snapshot(ssh_client)
+    config = previous_files[SYSTEM_FONTCONFIG_FILE]
+    has_mirror_files = any(
+        previous_files[path] is not None
+        for path in SYSTEM_FONT_STATE_PATHS
+        if path != SYSTEM_FONTCONFIG_FILE
+    )
+    if config is not None and b"<!-- rmtool system UI font; owner:" not in config:
+        raise RuntimeError(
+            "设备的系统字体根配置不是 rmtool 管理的状态，未清理 /data 字体镜像。"
+        )
+    if config is None and not has_mirror_files:
+        return previous_files
+
+    desired = {path: None for path in SYSTEM_FONT_STATE_PATHS}
+    token = os.urandom(6).hex()
+    try:
+        # Do not recreate /data/rmtool/fonts when the user explicitly chose
+        # the home-only layout.  Removing the managed files directly keeps
+        # the no-lock-screen mode genuinely independent of /data capacity.
+        ssh_client.exec_checked(
+            "rm -f "
+            + " ".join(
+                shlex.quote(path) for path in SYSTEM_FONT_PATHS.values()
+            )
+        )
+        _apply_persistent_root_font_state(
+            ssh_client,
+            {path: None for path in SYSTEM_FONT_ROOT_PATHS},
+            token,
+        )
+        refresh_font_cache(ssh_client, SYSTEM_FONT_DIR, SYSTEM_FONTCONFIG_DIR)
+    except Exception as exc:
+        try:
+            _restore_system_font_mirror(
+                ssh_client, previous_files, f"{token}-rollback"
+            )
+        except Exception as rollback_exc:
+            raise RuntimeError(
+                f"{exc}；/data 字体镜像清理回滚失败：{rollback_exc}"
+            ) from rollback_exc
+        raise
+    return previous_files
 
 
 def _install_system_font_mirror(
@@ -1787,7 +1844,7 @@ def get_legacy_system_font_migration(
 
 
 def migrate_legacy_system_font(
-    ssh_client, remote_dir: str
+    ssh_client, remote_dir: str, lock_screen_support: bool = True
 ) -> UserFont:
     """Revalidate and migrate an exact legacy root mirror through activation."""
     migration = get_legacy_system_font_migration(ssh_client, remote_dir)
@@ -1797,6 +1854,7 @@ def migrate_legacy_system_font(
         ssh_client,
         remote_dir,
         migration.filename,
+        lock_screen_support,
         expected_legacy_migration=migration,
     )
 
@@ -2489,6 +2547,7 @@ def set_active_user_font(
     ssh_client,
     remote_dir: str,
     filename: str,
+    lock_screen_support: bool = True,
     *,
     fontconfig_remote_path: str = FONTCONFIG_FILE,
     expected_legacy_migration: Optional[LegacySystemFontMigration] = None,
@@ -2498,10 +2557,13 @@ def set_active_user_font(
     with ssh_client.sftp_session() as sftp:
         _require_top_level_regular_font(sftp, directory, filename)
     family = _scan_font_family(ssh_client, remote_path)
-    mirror_plan = _prepare_system_font_mirror(
-        ssh_client,
-        _read_bytes(ssh_client, remote_path),
-        posixpath.splitext(filename)[1],
+    font_data = _read_bytes(ssh_client, remote_path)
+    mirror_plan = (
+        _prepare_system_font_mirror(
+            ssh_client, font_data, posixpath.splitext(filename)[1]
+        )
+        if lock_screen_support
+        else None
     )
     previous = (
         _read_bytes(ssh_client, fontconfig_remote_path)
@@ -2525,11 +2587,12 @@ def set_active_user_font(
         _write_remote_bytes(ssh_client, fontconfig_remote_path, config)
         refresh_font_cache(ssh_client, directory, config_dir)
         _verify_font_override_matches(ssh_client, remote_path)
-        if _remote_sha256(ssh_client, remote_path) != hashlib.sha256(
-            mirror_plan.font_data
-        ).hexdigest():
+        if _remote_sha256(ssh_client, remote_path) != hashlib.sha256(font_data).hexdigest():
             raise RuntimeError("当前字体在设置过程中发生变化，已停止应用。")
-        _install_system_font_mirror(ssh_client, mirror_plan, family)
+        if mirror_plan is not None:
+            _install_system_font_mirror(ssh_client, mirror_plan, family)
+        else:
+            _clear_system_font_mirror(ssh_client)
     except Exception as exc:
         rollback_errors = []
         try:
@@ -2610,11 +2673,15 @@ def install_user_font_override(
     remote_name: str,
     *,
     fontconfig_remote_path: str = FONTCONFIG_FILE,
+    lock_screen_support: bool = True,
 ) -> str:
     """Install a user font using the family and matches reported by the device."""
     path = _validate_font_file(local_path)
-    mirror_plan = _prepare_system_font_mirror(
-        ssh_client, path.read_bytes(), path.suffix
+    font_data = path.read_bytes()
+    mirror_plan = (
+        _prepare_system_font_mirror(ssh_client, font_data, path.suffix)
+        if lock_screen_support
+        else None
     )
     remote_path = posixpath.normpath(posixpath.join(remote_dir, remote_name))
     fontconfig_dir = posixpath.dirname(fontconfig_remote_path)
@@ -2629,7 +2696,7 @@ def install_user_font_override(
     fontconfig_backed_up = False
     font_replaced = False
     fontconfig_replaced = False
-    system_mirror_installed = False
+    system_mirror_previous_files = None
     local_config_path: Optional[str] = None
 
     with remount_rw(ssh_client):
@@ -2676,12 +2743,13 @@ def install_user_font_override(
             refresh_font_cache(ssh_client, remote_dir, fontconfig_dir)
 
             _verify_font_override_matches(ssh_client, remote_path)
-            if _remote_sha256(ssh_client, remote_path) != hashlib.sha256(
-                mirror_plan.font_data
-            ).hexdigest():
+            if _remote_sha256(ssh_client, remote_path) != hashlib.sha256(font_data).hexdigest():
                 raise RuntimeError("字体上传后哈希不一致，已停止应用。")
-            _install_system_font_mirror(ssh_client, mirror_plan, font_family)
-            system_mirror_installed = True
+            if mirror_plan is not None:
+                _install_system_font_mirror(ssh_client, mirror_plan, font_family)
+                system_mirror_previous_files = mirror_plan.previous_files
+            else:
+                system_mirror_previous_files = _clear_system_font_mirror(ssh_client)
             ssh_client.exec_checked(
                 "rm -f "
                 + " ".join(
@@ -2693,11 +2761,11 @@ def install_user_font_override(
             fontconfig_backed_up = False
         except Exception as exc:
             rollback_errors = []
-            if system_mirror_installed:
+            if system_mirror_previous_files is not None:
                 try:
                     _restore_system_font_mirror(
                         ssh_client,
-                        mirror_plan.previous_files,
+                        system_mirror_previous_files,
                         os.urandom(6).hex(),
                     )
                 except Exception as rollback_exc:
@@ -2998,6 +3066,7 @@ def _install_managed_font(
     font_family: Optional[str],
     *,
     preserve_previous_managed_font: bool = False,
+    lock_screen_support: bool = True,
 ) -> None:
     path = _validate_font_file(local_path)
     font_data = path.read_bytes()
@@ -3007,7 +3076,11 @@ def _install_managed_font(
         digest != bundled_spec[0] or len(font_data) != bundled_spec[1]
     ):
         raise RuntimeError("内置 Noto 字体校验失败，已停止操作。")
-    mirror_plan = _prepare_system_font_mirror(ssh_client, font_data, path.suffix)
+    mirror_plan = (
+        _prepare_system_font_mirror(ssh_client, font_data, path.suffix)
+        if lock_screen_support
+        else None
+    )
 
     target = (
         BUNDLED_FONT_PATH
@@ -3048,6 +3121,7 @@ def _install_managed_font(
 
     font_rollback_path = None
     system_mirror_installed = False
+    system_mirror_previous_files = None
     created_system_backups = False
     system_backup_state = None
     if previous and previous[0] == target and _file_exists(ssh_client, target):
@@ -3067,14 +3141,17 @@ def _install_managed_font(
         local_config_path = config_file.name
     try:
         existing_system_backup_state = (
-            _system_font_backup_state(ssh_client) if previous else None
+            _system_font_backup_state(ssh_client)
+            if previous and mirror_plan is not None
+            else None
         )
-        created_system_backups = existing_system_backup_state is None
-        system_backup_state = (
-            _save_system_font_backups(ssh_client, mirror_plan.previous_files)
-            if created_system_backups
-            else existing_system_backup_state
-        )
+        if mirror_plan is not None:
+            created_system_backups = existing_system_backup_state is None
+            system_backup_state = (
+                _save_system_font_backups(ssh_client, mirror_plan.previous_files)
+                if created_system_backups
+                else existing_system_backup_state
+            )
         upload_font(
             ssh_client,
             str(path),
@@ -3088,13 +3165,16 @@ def _install_managed_font(
         _verify_font_override_matches(ssh_client, target)
         if not has_cjk_font(ssh_client):
             raise RuntimeError("所选字体不能作为支持简体中文的主界面字体，已撤销上传。")
-        _install_system_font_mirror(
-            ssh_client,
-            mirror_plan,
-            _scan_font_family(ssh_client, target),
-            owner="localization",
-        )
-        system_mirror_installed = True
+        if mirror_plan is not None:
+            _install_system_font_mirror(
+                ssh_client,
+                mirror_plan,
+                _scan_font_family(ssh_client, target),
+                owner="localization",
+            )
+            system_mirror_installed = True
+        else:
+            system_mirror_previous_files = _clear_system_font_mirror(ssh_client)
         _write_font_marker(
             ssh_client,
             target,
@@ -3130,6 +3210,15 @@ def _install_managed_font(
                 "restore previous lock-screen font mirror",
                 lambda: _restore_managed_system_font_plan(
                     ssh_client, mirror_plan
+                ),
+            )
+        if system_mirror_previous_files is not None:
+            rollback(
+                "restore previous system font mirror",
+                lambda: _restore_system_font_mirror(
+                    ssh_client,
+                    system_mirror_previous_files,
+                    os.urandom(6).hex(),
                 ),
             )
         if font_rollback_path:
@@ -3211,9 +3300,13 @@ def _install_managed_font(
 
 
 def install_bundled_fallback_font(
-    ssh_client, local_path: str, font_family: Optional[str] = None
+    ssh_client,
+    local_path: str,
+    font_family: Optional[str] = None,
+    *,
+    lock_screen_support: bool = True,
 ) -> None:
-    """Install the verified small CJK fallback through the system-font transaction."""
+    """Install the verified small CJK fallback through the selected font layout."""
     path = _validate_font_file(local_path)
     font_data = path.read_bytes()
     digest = hashlib.sha256(font_data).hexdigest()
@@ -3223,11 +3316,14 @@ def install_bundled_fallback_font(
         or len(font_data) != BUNDLED_FALLBACK_FONT_SIZE
     ):
         raise RuntimeError("rmtool 内置中文兜底字体校验失败，已停止操作。")
+    managed_font_kwargs = {"preserve_previous_managed_font": True}
+    if not lock_screen_support:
+        managed_font_kwargs["lock_screen_support"] = False
     _install_managed_font(
         ssh_client,
         str(path),
         font_family or BUNDLED_FONT_FAMILY,
-        preserve_previous_managed_font=True,
+        **managed_font_kwargs,
     )
     try:
         has_coverage = has_cjk_font(ssh_client)

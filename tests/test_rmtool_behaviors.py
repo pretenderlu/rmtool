@@ -4312,7 +4312,7 @@ class FontUiTests(unittest.TestCase):
         self.assertNotIn("revision", confirmation)
         self.assertNotIn("阅读增强", confirmation)
         self.assertNotIn("/home", confirmation)
-        self.assertNotIn("/data", confirmation)
+        self.assertIn("/data", confirmation)
 
     def test_disconnect_clears_legacy_migration_action(self):
         client = FakeConnectionClient(connected=True)

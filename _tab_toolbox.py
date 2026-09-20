@@ -302,6 +302,22 @@ class FontTab(QtWidgets.QWidget):
         self.manager_status_label.setObjectName("fontManagerStatus")
         self.manager_status_label.setWordWrap(True)
 
+        self.lock_screen_font_checkbox = QtWidgets.QCheckBox(
+            "为锁屏密码界面保留字体（写入 /data）"
+        )
+        self.lock_screen_font_checkbox.setChecked(
+            bool(config.get("font_lock_screen_support", True))
+        )
+        self.lock_screen_font_checkbox.setToolTip(
+            "开启后，解锁前的锁屏密码界面也能使用当前系统字体，但会受 /data 空间限制。"
+        )
+        self.lock_screen_font_checkbox.toggled.connect(
+            self._on_lock_screen_font_setting_changed
+        )
+        self.lock_screen_font_hint = QtWidgets.QLabel()
+        self.lock_screen_font_hint.setObjectName("fontManagerStatus")
+        self.lock_screen_font_hint.setWordWrap(True)
+
         self.refresh_button = QtWidgets.QPushButton("刷新")
         self.refresh_button.clicked.connect(self._refresh_fonts)
         self.set_active_button = QtWidgets.QPushButton("设为系统字体")
@@ -337,6 +353,8 @@ class FontTab(QtWidgets.QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(_rmtool.SUBSECTION_GAP)
         layout.addWidget(self.manager_status_label)
+        layout.addWidget(self.lock_screen_font_checkbox)
+        layout.addWidget(self.lock_screen_font_hint)
         layout.addWidget(self.font_table)
         layout.addLayout(manager_actions)
         layout.addWidget(self.font_path_label)
@@ -346,6 +364,7 @@ class FontTab(QtWidgets.QWidget):
         layout.addLayout(actions_layout)
         self.setLayout(layout)
         self._reset_font_preview()
+        self._update_lock_screen_font_hint()
         self._update_target_name_label()
         connection_changed = getattr(self.ssh_client, "connection_changed", None)
         if connection_changed is not None:
@@ -466,6 +485,35 @@ class FontTab(QtWidgets.QWidget):
 
     def _font_dir(self) -> str:
         return self.config.get("paths", {}).get("font", _rmtool.DEFAULT_FONT_DIR)
+
+    def _lock_screen_font_support(self) -> bool:
+        return self.lock_screen_font_checkbox.isChecked()
+
+    def _update_lock_screen_font_hint(self):
+        if self._lock_screen_font_support():
+            self.lock_screen_font_hint.setText(
+                "开启：下次设置或重新应用系统字体时，会复制到 /data，支持解锁前的锁屏密码界面；"
+                "设置前会检查空间。"
+            )
+        else:
+            self.lock_screen_font_hint.setText(
+                "关闭：下次设置或重新应用系统字体时，字体仅保存在 /home，不占用 /data；"
+                "请确认设备不使用锁屏密码。"
+            )
+
+    def _on_lock_screen_font_setting_changed(self, enabled: bool):
+        previous = self.config.get("font_lock_screen_support", True)
+        self.config["font_lock_screen_support"] = bool(enabled)
+        try:
+            _rmtool.save_config(self.config)
+        except Exception as exc:
+            self.config["font_lock_screen_support"] = previous
+            self.lock_screen_font_checkbox.blockSignals(True)
+            self.lock_screen_font_checkbox.setChecked(bool(previous))
+            self.lock_screen_font_checkbox.blockSignals(False)
+            show_error(self, _rmtool.APP_NAME, f"保存字体选项失败：{exc}")
+            return
+        self._update_lock_screen_font_hint()
 
     def _on_connection_changed(self, connected: bool):
         connected = bool(connected)
@@ -916,11 +964,18 @@ class FontTab(QtWidgets.QWidget):
         migration = self._legacy_font_migration
         if migration is None or not migration.migratable:
             return
+        lock_screen_support = self._lock_screen_font_support()
+        mode_notice = (
+            "当前迁移会在 /data 保留锁屏密码界面的字体副本，并受 /data 可用空间限制。"
+            if lock_screen_support
+            else "当前迁移只保留 /home 中的系统字体，不占用 /data；请确认设备不使用锁屏密码。"
+        )
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
             f"将旧版系统字体设置迁移到当前格式。"
             f"用户字体文件 {migration.filename} 仍会保留。"
+            f"{mode_notice}"
             "迁移完成后需手动重启设备才会完整生效，是否继续？",
             confirm_text="迁移旧版字体设置",
             cancel_text="取消",
@@ -935,6 +990,7 @@ class FontTab(QtWidgets.QWidget):
                 == posixpath.normpath(_rmtool.DEFAULT_FONT_DIR)
                 else self._font_dir()
             ),
+            self._lock_screen_font_support(),
             pending="正在迁移并验证旧版字体设置…",
             on_success=lambda font: self._refresh_fonts(
                 select_remote_path=font.remote_path,
@@ -951,13 +1007,18 @@ class FontTab(QtWidgets.QWidget):
             return
         reapply = selected.active
         action = "重新应用系统字体" if reapply else "设为系统字体"
+        lock_screen_support = self._lock_screen_font_support()
         message = (
             f"重新应用 {selected.filename} 作为系统界面字体，并修复 /data 中供锁屏使用的当前字体副本。"
+            if reapply and lock_screen_support
+            else f"重新应用 {selected.filename} 作为系统界面字体，仅保存在 /home。"
             if reapply
             else f"将 {selected.filename} 设为系统界面字体。"
         )
         legacy_warning = ""
         if (
+            lock_screen_support
+            and
             self._font_verification is not None
             and self._font_verification.platform in {"rm1", "rm2"}
         ):
@@ -965,10 +1026,16 @@ class FontTab(QtWidgets.QWidget):
                 "\n\n当前为 RM1/RM2 老设备，系统空间较小，本次使用低空间兼容模式。"
                 "建议不要继续上传过多或过大的自定义字体。"
             )
+        mode_notice = (
+            "当前会为锁屏密码界面保留 /data 字体副本，字体大小受 /data 可用空间限制。"
+            if lock_screen_support
+            else "当前不会写入 /data 字体副本；如果设备启用锁屏密码，解锁前界面可能无法使用该字体。"
+        )
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
             f"{message}{legacy_warning}"
+            f"\n\n{mode_notice}"
             "操作完成后需手动重启设备才会完整生效，是否继续？",
             confirm_text=action,
             cancel_text="取消",
@@ -979,6 +1046,7 @@ class FontTab(QtWidgets.QWidget):
             self.ssh_client,
             posixpath.dirname(selected.remote_path),
             selected.filename,
+            lock_screen_support,
             pending="正在设置并验证系统字体…",
             on_success=lambda font: self._refresh_fonts(
                 select_remote_path=font.remote_path,
@@ -1787,9 +1855,15 @@ class RmkitCnSection(QtWidgets.QWidget):
 
 
 class NativeChineseSection(QtWidgets.QWidget):
-    def __init__(self, ssh_client: SSHClientWrapper, parent=None):
+    def __init__(
+        self,
+        ssh_client: SSHClientWrapper,
+        parent=None,
+        config: Optional[Dict] = None,
+    ):
         super().__init__(parent)
         self.ssh_client = ssh_client
+        self.config = config if config is not None else {}
         self.thread_pool = QtCore.QThreadPool.globalInstance()
         self._status: Optional[_native_chinese.NativeChineseStatus] = None
         self._busy = False
@@ -1853,6 +1927,9 @@ class NativeChineseSection(QtWidgets.QWidget):
         elif self._status is None:
             self.status_label.setText("设备已连接，尚未检测")
         self._update_buttons()
+
+    def _lock_screen_font_support(self) -> bool:
+        return bool(self.config.get("font_lock_screen_support", True))
 
     def _update_buttons(self):
         connected = self.ssh_client.is_connected() and not self._busy
@@ -2086,11 +2163,18 @@ class NativeChineseSection(QtWidgets.QWidget):
             fallback_font = self._bundled_fallback_font()
             if fallback_font is None:
                 return
-            fallback_notice = (
-                "当前设备的系统 sans-serif 不含简体中文。继续后，rmtool 会在同一套"
-                f"系统字体镜像与空间检查中安装约 { _rmkit_cn.BUNDLED_FALLBACK_FONT_SIZE / 1024 / 1024:.1f} MiB "
-                "的常用简体中文兜底字体；它会同时供解锁前后的系统界面使用。"
-            )
+            if self._lock_screen_font_support():
+                fallback_notice = (
+                    "当前设备的系统 sans-serif 不含简体中文。继续后，rmtool 会在同一套"
+                    f"系统字体镜像与空间检查中安装约 { _rmkit_cn.BUNDLED_FALLBACK_FONT_SIZE / 1024 / 1024:.1f} MiB "
+                    "的常用简体中文兜底字体；它会同时供解锁前后的系统界面使用。"
+                )
+            else:
+                fallback_notice = (
+                    "当前设备的系统 sans-serif 不含简体中文。继续后，rmtool 会把约 "
+                    f"{_rmkit_cn.BUNDLED_FALLBACK_FONT_SIZE / 1024 / 1024:.1f} MiB 的常用简体中文兜底字体"
+                    "保存在 /home，不占用 /data；如果设备启用锁屏密码，解锁前界面可能仍使用原生字体。"
+                )
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
@@ -2111,12 +2195,15 @@ class NativeChineseSection(QtWidgets.QWidget):
             cancel_text="取消",
         ):
             return
+        fallback_args = fallback_font or (None, None)
+        if not self._lock_screen_font_support():
+            fallback_args = (*fallback_args, False)
         self._start_worker(
             _native_chinese.enable_cloud,
             self.ssh_client,
             self._status.package,
             str(_rmtool.app_state_dir()),
-            *(fallback_font or (None, None)),
+            *fallback_args,
             pending=(
                 "正在验证并更新原生中文资源…"
                 if updating
@@ -4614,7 +4701,7 @@ class ToolboxTab(QtWidgets.QWidget):
         self._detect_all_index = 0
         self.time_section = TimeTab(ssh_client)
         self.control_section = ControlTab(ssh_client)
-        self.native_chinese_section = NativeChineseSection(ssh_client)
+        self.native_chinese_section = NativeChineseSection(ssh_client, config=config)
         self.pinyin_input_section = PinyinInputSection(ssh_client)
         self.reading_enhancements_section = ReadingEnhancementsSection(ssh_client)
         self.note_enhancements_section = NoteEnhancementsSection(ssh_client)

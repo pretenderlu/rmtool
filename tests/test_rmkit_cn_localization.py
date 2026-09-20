@@ -2149,6 +2149,58 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertIn(f"<dir>{_rmkit_cn.SYSTEM_FONT_DIR}</dir>", system_config)
         self.assertFalse(any(".rmtool-" in path for path in ssh.files))
 
+    def test_set_active_user_font_home_only_skips_data_space_check(self):
+        font_dir = "/home/root/.local/share/fonts"
+        target = f"{font_dir}/selected.ttf"
+        font_data = b"home-only selected font bytes"
+        ssh = FakeSSH({target: font_data}, root_free_bytes=0)
+
+        with patch.object(
+            _rmkit_cn,
+            "_data_free_bytes",
+            side_effect=AssertionError("home-only fonts must not probe /data"),
+        ):
+            selected = _rmkit_cn.set_active_user_font(
+                ssh, font_dir, "selected.ttf", False
+            )
+
+        self.assertTrue(selected.active)
+        self.assertEqual(
+            _rmkit_cn._font_config_target(ssh.files[_rmkit_cn.FONTCONFIG_FILE]),
+            target,
+        )
+        self.assertNotIn(_rmkit_cn.SYSTEM_FONTCONFIG_FILE, ssh.files)
+        self.assertFalse(
+            any(path in ssh.files for path in _rmkit_cn.SYSTEM_FONT_PATHS.values())
+        )
+        self.assertNotIn(
+            _rmkit_cn.SYSTEM_FONT_FREE_COMMAND,
+            [value for kind, value in ssh.events if kind == "exec"],
+        )
+
+    def test_switching_to_home_only_clears_previous_lock_screen_mirror(self):
+        font_dir = "/home/root/.local/share/fonts"
+        target = f"{font_dir}/selected.ttf"
+        font_data = b"switched to home-only font bytes"
+        ssh = FakeSSH({target: font_data})
+
+        _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
+        self.assertIn(_rmkit_cn.SYSTEM_FONTCONFIG_FILE, ssh.files)
+
+        with patch.object(
+            _rmkit_cn,
+            "_data_free_bytes",
+            side_effect=AssertionError("home-only switch must not probe /data"),
+        ):
+            _rmkit_cn.set_active_user_font(
+                ssh, font_dir, "selected.ttf", False
+            )
+
+        self.assertNotIn(_rmkit_cn.SYSTEM_FONTCONFIG_FILE, ssh.files)
+        self.assertFalse(
+            any(path in ssh.files for path in _rmkit_cn.SYSTEM_FONT_PATHS.values())
+        )
+
     def test_set_active_user_font_ignores_existing_system_scan_alias(self):
         font_dir = "/home/root/.local/share/fonts"
         source = f"{font_dir}/new.ttf"

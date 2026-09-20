@@ -29,7 +29,7 @@ from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets, sip
 
 
 APP_NAME = "reMarkable 管理工具"
-APP_VERSION = "1.16.8"
+APP_VERSION = "1.16.9"
 CONFIG_FILE = "devices.json"
 GITHUB_REPO_URL = "https://github.com/pretenderlu/rmtool"
 GITHUB_RELEASES_URL = f"{GITHUB_REPO_URL}/releases/latest"
@@ -285,6 +285,7 @@ def _default_config() -> Dict:
             "font": DEFAULT_FONT_DIR,
             "wallpaper": "/usr/share/remarkable/suspended.png",
         },
+        "font_lock_screen_support": True,
         "theme": "dark",
     }
 
@@ -334,6 +335,7 @@ def load_config() -> Dict:
     ):
         paths["font"] = DEFAULT_FONT_DIR
     paths.setdefault("wallpaper", "/usr/share/remarkable/suspended.png")
+    config.setdefault("font_lock_screen_support", True)
     config.setdefault("theme", "dark")
     normalise_config(config)
     if json.dumps(config, sort_keys=True, ensure_ascii=False) != before_normalise:

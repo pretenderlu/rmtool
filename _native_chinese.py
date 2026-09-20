@@ -771,6 +771,7 @@ def enable(
     state_dir: str,
     fallback_font_local_path: Optional[str] = None,
     fallback_font_family: Optional[str] = None,
+    lock_screen_support: bool = True,
 ) -> NativeChineseStatus:
     identity = tap.get_device_identity(ssh_client)
     trusted = select_package(_trusted_catalog(), identity)
@@ -784,9 +785,17 @@ def enable(
                 "系统字体，确认字体状态正常后再启用原生简体中文。"
             )
         tap._preflight_device(ssh_client)
-        _rmkit_cn.install_bundled_fallback_font(
-            ssh_client, fallback_font_local_path, fallback_font_family
-        )
+        if lock_screen_support:
+            _rmkit_cn.install_bundled_fallback_font(
+                ssh_client, fallback_font_local_path, fallback_font_family
+            )
+        else:
+            _rmkit_cn.install_bundled_fallback_font(
+                ssh_client,
+                fallback_font_local_path,
+                fallback_font_family,
+                lock_screen_support=False,
+            )
         fallback_font_installed = True
     else:
         tap._preflight_device(ssh_client)
@@ -833,6 +842,7 @@ def enable_cloud(
     state_dir: str,
     fallback_font_local_path: Optional[str] = None,
     fallback_font_family: Optional[str] = None,
+    lock_screen_support: bool = True,
 ) -> NativeChineseStatus:
     return enable(
         ssh_client,
@@ -841,6 +851,7 @@ def enable_cloud(
         state_dir,
         fallback_font_local_path,
         fallback_font_family,
+        lock_screen_support,
     )
 
 
