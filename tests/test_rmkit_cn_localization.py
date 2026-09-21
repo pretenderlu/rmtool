@@ -1431,6 +1431,25 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             str(asset),
             "Fallback CJK",
             preserve_previous_managed_font=True,
+            lock_screen_support=True,
+        )
+
+        with patch.object(_rmkit_cn, "_install_managed_font") as install, patch.object(
+            _rmkit_cn, "has_cjk_font", return_value=True
+        ):
+            _rmkit_cn.install_bundled_fallback_font(
+                ssh,
+                str(asset),
+                "Fallback CJK",
+                lock_screen_support=False,
+            )
+
+        install.assert_called_once_with(
+            ssh,
+            str(asset),
+            "Fallback CJK",
+            preserve_previous_managed_font=True,
+            lock_screen_support=False,
         )
 
         wrong = self.make_font(b"not the bundled font", _rmkit_cn.BUNDLED_FALLBACK_FONT_NAME)

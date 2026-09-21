@@ -717,17 +717,6 @@ def _bundled_french_slot_package(
     catalog = _rmkit_cn.parse_translation_manifest(
         _rmkit_cn.BUNDLED_TRANSLATION_MANIFEST_PATH.read_bytes()
     )
-    if ALLOWED_TARGETS.get((identity.firmware, identity.platform, identity.architecture,
-                            identity.xochitl_sha256)) == ("3.28.0.172", "stable", True, False):
-        # Read-only French-slot guard: .172 has identical stock catalogs. This
-        # does not register .172 with the deprecated French-slot installer.
-        predecessor = catalog["20260806095513"]
-        matches = [p for p in (predecessor, *predecessor.variants)
-                   if p.platform == identity.platform and p.release_version == "3.28.0.166"]
-        if len(matches) != 1:
-            raise RuntimeError("Missing exact stock catalog for the .172 French-slot guard")
-        return replace(matches[0], firmware=identity.firmware, xochitl_sha256=identity.xochitl_sha256,
-                       release_version="3.28.0.172", channel="stable", variants=())
     root = catalog.get(identity.firmware)
     candidates = (root, *root.variants) if root is not None else ()
     platform_matches = tuple(
@@ -806,17 +795,12 @@ def enable(
                 "系统字体，确认字体状态正常后再启用原生简体中文。"
             )
         tap._preflight_device(ssh_client)
-        if lock_screen_support:
-            _rmkit_cn.install_bundled_fallback_font(
-                ssh_client, fallback_font_local_path, fallback_font_family
-            )
-        else:
-            _rmkit_cn.install_bundled_fallback_font(
-                ssh_client,
-                fallback_font_local_path,
-                fallback_font_family,
-                lock_screen_support=False,
-            )
+        _rmkit_cn.install_bundled_fallback_font(
+            ssh_client,
+            fallback_font_local_path,
+            fallback_font_family,
+            lock_screen_support=lock_screen_support,
+        )
         fallback_font_installed = True
     else:
         tap._preflight_device(ssh_client)

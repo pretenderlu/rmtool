@@ -1,10 +1,9 @@
 # reMarkable Chinese translation
 
-> **Maintenance freeze**: the French-slot deployment path described here is
-> frozen at the firmware list in `manifest.json`; no newer firmware will be
-> added. This directory remains the editing home for the Chinese `.ts`
-> sources and the catalogs embedded into the native Simplified Chinese
-> plugin, which is the only localization path for newer firmware.
+> **Maintenance boundary**: the French-slot deployment path remains frozen for
+> new installations. The exact `3.28.0.172` entries below are read-only
+> carrier records used to reject stale French-slot state safely; new Chinese
+> installations use the independent native Simplified Chinese plugin.
 
 This directory contains the editable Qt Linguist source, the compiled catalog,
 and the cloud release manifest:
@@ -118,6 +117,22 @@ Beta `3.28.0.169` keeps the internal version `20260806095513` and ships
 byte-identical English, French, German, and Spanish catalogs on both
 platforms, so the exact `3.28.0.166` assets and carrier hashes above apply
 unchanged and no separate localization entry is registered.
+
+Stable `3.28.0.172` uses internal version `20260827113527`. The official
+French carrier hashes are recorded for all five device families so the native
+Chinese plugin can detect and clean up old French-slot state after a firmware
+upgrade:
+
+| Platform | Chinese asset | Size | Chinese SHA-256 | Stock French SHA-256 |
+| --- | --- | ---: | --- | --- |
+| Ferrari | `reMarkable_zh_CN-3.28.0.166-ferrari.qm` | 196626 | `49cf09fc23ef3fcacb956d426915e3f80b85a02fa7e597a8b5fc8013a2bdb931` | `2b03e8bdf26566d06189604f4678b1929af60b8bef65b662fafc9f04eebed9cc` |
+| Chiappa | `reMarkable_zh_CN-3.28.0.166-chiappa.qm` | 192400 | `2e501a66c30addbecada68b6af262ea506440547b478b4e02e7d2a56889446a1` | `e0ec3db5e71798db0e9543e826b9770ae13c837e438cdffe7268ad45c58da1a0` |
+| Tatsu | `reMarkable_zh_CN-3.28.0.166-chiappa.qm` | 192400 | `2e501a66c30addbecada68b6af262ea506440547b478b4e02e7d2a56889446a1` | `aeb154bedc9235df280354790522a15508858af55ddeab17c85ce1876d35a6a2` |
+| RM1 | `reMarkable_zh_CN-3.28.0.172-rm1-rm2.qm` | 205621 | `0f1de519ab4ac1998f432dab014d40fb0cdae2fe528ab30ca47c7a507df82485` | `bcd3310eee9ecb647287957b4e07ff28fbe6fa1aa09e3efb40312bcc2d2942e3` |
+| RM2 | `reMarkable_zh_CN-3.28.0.172-rm1-rm2.qm` | 205621 | `0f1de519ab4ac1998f432dab014d40fb0cdae2fe528ab30ca47c7a507df82485` | `6b946dcbe013d66a4ac270a34f79f57c327c8bfbcc73ffe5c44a5a3efd35d6fb` |
+
+The `.172` records reuse byte-identical reviewed Chinese catalogs where
+possible. They are not an additional French-slot installation target.
 
 Paper Pro (Ferrari) enable and restore were validated on a real device.
 Paper Pro Move (Chiappa), Paper Pure (Tatsu), RM1, and RM2 `3.27.3.0` were

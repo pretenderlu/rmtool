@@ -65,6 +65,9 @@ class ReleaseWorkflowTests(unittest.TestCase):
             encoding="utf-8"
         )
         windows_build = (ROOT / "build-portable.ps1").read_text(encoding="utf-8")
+        matrix_gate = (ROOT / "tools" / "validate_build_matrix.py").read_text(
+            encoding="utf-8"
+        )
 
         self.assertIn("tap-page-turn/manifest.json:tap-page-turn", workflow)
         self.assertIn("native-chinese/manifest.json:native-chinese", workflow)
@@ -85,6 +88,10 @@ class ReleaseWorkflowTests(unittest.TestCase):
             workflow.index("ditto -c -k"),
         )
         self.assertIn('"--collect-data", "certifi"', windows_build)
+        self.assertIn("tools\\validate_build_matrix.py", windows_build)
+        self.assertIn("Validate device and firmware matrix", workflow)
+        self.assertIn("3.28.0.172", matrix_gate)
+        self.assertIn("OFFICIAL_172", matrix_gate)
         self.assertIn('"certifi\\cacert.pem"', windows_build)
         self.assertIn(
             'weread-app\\manifest.json\');weread-app', windows_build

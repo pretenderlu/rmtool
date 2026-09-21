@@ -73,6 +73,11 @@ if ($pyInstallerVersion -ne "6.21.0") {
     throw "PyInstaller 6.21.0 is required; found $pyInstallerVersion."
 }
 
+& $python (Join-Path $root "tools\validate_build_matrix.py")
+if ($LASTEXITCODE -ne 0) {
+    throw "The device/version build matrix is incomplete or inconsistent."
+}
+
 $commonArguments = @(
     "--clean",
     "--noconfirm",

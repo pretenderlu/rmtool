@@ -3316,9 +3316,10 @@ def install_bundled_fallback_font(
         or len(font_data) != BUNDLED_FALLBACK_FONT_SIZE
     ):
         raise RuntimeError("rmtool 内置中文兜底字体校验失败，已停止操作。")
-    managed_font_kwargs = {"preserve_previous_managed_font": True}
-    if not lock_screen_support:
-        managed_font_kwargs["lock_screen_support"] = False
+    managed_font_kwargs = {
+        "preserve_previous_managed_font": True,
+        "lock_screen_support": lock_screen_support,
+    }
     _install_managed_font(
         ssh_client,
         str(path),

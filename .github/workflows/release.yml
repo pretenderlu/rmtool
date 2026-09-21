@@ -50,6 +50,8 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: build/.venv/bin/python -m unittest discover -s tests -v
+      - name: Validate device and firmware matrix
+        run: build/.venv/bin/python tools/validate_build_matrix.py
       - name: Generate app icon
         run: |
           iconset=build/rmtool.iconset

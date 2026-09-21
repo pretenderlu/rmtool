@@ -659,10 +659,16 @@ class NativeChineseTests(unittest.TestCase):
                 ".rmtool",
                 "fallback.otf",
                 "Fallback CJK",
+                lock_screen_support=False,
             )
 
         self.assertIs(result, expected)
-        install_font.assert_called_once_with(ssh, "fallback.otf", "Fallback CJK")
+        install_font.assert_called_once_with(
+            ssh,
+            "fallback.otf",
+            "Fallback CJK",
+            lock_screen_support=False,
+        )
         deploy.assert_called_once()
 
     def test_enable_rolls_back_fallback_font_when_deployment_fails(self):
