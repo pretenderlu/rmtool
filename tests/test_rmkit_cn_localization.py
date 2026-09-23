@@ -1170,6 +1170,25 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         )
         self.assertNotIn(f"{target}.tmp", ssh.files)
         self.assertNotIn(f"{_rmkit_cn.FONTCONFIG_FILE}.tmp", ssh.files)
+        self.assertFalse(
+            any(
+                command.startswith("mount -o remount,")
+                for kind, command in ssh.events if kind == "exec"
+            )
+        )
+
+    def test_font_upload_remounts_only_for_root_filesystem_targets(self):
+        ssh = FakeSSH()
+        _rmkit_cn.upload_font(
+            ssh,
+            self.make_font(b"root font"),
+            "/usr/share/fonts/rmtool",
+            "root.ttf",
+            refresh_cache=False,
+        )
+        commands = [command for kind, command in ssh.events if kind == "exec"]
+        self.assertIn("mount -o remount,rw /", commands)
+        self.assertIn("mount -o remount,ro /", commands)
 
     def test_user_font_override_uses_device_family_and_verifies_all_matches(self):
         target_dir = "/home/root/.local/share/fonts/"
@@ -1228,6 +1247,28 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         config = ssh.files[_rmkit_cn.FONTCONFIG_FILE].decode("utf-8")
         self.assertIn(f"<string>{target}</string>", config)
         self.assertNotIn(f"<string>{existing}</string>", config)
+
+    def test_home_only_user_font_override_skips_data_and_root_remount(self):
+        ssh = FakeSSH(root_free_bytes=0)
+        with patch.object(
+            _rmkit_cn,
+            "_prepare_system_font_mirror",
+            side_effect=AssertionError("home-only mode must skip /data"),
+        ):
+            target = _rmkit_cn.install_user_font_override(
+                ssh,
+                self.make_font(b"home-only user font"),
+                "/home/root/.local/share/fonts",
+                "home-only.ttf",
+                lock_screen_support=False,
+            )
+
+        self.assertIn(target, ssh.files)
+        commands = [command for kind, command in ssh.events if kind == "exec"]
+        self.assertNotIn(_rmkit_cn.SYSTEM_FONT_FREE_COMMAND, commands)
+        self.assertFalse(
+            any(command.startswith("mount -o remount,") for command in commands)
+        )
 
     def test_fontconfig_override_normalizes_and_escapes_path_and_family(self):
         config = _rmkit_cn.fontconfig_override(
@@ -1457,6 +1498,32 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "兜底字体校验失败"):
                 _rmkit_cn.install_bundled_fallback_font(ssh, wrong)
         install.assert_not_called()
+
+    def test_home_only_managed_font_skips_data_capacity_and_root_remount(self):
+        font_data = b"home-only CJK font"
+        ssh = FakeSSH(
+            cjk_available=False,
+            cjk_font_data=(font_data,),
+            root_free_bytes=0,
+        )
+        with patch.object(
+            _rmkit_cn,
+            "_prepare_system_font_mirror",
+            side_effect=AssertionError("home-only mode must skip /data capacity"),
+        ):
+            _rmkit_cn._install_managed_font(
+                ssh,
+                self.make_font(font_data, "home-only.otf"),
+                "Home-only CJK",
+                lock_screen_support=False,
+            )
+
+        self.assertIn(_rmkit_cn.CUSTOM_FONT_PATHS[".otf"], ssh.files)
+        commands = [command for kind, command in ssh.events if kind == "exec"]
+        self.assertNotIn(_rmkit_cn.SYSTEM_FONT_FREE_COMMAND, commands)
+        self.assertFalse(
+            any(command.startswith("mount -o remount,") for command in commands)
+        )
 
     def test_epub_font_display_name_prefers_chinese_family_then_family_then_filename(self):
         remote_path = "/home/root/.local/share/rmtool/fonts/reader.ttf"
@@ -1705,6 +1772,12 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(ssh.files[f"{font_dir}/new.ttf"], b"new font")
         self.assertEqual(ssh.files[_rmkit_cn.FONTCONFIG_FILE], config)
         self.assertFalse(uploaded.active)
+        self.assertFalse(
+            any(
+                command.startswith("mount -o remount,")
+                for kind, command in ssh.events if kind == "exec"
+            )
+        )
 
     def test_fresh_device_first_font_stays_outside_fontconfig_until_selected(self):
         font_dir = _rmkit_cn.USER_FONT_REPOSITORY

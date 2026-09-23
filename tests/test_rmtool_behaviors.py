@@ -2029,6 +2029,49 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertIn("兜底字体", confirm.call_args.args[2])
         start.assert_not_called()
 
+    def test_native_chinese_uses_shared_home_only_font_setting(self):
+        config = config_with_device()
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        font_tab = _tab_toolbox.FontTab(client, config)
+        section = _tab_toolbox.NativeChineseSection(client, config=config)
+        self.addCleanup(font_tab.deleteLater)
+        self.addCleanup(section.deleteLater)
+        package = next(
+            item for item in _native_chinese._trusted_catalog() if item.platform == "rm2"
+        )
+        identity = _native_chinese.tap.DeviceIdentity(
+            package.firmware,
+            package.platform,
+            package.architecture,
+            package.xochitl_sha256,
+        )
+        section._apply_status(
+            _native_chinese.NativeChineseStatus(
+                _native_chinese.NativeChineseState.NOT_INSTALLED,
+                identity,
+                package,
+                has_cjk_font=False,
+            )
+        )
+
+        with mock.patch.object(_tab_toolbox._rmtool, "save_config"):
+            font_tab.lock_screen_font_checkbox.setChecked(False)
+        self.assertFalse(config["font_lock_screen_support"])
+        with mock.patch.object(
+            section,
+            "_bundled_fallback_font",
+            return_value=("fallback.otf", "Fallback CJK"),
+        ), mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=True
+        ) as confirm, mock.patch.object(section, "_start_worker") as start:
+            section._enable()
+
+        self.assertIn("保存在 /home，不占用 /data", confirm.call_args.args[2])
+        self.assertEqual(start.call_args.args[0], _native_chinese.enable_cloud)
+        self.assertEqual(
+            start.call_args.args[-3:], ("fallback.otf", "Fallback CJK", False)
+        )
+
     def test_native_and_pinyin_download_failures_keep_session_and_offer_manual_retry(self):
         cases = []
 
@@ -4890,6 +4933,30 @@ class FontUiTests(unittest.TestCase):
             start_worker.call_args.args[1:4],
             (client, posixpath.normpath(rmtool.DEFAULT_FONT_DIR), "active.ttf"),
         )
+
+    def test_home_only_font_choice_reaches_system_font_worker(self):
+        client = FakeConnectionClient(connected=True)
+        config = rmtool._default_config()
+        widget = rmtool.FontTab(client, config)
+        self.addCleanup(widget.deleteLater)
+        font = _rmkit_cn.UserFont(
+            "selected.ttf",
+            "Selected Family",
+            f"{rmtool.DEFAULT_FONT_DIR}selected.ttf",
+            False,
+        )
+        widget._apply_font_inventory((font,), select_filename="selected.ttf")
+        with mock.patch.object(_tab_toolbox._rmtool, "save_config"):
+            widget.lock_screen_font_checkbox.setChecked(False)
+
+        with mock.patch.object(
+            _tab_toolbox, "ask_confirmation", return_value=True
+        ) as confirm, mock.patch.object(widget, "_start_font_worker") as start_worker:
+            widget._set_selected_active()
+
+        self.assertIn("不会写入 /data 字体副本", confirm.call_args.args[2])
+        self.assertIs(start_worker.call_args.args[0], _rmkit_cn.set_active_user_font)
+        self.assertIs(start_worker.call_args.args[4], False)
 
     def test_legacy_font_action_uses_its_exact_remote_directory(self):
         client = FakeConnectionClient(connected=True)

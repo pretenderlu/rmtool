@@ -2255,12 +2255,28 @@ STAGE_MOVED=0
 DROPINS_SNAPSHOTTED=0
 ROOT_RELEASED=1
 ROLLBACK_OK=1
+ROOT_MOUNT_FOUND=0
+ROOT_WAS_RW=0
 {chr(10).join(flag + '=0' for flag in base_flags)}
+
+while read -r _source mountpoint _type options _rest; do
+    if [ "$mountpoint" = / ]; then
+        ROOT_MOUNT_FOUND=1
+        case ",$options," in *,rw,*) ROOT_WAS_RW=1 ;; esac
+        break
+    fi
+done < /proc/mounts
+if [ "$ROOT_MOUNT_FOUND" -eq 0 ]; then
+    echo "rmtool Xovi: cannot determine root mount mode" >&2
+    exit 1
+fi
 
 unmount_root() {{
     [ "$MOUNTED" -eq 1 ] || return 0
     sync
-    mount -o remount,ro "$MOUNT_DIR" || return 1
+    if [ "$ROOT_WAS_RW" -eq 0 ]; then
+        mount -o remount,ro "$MOUNT_DIR" || return 1
+    fi
     umount "$MOUNT_DIR" || return 1
     MOUNTED=0
     rmdir "$MOUNT_DIR"
@@ -2270,7 +2286,9 @@ mount_root_rw() {{
     mkdir -p "$MOUNT_DIR"
     mount --bind / "$MOUNT_DIR"
     MOUNTED=1
-    mount -o remount,rw "$MOUNT_DIR"
+    if [ "$ROOT_WAS_RW" -eq 0 ]; then
+        mount -o remount,rw "$MOUNT_DIR"
+    fi
 }}
 
 rollback() {{
@@ -2280,7 +2298,9 @@ rollback() {{
     if [ "$COMMITTED" -eq 0 ]; then
         if [ "$MOUNTED" -eq 1 ]; then
             sync
-            mount -o remount,ro "$MOUNT_DIR" 2>/dev/null || true
+            if [ "$ROOT_WAS_RW" -eq 0 ]; then
+                mount -o remount,ro "$MOUNT_DIR" 2>/dev/null || true
+            fi
             if umount "$MOUNT_DIR" 2>/dev/null; then
                 MOUNTED=0
             else
@@ -2298,7 +2318,9 @@ rollback() {{
             else
                 ROLLBACK_OK=0
                 if [ "$MOUNTED" -eq 1 ]; then
-                    mount -o remount,ro "$MOUNT_DIR" 2>/dev/null || true
+                    if [ "$ROOT_WAS_RW" -eq 0 ]; then
+                        mount -o remount,ro "$MOUNT_DIR" 2>/dev/null || true
+                    fi
                     if umount "$MOUNT_DIR" 2>/dev/null; then MOUNTED=0; else ROOT_RELEASED=0; fi
                 fi
             fi

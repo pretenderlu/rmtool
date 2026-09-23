@@ -1,5 +1,6 @@
 """Safe original-UI Chinese localization for supported reMarkable firmware."""
 
+from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from enum import Enum
 import hashlib
@@ -796,6 +797,12 @@ def refresh_font_cache(ssh_client, *paths: str) -> None:
     logging.info("fc-cache output: %s", stdout.strip())
 
 
+def _font_write_mount(ssh_client, *paths: str):
+    if all(posixpath.normpath(path).startswith("/home/") for path in paths):
+        return nullcontext()
+    return remount_rw(ssh_client)
+
+
 def upload_font(
     ssh_client,
     local_path: str,
@@ -817,7 +824,9 @@ def upload_font(
         f"{fontconfig_remote_path}.tmp" if fontconfig_remote_path else None
     )
     cache_paths = [remote_dir]
-    with remount_rw(ssh_client):
+    with _font_write_mount(
+        ssh_client, remote_dir, fontconfig_remote_path or remote_dir
+    ):
         ssh_client.exec_checked(f"mkdir -p {shlex.quote(remote_dir)}")
         try:
             ssh_client.transfer_file(str(path), remote_temp_path)
@@ -2464,7 +2473,7 @@ def upload_user_font(
             "上传目标正作为 EPUB 字体使用。请改用其他文件名，或先从 EPUB 字体菜单移除。"
         )
 
-    with remount_rw(ssh_client):
+    with _font_write_mount(ssh_client, directory):
         ssh_client.exec_checked(f"mkdir -p {shlex.quote(directory)}")
         try:
             ssh_client.transfer_file(str(local_font), temp_path)
@@ -2625,7 +2634,7 @@ def delete_user_font(ssh_client, remote_dir: str, filename: str) -> None:
     backup_path = f"{remote_path}.rmtool-delete-{os.urandom(6).hex()}.bak"
     moved = False
     refresh_cache = directory != USER_FONT_REPOSITORY
-    with remount_rw(ssh_client):
+    with _font_write_mount(ssh_client, directory):
         try:
             with ssh_client.sftp_session() as sftp:
                 _require_top_level_regular_font(sftp, directory, filename)
@@ -2699,7 +2708,7 @@ def install_user_font_override(
     system_mirror_previous_files = None
     local_config_path: Optional[str] = None
 
-    with remount_rw(ssh_client):
+    with _font_write_mount(ssh_client, remote_dir, fontconfig_remote_path):
         ssh_client.exec_checked(f"mkdir -p {shlex.quote(remote_dir)}")
         ssh_client.exec_checked(f"mkdir -p {shlex.quote(fontconfig_dir)}")
         try:

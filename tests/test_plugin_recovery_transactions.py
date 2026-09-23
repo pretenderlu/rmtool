@@ -60,7 +60,7 @@ class RecoveryTransactionTests(unittest.TestCase):
         return {str(path.relative_to(directory)).replace("\\", "/"): path.read_bytes()
                 for path in directory.rglob("*") if path.is_file()}
 
-    def execute(self, failure="", *, enable_dropin=True):
+    def execute(self, failure="", *, enable_dropin=True, root_mode="ro"):
         script = shared.shared_transaction_script(
             shared.SHARED_LAYOUT.remote_base + ".staging-" + self.TOKEN,
             self.TOKEN, (), enable_dropin=enable_dropin, retain_backup=True,
@@ -72,10 +72,15 @@ class RecoveryTransactionTests(unittest.TestCase):
         for prefix in ("/data/", "/etc/", "/tmp/", "/home/"):
             script = script.replace(prefix, "./sandbox" + prefix)
         script = script.replace("mount --bind / ", "mount --bind ./sandbox/root ")
+        script = script.replace("/proc/mounts", "./sandbox/proc-mounts")
         script = script.removeprefix("#!/bin/sh\n")
         self.assertNotRegex(script, r"(?<![\w.])/(?:data|etc|tmp|home|system)(?:/|\b)")
         self.assertNotIn("mount --bind / ", script)
         self.assertNotIn("\0", script)
+        self.assertIn(root_mode, ("ro", "rw"))
+        (self.root / "sandbox/proc-mounts").write_text(
+            f"rootfs / ext4 {root_mode},relatime 0 0\n", encoding="ascii"
+        )
         self.assertIn(failure, ("", "base-move", "stage-move", "upper-write", "lower-write", "rollback-move"))
         prelude = r'''
 FAILURE=__FAILURE__
@@ -199,12 +204,29 @@ systemctl() {
     def test_success_retains_original_base_and_both_dropins(self):
         result = self.execute()
         self.assertEqual(result.returncode, 0, result.stderr)
+        events = (self.root / "sandbox/events").read_text().splitlines()
+        self.assertEqual(events.count("mount -o remount,rw ./sandbox/mount/"), 2)
+        self.assertEqual(events.count("mount -o remount,ro ./sandbox/mount/"), 2)
         self.assertEqual(self.tree(self.base), self.new_tree)
         self.assertEqual(self.tree(self.backup / "base-0"), self.old_tree)
         self.assertEqual((self.backup / "upper-0").read_bytes(), b"old upper\n")
         self.assertEqual((self.backup / "lower-0").read_bytes(), b"old lower\n")
         self.assertEqual(self.upper.read_bytes(), b"new dropin\n")
         self.assertEqual(self.lower.read_bytes(), b"new dropin\n")
+
+    def test_already_writable_root_skips_busy_remounts(self):
+        result = self.execute(root_mode="rw")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        events = (self.root / "sandbox/events").read_text().splitlines()
+        self.assertEqual(sum(event.startswith("mount --bind") for event in events), 2)
+        self.assertFalse(any("remount" in event for event in events))
+        self.assertEqual(self.lower.read_bytes(), b"new dropin\n")
+
+    def test_already_writable_root_rollback_skips_busy_remounts(self):
+        self.assertNotEqual(self.execute("lower-write", root_mode="rw").returncode, 0)
+        self.assert_restored()
+        events = (self.root / "sandbox/events").read_text().splitlines()
+        self.assertFalse(any("remount" in event for event in events))
 
     def test_disabled_target_removes_dropins_but_keeps_originals(self):
         result = self.execute(enable_dropin=False)
