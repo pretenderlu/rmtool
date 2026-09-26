@@ -29,7 +29,7 @@ from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets, sip
 
 
 APP_NAME = "reMarkable 管理工具"
-APP_VERSION = "1.16.11"
+APP_VERSION = "1.16.12"
 CONFIG_FILE = "devices.json"
 GITHUB_REPO_URL = "https://github.com/pretenderlu/rmtool"
 GITHUB_RELEASES_URL = f"{GITHUB_REPO_URL}/releases/latest"
