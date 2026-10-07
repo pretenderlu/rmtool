@@ -179,6 +179,11 @@ class NativeChineseTests(unittest.TestCase):
             if other is package:
                 continue
             predecessors = native._known_shared_predecessor_specs(other)
+            if other.platform in native.ARM_CATALOG_PREDECESSORS:
+                self.assertEqual(len(predecessors), 1)
+                self.assertEqual(predecessors[0].reason, "catalog_runtime_path")
+                self.assertEqual(predecessors[0].archive_sha256, native.ARM_CATALOG_PREDECESSORS[other.platform])
+                continue
             expected = native.CATALOG_LABEL_PREDECESSORS.get(
                 (other.firmware, other.platform, other.architecture, other.xochitl_sha256)
             )

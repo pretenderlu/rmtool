@@ -138,11 +138,18 @@ ALLOWED_TARGETS = {
 }
 EXPECTED_ASSETS = {
     identity: (
-        f"rmtool-native-chinese-{identity[1]}-{identity[0]}-{policy[0]}.tar.gz"
+        f"rmtool-native-chinese-{identity[1]}-{identity[0]}-{policy[0]}"
+        + ("-runtime-catalog" if identity[2] == "armv7l" else "") + ".tar.gz"
     )
     for identity, policy in ALLOWED_TARGETS.items()
 }
 MAX_PACKAGE_BYTES = 32 * 1024 * 1024
+ARM_TRANSLATOR = (3756, "7627c21c45726113f706e748a52cd516c751c5f92c7ccf9422b9af6641eea427")
+ARM_TRANSLATOR_PREDECESSOR = (2888, "9569d723d4057f741fcb70522b90a69e11aa5c75998cee8a6dcb69ad668be722")
+ARM_CATALOG_PREDECESSORS = {
+    "rm1": "92a8a41daec8016ab413d774b9ead911753e8bb2dc70a5b905439cd92d6fa159",
+    "rm2": "36961908f08d83b3d1074dd3547ae63c3ae39f6673774bec80cd823b4ff005ab",
+}
 FERRARI_166_V2_ARCHIVE_SHA256 = (
     "c75cfaf2de83ba00b52cf047aa5bf27124abc451de72ba9f6abe6b45cde7d521"
 )
@@ -418,6 +425,15 @@ def _known_shared_predecessor_specs(
         package.xochitl_sha256,
     )
     _runtime, current = _shared_specs(package)
+    if package.firmware == "20260827113527" and package.platform in ARM_CATALOG_PREDECESSORS:
+        size, digest = ARM_TRANSLATOR_PREDECESSOR
+        return (_SharedPredecessor(
+            "catalog_runtime_path", ARM_CATALOG_PREDECESSORS[package.platform],
+            replace(current, extra_files=tuple(
+                replace(item, sha256=digest, size=size) if item.runtime_path == EXTENSION_PATH else item
+                for item in current.extra_files
+            )),
+        ),)
     catalog_predecessor = CATALOG_LABEL_PREDECESSORS.get(identity)
     if catalog_predecessor is not None:
         archive_sha256, catalog_sha256, catalog_size = catalog_predecessor
@@ -667,8 +683,17 @@ def get_status(
             )
         if package is None:
             raise RuntimeError("当前固件没有精确匹配的原生中文包。")
+        if FEATURE_ID in inspection.states and inspection.layout != _xovi_standalone.preferred_layout(runtime):
+            return NativeChineseStatus(
+                NativeChineseState.OUTDATED, identity, package,
+                "共享插件需要迁移到当前机型的存储位置，可直接修复更新；旧安装验证后才会移动。",
+                True, emergency, cjk_font_available,
+            )
         if FEATURE_ID in revisions:
             detail = (
+                "汉化扩展需要更新翻译目录路径，可直接修复更新"
+                if revisions[FEATURE_ID] == "catalog_runtime_path"
+                else
                 "已验证为 rmtool 完成安装的旧版原生中文包，可直接修复更新"
                 if revisions[FEATURE_ID]
                 == _xovi_standalone.MANAGED_RECEIPT_REASON

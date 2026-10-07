@@ -1,6 +1,6 @@
 """Quarantine and rebuild recognized shared installations without trusting old code.
 
-Only the /data shared layout is recovered. Legacy /home layouts, mounted-over
+The /data layout and RM1's /home layout are recovered. Other /home layouts, mounted-over
 systemd paths, and enabled external programs (AppLoad/KOReader or sidecars) need
 separate ownership/rollback support and remain blocked when repair is needed.
 An active drop-in with a corrupted launcher is also blocked: restoring that
@@ -67,6 +67,7 @@ class _Plan:
     states: dict[str, shared.SharedFeatureState]
     fingerprint: tuple
     sentinels: tuple[str, ...]
+    layout: shared.StandaloneLayout = shared.SHARED_LAYOUT
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,7 @@ class _CleanupPlan:
     lower_dropin: tuple[str, int, int, str] | None
     sentinels: tuple[tuple[str, int, int, str], ...]
     features: tuple[str, ...]
+    layout: shared.StandaloneLayout = shared.SHARED_LAYOUT
 
     @property
     def fingerprint(self) -> tuple:
@@ -105,17 +107,18 @@ def _read_marker(ssh_client, path):
     return data.decode("utf-8") if isinstance(data, bytes) else data
 
 
-def _known_dropin_hashes(runtime, states):
+def _known_dropin_hashes(runtime, states, layout=shared.SHARED_LAYOUT):
     features = tuple(state.spec for state in states.values())
     return {
         hashlib.sha256(shared.shared_dropin(
             runtime, tuple(feature for feature, enabled in zip(features, flags) if enabled),
+            layout=layout,
         ).encode()).hexdigest()
         for flags in product((False, True), repeat=len(features))
     }
 
 
-def _recognized_marker(marker, runtime, trusted, revisions):
+def _recognized_marker(marker, runtime, trusted, revisions, layout=shared.SHARED_LAYOUT):
     if not isinstance(marker, dict) or type(marker.get("schema_version")) is not int:
         raise RuntimeError("共享插件标记格式无效，不能确认归属。")
     schema_version = marker["schema_version"]
@@ -165,7 +168,7 @@ def _recognized_marker(marker, runtime, trusted, revisions):
     for states in state_sets:
         shared.assert_feature_layout(runtime, (state.spec for state in states.values()))
         enabled = tuple(state.spec for state in states.values() if state.enabled)
-        dropin = shared.shared_dropin(runtime, enabled)
+        dropin = shared.shared_dropin(runtime, enabled, layout=layout)
         dropin_sha = hashlib.sha256(dropin.encode()).hexdigest()
         for guard, sentinel, unmatched in (
             (True, True, False), (False, True, False), (False, False, False),
@@ -174,6 +177,7 @@ def _recognized_marker(marker, runtime, trusted, revisions):
             launcher = shared.shared_launcher(
                 runtime, enabled, startup_guard=guard,
                 recovery_sentinel=sentinel, legacy_unmatched_qmd_glob=unmatched,
+                layout=layout,
             )
             launcher_sha = hashlib.sha256(launcher.encode()).hexdigest()
             if marker == shared._marker_document(
@@ -213,7 +217,7 @@ def _ancestors(ssh_client, path):
             _metadata(ssh_client, str(parent), ancestor_directory=True)
 
 
-def _unhidden_paths(ssh_client):
+def _unhidden_paths(ssh_client, layout=shared.SHARED_LAYOUT):
     # A bind of / in the transaction exposes lower-root systemd files. Without
     # temporary inspection mounts we cannot authenticate hidden lower copies.
     # The stock 3.28 layout overlays /etc at runtime, but a non-recursive bind
@@ -233,8 +237,8 @@ def _unhidden_paths(ssh_client):
         separator = fields.index("-")
         if path == "/etc" and _is_stock_etc_overlay(fields, separator):
             continue
-        for target in (shared.SHARED_LAYOUT.dropin_path, shared.SHARED_LAYOUT.remote_base):
-            if path == "/" or path == "/data":
+        for target in (layout.dropin_path, layout.remote_base):
+            if path in ("/", "/data") or (path == "/home" and layout == shared.LEGACY_SHARED_LAYOUT):
                 continue
             if target == path or target.startswith(path + "/") or path.startswith(target + "/"):
                 raise RuntimeError(f"插件路径存在独立挂载，无法确认底层归属：{path}")
@@ -260,7 +264,7 @@ def _is_stock_etc_overlay(fields, separator):
     )
 
 
-def _external_loaders(ssh_client):
+def _external_loaders(ssh_client, layout=shared.SHARED_LAYOUT):
     directory = str(PurePosixPath(shared.SHARED_LAYOUT.dropin_path).parent)
     if shared._remote_entry_exists(ssh_client, directory):
         for path in ssh_client.exec_checked(
@@ -281,7 +285,7 @@ def _external_loaders(ssh_client):
     for line in maps.splitlines():
         if any(name in line.lower() for name in ("xovi", "qt-resource-rebuilder", "appload")):
             fields = line.split(None, 5)
-            if len(fields) < 6 or not fields[5].startswith(shared.SHARED_LAYOUT.remote_base + "/"):
+            if len(fields) < 6 or not fields[5].startswith(layout.remote_base + "/"):
                 raise RuntimeError("xochitl 正在加载未知外部插件，拒绝自动修复。")
 
 
@@ -324,10 +328,16 @@ def _trusted_cleanup_contexts(identity):
             continue
         seen_runtimes.add(key)
         contexts.append((runtime, trusted))
+        # The published ARM translator had a stale absolute catalog path.
+        # Keep its exact cleanup evidence after replacing the current package.
+        if runtime.platform in ("rm1", "rm2") and "native-chinese" in trusted:
+            package = migration.native.select_package(migration.native._trusted_catalog(), candidate)
+            for predecessor in migration.native._known_shared_predecessor_specs(package) if package else ():
+                contexts.append((runtime, dict(trusted, **{"native-chinese": predecessor.feature})))
     return tuple(contexts)
 
 
-def _cleanup_trust_data(contexts):
+def _cleanup_trust_data(contexts, layout=shared.SHARED_LAYOUT):
     allowed_files = {"package.json", "startup.pending"}
     allowed_dirs = set()
     core_specs = {}
@@ -361,6 +371,7 @@ def _cleanup_trust_data(contexts):
                         recovery_sentinel=recovery_sentinel,
                         startup_guard=startup_guard,
                         legacy_unmatched_qmd_glob=unmatched,
+                        layout=layout,
                     ).encode()
                 except (RuntimeError, OSError, ValueError, TypeError):
                     continue
@@ -368,7 +379,7 @@ def _cleanup_trust_data(contexts):
                     (hashlib.sha256(launcher).hexdigest(), len(launcher), 0o755)
                 )
         try:
-            dropin = shared.shared_dropin(runtime, ())
+            dropin = shared.shared_dropin(runtime, (), layout=layout)
         except (RuntimeError, OSError, ValueError, TypeError):
             continue
         dropin_bytes = dropin.encode()
@@ -386,10 +397,10 @@ def _cleanup_trust_data(contexts):
     return allowed_files, allowed_dirs, core_specs, file_specs, dropin_hashes
 
 
-def _cleanup_tree_snapshot(ssh_client, contexts):
-    base = shared.SHARED_LAYOUT.remote_base
+def _cleanup_tree_snapshot(ssh_client, contexts, layout=shared.SHARED_LAYOUT):
+    base = layout.remote_base
     allowed_files, allowed_dirs, core_specs, file_specs, _dropin_hashes = (
-        _cleanup_trust_data(contexts)
+        _cleanup_trust_data(contexts, layout)
     )
     if not shared._remote_entry_exists(ssh_client, base):
         return (), 0
@@ -544,11 +555,16 @@ def _inspect_incomplete(ssh_client):
     )
     if not visible_artifacts:
         return RecoveryReport(RecoveryState.NOT_NEEDED, "未检测到共享 Xovi 残留，无需清理。"), None
-    if shared._remote_entry_exists(ssh_client, legacy_base):
-        raise RuntimeError("检测到旧 /home 共享布局，拒绝自动清理；请使用迁移或人工恢复。")
-
     identity = tap.get_device_identity(ssh_client)
+    layout = shared.SHARED_LAYOUT
+    if shared._remote_entry_exists(ssh_client, legacy_base):
+        if (identity.platform, identity.firmware) != ("rm1", "20260827113527") or shared._remote_entry_exists(ssh_client, base):
+            raise RuntimeError("检测到旧 /home 共享布局或混合布局，拒绝自动清理；请使用迁移或人工恢复。")
+        layout = shared.LEGACY_SHARED_LAYOUT
+        base = legacy_base
     contexts = _trusted_cleanup_contexts(identity)
+    if layout == shared.LEGACY_SHARED_LAYOUT:
+        contexts = tuple((runtime, trusted) for runtime, trusted in contexts if runtime.platform == "rm1")
     if not contexts:
         raise RuntimeError("当前或历史受信清单无法确认共享 Xovi 文件归属。")
     for path in (base, shared.SHARED_LAYOUT.dropin_path,
@@ -556,27 +572,26 @@ def _inspect_incomplete(ssh_client):
         if shared._remote_entry_exists(ssh_client, path):
             _assert_no_symlink_chain(ssh_client, path)
             _ancestors(ssh_client, path)
-    _unhidden_paths(ssh_client)
+    _unhidden_paths(ssh_client, layout)
     forbidden = _incomplete_forbidden_paths()
-    if any(
-        shared._remote_entry_exists(ssh_client, path)
-        for path in forbidden
-        if path not in (base, shared.SHARED_LAYOUT.dropin_path)
-    ):
-        raise RuntimeError("检测到 Vellum、AppLoad、非托管 Xovi 或旧版插件，拒绝自动清理。")
-    _external_loaders(ssh_client)
-    if shared._active(ssh_client):
+    conflicts = tuple(path for path in forbidden
+                      if path not in (base, shared.SHARED_LAYOUT.dropin_path)
+                      and shared._remote_entry_exists(ssh_client, path))
+    if conflicts:
+        raise RuntimeError("检测到非托管 Xovi 或旧版插件路径，拒绝自动清理；存在不代表正在加载：\n" + "\n".join(conflicts))
+    _external_loaders(ssh_client, layout)
+    if shared._active(ssh_client, layout):
         raise RuntimeError("共享 Xovi 仍在当前 xochitl 中载入，拒绝自动清理。")
 
     allowed_files, _allowed_dirs, _core_specs, _file_specs, dropin_hashes = (
-        _cleanup_trust_data(contexts)
+        _cleanup_trust_data(contexts, layout)
     )
     del allowed_files
     lower_dropin = _lower_dropin_snapshot(ssh_client, dropin_hashes)
     if lower_dropin is not None:
         _assert_no_symlink_chain(ssh_client, shared.SHARED_LAYOUT.dropin_path)
         _ancestors(ssh_client, shared.SHARED_LAYOUT.dropin_path)
-    base_entries, core_matches = _cleanup_tree_snapshot(ssh_client, contexts)
+    base_entries, core_matches = _cleanup_tree_snapshot(ssh_client, contexts, layout)
     visible_dropin = None
     dropin = shared.SHARED_LAYOUT.dropin_path
     if shared._remote_entry_exists(ssh_client, dropin):
@@ -607,11 +622,12 @@ def _inspect_incomplete(ssh_client):
         lower_dropin,
         tuple(sentinels),
         (),
+        layout,
     )
     return RecoveryReport(
         RecoveryState.CLEANUP_AVAILABLE,
         "已确认这是固定 rmtool 路径中的残缺共享 Xovi；可安全清理并恢复为未安装。"
-        "清理不会删除微信读书、KOReader、字体、书籍或其他 /data/rmtool 内容。",
+        "清理不会删除微信读书、KOReader、字体、书籍或其他 rmtool 内容。",
     ), plan
 
 
@@ -625,9 +641,12 @@ def inspect_incomplete(ssh_client) -> RecoveryReport:
 
 
 def _incomplete_cleanup_script(plan: _CleanupPlan, token: str) -> str:
-    base = shlex.quote(shared.SHARED_LAYOUT.remote_base)
+    base = shlex.quote(plan.layout.remote_base)
     dropin = shlex.quote(shared.SHARED_LAYOUT.dropin_path)
-    backup = shlex.quote(f"/tmp/rmtool-xovi-incomplete-backup-{token}")
+    backup = shlex.quote(
+        f"{plan.layout.remote_base}.incomplete-backup-{token}"
+        if plan.layout == shared.LEGACY_SHARED_LAYOUT else f"/tmp/rmtool-xovi-incomplete-backup-{token}"
+    )
     mount_dir = shlex.quote(f"/tmp/rmtool-xovi-incomplete-root-{token}")
     sentinel_paths = tuple(item[0] for item in plan.sentinels)
     base_checks = []
@@ -727,8 +746,7 @@ def _incomplete_cleanup_script(plan: _CleanupPlan, token: str) -> str:
         else ":"
     )
     parent_paths = (
-        "/data",
-        "/data/rmtool",
+        *(str(parent) for parent in PurePosixPath(plan.layout.remote_base).parents),
         "/etc",
         "/etc/systemd",
         "/etc/systemd/system",
@@ -863,6 +881,11 @@ def cleanup_incomplete(ssh_client) -> RecoveryReport:
 
 
 def _check_capacity(ssh_client, plan, *, staged=False):
+    if shared.preferred_layout(plan.runtime) == shared.LEGACY_SHARED_LAYOUT:
+        states = {fid: shared.SharedFeatureState(plan.targets[fid], state.enabled, state.process_token)
+                  for fid, state in plan.states.items()}
+        shared.check_shared_capacity(ssh_client, plan.runtime, states, staged=staged)
+        return
     enabled = tuple(plan.targets[fid] for fid, state in plan.states.items() if state.enabled)
     states = {fid: shared.SharedFeatureState(plan.targets[fid], state.enabled, state.process_token)
               for fid, state in plan.states.items()}
@@ -885,8 +908,8 @@ def _check_capacity(ssh_client, plan, *, staged=False):
         raise RuntimeError(f"/data 空间不足：保留旧安装并暂存新包至少需要 {needed} 字节，当前 {available} 字节。")
 
 
-def _ownership_snapshot(ssh_client, runtime, states, marker_text):
-    base = shared.SHARED_LAYOUT.remote_base
+def _ownership_snapshot(ssh_client, runtime, states, marker_text, layout=shared.SHARED_LAYOUT):
+    base = layout.remote_base
     files = {item.path: item.mode for item in runtime.files}
     for state in states.values():
         files.update({item.runtime_path: item.mode for item in state.spec.files})
@@ -927,7 +950,7 @@ def _ownership_snapshot(ssh_client, runtime, states, marker_text):
         if not stat.S_ISREG(mode) or stat.S_IMODE(mode) != 0o644:
             raise RuntimeError("共享插件 drop-in 类型或权限变化。")
         digest = shared._remote_sha256(ssh_client, dropin)
-        if digest not in _known_dropin_hashes(runtime, states):
+        if digest not in _known_dropin_hashes(runtime, states, layout):
             raise RuntimeError("活动共享 drop-in 内容未知，拒绝自动修复；请先人工确认配置归属。")
         marker = json.loads(marker_text)
         if launcher_digest is not None and launcher_digest != marker["launcher_sha256"]:
@@ -953,19 +976,24 @@ def _inspect(ssh_client):
         new_runtime, targets, _legacies = tap._trusted_shared_context(identity)
     except RuntimeError as exc:
         return RecoveryReport(RecoveryState.UNSUPPORTED, "当前固件没有精确受信包，不能自动修复。", issues=(str(exc),)), None
+    layout = shared.SHARED_LAYOUT
     if shared._remote_entry_exists(ssh_client, shared.LEGACY_SHARED_LAYOUT.remote_base):
-        raise RuntimeError("检测到旧 /home 共享布局或混合布局，暂不支持自动修复。")
+        if shared.preferred_layout(new_runtime) != shared.LEGACY_SHARED_LAYOUT or shared._remote_entry_exists(ssh_client, base):
+            raise RuntimeError("检测到旧 /home 共享布局或混合布局，暂不支持自动修复。")
+        layout = shared.LEGACY_SHARED_LAYOUT
+        base = layout.remote_base
     for path in (base + "/package.json", shared.SHARED_LAYOUT.dropin_path):
         _ancestors(ssh_client, path)
-    _unhidden_paths(ssh_client)
+    _unhidden_paths(ssh_client, layout)
     forbidden = (
         tap.VELLUM_ROOT, tap.SHARED_XOVI_LIBRARY, tap.SHARED_QRR_LIBRARY,
         tap.SHARED_APPLOAD_LIBRARY, tap.REMOTE_BASE, migration.fast.REMOTE_BASE,
         tap.DROPIN_PATH, migration.fast.DROPIN_PATH,
     )
-    if any(shared._remote_entry_exists(ssh_client, path) for path in forbidden):
-        raise RuntimeError("检测到 Vellum、独立旧版或混合运行环境，拒绝自动修复。")
-    _external_loaders(ssh_client)
+    conflicts = tuple(path for path in forbidden if shared._remote_entry_exists(ssh_client, path))
+    if conflicts:
+        raise RuntimeError("检测到外部 Xovi 或独立旧版插件路径，拒绝自动修复；存在不代表正在加载：\n" + "\n".join(conflicts))
+    _external_loaders(ssh_client, layout)
     marker_path = base + "/package.json"
     mode, size = _metadata(ssh_client, marker_path)
     if not stat.S_ISREG(mode) or stat.S_IMODE(mode) != 0o644:
@@ -984,8 +1012,8 @@ def _inspect(ssh_client):
     except (ValueError, TypeError) as exc:
         raise RuntimeError("共享插件标记 JSON 无效。") from exc
     old_runtime, old_trusted, _old_legacies = tap._trusted_shared_context(old_identity)
-    states = _recognized_marker(marker, old_runtime, old_trusted, _published_predecessors(old_identity, old_trusted))
-    fingerprint, sentinels = _ownership_snapshot(ssh_client, old_runtime, states, marker_text)
+    states = _recognized_marker(marker, old_runtime, old_trusted, _published_predecessors(old_identity, old_trusted), layout)
+    fingerprint, sentinels = _ownership_snapshot(ssh_client, old_runtime, states, marker_text, layout)
     features = tuple(sorted(states))
     issues = []
     if old_identity != identity:
@@ -993,12 +1021,18 @@ def _inspect(ssh_client):
     else:
         try:
             installed = shared.inspect_shared(ssh_client, new_runtime, targets)
-            if not installed.launcher_update_available and not installed.startup_pending:
+            outdated = any(state.spec != targets.get(fid) for fid, state in states.items())
+            if (not installed.launcher_update_available and not installed.startup_pending
+                    and not outdated and layout == shared.preferred_layout(new_runtime)):
                 return RecoveryReport(RecoveryState.NOT_NEEDED, "共享插件完整，无需修复。", features), None
+            if outdated:
+                issues.append("已识别的旧版插件需要更新。")
             if installed.launcher_update_available:
                 issues.append("启动脚本属于已发布旧模板。")
             if installed.startup_pending:
                 issues.append("检测到上次未完成的启动保护标记；重建时仅保留于隔离备份。")
+            if layout != shared.preferred_layout(new_runtime):
+                issues.append("RM1 共享插件需要迁移到 /home，避免继续占用根分区；修复备份保留待验证。")
         except RuntimeError as exc:
             issues.append(str(exc))
     missing = set(states) - set(targets)
@@ -1009,7 +1043,7 @@ def _inspect(ssh_client):
     )]
     if unsupported:
         return RecoveryReport(RecoveryState.BLOCKED, "以下功能含外部程序，暂不能保证全新重建及配置保留：" + "、".join(unsupported), features, tuple(unsupported)), None
-    plan = _Plan(identity, new_runtime, {fid: targets[fid] for fid in states}, states, fingerprint, sentinels)
+    plan = _Plan(identity, new_runtime, {fid: targets[fid] for fid in states}, states, fingerprint, sentinels, layout)
     tap._preflight_device(ssh_client)
     if "native-chinese" in states and states["native-chinese"].enabled:
         migration.native._reject_active_french_slot(ssh_client, identity)
@@ -1066,8 +1100,9 @@ def repair(ssh_client, state_dir) -> RecoveryReport:
                     for fid, state in plan.states.items()
                 }
                 token = uuid.uuid4().hex
-                stage = f"{shared.SHARED_LAYOUT.remote_base}.staging-{token}"
-                backup = f"/data/rmtool/.xovi-dropins-{token}"
+                layout = shared.preferred_layout(plan.runtime)
+                stage = f"{layout.remote_base}.staging-{token}"
+                backup = f"{PurePosixPath(layout.remote_base).parent}/.xovi-dropins-{token}"
                 script_path = f"/tmp/rmtool-xovi-recovery-{token}.sh"
                 stage_created = False
                 script_owned = False
@@ -1085,7 +1120,9 @@ def repair(ssh_client, state_dir) -> RecoveryReport:
                     # latch on failure or clear a pre-existing user latch.
                     created_sentinel = shared._set_recovery_sentinel_locked(ssh_client)
                     script = shared.shared_transaction_script(
-                        stage, token, (), enable_dropin=any(s.enabled for s in states.values()), retain_backup=True,
+                        stage, token, (plan.layout,) if plan.layout != layout else (),
+                        enable_dropin=any(s.enabled for s in states.values()), retain_backup=True,
+                        layout=layout,
                     ).encode()
                     if shared._remote_entry_exists(ssh_client, script_path):
                         raise RuntimeError("恢复事务临时路径已存在，拒绝覆盖。")
@@ -1124,4 +1161,6 @@ def repair(ssh_client, state_dir) -> RecoveryReport:
         if plan.sentinels or not created_sentinel else
         "修复临时保护已解除；请手动重启设备使插件生效。"
     )
+    if plan.layout != layout:
+        protection += f"旧路径备份仍保留在 {plan.layout.remote_base}.backup-{token}；确认新安装正常前请勿删除。"
     return RecoveryReport(RecoveryState.NOT_NEEDED, "插件已从受信新包重建；原安装已隔离保留，未自动重启。" + protection, report.features, backup_path=backup)

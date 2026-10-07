@@ -41,11 +41,29 @@ Tatsu uses the exact proven Pure catalog: 192400 bytes, SHA-256
 RM1 and RM2 use the deterministic merged legacy catalog with 2099 entries:
 205621 bytes, SHA-256
 `0f1de519ab4ac1998f432dab014d40fb0cdae2fe528ab30ca47c7a507df82485`.
-The committed ARMv7 translator is built from the same architecture-neutral
-source under `native-chinese/xovi-src` with the reviewed Zig toolchain: 2888
-bytes, SHA-256
-`9569d723d4057f741fcb70522b90a69e11aa5c75998cee8a6dcb69ad668be722`.
+The layout-aware ARMv7 translator is rebuilt from `native-chinese/xovi-src`
+with Zig 0.16.0, targeting `arm-linux-gnueabihf.2.4`: 3756 bytes, SHA-256
+`7627c21c45726113f706e748a52cd516c751c5f92c7ccf9422b9af6641eea427`.
+It selects the exact home path only when `XOVI_ROOT` matches rmtool's home
+layout, otherwise the data path. The launcher already validates the catalog.
+The old ARM binary embedded `/home/root/.local/share/rmtool/native-chinese/`,
+which matched neither shared layout. Its hash remains trusted only as a
+published predecessor, not as a new deployment payload. AArch64 is unchanged.
 Builders reject any byte mismatch before packaging.
+
+The new RM1/RM2 archives use the `-runtime-catalog` suffix and must be uploaded
+to both managed resource sources before an application release. Local output
+is `build/issues-20-21-native-chinese`; no resource has been published yet.
+
+```powershell
+build/.venv/Scripts/python.exe native-chinese/build_translator_armv7.py --zig E:/remarkable/tools/zig-0.16.0/zig.exe
+build/.venv/Scripts/python.exe native-chinese/build_assets.py --target-firmware 20260827113527 --target-platform rm1 --qmd-tool build/reading-enhancements-qmd/qmd-tool.exe --cache-root .rmtool/cache --output-dir build/issues-20-21-native-chinese
+build/.venv/Scripts/python.exe native-chinese/build_assets.py --target-firmware 20260827113527 --target-platform rm2 --qmd-tool build/reading-enhancements-qmd/qmd-tool.exe --cache-root .rmtool/cache --output-dir build/issues-20-21-native-chinese
+```
+
+The translator builder also compiles and runs a host check for both layouts,
+missing/unknown roots and the UTF-16 QString constructor length. ARM execution
+and boot behavior still require hardware validation.
 
 ## Deterministic outputs
 

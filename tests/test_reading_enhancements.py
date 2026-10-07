@@ -794,7 +794,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         self.assertEqual(status.state, reading.ReadingEnhancementsState.BROKEN)
         self.assertFalse(status.recovery_available)
         self.assertFalse(status.cleanup_available)
-        self.assertIn("Vellum/AppLoader", status.detail)
+        self.assertIn("外部 Xovi/Vellum", status.detail)
 
     def test_invalid_legacy_refuses_before_staging(self):
         legacy = self._legacy_mock()

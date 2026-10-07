@@ -30,6 +30,7 @@ class Device:
         self.identity = tap.DeviceIdentity(self.package.firmware, self.package.platform,
                                            self.package.architecture, self.package.xochitl_sha256)
         self.runtime, self.trusted, _ = tap._trusted_shared_context(self.identity)
+        self.layout = shared.SHARED_LAYOUT
         self.states = {"tap-page-turn": shared.SharedFeatureState(self.trusted["tap-page-turn"], enabled, TOKEN)}
         self.entries = {}
         self.symlinks = set()
@@ -60,8 +61,8 @@ class Device:
             if path == BASE or path.startswith(BASE + "/") or path == DROPIN:
                 del self.entries[path]
         enabled = tuple(state.spec for state in states.values() if state.enabled)
-        launcher = shared.shared_launcher(self.runtime, enabled).encode()
-        dropin = shared.shared_dropin(self.runtime, enabled).encode()
+        launcher = shared.shared_launcher(self.runtime, enabled, layout=self.layout).encode()
+        dropin = shared.shared_dropin(self.runtime, enabled, layout=self.layout).encode()
         self.add(BASE + "/package.json", shared.shared_marker(
             self.runtime,
             states,

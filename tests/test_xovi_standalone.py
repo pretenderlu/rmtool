@@ -116,7 +116,7 @@ class SharedXoviTests(unittest.TestCase):
             runtime,
             enabled,
             recovery_sentinel=not legacy_launcher,
-            startup_guard=(not legacy_launcher and layout == shared.SHARED_LAYOUT),
+            startup_guard=(not legacy_launcher and (layout == shared.SHARED_LAYOUT or runtime.platform == "rm1")),
             legacy_unmatched_qmd_glob=legacy_unmatched_qmd_glob,
             layout=layout,
         ).encode()
@@ -534,8 +534,10 @@ class SharedXoviTests(unittest.TestCase):
             runtime, trusted, _legacies = tap._trusted_shared_context(identity)
             text = shared.shared_dropin(runtime, trusted.values())
             with self.subTest(platform=platform, firmware=firmware):
-                self.assertIn("After=data.mount", text)
-                self.assertNotIn("home.mount", text)
+                home = shared.preferred_layout(runtime) == shared.LEGACY_SHARED_LAYOUT
+                self.assertIn("After=home.mount" if home else "After=data.mount", text)
+                if not home:
+                    self.assertNotIn("home.mount", text)
                 self.assertNotIn("ConditionPathExists=", text)
                 self.assertIn("else exec /usr/bin/xochitl --system", text)
 

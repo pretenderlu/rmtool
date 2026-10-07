@@ -874,9 +874,7 @@ def get_status(
                 identity,
                 package,
                 available,
-                "检测到 Vellum/AppLoader Xovi 运行环境，或它与 rmtool 历史布局混合；"
-                "为避免所有权冲突，已阻止阅读增强的安装、迁移、修复和清理。"
-                "请先按 Vellum 官方说明移除运行环境，再使用 rmtool 管理插件。",
+                tap._vellum_conflict_detail(ssh_client),
                 False,
                 False,
             )

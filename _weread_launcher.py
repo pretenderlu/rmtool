@@ -505,7 +505,7 @@ def install(ssh_client, package, archive_path) -> WeReadLauncherStatus:
     if error:
         raise RuntimeError(error + "。")
     if tap._vellum_runtime_present(ssh_client):
-        raise RuntimeError("检测到 Vellum/AppLoader Xovi，请先由原管理器卸载。")
+        raise RuntimeError(tap._vellum_conflict_detail(ssh_client))
     tap._preflight_device(ssh_client)
     runtime, trusted, legacies, feature = _trusted_context(identity, package)
     if any(shared.validate_legacy(ssh_client, item) for item in legacies):

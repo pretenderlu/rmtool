@@ -136,7 +136,7 @@ def _set_epub_font_with_menu_support(
             if status.state is states.INCOMPATIBLE
             else "检测到插件状态异常，请先在“插件与工具”中完成修复。"
         )
-        raise RuntimeError(f"{reason}未修改 EPUB 字体。")
+        raise RuntimeError(f"{reason}\n{status.detail}\n未修改 EPUB 字体。")
     if status.state not in reusable:
         if status.state not in deployable or status.package is None:
             raise RuntimeError("无法安全准备 EPUB 字体菜单，未修改 EPUB 字体。")
@@ -147,12 +147,12 @@ def _set_epub_font_with_menu_support(
             status.state is states.MIGRATION_AVAILABLE,
         )
         if deployed.state not in reusable:
-            raise RuntimeError("EPUB 字体菜单支持未能通过验证，未修改 EPUB 字体。")
+            raise RuntimeError(f"EPUB 字体菜单支持未能通过验证：{deployed.detail}\n未修改 EPUB 字体。")
     try:
         return _rmkit_cn.set_epub_font_slot(ssh_client, remote_dir, filename)
     except Exception as exc:
         logging.error("EPUB font slot write failed after menu check: %s", exc)
-        raise RuntimeError("EPUB 字体菜单已准备，但字体写入失败，请刷新状态后重试。") from exc
+        raise RuntimeError(f"EPUB 字体菜单已准备，但字体写入失败：{exc}\n请刷新状态后重试。") from exc
 
 
 def _cleanup_reading_enhancements(ssh_client, state_dir: str):

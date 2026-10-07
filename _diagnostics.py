@@ -24,6 +24,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+from _tap_page_turn import EXTERNAL_XOVI_PATHS
+
 # Per-item and total size budgets keep a bundle small even on noisy devices.
 ITEM_CAP_BYTES = 64 * 1024
 SIDECAR_TAIL_BYTES = 16 * 1024
@@ -72,13 +74,15 @@ DEVICE_ITEMS: tuple[DiagItem, ...] = (
         "device/shared-marker.txt",
         "共享 Xovi 标记文件",
         "cat /data/rmtool/xovi-standalone/package.json 2>/dev/null "
-        "|| echo MISSING",
+        "|| echo MISSING; echo '== /home shared marker'; "
+        "cat /home/root/.local/share/rmtool/xovi-standalone/package.json 2>/dev/null || echo MISSING",
     ),
     DiagItem(
         "device/shared-tree.txt",
         "共享目录与 drop-in 清单",
         "ls -la /data/rmtool/ 2>/dev/null; echo ---; "
         "ls -la /data/rmtool/xovi-standalone/ 2>/dev/null; echo ---; "
+        "ls -la /home/root/.local/share/rmtool/xovi-standalone/ 2>/dev/null; echo ---; "
         "ls -la /etc/systemd/system/xochitl.service.d/ 2>/dev/null "
         "|| echo NO-DROPIN-DIR",
     ),
@@ -86,6 +90,8 @@ DEVICE_ITEMS: tuple[DiagItem, ...] = (
         "device/protection-markers.txt",
         "启动保护与紧急停用标记",
         "ls -la /data/rmtool/xovi-standalone/startup.pending 2>/dev/null "
+        "|| echo NONE; echo ---; "
+        "ls -la /home/root/.local/share/rmtool/xovi-standalone/startup.pending 2>/dev/null "
         "|| echo NONE; echo ---; "
         "ls -la /data/rmtool/disable-xovi 2>/dev/null || echo NONE; echo ---; "
         "ls -la /home/root/.local/share/rmtool/disable-xovi 2>/dev/null "
@@ -96,6 +102,34 @@ DEVICE_ITEMS: tuple[DiagItem, ...] = (
         "xochitl drop-in 内容",
         "cat /etc/systemd/system/xochitl.service.d/*.conf 2>/dev/null "
         "|| echo NO-DROPIN",
+    ),
+    DiagItem(
+        "device/external-xovi-paths.txt",
+        "外部 Xovi 冲突路径与类型（文件存在不代表正在加载）",
+        "for f in " + " ".join(EXTERNAL_XOVI_PATHS) + "; do "
+        "printf '\\n== %s\\n' \"$f\"; "
+        "if [ -e \"$f\" ] || [ -L \"$f\" ]; then "
+        "stat -c 'type=%F mode=%a owner=%u:%g size=%s path=%n' \"$f\"; "
+        "if [ -L \"$f\" ]; then printf 'link_target='; readlink \"$f\"; fi; "
+        "else echo ABSENT; fi; done",
+    ),
+    DiagItem(
+        "device/xovi-startup-config.txt",
+        "xochitl 实际启动配置与外部注入线索",
+        "systemctl show xochitl -p FragmentPath -p DropInPaths -p ExecStart; "
+        "for dir in /etc/systemd/system /run/systemd/system /usr/lib/systemd/system /lib/systemd/system; do "
+        "for f in \"$dir/xochitl.service\" \"$dir\"/xochitl.service.d/*.conf; do "
+        "[ -f \"$f\" ] || continue; "
+        "grep -HnEi 'LD_PRELOAD|XOVI_ROOT|xovi|appload|qt-resource-rebuilder' \"$f\"; done; done; :",
+    ),
+    DiagItem(
+        "device/xovi-loaded-maps.txt",
+        "xochitl 当前实际加载的插件（仅当前主进程）",
+        "pid=$(systemctl show xochitl -p MainPID --value) || exit 1; "
+        "case \"$pid\" in ''|*[!0-9]*) echo UNKNOWN-PID; exit 1;; 0) echo NOT-RUNNING; exit 0;; esac; "
+        "printf 'MainPID=%s\\n' \"$pid\"; "
+        "awk 'BEGIN {found=0} /xovi|qt-resource-rebuilder|appload/ {print; found=1} "
+        "END {if (!found) print \"NO-MATCH-IN-CURRENT-MAINPID\"}' /proc/\"$pid\"/maps",
     ),
     DiagItem(
         "device/sidecar-logs.txt",

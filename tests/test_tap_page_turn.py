@@ -354,8 +354,25 @@ class TapPageTurnTests(unittest.TestCase):
         ssh = Mock()
         ssh.file_exists.side_effect = lambda path: path == tap.VELLUM_BIN
         with patch.object(tap, "_vellum_installed_packages", return_value=set()):
-            with self.assertRaisesRegex(RuntimeError, "Vellum 官方说明"):
+            with self.assertRaisesRegex(RuntimeError, "外部 Xovi/Vellum"):
                 tap._deployment_mode(ssh, self.package())
+
+    def test_external_files_report_all_paths_without_claiming_vellum_is_running(self):
+        paths = (tap.SHARED_XOVI_LIBRARY, tap.SHARED_QRR_LIBRARY, tap.SHARED_APPLOAD_LIBRARY)
+        ssh = Mock()
+        ssh.file_exists.side_effect = lambda path: path in paths
+        self.assertEqual(tap._vellum_runtime_paths(ssh), paths)
+        self.assertTrue(tap._vellum_runtime_present(ssh))
+        with self.assertRaises(RuntimeError) as caught:
+            tap._assert_shared_xovi_installable(ssh)
+        detail = str(caught.exception)
+        for path in paths:
+            self.assertIn(path, detail)
+        self.assertIn("文件存在不代表插件正在加载", detail)
+        self.assertNotIn(tap.VELLUM_UNINSTALL_COMMAND, detail)
+        self.assertNotIn("管理器文件：", detail)
+        ssh.exec_checked.assert_not_called()
+        ssh.transfer_file.assert_not_called()
 
     def test_both_historical_rmtool_vellum_packages_must_be_removed_first(self):
         ssh = Mock()
@@ -434,7 +451,7 @@ class TapPageTurnTests(unittest.TestCase):
 
         self.assertEqual(status.state, tap.TapPageTurnState.VELLUM_RUNTIME)
         self.assertFalse(status.dropin_present)
-        self.assertIn(tap.VELLUM_UNINSTALL_COMMAND, status.detail)
+        self.assertIn("文件存在不代表插件正在加载", status.detail)
 
     def test_module_has_no_vellum_install_path(self):
         source = inspect.getsource(tap)

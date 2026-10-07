@@ -52,7 +52,7 @@ class DiagnosticsTests(unittest.TestCase):
                     f"{item.name} contains forbidden fragment {fragment!r}",
                 )
             self.assertRegex(item.command, r"^(cat|ls|journalctl|systemctl show|"
-                            r"sha256sum|df|uname|uptime|for)")
+                            r"sha256sum|df|uname|uptime|for|pid=)")
         # The device journal that may contain document names is opt-out.
         optional = [item for item in _diagnostics.DEVICE_ITEMS if item.optional]
         self.assertEqual(
@@ -83,6 +83,34 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertIn('${#job}', job)
         self.assertIn("job.json target result install.log", job)
         self.assertIn("rmtool: " + rmtool.APP_VERSION, _diagnostics._collect_pc_environment().text)
+
+    def test_external_xovi_diagnostics_distinguish_files_config_and_live_maps(self):
+        items = {item.name: item for item in _diagnostics.DEVICE_ITEMS}
+        paths = items["device/external-xovi-paths.txt"].command
+        for path in _diagnostics.EXTERNAL_XOVI_PATHS:
+            self.assertIn(path, paths)
+        self.assertIn('[ -L "$f" ]', paths)
+        self.assertIn("readlink", paths)
+        self.assertIn("type=%F", paths)
+        self.assertIn("ABSENT", paths)
+        config = items["device/xovi-startup-config.txt"].command
+        for root in ("/etc", "/run", "/usr/lib"):
+            self.assertIn(root + "/systemd/system", config)
+        self.assertIn("DropInPaths", config)
+        maps = items["device/xovi-loaded-maps.txt"].command
+        self.assertIn('MainPID', maps)
+        self.assertIn('NO-MATCH-IN-CURRENT-MAINPID', maps)
+        self.assertNotIn('/proc/*', maps)
+        ssh = FakeDiagnosticsSsh({"type=%F": "ABSENT vellum\nregular file /home/root/xovi/xovi.so\n",
+                                  "DropInPaths": "DropInPaths=\n",
+                                  "NO-MATCH-IN-CURRENT-MAINPID": "MainPID=42\nNO-MATCH-IN-CURRENT-MAINPID\n"})
+        collected = _diagnostics.collect(ssh)
+        with tempfile.TemporaryDirectory() as folder:
+            archive = Path(folder) / "diagnostics.zip"
+            _diagnostics.write_bundle(archive, collected)
+            with zipfile.ZipFile(archive) as bundle:
+                self.assertIn(b"/home/root/xovi/xovi.so", bundle.read("device/external-xovi-paths.txt"))
+                self.assertIn(b"NO-MATCH-IN-CURRENT-MAINPID", bundle.read("device/xovi-loaded-maps.txt"))
 
     def test_diagnostic_shell_syntax_and_transaction_path_validation(self):
         git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"

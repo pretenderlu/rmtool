@@ -80,6 +80,14 @@ class SharedRuntimeSpec:
     files: tuple[SharedFileSpec, ...]
 
 
+def preferred_layout(runtime: SharedRuntimeSpec) -> StandaloneLayout:
+    # Scope the storage migration to the verified RM1 .172 target. Older
+    # AppLoad packages also have external shim links tied to the /data layout.
+    if runtime.platform == "rm1" and runtime.firmware == "20260827113527":
+        return LEGACY_SHARED_LAYOUT
+    return SHARED_LAYOUT
+
+
 @dataclass(frozen=True)
 class SharedFeatureSpec:
     feature_id: str
@@ -345,8 +353,9 @@ def shared_launcher(
     recovery_sentinel: bool = True,
     startup_guard: bool = True,
     legacy_unmatched_qmd_glob: bool = False,
-    layout: StandaloneLayout = SHARED_LAYOUT,
+    layout: Optional[StandaloneLayout] = None,
 ) -> str:
+    layout = layout or preferred_layout(runtime)
     enabled = tuple(sorted(enabled, key=lambda value: value.feature_id))
     assert_feature_layout(runtime, enabled)
     checks = []
@@ -473,7 +482,7 @@ done
             + "\nsystemctl daemon-reload >/dev/null 2>&1 || stock\n"
             + starts
         )
-    if recovery_sentinel and layout == LEGACY_SHARED_LAYOUT:
+    if recovery_sentinel and layout == LEGACY_SHARED_LAYOUT and runtime.platform != "rm1":
         recovery_check = f"[ ! -e {LEGACY_RECOVERY_SENTINEL} ] || stock"
     elif recovery_sentinel:
         recovery_check = (
@@ -601,9 +610,10 @@ def shared_dropin(
     runtime: SharedRuntimeSpec,
     enabled: Iterable[SharedFeatureSpec],
     *,
-    layout: StandaloneLayout = SHARED_LAYOUT,
+    layout: Optional[StandaloneLayout] = None,
 ) -> str:
-    if layout == LEGACY_SHARED_LAYOUT:
+    layout = layout or preferred_layout(runtime)
+    if layout == LEGACY_SHARED_LAYOUT and runtime.platform != "rm1":
         return f"""[Unit]
 After=home.mount
 ConditionPathExists={layout.launcher_path}
@@ -614,8 +624,9 @@ ExecStart={layout.launcher_path}
 WatchdogSec=0
 """
     launcher = shlex.quote(layout.launcher_path)
+    mount = "home.mount" if layout == LEGACY_SHARED_LAYOUT else "data.mount"
     return f"""[Unit]
-After=data.mount
+After={mount}
 
 [Service]
 ExecStart=
@@ -1691,7 +1702,7 @@ def _inspect_shared(
         runtime,
         enabled,
         layout=layout,
-        startup_guard=layout == SHARED_LAYOUT,
+        startup_guard=layout == SHARED_LAYOUT or runtime.platform == "rm1",
     )
     launcher_sha = hashlib.sha256(launcher_text.encode()).hexdigest()
     legacy_templates = False
@@ -1722,7 +1733,7 @@ def _inspect_shared(
                 runtime,
                 enabled,
                 layout=layout,
-                startup_guard=layout == SHARED_LAYOUT,
+                startup_guard=layout == SHARED_LAYOUT or runtime.platform == "rm1",
                 legacy_unmatched_qmd_glob=True,
             ),
             shared_launcher(
@@ -2161,18 +2172,21 @@ def shared_transaction_script(
     enable_dropin: bool,
     remove_base: bool = False,
     retain_backup: bool = False,
+    layout: StandaloneLayout = SHARED_LAYOUT,
 ) -> str:
     layouts = tuple(legacy_layouts)
     bases = tuple(dict.fromkeys(
-        (SHARED_LAYOUT.remote_base, *(layout.remote_base for layout in layouts))
+        (layout.remote_base, *(item.remote_base for item in layouts))
     ))
     dropins = tuple(dict.fromkeys(
         (SHARED_LAYOUT.dropin_path, *(layout.dropin_path for layout in layouts))
     ))
     mount_dir = f"/tmp/rmtool-xovi-rootfs-{token}"
-    backup_dir = f"/data/rmtool/.xovi-dropins-{token}"
+    backup_dir = f"{posixpath.dirname(layout.remote_base)}/.xovi-dropins-{token}"
     base_backups = tuple(
-        f"{backup_dir}/base-{index}" if retain_backup else f"{base}.backup-{token}"
+        f"{backup_dir}/base-{index}"
+        if retain_backup and posixpath.dirname(base) == posixpath.dirname(layout.remote_base)
+        else f"{base}.backup-{token}"
         for index, base in enumerate(bases)
     )
     upper_backups = tuple(f"{backup_dir}/upper-{index}" for index in range(len(dropins)))
@@ -2209,7 +2223,7 @@ def shared_transaction_script(
     cleanup_backups = " ".join(shlex.quote(path) for path in base_backups)
     remove_upper = "\n".join(f"rm -f {shlex.quote(path)}" for path in dropins)
     remove_lower = "\n".join(f'rm -f "$MOUNT_DIR{path}"' for path in dropins)
-    source_dropin = f"{SHARED_LAYOUT.remote_base}/systemd/{SHARED_LAYOUT.dropin_name}"
+    source_dropin = f"{layout.remote_base}/systemd/{layout.dropin_name}"
     if enable_dropin:
         write_upper = f"""mkdir -p "$(dirname {shlex.quote(SHARED_LAYOUT.dropin_path)})"
 cp {shlex.quote(source_dropin)} {shlex.quote(SHARED_LAYOUT.dropin_path + '.tmp')}
@@ -2233,6 +2247,8 @@ cmp -s {shlex.quote(source_dropin)} "$MOUNT_DIR{SHARED_LAYOUT.dropin_path}"
     # inputs. Refuse a colliding backup instead of deleting an earlier recovery.
     prepare_backups = (
         '[ ! -e "$BACKUP_DIR" ] && [ ! -L "$BACKUP_DIR" ]; '
+        + "\n".join(f"[ ! -e {shlex.quote(path)} ] && [ ! -L {shlex.quote(path)} ]; "
+                    for path in base_backups) +
         'mkdir -m 0700 "$BACKUP_DIR"; BACKUPS_CREATED=1'
         if retain_backup else
         f'rm -rf "$BACKUP_DIR" {cleanup_backups}\nmkdir -p "$BACKUP_DIR"'
@@ -2245,7 +2261,7 @@ cmp -s {shlex.quote(source_dropin)} "$MOUNT_DIR{SHARED_LAYOUT.dropin_path}"
     return f"""#!/bin/sh
 set -eu
 STAGE={shlex.quote(stage)}
-BASE={shlex.quote(SHARED_LAYOUT.remote_base)}
+BASE={shlex.quote(layout.remote_base)}
 MOUNT_DIR={shlex.quote(mount_dir)}
 BACKUP_DIR={shlex.quote(backup_dir)}
 BACKUPS_CREATED=0
@@ -2406,6 +2422,52 @@ def _qmd_check_command(stage: str, enabled: Iterable[SharedFeatureSpec]) -> str:
     )
 
 
+def check_shared_capacity(ssh_client, runtime, states, *, staged=False):
+    """Keep RM1 payloads off its small root filesystem, including staging."""
+    if preferred_layout(runtime) != LEGACY_SHARED_LAYOUT:
+        return
+    ssh_client.exec_checked("mountpoint -q /home")
+    enabled = tuple(state.spec for state in states.values() if state.enabled)
+    sizes = [len(shared_marker(runtime, states, "0" * 64, "0" * 64))]
+    if enabled:
+        sizes.extend(item.size for item in runtime.files)
+        sizes.extend(item.size for feature in enabled for item in feature.files)
+        # qmd-tool validation also makes a temporary copy of the QML inputs.
+        sizes.extend(item.size for item in runtime.files if item.path.endswith("hashtab"))
+        sizes.extend(item.size for feature in enabled for item in feature.files
+                     if item.runtime_path.endswith(".qmd"))
+        sizes.extend((len(shared_launcher(runtime, enabled).encode()),
+                      len(shared_dropin(runtime, enabled).encode())))
+    needed = 24 * 1024 * 1024
+    if not staged:
+        needed += sum(((size + 4095) // 4096) * 4096 for size in sizes)
+    for path, required in (("/home", needed), ("/", 1024 * 1024)):
+        value = ssh_client.exec_checked(
+            f"df -Pk {path} | awk 'NR > 1 && $(NF-2) ~ /^[0-9]+$/ {{print $(NF-2); exit}}'"
+        ).strip()
+        if not re.fullmatch(r"[0-9]+", value):
+            raise RuntimeError(f"无法确认 {path} 剩余空间，未上传共享插件。")
+        available = int(value) * 1024
+        if available < required:
+            raise RuntimeError(
+                f"{path} 空间不足：至少需要 {required} 字节，当前 {available} 字节。"
+                "RM1 插件主体部署到 /home，但根分区仍需少量空间保存启动配置；"
+                "请先导出诊断并清理已确认归属的旧安装，不要删除未知系统文件。"
+            )
+
+
+def _assert_home_catalog(runtime, states):
+    if preferred_layout(runtime) == LEGACY_SHARED_LAYOUT:
+        # Published ARM translators used a different absolute catalog path.
+        # Do not relocate them unchanged while updating a sibling feature.
+        for state in states.values():
+            if state.enabled and state.spec.feature_id == "native-chinese":
+                import _native_chinese as native
+                extension = next((item for item in state.spec.files if item.runtime_path == native.EXTENSION_PATH), None)
+                if extension is None or (extension.size, extension.sha256) != native.ARM_TRANSLATOR:
+                    raise RuntimeError("汉化扩展需同步更新翻译目录路径，请先在“原生简体中文”中修复更新，再操作其他插件。")
+
+
 def _stage_shared(
     ssh_client,
     runtime: SharedRuntimeSpec,
@@ -2414,6 +2476,8 @@ def _stage_shared(
     previous_sources: Mapping[str, str],
     stage: str,
 ) -> tuple[str, str]:
+    _assert_home_catalog(runtime, states)
+    check_shared_capacity(ssh_client, runtime, states)
     enabled = tuple(state.spec for state in states.values() if state.enabled)
     launcher_text = shared_launcher(runtime, enabled)
     dropin_text = shared_dropin(runtime, enabled)
@@ -2562,9 +2626,9 @@ def replace_shared_features(
             current_trusted,
             set(incoming_roots) | (set(inspection.states) - set(target_states)),
         )
-        if inspection.layout != SHARED_LAYOUT and shared_exists:
-            # The legacy layout is accepted only as a fully inspected source;
-            # the transaction will move it to the current /data layout.
+        layout = preferred_layout(target_runtime)
+        if inspection.layout != layout and shared_exists:
+            # Relocate only a fully inspected source, preserving rollback.
             legacy_layouts = tuple(dict.fromkeys((*legacy_layouts, inspection.layout)))
 
         previous_sources = {
@@ -2594,7 +2658,7 @@ def replace_shared_features(
                 raise RuntimeError(f"无法从已验证安装中保留 {state.spec.feature_id}。")
 
         token = uuid.uuid4().hex
-        stage = f"{SHARED_LAYOUT.remote_base}.staging-{token}"
+        stage = f"{layout.remote_base}.staging-{token}"
         remote_script = f"/tmp/rmtool-xovi-replace-{token}.sh"
         ssh_client.exec_checked(f"rm -rf {shlex.quote(stage)}")
         try:
@@ -2612,6 +2676,7 @@ def replace_shared_features(
                 legacy_layouts,
                 enable_dropin=bool(enabled),
                 remove_base=remove_base_when_empty and not enabled,
+                layout=layout,
             )
             _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
             ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
@@ -2660,7 +2725,7 @@ def remove_shared_features(
             for feature_id in remaining
         }
         legacy_layouts = (
-            (inspection.layout,) if inspection.layout != SHARED_LAYOUT else ()
+            (inspection.layout,) if inspection.layout != preferred_layout(runtime) else ()
         )
         return replace_shared_features(
             ssh_client,
@@ -2698,6 +2763,7 @@ def _enable_shared_locked(
     trusted: Mapping[str, SharedFeatureSpec],
     legacy_specs: Iterable[LegacyStandaloneSpec],
 ) -> SharedInspection:
+    layout = preferred_layout(runtime)
     if set(trusted) - {
         "tap-page-turn",
         "fast-mono-reading",
@@ -2746,7 +2812,7 @@ def _enable_shared_locked(
         installed_state is not None
         and installed_state.enabled
         and installed_state.spec == feature
-        and inspection.layout == SHARED_LAYOUT
+        and inspection.layout == layout
         and not inspection.launcher_update_available
     ):
         return inspection
@@ -2783,7 +2849,7 @@ def _enable_shared_locked(
         raise RuntimeError("共享 Xovi 功能路径发生冲突。")
 
     token = uuid.uuid4().hex
-    stage = f"{SHARED_LAYOUT.remote_base}.staging-{token}"
+    stage = f"{layout.remote_base}.staging-{token}"
     remote_script = f"/tmp/rmtool-xovi-activate-{token}.sh"
     ssh_client.exec_checked(f"rm -rf {shlex.quote(stage)}")
     try:
@@ -2796,10 +2862,10 @@ def _enable_shared_locked(
             stage,
         )
         migrated_layouts = [item.layout for item in present_legacy]
-        if inspection.states and inspection.layout != SHARED_LAYOUT:
+        if inspection.states and inspection.layout != layout:
             migrated_layouts.append(inspection.layout)
         script = shared_transaction_script(
-            stage, token, migrated_layouts, enable_dropin=True
+            stage, token, migrated_layouts, enable_dropin=True, layout=layout
         )
         _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
         ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
@@ -2841,6 +2907,7 @@ def _disable_shared_locked(
     trusted: Mapping[str, SharedFeatureSpec],
     replacement_spec: Optional[SharedFeatureSpec] = None,
 ) -> SharedInspection:
+    layout = preferred_layout(runtime)
     inspection = inspect_shared(ssh_client, runtime, trusted, check_lower=True)
     _assert_receipt_operation_scope(inspection, trusted, (feature_id,))
     state = inspection.states.get(feature_id)
@@ -2874,8 +2941,10 @@ def _disable_shared_locked(
         target_trusted[feature_id] = replacement_spec
     enabled = tuple(item.spec for item in states.values() if item.enabled)
     token = uuid.uuid4().hex
-    stage = f"{SHARED_LAYOUT.remote_base}.staging-{token}"
+    stage = f"{layout.remote_base}.staging-{token}"
     remote_script = f"/tmp/rmtool-xovi-disable-{token}.sh"
+    _assert_home_catalog(runtime, states)
+    check_shared_capacity(ssh_client, runtime, inspection.states)
     ssh_client.exec_checked(f"rm -rf {shlex.quote(stage)}")
     try:
         ssh_client.exec_checked(
@@ -2953,13 +3022,14 @@ def _disable_shared_locked(
             ssh_client.exec_checked(_qmd_check_command(stage, enabled))
         ssh_client.exec_checked(f"rm -rf {shlex.quote(stage + '/check')}")
         migrated_layouts = (
-            (inspection.layout,) if inspection.layout != SHARED_LAYOUT else ()
+            (inspection.layout,) if inspection.layout != layout else ()
         )
         script = shared_transaction_script(
             stage,
             token,
             migrated_layouts,
             enable_dropin=bool(enabled),
+            layout=layout,
         )
         _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
         ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
@@ -3000,7 +3070,8 @@ def remove_shared_firmware_residue(
             **inspection_kwargs,
         )
         token = uuid.uuid4().hex
-        stage = f"{SHARED_LAYOUT.remote_base}.staging-{token}"
+        layout = preferred_layout(runtime)
+        stage = f"{layout.remote_base}.staging-{token}"
         remote_script = f"/tmp/rmtool-xovi-remove-residue-{token}.sh"
         ssh_client.exec_checked(
             f"rm -rf {shlex.quote(stage)}; mkdir -m 0755 {shlex.quote(stage)}; "
@@ -3010,9 +3081,10 @@ def remove_shared_firmware_residue(
             script = shared_transaction_script(
                 stage,
                 token,
-                (inspection.layout,) if inspection.layout != SHARED_LAYOUT else (),
+                (inspection.layout,) if inspection.layout != layout else (),
                 enable_dropin=False,
                 remove_base=True,
+                layout=layout,
             )
             _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
             ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
@@ -3128,16 +3200,17 @@ def migrate_shared(
                 current if state.enabled else state.process_token,
             )
         token = uuid.uuid4().hex
-        stage = f"{SHARED_LAYOUT.remote_base}.staging-{token}"
+        layout = preferred_layout(new_runtime)
+        stage = f"{layout.remote_base}.staging-{token}"
         remote_script = f"/tmp/rmtool-xovi-migrate-{token}.sh"
         ssh_client.exec_checked(f"rm -rf {shlex.quote(stage)}")
         try:
             _stage_shared(ssh_client, new_runtime, states, roots, {}, stage)
             migrated_layouts = (
-                (residue.layout,) if residue.layout != SHARED_LAYOUT else ()
+                (residue.layout,) if residue.layout != layout else ()
             )
             script = shared_transaction_script(
-                stage, token, migrated_layouts, enable_dropin=bool(enabled_ids)
+                stage, token, migrated_layouts, enable_dropin=bool(enabled_ids), layout=layout
             )
             _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
             ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")

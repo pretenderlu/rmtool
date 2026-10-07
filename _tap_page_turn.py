@@ -1074,17 +1074,30 @@ def _vellum_installed_packages(ssh_client) -> set[str]:
     return packages
 
 
+EXTERNAL_XOVI_PATHS = (
+    VELLUM_BIN, SHARED_XOVI_DROPIN, SHARED_XOVI_LIBRARY,
+    SHARED_QRR_LIBRARY, SHARED_APPLOAD_LIBRARY,
+)
+
+
+def _vellum_runtime_paths(ssh_client) -> tuple[str, ...]:
+    return tuple(path for path in EXTERNAL_XOVI_PATHS if ssh_client.file_exists(path))
+
+
 def _vellum_runtime_present(ssh_client) -> bool:
-    return any(
-        ssh_client.file_exists(path)
-        for path in (
-            VELLUM_BIN,
-            SHARED_XOVI_DROPIN,
-            SHARED_XOVI_LIBRARY,
-            SHARED_QRR_LIBRARY,
-            SHARED_APPLOAD_LIBRARY,
-        )
-    )
+    return bool(_vellum_runtime_paths(ssh_client))
+
+
+def _vellum_conflict_detail(ssh_client) -> str:
+    paths = _vellum_runtime_paths(ssh_client)
+    lines = ["检测到外部 Xovi/Vellum 文件或配置，归属尚未确认，已阻止自动修改："]
+    for path in paths:
+        kind = "管理器文件" if path == VELLUM_BIN else "启动配置" if path == SHARED_XOVI_DROPIN else "插件文件"
+        lines.append(f"{kind}：{path}")
+    if not paths:
+        lines.append("路径状态已变化，请重新检测。")
+    lines.append("文件存在不代表插件正在加载，也不代表 Vellum 已安装。请导出诊断核对来源与加载状态；不要直接删除未知文件。")
+    return "\n".join(lines)
 
 
 def _assert_shared_xovi_installable(ssh_client) -> None:
@@ -1100,11 +1113,7 @@ def _assert_shared_xovi_installable(ssh_client) -> None:
             + ", ".join(sorted(legacy_packages))
         )
     if _vellum_runtime_present(ssh_client):
-        raise RuntimeError(
-            "检测到 Vellum/AppLoader Xovi 运行环境。请按 Vellum 官方说明执行 "
-            f"`{VELLUM_UNINSTALL_COMMAND}`，确认运行环境已移除后再安装 rmtool 插件："
-            f"{VELLUM_UNINSTALL_URL}"
-        )
+        raise RuntimeError(_vellum_conflict_detail(ssh_client))
     allowed_dropins = {
         DROPIN_PATH,
         "/etc/systemd/system/xochitl.service.d/91-rmtool-fast-mono-reading.conf",
@@ -1290,9 +1299,7 @@ def get_status(
             identity,
             package,
             available,
-            "请按 Vellum 官方说明执行 "
-            f"`{VELLUM_UNINSTALL_COMMAND}`，确认 Vellum/AppLoader Xovi 已移除后，"
-            "再使用 rmtool 共享 Xovi 安装。",
+            _vellum_conflict_detail(ssh_client),
             False,
         )
 
@@ -1573,9 +1580,7 @@ def get_status(
             identity,
             package,
             available,
-            "请按 Vellum 官方说明执行 "
-            f"`{VELLUM_UNINSTALL_COMMAND}`，确认 Vellum/AppLoader Xovi 已移除后，"
-            "再使用 rmtool 共享 Xovi 安装。",
+            _vellum_conflict_detail(ssh_client),
             False,
         )
 

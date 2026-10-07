@@ -696,9 +696,12 @@ def get_status(
             )
         elif external_exists:
             raise RuntimeError("拼音功能已停用，但服务目录仍有残留。")
+        if inspection.layout != _xovi_standalone.preferred_layout(runtime):
+            outdated = outdated or "storage_layout"
         if outdated or external_outdated:
             reason = outdated or "firmware_identity_marker"
             detail = {
+                "storage_layout": "共享插件需要迁移到当前机型的存储位置，可直接修复更新；旧安装验证后才会移动。",
                 "firmware_identity_marker": (
                     "已精确验证为固件升级前的拼音服务标记，实际文件完整且与当前包一致，"
                     "可直接修复更新"
@@ -799,7 +802,7 @@ def enable(
                 and installed is not None
                 and installed.enabled
                 and installed.spec == feature
-                and inspection.layout == _xovi_standalone.SHARED_LAYOUT
+                and inspection.layout == _xovi_standalone.preferred_layout(runtime)
             ):
                 return get_status(ssh_client, (package,))
             previous_moved = False

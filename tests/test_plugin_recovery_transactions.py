@@ -21,18 +21,19 @@ if os.name == "nt":
 @unittest.skipUnless(SH, "A POSIX shell (or Git Bash) is required")
 class RecoveryTransactionTests(unittest.TestCase):
     TOKEN = "a" * 32
+    LAYOUT = shared.SHARED_LAYOUT
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="rmtool-recovery-")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.base = self.root / "sandbox" / shared.SHARED_LAYOUT.remote_base.lstrip("/")
+        self.base = self.root / "sandbox" / self.LAYOUT.remote_base.lstrip("/")
         self.stage = self.base.with_name(self.base.name + ".staging-" + self.TOKEN)
         self.upper = self.root / "sandbox" / shared.SHARED_LAYOUT.dropin_path.lstrip("/")
         # Rewritten absolute suffixes also apply underneath the fake bind mount.
         self.lower_root = self.root / "sandbox/lower"
         self.lower = self.lower_root / "sandbox" / shared.SHARED_LAYOUT.dropin_path.lstrip("/")
-        self.backup = self.root / "sandbox/data/rmtool" / (".xovi-dropins-" + self.TOKEN)
+        self.backup = self.base.parent / (".xovi-dropins-" + self.TOKEN)
         self.old_tree = {
             "package.json": b"old marker\n", "launcher.sh": b"old damaged program\n",
             "startup.pending": b"",
@@ -51,19 +52,21 @@ class RecoveryTransactionTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
         self.external = self.root / "sandbox/home/root/settings.reader.lua"
-        self.external.parent.mkdir(parents=True)
+        self.external.parent.mkdir(parents=True, exist_ok=True)
         self.external.write_bytes(b"user settings\n")
         self.sentinel = self.root / "sandbox" / shared.SHARED_RECOVERY_SENTINEL.lstrip("/")
+        self.sentinel.parent.mkdir(parents=True, exist_ok=True)
         self.sentinel.write_bytes(b"")
 
     def tree(self, directory):
         return {str(path.relative_to(directory)).replace("\\", "/"): path.read_bytes()
                 for path in directory.rglob("*") if path.is_file()}
 
-    def execute(self, failure="", *, enable_dropin=True, root_mode="ro"):
+    def execute(self, failure="", *, enable_dropin=True, root_mode="ro", legacy_layouts=()):
         script = shared.shared_transaction_script(
-            shared.SHARED_LAYOUT.remote_base + ".staging-" + self.TOKEN,
-            self.TOKEN, (), enable_dropin=enable_dropin, retain_backup=True,
+            self.LAYOUT.remote_base + ".staging-" + self.TOKEN,
+            self.TOKEN, legacy_layouts, enable_dropin=enable_dropin, retain_backup=True,
+            layout=self.LAYOUT,
         )
         self.assertNotRegex(script, r"\b(?:reboot|shutdown)\b|systemctl\s+(?:start|restart|try-restart)")
         # The trailing slash preserves concatenated lower-root paths after the
@@ -275,6 +278,29 @@ systemctl() {
         self.assertEqual(self.tree(self.backup / "base-0"), self.old_tree)
         self.assertEqual((self.backup / "upper-0").read_bytes(), b"old upper\n")
         self.assertEqual((self.backup / "lower-0").read_bytes(), b"old lower\n")
+        self.assertEqual(self.upper.read_bytes(), b"old upper\n")
+        self.assertEqual(self.lower.read_bytes(), b"old lower\n")
+
+
+class RM1RecoveryTransactionTests(RecoveryTransactionTests):
+    LAYOUT = shared.LEGACY_SHARED_LAYOUT
+
+    def test_data_to_home_migration_retains_source_backup(self):
+        source = self.root / "sandbox" / shared.SHARED_LAYOUT.remote_base.lstrip("/")
+        self.base.rename(source)
+        result = self.execute(legacy_layouts=(shared.SHARED_LAYOUT,))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.tree(self.base), self.new_tree)
+        self.assertFalse(source.exists())
+        self.assertEqual(self.tree(source.with_name(source.name + ".backup-" + self.TOKEN)), self.old_tree)
+
+    def test_data_to_home_migration_failure_restores_source(self):
+        source = self.root / "sandbox" / shared.SHARED_LAYOUT.remote_base.lstrip("/")
+        self.base.rename(source)
+        result = self.execute("lower-write", legacy_layouts=(shared.SHARED_LAYOUT,))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.base.exists())
+        self.assertEqual(self.tree(source), self.old_tree)
         self.assertEqual(self.upper.read_bytes(), b"old upper\n")
         self.assertEqual(self.lower.read_bytes(), b"old lower\n")
 

@@ -1045,16 +1045,16 @@
       "architecture": "armv7l",
       "channel": "stable",
       "xochitl_sha256": "1f4fbb6e14650704b5b036e482da9948e73553178f6116ad464ab072f7b90117",
-      "asset": "rmtool-native-chinese-rm1-20260827113527-3.28.0.172.tar.gz",
-      "size": 3880359,
-      "sha256": "92a8a41daec8016ab413d774b9ead911753e8bb2dc70a5b905439cd92d6fa159",
+      "asset": "rmtool-native-chinese-rm1-20260827113527-3.28.0.172-runtime-catalog.tar.gz",
+      "size": 3877623,
+      "sha256": "08857a11b6895e3bf5ceab2054a9c2f77e2102b8e8cd7b759c6e5920415de645",
       "offline_verified": true,
       "device_verified": false,
       "files": [
         {
           "path": "extensions.d/native-chinese-translator.so",
-          "size": 2888,
-          "sha256": "9569d723d4057f741fcb70522b90a69e11aa5c75998cee8a6dcb69ad668be722",
+          "size": 3756,
+          "sha256": "7627c21c45726113f706e748a52cd516c751c5f92c7ccf9422b9af6641eea427",
           "mode": 420
         },
         {
@@ -1095,8 +1095,8 @@
         }
       ],
       "urls": [
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-rm1-20260827113527-3.28.0.172.tar.gz",
-        "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-rm1-20260827113527-3.28.0.172.tar.gz"
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-rm1-20260827113527-3.28.0.172-runtime-catalog.tar.gz",
+        "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-rm1-20260827113527-3.28.0.172-runtime-catalog.tar.gz"
       ]
     },
     {
@@ -1106,16 +1106,16 @@
       "architecture": "armv7l",
       "channel": "stable",
       "xochitl_sha256": "071d85beef3ef2d4cc0e11002140b27b82a2cc04a2ed740a5669f591069b77df",
-      "asset": "rmtool-native-chinese-rm2-20260827113527-3.28.0.172.tar.gz",
-      "size": 3888978,
-      "sha256": "36961908f08d83b3d1074dd3547ae63c3ae39f6673774bec80cd823b4ff005ab",
+      "asset": "rmtool-native-chinese-rm2-20260827113527-3.28.0.172-runtime-catalog.tar.gz",
+      "size": 3884591,
+      "sha256": "9901d0f7328091a8785358963a64eb103309cc6ee61e9058b04550b5a04089a8",
       "offline_verified": true,
       "device_verified": false,
       "files": [
         {
           "path": "extensions.d/native-chinese-translator.so",
-          "size": 2888,
-          "sha256": "9569d723d4057f741fcb70522b90a69e11aa5c75998cee8a6dcb69ad668be722",
+          "size": 3756,
+          "sha256": "7627c21c45726113f706e748a52cd516c751c5f92c7ccf9422b9af6641eea427",
           "mode": 420
         },
         {
@@ -1156,8 +1156,8 @@
         }
       ],
       "urls": [
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-rm2-20260827113527-3.28.0.172.tar.gz",
-        "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-rm2-20260827113527-3.28.0.172.tar.gz"
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-rm2-20260827113527-3.28.0.172-runtime-catalog.tar.gz",
+        "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-rm2-20260827113527-3.28.0.172-runtime-catalog.tar.gz"
       ]
     }
   ]

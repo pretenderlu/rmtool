@@ -742,7 +742,7 @@ class FastMonoReadingTests(unittest.TestCase):
 
         self.assertEqual(status.state, fast.FastMonoReadingState.VELLUM_RUNTIME)
         self.assertFalse(status.recovery_available)
-        self.assertIn(tap.VELLUM_UNINSTALL_COMMAND, status.detail)
+        self.assertIn("文件存在不代表插件正在加载", status.detail)
 
     def test_module_has_no_vellum_install_path(self):
         source = inspect.getsource(fast)
@@ -775,7 +775,7 @@ class FastMonoReadingTests(unittest.TestCase):
         ), patch.object(
             tap, "_vellum_installed_packages", return_value=set()
         ):
-            with self.assertRaisesRegex(RuntimeError, "Vellum 官方说明"):
+            with self.assertRaisesRegex(RuntimeError, "外部 Xovi/Vellum"):
                 fast.enable(ssh, package, "unused.tar.gz")
 
         self.assertEqual(ssh.transfers, {})
@@ -813,7 +813,7 @@ class FastMonoReadingTests(unittest.TestCase):
         ), patch.object(
             tap, "_vellum_installed_packages", return_value=set()
         ):
-            with self.assertRaisesRegex(RuntimeError, "Vellum 官方说明"):
+            with self.assertRaisesRegex(RuntimeError, "外部 Xovi/Vellum"):
                 fast.enable(ssh, package, "unused.tar.gz")
 
         self.assertEqual(ssh.transfers, {})
@@ -1184,7 +1184,7 @@ class FastMonoReadingTests(unittest.TestCase):
         ), patch.object(tap, "_read_marker", return_value=marker), patch.object(
             tap, "_vellum_installed_version", return_value=None
         ):
-            with self.assertRaisesRegex(RuntimeError, "Vellum 官方说明"):
+            with self.assertRaisesRegex(RuntimeError, "外部 Xovi/Vellum"):
                 tap.enable(ssh, tap_package, "unused.tar.gz")
 
         self.assertEqual(ssh.transfers, {})
@@ -1220,7 +1220,7 @@ class FastMonoReadingTests(unittest.TestCase):
         ), patch.object(fast, "_read_marker", return_value=marker), patch.object(
             tap, "_vellum_installed_version", return_value=None
         ):
-            with self.assertRaisesRegex(RuntimeError, "Vellum 官方说明"):
+            with self.assertRaisesRegex(RuntimeError, "外部 Xovi/Vellum"):
                 tap.enable(ssh, tap_package, "unused.tar.gz")
 
         self.assertEqual(ssh.transfers, {})

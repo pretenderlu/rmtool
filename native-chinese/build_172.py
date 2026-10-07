@@ -12,6 +12,7 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import _tap_page_turn as tap
+import _native_chinese as native
 
 RELEASE = "3.28.0.172"
 FIRMWARE = "20260827113527"
@@ -35,7 +36,7 @@ HASHTAB = "exthome/qt-resource-rebuilder/hashtab"
 COMMON = ("xovi.so", "extensions.d/qt-resource-rebuilder.so", "qmd-tool", HASHTAB)
 PINYIN_SERVER_SIZE = "18481336"
 PINYIN_SERVER_SHA256 = "ab1935dac1e91a86e7b704f9feb0de985e009f366590448fe9c6ec5e400901bf"
-ARM_TRANSLATOR = (2888, "9569d723d4057f741fcb70522b90a69e11aa5c75998cee8a6dcb69ad668be722")
+ARM_TRANSLATOR = native.ARM_TRANSLATOR
 
 
 def digest(data):
@@ -142,6 +143,8 @@ def _entry(feature, platform, files):
             for path, (value, mode) in sorted(files.items())
         ],
     }
+    if feature == "native-chinese":
+        entry["asset"] = native.EXPECTED_ASSETS[(FIRMWARE, platform, architecture, xochitl)]
     return entry, data
 
 

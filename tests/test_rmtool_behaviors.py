@@ -4658,13 +4658,13 @@ class FontUiTests(unittest.TestCase):
             ), mock.patch.object(
                 _reading_enhancements,
                 "get_status",
-                return_value=SimpleNamespace(state=unsafe, package=package),
+                return_value=SimpleNamespace(state=unsafe, package=package, detail="/home/root/xovi/xovi.so"),
             ), mock.patch.object(
                 _reading_enhancements, "download_package"
             ) as download, mock.patch.object(
                 _rmkit_cn, "set_epub_font_slot"
             ) as set_slot:
-                with self.assertRaisesRegex(RuntimeError, "未修改 EPUB 字体"):
+                with self.assertRaisesRegex(RuntimeError, r"/home/root/xovi/xovi.so\n未修改 EPUB 字体"):
                     _tab_toolbox._set_epub_font_with_menu_support(
                         object(), "/home/root/fonts", "reader.ttf", "state"
                     )
@@ -4684,11 +4684,11 @@ class FontUiTests(unittest.TestCase):
         ), mock.patch.object(
             _reading_enhancements,
             "install",
-            return_value=SimpleNamespace(state=states.BROKEN),
+            return_value=SimpleNamespace(state=states.BROKEN, detail="/home/root/xovi/extensions.d/appload.so"),
         ), mock.patch.object(
             _rmkit_cn, "set_epub_font_slot"
         ) as set_slot:
-            with self.assertRaisesRegex(RuntimeError, "未修改 EPUB 字体"):
+            with self.assertRaisesRegex(RuntimeError, r"/home/root/xovi/extensions.d/appload.so\n未修改 EPUB 字体"):
                 _tab_toolbox._set_epub_font_with_menu_support(
                     object(), "/home/root/fonts", "reader.ttf", "state"
                 )

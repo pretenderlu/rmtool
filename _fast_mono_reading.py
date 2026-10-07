@@ -936,9 +936,7 @@ def get_status(
             identity,
             package,
             available,
-            "请按 Vellum 官方说明执行 "
-            f"`{tap.VELLUM_UNINSTALL_COMMAND}`，确认 Vellum/AppLoader Xovi 已移除后，"
-            "再使用 rmtool 共享 Xovi 安装。",
+            tap._vellum_conflict_detail(ssh_client),
             False,
         )
 
@@ -1227,9 +1225,7 @@ def get_status(
             identity,
             package,
             available,
-            "请按 Vellum 官方说明执行 "
-            f"`{tap.VELLUM_UNINSTALL_COMMAND}`，确认 Vellum/AppLoader Xovi 已移除后，"
-            "再使用 rmtool 共享 Xovi 安装。",
+            tap._vellum_conflict_detail(ssh_client),
             False,
         )
 

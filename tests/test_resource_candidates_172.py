@@ -44,7 +44,9 @@ class Candidate172Tests(unittest.TestCase):
             package = native.select_package(native._trusted_catalog(), identity)
             self.assertTrue(package.offline_verified)
             self.assertFalse(package.device_verified)
-            self.assertEqual(native._known_shared_predecessor_specs(package), ())
+            predecessors = native._known_shared_predecessor_specs(package)
+            self.assertEqual(tuple(item.reason for item in predecessors),
+                             ("catalog_runtime_path",) if architecture == "armv7l" else ())
             self.assertIsNotNone(pinyin.select_package(pinyin._trusted_catalog(), identity))
             reading_package = reading.select_package(reading._trusted_catalog(), identity)
             if platform in builder.COLOR_PLATFORMS:
