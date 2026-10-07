@@ -36,6 +36,7 @@ class TransportSafetyTests(unittest.TestCase):
         entered = threading.Event()
         release = threading.Event()
         writers = []
+        writers_lock = threading.Lock()
 
         class Server(paramiko.ServerInterface):
             def check_auth_none(self, username):
@@ -70,8 +71,11 @@ class TransportSafetyTests(unittest.TestCase):
                         pass
 
                 writer = threading.Thread(target=write)
-                writers.append(writer)
-                writer.start()
+                with writers_lock:
+                    if release.is_set():
+                        return False
+                    writer.start()
+                    writers.append(writer)
                 return True
 
         ready = threading.Event()
@@ -84,7 +88,8 @@ class TransportSafetyTests(unittest.TestCase):
         wrapper._client = client
 
         def cleanup():
-            release.set()
+            with writers_lock:
+                release.set()
             wrapper.close()
             server.close()
             transport.close()
@@ -105,6 +110,14 @@ class TransportSafetyTests(unittest.TestCase):
                 wrapper, _ = self.connection(output, error, status=7)
                 self.assertEqual(wrapper.exec_command("flood", timeout=5),
                                  (output.decode(), error.decode(), 7))
+
+    def test_diagnostic_decode_tolerates_partial_utf8_without_changing_default(self):
+        wrapper, _ = self.connection(b"\xb8\xadremaining", b"\xff", status=7)
+        self.assertEqual(wrapper.exec_command("diagnostic", timeout=5, decode_errors="replace"),
+                         ("\ufffd\ufffdremaining", "\ufffd", 7))
+        wrapper, _ = self.connection(b"\xff")
+        with self.assertRaises(UnicodeDecodeError):
+            wrapper.exec_command("strict-default", timeout=5)
 
     def test_timeout_bounds_silent_command_and_exec_handshake(self):
         for handshake in (False, True):

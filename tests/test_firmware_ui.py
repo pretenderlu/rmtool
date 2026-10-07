@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from unittest import mock
 
@@ -23,6 +24,12 @@ class UIConnection(QtCore.QObject):
 
     def is_connected(self):
         return self.connected
+
+    def ensure_client(self):
+        return self
+
+    def operation_session(self):
+        return nullcontext()
 
     def exec_checked(self, command):
         if command.startswith("cat /sys/devices/soc0/machine"):
@@ -90,6 +97,20 @@ class FirmwareUITests(unittest.TestCase):
         for key, position in expected.items():
             index = self.page.actions.indexOf(self.page.buttons[key])
             self.assertEqual(self.page.actions.getItemPosition(index), position)
+
+    def test_pure_is_rejected_before_color_device_partition_probe(self):
+        self.ssh.connected = True
+        self.ssh.machine = "Tatsu"
+        with mock.patch.object(self.page, "_run") as run, mock.patch.object(f, "inspect_device") as inspect:
+            self.page.refresh()
+            result = run.call_args.args[0]()
+        inspect.assert_not_called()
+        self.page._device_loaded(result)
+        self.assertIn("Paper Pure", self.page.status.text())
+        self.assertIn("分区写入尚未验证", self.page.status.text())
+        self.assertNotIn("旧版", self.page.status.text())
+        for key in ("install", "switch", "restore", "restore_plugins", "reboot"):
+            self.assertFalse(self.page.buttons[key].isEnabled(), key)
 
     def test_advanced_options_expand_on_demand(self):
         self.page.show()

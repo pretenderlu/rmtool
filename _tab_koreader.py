@@ -252,6 +252,9 @@ class KOReaderTab(QtWidgets.QWidget):
         self._connected = connected
         self.refresh_button.setEnabled(connected)
         if not connected:
+            self._loading = False
+            self._management_loading = False
+            self._close_progress_dialog()
             self._install_dir = None
             self._library_root = ""
             self._current_dir = ""
@@ -267,6 +270,30 @@ class KOReaderTab(QtWidgets.QWidget):
         self._update_management_actions()
         self._update_action_state()
         self._update_empty_state()
+
+    def _connection_token(self):
+        with self.ssh_client._state_lock:
+            return self.ssh_client._client
+
+    def _session_current(self, token) -> bool:
+        return token is not None and token is self._connection_token()
+
+    def _session_worker(self, token, operation, *args):
+        def run(**kwargs):
+            with self.ssh_client.operation_session():
+                if token is None or self.ssh_client.ensure_client() is not token:
+                    raise RuntimeError("设备连接已改变，请刷新列表后重新操作")
+                return operation(*args, **kwargs)
+
+        worker = _rmtool.Worker(run)
+
+        def progress(current, total):
+            if sip.isdeleted(self) or not self._session_current(token):
+                return
+            self._update_progress_dialog(current, total)
+
+        worker.signals.progress.connect(progress)
+        return worker
 
     # -- AppLoad / KOReader management ---------------------------------------
     def _update_management_actions(self) -> None:
@@ -414,17 +441,18 @@ class KOReaderTab(QtWidgets.QWidget):
         self.management_status_label.setText("正在检测 AppLoad 与 KOReader…")
         self._update_management_actions()
         self._update_action_state()
-        worker = _rmtool.Worker(self._read_management_status)
+        token = self._connection_token()
+        worker = self._session_worker(token, self._read_management_status)
 
         def on_finished(result):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(token):
                 return
             self._management_loading = False
             self._apply_management_status(result)
             self._update_action_state()
 
         def on_error(exc: Exception):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(token):
                 logging.error(
                     "KOReader management refresh failed after tab close: %s", exc
                 )
@@ -440,17 +468,17 @@ class KOReaderTab(QtWidgets.QWidget):
         self.thread_pool.start(worker)
 
     def _run_management_operation(
-        self, title: str, pending: str, operation, *, close_connection=False
+        self, title: str, pending: str, operation, *, token, close_connection=False
     ) -> None:
         if self._management_loading or self._loading:
             return
         self._management_loading = True
         self._update_management_actions()
         self._update_action_state()
-        worker = _rmtool.Worker(operation)
+        worker = self._session_worker(token, operation)
 
         def on_finished(_result):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(token):
                 return
             self._management_loading = False
             self._close_progress_dialog()
@@ -465,7 +493,7 @@ class KOReaderTab(QtWidgets.QWidget):
             self._update_action_state()
 
         def on_error(exc: Exception):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(token):
                 logging.error(
                     "KOReader management operation failed after tab close: %s", exc
                 )
@@ -483,6 +511,7 @@ class KOReaderTab(QtWidgets.QWidget):
 
     @require_connection
     def _install_appload(self) -> None:
+        token = self._connection_token()
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
@@ -498,10 +527,12 @@ class KOReaderTab(QtWidgets.QWidget):
             lambda: _appload.enable_cloud(
                 self.ssh_client, str(_rmtool.app_state_dir())
             ),
+            token=token,
         )
 
     @require_connection
     def _install_koreader(self) -> None:
+        token = self._connection_token()
         migrate = self._managed_status is not None and self._managed_status.state in (
             _koreader.ManagedState.LEGACY_DATA,
             _koreader.ManagedState.EXTERNAL,
@@ -532,10 +563,12 @@ class KOReaderTab(QtWidgets.QWidget):
                 str(_rmtool.app_state_dir()),
                 migrate_existing=migrate,
             ),
+            token=token,
         )
 
     @require_connection
     def _load_official_package(self) -> None:
+        token = self._connection_token()
         app = self._appload_status
         managed = self._managed_status
         if app is None or managed is None:
@@ -582,10 +615,11 @@ class KOReaderTab(QtWidgets.QWidget):
                 + " 或 ".join(expected),
             )
             return
-        self._run_management_operation(title, pending, operation)
+        self._run_management_operation(title, pending, operation, token=token)
 
     @require_connection
     def _uninstall_koreader(self) -> None:
+        token = self._connection_token()
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
@@ -600,11 +634,13 @@ class KOReaderTab(QtWidgets.QWidget):
             "卸载 KOReader",
             "正在卸载 KOReader 并保留用户数据…",
             lambda: _koreader.uninstall_managed(self.ssh_client),
+            token=token,
             close_connection=True,
         )
 
     @require_connection
     def _purge_legacy_install(self) -> None:
+        token = self._connection_token()
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
@@ -621,10 +657,12 @@ class KOReaderTab(QtWidgets.QWidget):
             "清理旧版 KOReader",
             "正在彻底清理旧版 KOReader 残留…",
             lambda: _koreader.purge_legacy_install(self.ssh_client),
+            token=token,
         )
 
     @require_connection
     def _disable_appload(self) -> None:
+        token = self._connection_token()
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
@@ -639,10 +677,12 @@ class KOReaderTab(QtWidgets.QWidget):
             "停用 AppLoad",
             "正在安全停用 AppLoad…",
             lambda: _appload.disable(self.ssh_client),
+            token=token,
         )
 
     @require_connection
     def _uninstall_appload(self) -> None:
+        token = self._connection_token()
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
@@ -658,6 +698,7 @@ class KOReaderTab(QtWidgets.QWidget):
             "卸载 AppLoad",
             "正在验证并卸载 AppLoad…",
             lambda: _appload.uninstall(self.ssh_client),
+            token=token,
             close_connection=True,
         )
 
@@ -774,10 +815,11 @@ class KOReaderTab(QtWidgets.QWidget):
         self._loading = True
         self._update_management_actions()
         self._update_action_state()
-        worker = _rmtool.Worker(self._detect_and_load, self._current_dir)
+        token = self._connection_token()
+        worker = self._session_worker(token, self._detect_and_load, self._current_dir)
 
         def on_finished(result):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(token):
                 return
             self._loading = False
             self._on_listing_loaded(result)
@@ -785,7 +827,7 @@ class KOReaderTab(QtWidgets.QWidget):
             self._update_action_state()
 
         def on_error(exc: Exception):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(token):
                 logging.error("KOReader refresh failed after tab close: %s", exc)
                 return
             self._loading = False
@@ -877,15 +919,16 @@ class KOReaderTab(QtWidgets.QWidget):
             )
             self.path_edit.setText(self._current_dir)
             return
-        worker = _rmtool.Worker(self._load_dir, directory)
+        token = self._connection_token()
+        worker = self._session_worker(token, self._load_dir, directory)
 
         def on_finished(result):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(token):
                 return
             self._on_listing_loaded(result)
 
         def on_error(exc: Exception):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(token):
                 logging.error("KOReader navigation failed after tab close: %s", exc)
                 return
             self.path_edit.setText(self._current_dir)
@@ -917,6 +960,8 @@ class KOReaderTab(QtWidgets.QWidget):
     # -- Upload ------------------------------------------------------------------
     @require_connection
     def upload_books(self):
+        token = self._connection_token()
+        current_dir, library_root = self._current_dir, self._library_root
         if self._install_dir is None:
             show_warning(
                 self,
@@ -954,9 +999,8 @@ class KOReaderTab(QtWidgets.QWidget):
             overwrite = True
 
         count = len(file_paths)
-        current_dir = self._current_dir
-        library_root = self._library_root
-        worker = _rmtool.Worker(
+        worker = self._session_worker(
+            token,
             self._perform_upload,
             file_paths,
             current_dir,
@@ -966,7 +1010,7 @@ class KOReaderTab(QtWidgets.QWidget):
         worker.kwargs["progress_callback"] = worker.signals.progress.emit
 
         def on_finished(_result):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(token):
                 # Worker outlived the tab; nothing safe left to update.
                 return
             self._close_progress_dialog()
@@ -974,7 +1018,7 @@ class KOReaderTab(QtWidgets.QWidget):
             self._reload_current()
 
         def on_error(exc: Exception):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(token):
                 # Worker outlived the tab; only log, touching widgets would
                 # raise RuntimeError (and abort the process on macOS).
                 logging.error("KOReader upload failed after tab close: %s", exc)
@@ -982,7 +1026,6 @@ class KOReaderTab(QtWidgets.QWidget):
             self._close_progress_dialog()
             self._on_error(exc)
 
-        worker.signals.progress.connect(self._update_progress_dialog)
         worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
         self._show_progress_dialog(
@@ -1024,6 +1067,8 @@ class KOReaderTab(QtWidgets.QWidget):
     # -- Download ----------------------------------------------------------------
     @require_connection
     def _download_books(self):
+        token = self._connection_token()
+        library_root = self._library_root
         files = [entry for entry in self._selected_entries() if not entry.is_dir]
         if not files:
             show_warning(
@@ -1054,14 +1099,13 @@ class KOReaderTab(QtWidgets.QWidget):
                 return
 
         count = len(files)
-        library_root = self._library_root
-        worker = _rmtool.Worker(
-            self._perform_download, files, target_dir, library_root
+        worker = self._session_worker(
+            token, self._perform_download, files, target_dir, library_root
         )
         worker.kwargs["progress_callback"] = worker.signals.progress.emit
 
         def on_finished(_result):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(token):
                 # Worker outlived the tab; nothing safe left to update.
                 return
             self._close_progress_dialog()
@@ -1069,7 +1113,7 @@ class KOReaderTab(QtWidgets.QWidget):
             show_info(self, _rmtool.APP_NAME, f"已下载 {count} 个文件到：{target_dir}")
 
         def on_error(exc: Exception):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(token):
                 # Worker outlived the tab; only log, touching widgets would
                 # raise RuntimeError (and abort the process on macOS).
                 logging.error("KOReader download failed after tab close: %s", exc)
@@ -1077,7 +1121,6 @@ class KOReaderTab(QtWidgets.QWidget):
             self._close_progress_dialog()
             self._on_error(exc)
 
-        worker.signals.progress.connect(self._update_progress_dialog)
         worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
         self._show_progress_dialog(
@@ -1116,6 +1159,8 @@ class KOReaderTab(QtWidgets.QWidget):
     # -- Delete --------------------------------------------------------------------
     @require_connection
     def _delete_entries(self):
+        token = self._connection_token()
+        library_root = self._library_root
         entries = self._selected_entries()
         if not entries:
             show_warning(self, _rmtool.APP_NAME, "请先选择要删除的项目。")
@@ -1149,11 +1194,10 @@ class KOReaderTab(QtWidgets.QWidget):
             danger=True,
         ):
             return
-        library_root = self._library_root
-        worker = _rmtool.Worker(self._perform_delete, entries, library_root)
+        worker = self._session_worker(token, self._perform_delete, entries, library_root)
 
         def on_finished(_result):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(token):
                 # Worker outlived the tab; nothing safe left to update.
                 return
             self._close_progress_dialog()
@@ -1161,7 +1205,7 @@ class KOReaderTab(QtWidgets.QWidget):
             self._reload_current()
 
         def on_error(exc: Exception):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(token):
                 # Worker outlived the tab; only log, touching widgets would
                 # raise RuntimeError (and abort the process on macOS).
                 logging.error("KOReader deletion failed after tab close: %s", exc)
@@ -1185,6 +1229,8 @@ class KOReaderTab(QtWidgets.QWidget):
     # -- New folder ------------------------------------------------------------------
     @require_connection
     def _create_folder(self):
+        token = self._connection_token()
+        current_dir, library_root = self._current_dir, self._library_root
         if self._install_dir is None:
             show_warning(
                 self,
@@ -1198,14 +1244,12 @@ class KOReaderTab(QtWidgets.QWidget):
         name = name.strip()
         if not ok or not name:
             return
-        current_dir = self._current_dir
-        library_root = self._library_root
-        worker = _rmtool.Worker(
-            self._perform_create_folder, current_dir, library_root, name
+        worker = self._session_worker(
+            token, self._perform_create_folder, current_dir, library_root, name
         )
 
         def on_finished(_result):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(token):
                 # Worker outlived the tab; nothing safe left to update.
                 return
             self._close_progress_dialog()
@@ -1213,7 +1257,7 @@ class KOReaderTab(QtWidgets.QWidget):
             self._reload_current()
 
         def on_error(exc: Exception):
-            if sip.isdeleted(self):
+            if sip.isdeleted(self) or not self._session_current(token):
                 # Worker outlived the tab; only log, touching widgets would
                 # raise RuntimeError (and abort the process on macOS).
                 logging.error("KOReader mkdir failed after tab close: %s", exc)

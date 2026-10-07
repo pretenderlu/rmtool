@@ -2307,7 +2307,8 @@ def get_epub_font_slot_status(ssh_client) -> EpubFontSlotStatus:
     if package is None or not package.release_version.startswith("3.28."):
         return EpubFontSlotStatus(
             "unsupported",
-            "仅精确支持已收录的 3.28 固件，当前设备不能修改 EPUB 字体菜单。",
+            "EPUB 字体菜单仅支持 Paper Pro / Move 已适配的 3.28 固件；"
+            "当前设备仍可上传字体和设置系统字体。",
         )
     try:
         slots = _epub_font_slots(ssh_client, migrate_legacy=True)

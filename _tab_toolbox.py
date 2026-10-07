@@ -3136,8 +3136,9 @@ class WeReadLauncherSection(ReadingEnhancementsSection):
             feature_name="设备启动入口",
             device_page_name="微信读书",
             description=(
-                "仅支持运行 3.28 系列固件的 Paper Pro 和 Move。"
-                "先安装官方微信读书 App，再安装当前固件精确匹配的设备启动入口。"
+                "微信读书 App 支持 Paper Pro 和 Move 的 3.28 系列固件；"
+                "设备启动入口目前仅适配 3.28.0.172。"
+                "先安装官方 App，再安装精确匹配的设备启动入口。"
             ),
             explanation=(
                 "微信读书 App 直接从腾讯微信读书官方 CDN 下载 v1.0.0；"
@@ -3305,7 +3306,7 @@ class WeReadLauncherSection(ReadingEnhancementsSection):
             success=(
                 "微信读书 App 已修复，用户数据已保留。"
                 if repairing else "微信读书 App 已安装。"
-            ) + "\n现在可以安装设备启动入口；入口安装后需手动重启设备。",
+            ) + "\n若当前固件有匹配的设备启动入口，可继续安装；入口安装后需手动重启设备。",
         )
 
     @require_connection

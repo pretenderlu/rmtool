@@ -230,7 +230,11 @@ def _collect_device_item(ssh_client, diag: DiagItem) -> CollectedItem:
     # The device BusyBox head has no -c option (and its dd counts short
     # reads as full blocks), but tail -c works everywhere; keeping the tail
     # also preserves the most recent log lines when output exceeds the cap.
-    capped = f"({diag.command}) 2>&1 | tail -c {ITEM_CAP_BYTES}"
+    marker = "\nrmtool-status-" + uuid.uuid4().hex + ":"
+    # Fixed-width exit status survives tail; one extra payload byte detects truncation.
+    capped = (f"( ({diag.command}) 2>&1; rc=$?; "
+              f"printf '{marker}%03d\\n' \"$rc\" ) | "
+              f"tail -c {ITEM_CAP_BYTES + 1 + len(marker) + 4}")
     try:
         from _firmware import FirmwareSSHClientWrapper, firmware_session
 
@@ -241,17 +245,16 @@ def _collect_device_item(ssh_client, diag: DiagItem) -> CollectedItem:
             else nullcontext()
         )
         with session:
-            stdout, _stderr, code = ssh_client.exec_command(capped)
+            stdout, _stderr, code = ssh_client.exec_command(capped, decode_errors="replace")
     except Exception as exc:
         return CollectedItem(diag, error=f"采集失败：{exc}")
-    text = _decode(stdout)
-    truncated = False
-    # Enforce the cap locally as well: never trust the remote head alone.
-    data = text.encode("utf-8")
-    if len(data) > ITEM_CAP_BYTES:
-        data = data[:ITEM_CAP_BYTES]
-        truncated = True
-        text = data.decode("utf-8", "replace")
+    payload, separator, status = _decode(stdout).rpartition(marker)
+    if code != 0 or not separator or len(status) != 4 or not status[:3].isdigit() or status[3] != "\n":
+        return CollectedItem(diag, error=f"诊断输出或退出状态不完整（传输退出码 {code}）")
+    code = int(status[:3])
+    data = payload.encode("utf-8")
+    truncated = len(data) > ITEM_CAP_BYTES
+    text = data[-ITEM_CAP_BYTES:].decode("utf-8", "ignore")
     if code != 0:
         note = f"命令退出码 {code}"
         return CollectedItem(diag, text, note, truncated)

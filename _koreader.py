@@ -896,7 +896,23 @@ def upload_file(
         raise RuntimeError(f"远端已存在同名文件：{os.path.basename(local_path)}")
     logging.info("Uploading %s -> %s", local_path, remote_path)
     with ssh_client.sftp_session() as sftp:
-        sftp.put(local_path, remote_path, callback=progress_callback)
+        temporary = posixpath.join(canonical_dir, f".rmtool-upload-{uuid.uuid4().hex}")
+        try:
+            sftp.put(local_path, temporary, callback=progress_callback)
+            if sftp.stat(temporary).st_size != os.path.getsize(local_path):
+                raise RuntimeError("上传文件大小不匹配，原文件未被替换")
+            if overwrite:
+                sftp.posix_rename(temporary, remote_path)
+            else:
+                # Standard SFTP rename refuses an existing destination.
+                sftp.rename(temporary, remote_path)
+        finally:
+            try:
+                sftp.remove(temporary)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                logging.warning("Unable to remove upload staging file %s", temporary, exc_info=True)
     return remote_path
 
 

@@ -23,6 +23,26 @@ FEATURE_MODULES = {
     "weread-launcher": "_weread_launcher",
 }
 FIRMWARE_RE = re.compile(r"^[0-9]{14}$")
+COLOR_PLATFORMS = frozenset(("ferrari", "chiappa"))
+MONO_PLATFORMS = frozenset(("rm1", "rm2", "tatsu"))
+COLOR_RELEASES = frozenset((
+    "3.27.1.0", "3.27.3.0", "3.28.0.162", "3.28.0.163",
+    "3.28.0.164", "3.28.0.166", "3.28.0.169", "3.28.0.172",
+))
+
+# Reviewed coverage, independent of each backend's allowlist: deleting a target
+# from both code and its manifest must not silently narrow a published feature.
+COLOR_TARGETS = {(platform, release) for platform in COLOR_PLATFORMS for release in COLOR_RELEASES}
+MONO_TARGETS = {(platform, release) for platform in MONO_PLATFORMS for release in ("3.27.3.0", "3.28.0.172")}
+EXPECTED_COVERAGE = {
+    "tap-page-turn": COLOR_TARGETS | MONO_TARGETS,
+    "fast-mono-reading": COLOR_TARGETS,
+    "native-chinese": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS},
+    "pinyin-input": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS},
+    "reading-enhancements": COLOR_TARGETS,
+    "note-enhancements": COLOR_TARGETS,
+    "weread-launcher": {(platform, "3.28.0.172") for platform in COLOR_PLATFORMS},
+}
 
 # These are the official 3.28.0.172 identities extracted from the five cached
 # official SWUs. Keep this table close to the build gate so a new firmware
@@ -99,6 +119,14 @@ def _validate_feature_matrix(feature: str) -> None:
     document = _manifest(feature)
     # The parser performs the detailed schema, hash, URL and payload checks.
     module.parse_manifest(json.dumps(document).encode("utf-8"))
+    pairs = [(package["platform"], package["release_version"]) for package in document["packages"]]
+    expected_pairs = EXPECTED_COVERAGE[feature]
+    if len(pairs) != len(set(pairs)) or set(pairs) != expected_pairs:
+        raise RuntimeError(
+            f"{feature} device/release coverage mismatch; "
+            f"missing={sorted(expected_pairs - set(pairs))!r}, "
+            f"extra={sorted(set(pairs) - expected_pairs)!r}, duplicate={len(pairs) != len(set(pairs))}"
+        )
     allowed = getattr(module, "ALLOWED_TARGETS", None)
     if not isinstance(allowed, dict):
         return
@@ -113,6 +141,55 @@ def _validate_feature_matrix(feature: str) -> None:
         raise RuntimeError(
             f"{feature} matrix mismatch; missing={missing!r}, extra={extra!r}"
         )
+
+
+def _validate_cross_feature_support() -> None:
+    import _appload as appload
+    import _screen_preview as preview
+    import _tap_page_turn as tap
+    import _weread_app as weread
+
+    catalogs = {
+        feature: importlib.import_module(module).parse_manifest(
+            json.dumps(_manifest(feature)).encode("utf-8")
+        )
+        for feature, module in FEATURE_MODULES.items()
+    }
+    baselines = {
+        (package.platform, package.release_version): package
+        for package in catalogs["tap-page-turn"]
+    }
+    for feature, catalog in catalogs.items():
+        for package in catalog:
+            baseline = baselines[(package.platform, package.release_version)]
+            fields = ("firmware", "architecture", "xochitl_sha256", "channel")
+            if any(getattr(package, field) != getattr(baseline, field) for field in fields):
+                raise RuntimeError(
+                    f"{feature} identity disagrees with runtime: "
+                    f"{package.platform} {package.release_version}"
+                )
+            runtime, _feature = importlib.import_module(FEATURE_MODULES[feature])._shared_specs(package)
+            if runtime != tap._shared_specs(baseline)[0]:
+                raise RuntimeError(f"{feature} shared runtime mismatch: {package.package_id}")
+
+    app = weread.trusted_package()
+    for package in baselines.values():
+        identity = tap.DeviceIdentity(
+            package.firmware, package.platform, package.architecture, package.xochitl_sha256
+        )
+        # Includes path conflicts and trusted historical peers. Historical trust
+        # is NOT installation support (notably AppLoad on 3.28).
+        tap._trusted_shared_context(identity)
+        expected_appload = package.release_version in ("3.27.1.0", "3.27.3.0")
+        if ((appload.app_asset(identity) is not None) != expected_appload
+                or (appload.koreader_asset(identity) is not None) != expected_appload):
+            raise RuntimeError(f"AppLoad/KOReader support drift: {package.package_id}")
+        device = weread.WeReadAppDevice(package.platform, package.architecture, package.release_version)
+        expected_weread = package.platform in COLOR_PLATFORMS and package.release_version.startswith("3.28.")
+        if weread._supported(device, app) != expected_weread:
+            raise RuntimeError(f"WeRead app support drift: {package.package_id}")
+    if set(preview.PROFILES) != COLOR_PLATFORMS | MONO_PLATFORMS:
+        raise RuntimeError("Screen preview device coverage mismatch")
 
 
 def _translation_candidates() -> dict[tuple[str, str], list]:
@@ -172,14 +249,16 @@ def _validate_172_localization() -> None:
 def validate() -> None:
     for feature in FEATURE_MODULES:
         _validate_feature_matrix(feature)
+    _validate_cross_feature_support()
     _validate_172_localization()
 
 
 def main() -> int:
     validate()
     print(
-        "PASS: device/version matrix covers all package manifests and "
-        "the five official 3.28.0.172 localization carriers."
+        "PASS: 22 device/firmware targets, seven plugin matrices, shared runtimes, "
+        "AppLoad/KOReader and WeRead boundaries, five preview profiles, and "
+        "five official 3.28.0.172 localization carriers."
     )
     return 0
 

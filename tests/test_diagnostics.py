@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -22,14 +23,19 @@ class FakeDiagnosticsSsh:
         self.outputs = dict(outputs or {})
         self.fail_names = set(fail_names)
 
-    def exec_command(self, command):
+    def exec_command(self, command, **kwargs):
         self.commands.append(command)
         for name, output in self.outputs.items():
             if name in command:
                 if name in self.fail_names:
                     raise OSError("connection lost")
-                return output, "", 0
-        return "", "", 0
+                return self.with_status(command, output), "", 0
+        return self.with_status(command, ""), "", 0
+
+    @staticmethod
+    def with_status(command, output):
+        marker = re.search(r"rmtool-status-[0-9a-f]{32}:", command).group()
+        return output + "\n" + marker + "000\n"
 
 
 class DiagnosticsTests(unittest.TestCase):
@@ -113,7 +119,7 @@ class DiagnosticsTests(unittest.TestCase):
 
         def execute(_command, **_kwargs):
             ssh._firmware_gate()
-            return "read-only evidence", "", 0
+            return FakeDiagnosticsSsh.with_status(_command, "read-only evidence"), "", 0
 
         with mock.patch.object(ssh, "operation_session", side_effect=nullcontext), mock.patch.object(
             SSHClientWrapper, "exec_command", side_effect=execute
@@ -152,7 +158,8 @@ class DiagnosticsTests(unittest.TestCase):
         # Every remote command is wrapped with the read-only tail cap
         # (device BusyBox head has no -c).
         for command in ssh.commands:
-            self.assertIn("| tail -c 65536", command)
+            self.assertIn("| tail -c ", command)
+            self.assertIn("rc=$?", command)
 
     def test_pc_log_tail_is_capped(self):
         import tempfile

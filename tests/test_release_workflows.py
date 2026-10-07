@@ -1,4 +1,4 @@
-import re
+import ast
 import unittest
 from pathlib import Path
 
@@ -8,12 +8,21 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class ReleaseWorkflowTests(unittest.TestCase):
     def test_current_release_notes_hide_internal_revision_terms(self):
-        readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        match = re.search(r"当前发布版为 `(?P<tag>v\d+(?:\.\d+)+)`", readme)
-        self.assertIsNotNone(match)
+        source = ast.parse((ROOT / "rmtool.py").read_text(encoding="utf-8"))
+        version = next(
+            ast.literal_eval(node.value) for node in source.body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "APP_VERSION"
+                    for target in node.targets)
+        )
+        tag = f"v{version}"
+        for name in ("README.md", "README.en.md"):
+            readme = (ROOT / name).read_text(encoding="utf-8")
+            self.assertIn(f"[{tag}](https://github.com/pretenderlu/rmtool/releases/tag/{tag})", readme)
         notes = (
-            ROOT / "docs" / "releases" / f"{match.group('tag')}.md"
+            ROOT / "docs" / "releases" / f"{tag}.md"
         ).read_text(encoding="utf-8")
+        self.assertTrue(notes.startswith(f"# rmtool {tag}\n"))
         self.assertNotIn("revision", notes.casefold())
 
     def test_resource_workflows_only_validate_fixed_releases(self):

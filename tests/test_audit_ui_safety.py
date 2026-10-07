@@ -55,13 +55,13 @@ class UiSafetyTests(unittest.TestCase):
         self.addCleanup(tab.deleteLater)
         return tab
 
-    def document(self, identifier="old-device-id"):
+    def document(self, identifier="11111111-1111-1111-1111-111111111111"):
         return rmtool.DocumentItem(
             identifier=identifier, name=identifier, doc_type="DocumentType",
             updated=None, available_assets=["rm"],
         )
 
-    def select_document(self, tab, identifier="old-device-id"):
+    def select_document(self, tab, identifier="11111111-1111-1111-1111-111111111111"):
         tab._on_documents_loaded([self.document(identifier)])
         tab.table.selectRow(0)
 
@@ -192,12 +192,15 @@ class UiSafetyTests(unittest.TestCase):
 
     def test_same_session_batch_delete_retains_existing_behavior(self):
         tab = self.make_documents()
-        items = [self.document("first"), self.document("second")]
-        with mock.patch.object(self.ssh, "exec_checked") as execute:
+        first, second = "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"
+        items = [self.document(first), self.document(second)]
+        with mock.patch.object(self.ssh, "exec_checked") as execute, \
+                mock.patch.object(self.ssh, "sftp_session") as session:
+            session.return_value.__enter__.return_value.listdir.return_value = [first, second]
             tab._perform_delete_documents(items, tab._connection_generation, self.ssh._client)
         self.assertEqual(execute.call_count, 3)
-        self.assertIn("first", execute.call_args_list[0].args[0])
-        self.assertIn("second", execute.call_args_list[1].args[0])
+        self.assertIn(first, execute.call_args_list[0].args[0])
+        self.assertIn(second, execute.call_args_list[1].args[0])
         self.assertEqual(execute.call_args_list[2].args[0], "systemctl restart xochitl")
 
     def test_stale_delete_completion_does_not_refresh_or_report_new_device(self):

@@ -10,6 +10,7 @@ import math
 import os
 import socket
 import stat
+import tempfile
 import threading
 import time
 from contextlib import contextmanager
@@ -321,7 +322,7 @@ class SSHClientWrapper(QtCore.QObject):
 
     # -- Command execution ---------------------------------------------------
     def exec_command(
-        self, command: str, *, timeout: float = 1800
+        self, command: str, *, timeout: float = 1800, decode_errors: str = "strict"
     ) -> Tuple[str, str, int]:
         """Return UTF-8 stdout, stderr and status, draining both streams.
 
@@ -410,7 +411,8 @@ class SSHClientWrapper(QtCore.QObject):
                     raise errors[0]
                 if result[2] == -1:
                     raise RuntimeError("SSH 通道已关闭，未收到命令退出状态；远端操作结果未知")
-                return result[0].decode("utf-8"), result[1].decode("utf-8"), result[2]
+                return (result[0].decode("utf-8", decode_errors),
+                        result[1].decode("utf-8", decode_errors), result[2])
             except (TimeoutError, RuntimeError):
                 with self._state_lock:
                     if self._client is client:
@@ -469,8 +471,24 @@ class SSHClientWrapper(QtCore.QObject):
         callback: Optional[Callable[[int, int], None]] = None,
     ) -> None:
         with self.sftp_session() as sftp:
-            Path(local_path).parent.mkdir(parents=True, exist_ok=True)
-            sftp.get(remote_path, local_path, callback=callback)
+            self._download_atomic(sftp, remote_path, local_path, callback)
+
+    @staticmethod
+    def _download_atomic(sftp, remote_path, local_path, callback=None) -> None:
+        destination = Path(local_path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(prefix=".rmtool-download-", dir=destination.parent)
+        os.close(fd)
+        try:
+            expected = sftp.stat(remote_path).st_size
+            sftp.get(remote_path, temporary, callback=callback)
+            if os.path.getsize(temporary) != expected:
+                raise RuntimeError("下载文件大小不匹配，原文件未被替换")
+            with open(temporary, "r+b") as downloaded:
+                os.fsync(downloaded.fileno())
+            os.replace(temporary, destination)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
 
     def download_directory(self, remote_dir: str, local_dir: str) -> None:
         with self.sftp_session() as sftp:
@@ -486,4 +504,4 @@ class SSHClientWrapper(QtCore.QObject):
             if stat.S_ISDIR(entry.st_mode):
                 self._download_directory_recursive(sftp, remote_path, local_path)
             else:
-                sftp.get(remote_path, local_path)
+                self._download_atomic(sftp, remote_path, local_path)

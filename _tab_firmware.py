@@ -338,9 +338,9 @@ class FirmwareTab(QtWidgets.QWidget):
             self.legacy_unsupported = True
             self.status.setText(
                 self.standby_error
-                or "当前设备使用旧版分区架构，rmtool 暂不支持固件管理。"
+                or "rmtool 暂不支持该设备的固件管理。"
             )
-            self.advanced_status.setText("旧版设备暂不支持 A/B 固件管理")
+            self.advanced_status.setText("当前设备暂不支持 A/B 固件管理")
             self.restore_report = None
             self._update()
             return
@@ -353,6 +353,8 @@ class FirmwareTab(QtWidgets.QWidget):
         self.restore_report = None
         if self.transaction[0] == "completed":
             QtCore.QTimer.singleShot(0, self._detect_plugin_restore)
+        elif self.transaction[0] == "running":
+            self._schedule_transaction_poll()
 
     def _detect_plugin_restore(self):
         if self.busy or not self.ssh_client.is_connected():
@@ -405,16 +407,23 @@ class FirmwareTab(QtWidgets.QWidget):
         self._update()
 
     def refresh(self):
+        token = self.ssh_client.ensure_client()
+
         def inspect():
+            with firmware.firmware_session(self.ssh_client, token):
+                return read_status()
+
+        def read_status():
             machine = self.ssh_client.exec_checked(
                 "cat /sys/devices/soc0/machine 2>/dev/null || "
                 "tr -d '\\0' < /proc/device-tree/model 2>/dev/null || true"
             ).strip()
             platform = tap._platform_from_machine(machine)
-            if platform in {"rm1", "rm2"}:
-                label = "reMarkable 1" if platform == "rm1" else "reMarkable 2"
+            if platform in {"rm1", "rm2", "tatsu"}:
+                label = {"rm1": "reMarkable 1", "rm2": "reMarkable 2", "tatsu": "Paper Pure"}[platform]
+                reason = "分区写入尚未验证" if platform == "tatsu" else "使用旧版双系统分区"
                 detail = (
-                    f"当前设备为 {label}，使用旧版双系统分区；"
+                    f"当前设备为 {label}，{reason}；"
                     "rmtool 暂不支持该设备的固件升级、降级或分区切换。"
                     "请使用官方更新方式或 reManager。"
                 )

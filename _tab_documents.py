@@ -73,7 +73,8 @@ class _DocumentTransferService:
         packages: List[_PreparedDocumentUpload] = []
         started_identifiers: List[str] = []
         try:
-            packages = [self._prepare_upload(file_path) for file_path in file_paths]
+            for file_path in file_paths:
+                packages.append(self._prepare_upload(file_path))
             total_size = sum(package.total_size for package in packages)
             self._ensure_device_space(total_size)
             self._upload_packages(packages, started_identifiers, progress_callback)
@@ -1020,6 +1021,8 @@ class DocumentsTab(QtWidgets.QWidget):
     def _perform_delete_documents(
         self, items: List[_rmtool.DocumentItem], connection_generation: int, client
     ):
+        if any(not _rmtool.is_document_identifier(item.identifier) for item in items):
+            raise RuntimeError("文档标识无效，已停止删除，请刷新文档列表")
         # Hold the transport lock across validation and the entire batch so a
         # queued deletion cannot follow the wrapper onto a different device.
         with self.ssh_client.operation_session():
@@ -1029,10 +1032,15 @@ class DocumentsTab(QtWidgets.QWidget):
                 or self.ssh_client.ensure_client() is not client
             ):
                 raise RuntimeError("设备连接已改变，请刷新列表后重新选择文档")
-            for item in items:
-                self.ssh_client.exec_checked(
-                    f"rm -rf {_rmtool.DOCUMENT_ROOT}/{item.identifier} {_rmtool.DOCUMENT_ROOT}/{item.identifier}.*"
-                )
+            with self.ssh_client.sftp_session() as sftp:
+                names = sftp.listdir(_rmtool.DOCUMENT_ROOT)
+            identifiers = {item.identifier for item in items}
+            for name in names:
+                if "/" in name or "\\" in name or "\x00" in name:
+                    continue
+                if name.split(".", 1)[0] in identifiers:
+                    path = shlex.quote(posixpath.join(_rmtool.DOCUMENT_ROOT, name))
+                    self.ssh_client.exec_checked(f"rm -rf -- {path}")
             self.ssh_client.exec_checked("systemctl restart xochitl")
 
     # -- Orphan thumbnail cleanup ---------------------------------------------
@@ -1086,7 +1094,7 @@ class DocumentsTab(QtWidgets.QWidget):
                 ):
                     continue
                 identifier = entry.filename[: -len(".thumbnails")]
-                if not identifier or identifier in active_ids:
+                if not _rmtool.is_document_identifier(identifier) or identifier in active_ids:
                     continue
                 remote_dir = posixpath.join(_rmtool.DOCUMENT_ROOT, entry.filename)
                 files = self._collect_remote_files(sftp, remote_dir)
@@ -1162,6 +1170,8 @@ class DocumentsTab(QtWidgets.QWidget):
                 if stat.S_ISDIR(entry.st_mode)
             }
             for identifier in scan.candidate_ids:
+                if not _rmtool.is_document_identifier(identifier):
+                    continue
                 directory_name = f"{identifier}.thumbnails"
                 if identifier in active_ids or directory_name not in directory_names:
                     continue

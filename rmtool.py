@@ -29,7 +29,7 @@ from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets, sip
 
 
 APP_NAME = "reMarkable 管理工具"
-APP_VERSION = "1.16.12"
+APP_VERSION = "1.16.13"
 CONFIG_FILE = "devices.json"
 GITHUB_REPO_URL = "https://github.com/pretenderlu/rmtool"
 GITHUB_RELEASES_URL = f"{GITHUB_REPO_URL}/releases/latest"
@@ -445,6 +445,13 @@ def is_active_document_metadata(metadata: object) -> bool:
     )
 
 
+def is_document_identifier(value: str) -> bool:
+    try:
+        return str(uuid.UUID(value)) == value
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
 def load_document_items(sftp: paramiko.SFTPClient) -> List[DocumentItem]:
     """Read and sort document metadata from an existing SFTP session."""
     try:
@@ -456,6 +463,8 @@ def load_document_items(sftp: paramiko.SFTPClient) -> List[DocumentItem]:
     items = []
     for entry in (entry for entry in entries if entry.filename.endswith(".metadata")):
         identifier = entry.filename[:-9]
+        if not is_document_identifier(identifier):
+            continue
         metadata_path = f"{DOCUMENT_ROOT}/{entry.filename}"
         try:
             with sftp.open(metadata_path, "r") as file_handle:

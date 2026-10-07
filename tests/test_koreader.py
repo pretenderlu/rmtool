@@ -5,6 +5,7 @@ import shlex
 import stat
 import tarfile
 import tempfile
+import threading
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
@@ -36,11 +37,32 @@ class FakeSFTP:
         if callback:
             callback(len(data), len(data))
 
+    def stat(self, path):
+        if path not in self.ssh.files:
+            raise FileNotFoundError(path)
+        return SimpleNamespace(st_size=len(self.ssh.files[path]))
+
+    def remove(self, path):
+        if path not in self.ssh.files:
+            raise FileNotFoundError(path)
+        del self.ssh.files[path]
+
+    def rename(self, source, target):
+        if target in self.ssh.files:
+            raise FileExistsError(target)
+        self.posix_rename(source, target)
+
+    def posix_rename(self, source, target):
+        self.ssh.files[target] = self.ssh.files.pop(source)
+
 
 class FakeSSH:
     """In-memory remote filesystem faking the SSHClientWrapper surface."""
 
     def __init__(self, *, connected=True):
+        self._client = object()
+        self._state_lock = threading.RLock()
+        self._transport_lock = threading.RLock()
         self._connected = connected
         self.files = {}
         self.dirs = {"/", "/home", "/home/root"}
@@ -94,6 +116,14 @@ class FakeSSH:
     # -- SSHClientWrapper surface ---------------------------------------------
     def is_connected(self):
         return self._connected
+
+    def ensure_client(self):
+        return self._client
+
+    @contextmanager
+    def operation_session(self):
+        with self._transport_lock:
+            yield
 
     def exec_command(self, command):
         self.commands.append(command)

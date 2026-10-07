@@ -216,7 +216,9 @@ class WeReadAppTests(unittest.TestCase):
         self.assertIn('QLabel("设备启动入口")', section)
         self.assertIn('QPushButton("安装微信读书 App")', section)
         self.assertIn('self.detect_button.setText("检测启动入口")', section)
-        self.assertIn("仅支持运行 3.28 系列固件的 Paper Pro 和 Move", section)
+        self.assertIn("微信读书 App 支持 Paper Pro 和 Move 的 3.28 系列固件", section)
+        self.assertIn("设备启动入口目前仅适配 3.28.0.172", section)
+        self.assertIn("若当前固件有匹配的设备启动入口", section)
         self.assertIn("腾讯微信读书官方 CDN", section)
         self.assertIn(
             "state is _weread_app.WeReadAppState.INSTALLED",

@@ -428,7 +428,10 @@ class FakeRecursiveDownloadSFTP:
             ]
         raise IOError(remote_path)
 
-    def get(self, remote_path, local_path):
+    def stat(self, remote_path):
+        return SimpleNamespace(st_size=len(self.files[remote_path]))
+
+    def get(self, remote_path, local_path, callback=None):
         Path(local_path).write_bytes(self.files[remote_path])
 
 
@@ -3634,13 +3637,13 @@ class CoverWallWallpaperTests(unittest.TestCase):
             def listdir_attr(self, path):
                 if path == rmtool.DOCUMENT_ROOT:
                     return [
-                        SimpleNamespace(filename="doc-old.metadata", st_mtime=100),
-                        SimpleNamespace(filename="doc-new.metadata", st_mtime=200),
-                        SimpleNamespace(filename="doc-old.pdf", st_mtime=0),
-                        SimpleNamespace(filename="doc-new.epub", st_mtime=0),
-                        SimpleNamespace(filename="doc-new", st_mtime=0),
+                        SimpleNamespace(filename="11111111-1111-1111-1111-111111111111.metadata", st_mtime=100),
+                        SimpleNamespace(filename="22222222-2222-2222-2222-222222222222.metadata", st_mtime=200),
+                        SimpleNamespace(filename="11111111-1111-1111-1111-111111111111.pdf", st_mtime=0),
+                        SimpleNamespace(filename="22222222-2222-2222-2222-222222222222.epub", st_mtime=0),
+                        SimpleNamespace(filename="22222222-2222-2222-2222-222222222222", st_mtime=0),
                     ]
-                if path == f"{rmtool.DOCUMENT_ROOT}/doc-new.thumbnails":
+                if path == f"{rmtool.DOCUMENT_ROOT}/22222222-2222-2222-2222-222222222222.thumbnails":
                     return [
                         SimpleNamespace(filename="2.png"),
                         SimpleNamespace(filename="1.jpg"),
@@ -3650,13 +3653,13 @@ class CoverWallWallpaperTests(unittest.TestCase):
 
             def open(self, path, _mode):
                 payloads = {
-                    f"{rmtool.DOCUMENT_ROOT}/doc-old.metadata": (
+                    f"{rmtool.DOCUMENT_ROOT}/11111111-1111-1111-1111-111111111111.metadata": (
                         b'{"visibleName":"Old","type":"DocumentType"}'
                     ),
-                    f"{rmtool.DOCUMENT_ROOT}/doc-new.metadata": (
+                    f"{rmtool.DOCUMENT_ROOT}/22222222-2222-2222-2222-222222222222.metadata": (
                         b'{"visibleName":"New","type":"DocumentType"}'
                     ),
-                    f"{rmtool.DOCUMENT_ROOT}/doc-new.thumbnails/1.jpg": b"first-cover",
+                    f"{rmtool.DOCUMENT_ROOT}/22222222-2222-2222-2222-222222222222.thumbnails/1.jpg": b"first-cover",
                 }
                 if path not in payloads:
                     raise IOError(path)
@@ -3671,12 +3674,14 @@ class CoverWallWallpaperTests(unittest.TestCase):
         self.assertEqual(rmtool.read_document_cover(sftp, items[0]), b"first-cover")
 
     def test_load_document_items_filters_inactive_metadata_conservatively(self):
+        ids = {name: str(rmtool.uuid.uuid5(rmtool.uuid.NAMESPACE_URL, name))
+               for name in ("active", "trash", "deleted", "malformed")}
         class FakeDocumentSFTP:
             def listdir_attr(self, path):
                 if path != rmtool.DOCUMENT_ROOT:
                     raise IOError(path)
                 return [
-                    SimpleNamespace(filename=f"{identifier}.metadata", st_mtime=index)
+                    SimpleNamespace(filename=f"{ids[identifier]}.metadata", st_mtime=index)
                     for index, identifier in enumerate(
                         ("active", "trash", "deleted", "malformed"), start=1
                     )
@@ -3690,11 +3695,11 @@ class CoverWallWallpaperTests(unittest.TestCase):
                     "deleted": b'{"deleted":true}',
                     "malformed": b"{",
                 }
-                return BytesIO(payloads[identifier])
+                return BytesIO({ids[name]: data for name, data in payloads.items()}[identifier])
 
         items = rmtool.load_document_items(FakeDocumentSFTP())
 
-        self.assertEqual([item.identifier for item in items], ["malformed", "active"])
+        self.assertEqual([item.identifier for item in items], [ids["malformed"], ids["active"]])
 
     def test_cover_wall_composer_outputs_exact_rgb_size(self):
         covers = [self._cover_bytes(color) for color in ("navy", "red", "green", "gold")]
@@ -6111,7 +6116,7 @@ class DocumentWorkspaceUiTests(unittest.TestCase):
 
     def _make_document(self, name, assets, updated):
         return rmtool.DocumentItem(
-            identifier=f"id-{name}",
+            identifier=str(rmtool.uuid.uuid5(rmtool.uuid.NAMESPACE_URL, name)),
             name=name,
             doc_type="DocumentType",
             updated=updated,
@@ -6216,14 +6221,16 @@ class DocumentWorkspaceUiTests(unittest.TestCase):
 
         with mock.patch.object(
             _tab_documents, "ask_confirmation", return_value=True
-        ), mock.patch.object(_tab_documents, "show_info"), mock.patch.object(widget, "refresh"):
+        ), mock.patch.object(_tab_documents, "show_info"), mock.patch.object(widget, "refresh"), \
+                mock.patch.object(widget.ssh_client.sftp, "listdir", create=True,
+                                  return_value=[item.identifier for item in documents]):
             widget._delete_document()
             self._drain_background_tasks(widget)
 
         delete_calls = [command for command in widget.ssh_client.exec_calls if command.startswith("rm -rf ")]
         self.assertEqual(len(delete_calls), 2)
-        self.assertTrue(any("id-Meeting Notes" in command for command in delete_calls))
-        self.assertTrue(any("id-Book" in command for command in delete_calls))
+        for item in documents:
+            self.assertTrue(any(item.identifier in command for command in delete_calls))
         self.assertEqual(
             [command for command in widget.ssh_client.exec_calls if command == "systemctl restart xochitl"],
             ["systemctl restart xochitl"],
@@ -6232,13 +6239,15 @@ class DocumentWorkspaceUiTests(unittest.TestCase):
     def test_orphan_thumbnail_scan_classifies_directories_and_counts_nested_files(self):
         widget = self._make_widget()
         root = rmtool.DOCUMENT_ROOT
-        trash_ids = [f"trash-{index}" for index in range(16)]
+        trash_ids = [str(rmtool.uuid.UUID(int=index)) for index in range(16)]
+        current = "11111111-1111-1111-1111-111111111111"
+        orphan = "22222222-2222-2222-2222-222222222222"
         widget.ssh_client.sftp = FakeThumbnailCleanupSFTP(
             {
                 root: [
-                    SimpleNamespace(filename="current.metadata", st_mode=stat.S_IFREG | 0o644),
-                    SimpleNamespace(filename="current.thumbnails", st_mode=stat.S_IFDIR | 0o755),
-                    SimpleNamespace(filename="orphan.thumbnails", st_mode=stat.S_IFDIR | 0o755),
+                    SimpleNamespace(filename=f"{current}.metadata", st_mode=stat.S_IFREG | 0o644),
+                    SimpleNamespace(filename=f"{current}.thumbnails", st_mode=stat.S_IFDIR | 0o755),
+                    SimpleNamespace(filename=f"{orphan}.thumbnails", st_mode=stat.S_IFDIR | 0o755),
                     SimpleNamespace(filename="not-a-directory.thumbnails", st_mode=stat.S_IFREG | 0o644),
                     *[
                         SimpleNamespace(
@@ -6255,11 +6264,11 @@ class DocumentWorkspaceUiTests(unittest.TestCase):
                         for identifier in trash_ids
                     ],
                 ],
-                f"{root}/orphan.thumbnails": [
+                f"{root}/{orphan}.thumbnails": [
                     SimpleNamespace(filename="cover.png", st_mode=stat.S_IFREG | 0o644, st_size=120),
                     SimpleNamespace(filename="nested", st_mode=stat.S_IFDIR | 0o755, st_size=0),
                 ],
-                f"{root}/orphan.thumbnails/nested": [
+                f"{root}/{orphan}.thumbnails/nested": [
                     SimpleNamespace(filename="page.png", st_mode=stat.S_IFREG | 0o644, st_size=45),
                 ],
                 **{
@@ -6279,7 +6288,7 @@ class DocumentWorkspaceUiTests(unittest.TestCase):
 
         scan = widget._scan_orphan_thumbnails()
 
-        self.assertEqual(scan.candidate_ids, tuple(sorted(["orphan", *trash_ids])))
+        self.assertEqual(scan.candidate_ids, tuple(sorted([orphan, *trash_ids])))
         self.assertEqual(scan.directory_count, 17)
         self.assertEqual(scan.file_count, 2)
         self.assertEqual(scan.total_bytes, 165)
@@ -6291,7 +6300,7 @@ class DocumentWorkspaceUiTests(unittest.TestCase):
             {
                 root: [
                     SimpleNamespace(
-                        filename="orphan.thumbnails",
+                        filename="22222222-2222-2222-2222-222222222222.thumbnails",
                         st_mode=stat.S_IFDIR | 0o755,
                     ),
                 ],
@@ -6361,21 +6370,22 @@ class DocumentWorkspaceUiTests(unittest.TestCase):
     def test_orphan_thumbnail_delete_revalidates_and_quotes_exact_paths(self):
         widget = self._make_widget()
         root = rmtool.DOCUMENT_ROOT
+        orphan, restored, trash, became_file = [str(rmtool.uuid.UUID(int=i)) for i in range(4)]
         widget.ssh_client.sftp = FakeThumbnailCleanupSFTP(
             {
                 root: [
-                    SimpleNamespace(filename="orphan id.thumbnails", st_mode=stat.S_IFDIR | 0o755),
-                    SimpleNamespace(filename="restored.metadata", st_mode=stat.S_IFREG | 0o644),
-                    SimpleNamespace(filename="restored.thumbnails", st_mode=stat.S_IFDIR | 0o755),
-                    SimpleNamespace(filename="trash.metadata", st_mode=stat.S_IFREG | 0o644),
-                    SimpleNamespace(filename="trash.thumbnails", st_mode=stat.S_IFDIR | 0o755),
-                    SimpleNamespace(filename="became-file.thumbnails", st_mode=stat.S_IFREG | 0o644),
+                    SimpleNamespace(filename=f"{orphan}.thumbnails", st_mode=stat.S_IFDIR | 0o755),
+                    SimpleNamespace(filename=f"{restored}.metadata", st_mode=stat.S_IFREG | 0o644),
+                    SimpleNamespace(filename=f"{restored}.thumbnails", st_mode=stat.S_IFDIR | 0o755),
+                    SimpleNamespace(filename=f"{trash}.metadata", st_mode=stat.S_IFREG | 0o644),
+                    SimpleNamespace(filename=f"{trash}.thumbnails", st_mode=stat.S_IFDIR | 0o755),
+                    SimpleNamespace(filename=f"{became_file}.thumbnails", st_mode=stat.S_IFREG | 0o644),
                 ]
             },
-            metadata={"restored": {}, "trash": {"parent": "trash"}},
+            metadata={restored: {}, trash: {"parent": "trash"}},
         )
         scan = _tab_documents._OrphanThumbnailScan(
-            candidate_ids=("orphan id", "restored", "trash", "became-file"),
+            candidate_ids=(orphan, restored, trash, became_file, "../outside", "*"),
             file_count=4,
             total_bytes=400,
         )
@@ -6384,8 +6394,8 @@ class DocumentWorkspaceUiTests(unittest.TestCase):
 
         self.assertEqual(deleted_count, 2)
         expected_paths = [
-            f"{root}/orphan id.thumbnails",
-            f"{root}/trash.thumbnails",
+            f"{root}/{orphan}.thumbnails",
+            f"{root}/{trash}.thumbnails",
         ]
         self.assertEqual(
             widget.ssh_client.exec_calls,

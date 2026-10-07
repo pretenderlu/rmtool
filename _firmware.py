@@ -528,7 +528,7 @@ def firmware_session(ssh, token=None):
 
 
 def _reconciled_target_state(ssh, metadata, directory, boot_id):
-    if boot_id == metadata["boot_id"]:
+    if not boot_id or boot_id == metadata["boot_id"]:
         return False
     state = parse_state(ssh.exec_checked(PROBE))
     target = key_values(_remote_text(ssh, directory + "/target"))
@@ -574,15 +574,31 @@ def query_transaction(ssh):
                 "-p", "LoadState", "-p", "ActiveState", "-p", "SubState", "-p", "Result", "-p", "ExecMainStatus")))
             if props.get("ActiveState") in ("activating", "deactivating") or props.get("SubState") == "running":
                 return "running", "设备端事务仍在运行；断线不会中止安装。"
+            completed_path = directory + "/completed.json"
+            ssh.exec_checked(f"test ! -L {completed_path}")
+            try:
+                completed = json.loads(_remote_text(ssh, completed_path))
+            except FileNotFoundError:
+                pass
+            else:
+                ssh.exec_checked(f"test ! -L {completed_path} && test -f {completed_path} && "
+                                 f"test \"$(stat -c '%u:%a' {completed_path})\" = 0:600")
+                completed_boot = completed.pop("completed_boot_id", "")
+                if (completed != metadata or not isinstance(completed_boot, str)
+                        or not completed_boot or completed_boot == metadata["boot_id"]):
+                    raise RuntimeError("固件完成记录与事务不一致。")
+                return "completed", "此前固件安装已完成，记录已保留。"
             boot_id = _remote_text(ssh, "/proc/sys/kernel/random/boot_id", 64).strip()
             try:
                 result = _remote_text(ssh, directory + "/result", 64).strip()
             except FileNotFoundError:
                 if _reconciled_target_state(ssh, metadata, directory, boot_id):
+                    _record_completion(ssh, directory, metadata, boot_id)
                     return "completed", "已重启进入目标固件，已核销未完成的事务记录。"
                 return "unknown", "事务结果缺失，且尚未确认设备已进入目标固件。"
             if result == "success" and boot_id != metadata["boot_id"]:
                 if _reconciled_target_state(ssh, metadata, directory, boot_id):
+                    _record_completion(ssh, directory, metadata, boot_id)
                     return "completed", "已重启进入目标固件，分区与系统指纹一致。"
                 return "unknown", "重启后目标固件或分区不一致，需检查回退与更新状态。"
             if (result == "success" and props.get("Result") == "success"
@@ -596,6 +612,22 @@ def query_transaction(ssh):
             return "unknown", "无法确认设备端事务结果，请重连后查询。"
 
 
+def _record_completion(ssh, directory, metadata, boot_id):
+    temporary = directory + "/completed-" + uuid.uuid4().hex + ".tmp"
+    data = json.dumps(dict(metadata, completed_boot_id=boot_id)).encode("utf-8")
+    try:
+        _write_remote(ssh, temporary, data)
+        ssh.exec_checked(f"set -eu; test \"$(cat {BASE}/current)\" = {metadata['job']}; "
+                         f"chmod 600 {temporary}; mv -f {temporary} {directory}/completed.json; sync")
+        if _remote_text(ssh, directory + "/completed.json") != data.decode("utf-8"):
+            raise RuntimeError("无法保存固件完成记录。")
+    finally:
+        try:
+            ssh.exec_checked(f"rm -f -- {temporary}")
+        except Exception:
+            logging.warning("Unable to clean firmware completion staging file %s", temporary, exc_info=True)
+
+
 def inspect_device(ssh):
     with firmware_session(ssh):
         state = parse_state(ssh.exec_checked(PROBE))
@@ -604,9 +636,7 @@ def inspect_device(ssh):
         try:
             if transaction[0] not in ("none", "completed"):
                 raise RuntimeError(transaction[1])
-            if (state.pending or state.values["swu_status"] != "0"
-                    or state.values["holders"] != "idle"):
-                raise RuntimeError("设备存在更新、待重启状态或分区占用，其他操作暂时锁定。")
+            assert_idle(state)
         except RuntimeError as exc:
             reason = str(exc)
         if hasattr(ssh, "firmware_guard_reason"):
@@ -653,10 +683,10 @@ arbitrary shell commands. Firmware queries use a thread-local scoped bypass.
             finally:
                 self._firmware_local.depth = depth
 
-    def exec_command(self, command, *, timeout=1800):
+    def exec_command(self, command, *, timeout=1800, decode_errors="strict"):
         with self._transport_lock:
             self._firmware_gate()
-            return super().exec_command(command, timeout=timeout)
+            return super().exec_command(command, timeout=timeout, decode_errors=decode_errors)
 
     @contextmanager
     def sftp_session(self):

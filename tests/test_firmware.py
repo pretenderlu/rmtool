@@ -78,6 +78,10 @@ class FakeSSH:
 
     def exec_checked(self, command):
         self.commands.append(command)
+        if "/completed.json; sync" in command:
+            import shlex
+            parts = shlex.split(command.split("mv -f ", 1)[1].split(";", 1)[0])
+            self.files[parts[1]] = self.files.pop(parts[0])
         if command == f.PROBE:
             return self.probe
         if command.startswith("if [ -e " + f.BASE):
@@ -535,7 +539,7 @@ class TransactionTests(unittest.TestCase):
         self.ssh.probe = state_text(root="/dev/mmcblk0p3", root_part="b", boot="2", version="3.28.0.172")
         self.assertEqual(f.query_transaction(self.ssh)[0], "completed")
         self.ssh.probe = state_text(version="3.28.0.172")
-        self.assertEqual(f.query_transaction(self.ssh)[0], "unknown")
+        self.assertEqual(f.query_transaction(self.ssh)[0], "completed")
 
     def test_disconnect_never_means_success(self):
         with mock.patch.object(self.ssh, "exec_checked", side_effect=OSError("disconnect")):
