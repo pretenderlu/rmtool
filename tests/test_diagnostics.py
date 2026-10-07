@@ -1,6 +1,10 @@
 import os
+import shutil
+import subprocess
+import tempfile
 import unittest
 import zipfile
+from pathlib import Path
 from unittest import mock
 from unittest.mock import Mock
 
@@ -46,7 +50,10 @@ class DiagnosticsTests(unittest.TestCase):
         # The device journal that may contain document names is opt-out.
         optional = [item for item in _diagnostics.DEVICE_ITEMS if item.optional]
         self.assertEqual(
-            [item.name for item in optional], ["device/journal-xochitl.txt"]
+            [item.name for item in optional], [
+                "device/journal-xochitl.txt", "device/font-matching.txt",
+                "device/font-config.txt", "device/firmware-transaction.txt",
+            ]
         )
         resources = next(
             item for item in _diagnostics.DEVICE_ITEMS
@@ -54,6 +61,78 @@ class DiagnosticsTests(unittest.TestCase):
         )
         self.assertIn("head -n 5", resources.command)
         self.assertNotIn("head -5", resources.command)
+
+    def test_diagnostics_include_font_and_firmware_evidence_without_repairs(self):
+        items = {item.name: item for item in _diagnostics.DEVICE_ITEMS}
+        fonts = items["device/font-matching.txt"].command
+        self.assertIn("sans:lang=zh-cn", fonts)
+        self.assertIn("reMarkable Sans:lang=zh-cn", fonts)
+        self.assertIn("%{lang}", fonts)
+        self.assertIn("%{index}", fonts)
+        self.assertIn("fc-match -s", fonts)
+        self.assertNotIn("fc-cache", " ".join(item.command for item in items.values()))
+        self.assertIn("/proc/mounts", items["device/firmware-state.txt"].command)
+        job = items["device/firmware-transaction.txt"].command
+        self.assertIn("*[!0-9a-f]*", job)
+        self.assertIn('${#job}', job)
+        self.assertIn("job.json target result install.log", job)
+        self.assertIn("rmtool: " + rmtool.APP_VERSION, _diagnostics._collect_pc_environment().text)
+
+    def test_diagnostic_shell_syntax_and_transaction_path_validation(self):
+        git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
+        shell = str(git_bash) if git_bash.is_file() else shutil.which("sh")
+        if not shell:
+            self.skipTest("POSIX shell unavailable")
+        for item in _diagnostics.DEVICE_ITEMS:
+            result = subprocess.run([shell, "-n"], input=item.command, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+        command = next(item.command for item in _diagnostics.DEVICE_ITEMS
+                       if item.name == "device/firmware-transaction.txt")
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder) / "firmware"
+            base.mkdir()
+            job = "a" * 32
+            (base / job).mkdir()
+            (base / job / "job.json").write_text('{"target":"b"}', encoding="utf-8")
+            command = command.replace("/home/root/.rmtool-firmware", base.as_posix())
+            command = 'systemctl() { printf "ActiveState=inactive\\n"; }; ' + command
+            for current, valid in ((job, True), ("../private", False), ("a" * 33, False)):
+                (base / "current").write_text(current + "\n", encoding="utf-8")
+                result = subprocess.run([shell], input=command, text=True, capture_output=True)
+                self.assertEqual(result.returncode == 0, valid, result.stderr)
+                self.assertEqual('{"target":"b"}' in result.stdout, valid)
+
+    def test_whitelisted_diagnostics_work_while_firmware_gate_remains_locked(self):
+        from contextlib import nullcontext
+        from _firmware import FirmwareSSHClientWrapper
+        from _ssh import SSHClientWrapper
+
+        ssh = FirmwareSSHClientWrapper()
+        ssh.firmware_guard_reason = "pending firmware"
+
+        def execute(_command, **_kwargs):
+            ssh._firmware_gate()
+            return "read-only evidence", "", 0
+
+        with mock.patch.object(ssh, "operation_session", side_effect=nullcontext), mock.patch.object(
+            SSHClientWrapper, "exec_command", side_effect=execute
+        ):
+            result = _diagnostics._collect_device_item(ssh, _diagnostics.DEVICE_ITEMS[0])
+            self.assertEqual(result.text, "read-only evidence")
+            self.assertFalse(result.error)
+            unknown = _diagnostics._collect_device_item(
+                ssh, _diagnostics.DiagItem("custom", "custom", "cat /etc/version")
+            )
+            self.assertIn("pending firmware", unknown.error)
+        with mock.patch.object(ssh, "operation_session", side_effect=nullcontext), mock.patch.object(
+            SSHClientWrapper, "exec_command", side_effect=OSError("disconnected")
+        ):
+            failed = _diagnostics._collect_device_item(ssh, _diagnostics.DEVICE_ITEMS[0])
+            self.assertIn("disconnected", failed.error)
+        self.assertEqual(ssh.firmware_guard_reason, "pending firmware")
+        with self.assertRaisesRegex(RuntimeError, "pending firmware"):
+            ssh._firmware_gate()
 
     def test_collect_caps_remote_output_and_records_failures(self):
         big = "x" * (_diagnostics.ITEM_CAP_BYTES + 4096)

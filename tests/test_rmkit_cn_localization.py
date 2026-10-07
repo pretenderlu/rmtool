@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import _rmkit_cn
 import _reading_enhancements as reading
@@ -772,6 +772,49 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertTrue(_rmkit_cn.get_localization_status(ssh).has_cjk_font)
         self.assertEqual(ssh.files, before)
         self.assertFalse(any(kind == "transfer" for kind, _value in ssh.events))
+
+    def test_native_cjk_matching_is_separate_from_primary_font_coverage(self):
+        latin = "/usr/share/fonts/ttf/noto/NotoSans-VariableFont_wdth,wght.ttf"
+        chinese = "/usr/share/fonts/ttf/noto/NotoSansSC-VariableFont_wght.ttf"
+        for listed, matched, languages, expected in (
+            ((chinese + "\n") * 10, chinese, "en|zh-cn|zh-tw\n", True),
+            (chinese + "\n", chinese, "en\nen|zh-cn\n", True),
+            ("", chinese, "en|zh-cn\n", False),
+            (chinese + "\n", latin, "en\n", False),
+            (chinese + "\n", "", "en|zh-cn\n", False),
+            (chinese + "\n", chinese, "", False),
+            (chinese + "\n", chinese, "en|zh-tw\n", False),
+        ):
+            with self.subTest(listed=listed, matched=matched, languages=languages):
+                def execute(command):
+                    if command == _rmkit_cn.PRIMARY_FONT_COMMAND:
+                        return latin + "\n"
+                    if command == _rmkit_cn.CJK_FONT_LIST_COMMAND:
+                        return listed
+                    if command.startswith("fc-match "):
+                        return latin + "\n" + matched + "\n"
+                    if command.startswith("fc-scan --format="):
+                        self.assertEqual(shlex.split(command)[-1], chinese)
+                        return languages
+                    self.fail(command)
+
+                ssh = Mock(exec_checked=Mock(side_effect=execute))
+                self.assertEqual(_rmkit_cn.has_localization_cjk_font(ssh), expected)
+                self.assertFalse(_rmkit_cn.has_cjk_font(ssh))
+                if expected:
+                    self.assertEqual(sum(
+                        call.args[0].startswith("fc-scan ")
+                        for call in ssh.exec_checked.call_args_list
+                    ), 1)
+                ssh.transfer_file.assert_not_called()
+
+    def test_native_cjk_probe_does_not_hide_unreadable_fonts_or_partial_matches(self):
+        chinese = "/usr/share/fonts/noto-sc.ttf"
+        ssh = Mock(exec_checked=Mock(side_effect=[chinese + "\n", chinese + "\n", "latin.ttf\n"]))
+        self.assertFalse(_rmkit_cn.has_localization_cjk_font(ssh))
+        ssh.exec_checked.side_effect = [chinese + "\n"] * 3 + [OSError("font unreadable")]
+        with self.assertRaisesRegex(OSError, "font unreadable"):
+            _rmkit_cn.has_localization_cjk_font(ssh)
 
     def test_user_owned_active_cjk_font_is_preserved_without_font_writes(self):
         user_font = "/home/root/.local/share/fonts/user-ui.ttf"

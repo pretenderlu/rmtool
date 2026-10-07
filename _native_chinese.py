@@ -577,7 +577,7 @@ def get_status(
     cjk_font_available = None
     if package is not None:
         try:
-            cjk_font_available = _rmkit_cn.has_cjk_font(ssh_client)
+            cjk_font_available = _rmkit_cn.has_localization_cjk_font(ssh_client)
         except Exception as exc:
             # Fontconfig probing is advisory for status detection. Keep the
             # plugin state usable; enable() performs the authoritative check.
@@ -788,10 +788,10 @@ def enable(
     if trusted is None or trusted != package:
         raise RuntimeError("设备与原生中文包不精确匹配，未执行修改。")
     fallback_font_installed = False
-    if not _rmkit_cn.has_cjk_font(ssh_client):
+    if not _rmkit_cn.has_localization_cjk_font(ssh_client):
         if identity.platform not in {"rm1", "rm2"} or not fallback_font_local_path:
             raise RuntimeError(
-                "当前 sans-serif 字体不支持简体中文。请先在字体管理中上传并设为"
+                "未检测到可用的简体中文字体匹配。请先在字体管理中上传并设为"
                 "系统字体，确认字体状态正常后再启用原生简体中文。"
             )
         tap._preflight_device(ssh_client)

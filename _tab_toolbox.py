@@ -2037,7 +2037,7 @@ class NativeChineseSection(QtWidgets.QWidget):
             and status.identity.platform in {"rm1", "rm2"}
         ):
             message += (
-                "\n当前系统字体不含简体中文；启用时可安装 rmtool 内置的常用字兜底字体。"
+                "\n未检测到可用的简体中文字体匹配；启用时可安装 rmtool 内置的常用字兜底字体。"
             )
         if status.emergency_disabled and status.state != _native_chinese.NativeChineseState.EMERGENCY_DISABLED:
             message += "\n紧急停用标记存在，共享 Xovi 不会在下次启动时载入。"
@@ -2165,13 +2165,13 @@ class NativeChineseSection(QtWidgets.QWidget):
                 return
             if self._lock_screen_font_support():
                 fallback_notice = (
-                    "当前设备的系统 sans-serif 不含简体中文。继续后，rmtool 会在同一套"
+                    "未检测到可用的简体中文字体匹配。继续后，rmtool 会在同一套"
                     f"系统字体镜像与空间检查中安装约 { _rmkit_cn.BUNDLED_FALLBACK_FONT_SIZE / 1024 / 1024:.1f} MiB "
                     "的常用简体中文兜底字体；它会同时供解锁前后的系统界面使用。"
                 )
             else:
                 fallback_notice = (
-                    "当前设备的系统 sans-serif 不含简体中文。继续后，rmtool 会把约 "
+                    "未检测到可用的简体中文字体匹配。继续后，rmtool 会把约 "
                     f"{_rmkit_cn.BUNDLED_FALLBACK_FONT_SIZE / 1024 / 1024:.1f} MiB 的常用简体中文兜底字体"
                     "保存在 /home，不占用 /data；如果设备启用锁屏密码，解锁前界面可能仍使用原生字体。"
                 )

@@ -171,11 +171,11 @@ SYSTEM_FONT_MATCH_ENV = (
 MANAGED_FONT_PATHS = frozenset((BUNDLED_FONT_PATH, *CUSTOM_FONT_PATHS.values()))
 PRIMARY_FONT_COMMAND = "fc-match --format='%{file}\\n' sans-serif | head -n 1"
 CJK_FONT_LIST_COMMAND = "fc-list --format='%{file}\\n' ':lang=zh-cn'"
-FONT_OVERRIDE_MATCH_PATTERNS = (
+CJK_FONT_MATCH_PATTERNS = (
     "sans:lang=zh-cn",
     "reMarkable Sans:lang=zh-cn",
-    "Noto Sans SC",
 )
+FONT_OVERRIDE_MATCH_PATTERNS = (*CJK_FONT_MATCH_PATTERNS, "Noto Sans SC")
 FONT_MIRROR_VERIFIED_IDENTITY = (
     "20260806095513",
     "ferrari",
@@ -2864,6 +2864,41 @@ def has_cjk_font(ssh_client) -> bool:
         if line.strip()
     }
     return bool(primary and primary[0].strip() in cjk_fonts)
+
+
+def has_localization_cjk_font(ssh_client) -> bool:
+    """Check Chinese-language fallback without changing the user's UI font.
+
+    Explicit system font overrides and French-slot localization still require
+    has_cjk_font(): their primary font must itself support Chinese.
+    """
+    cjk_fonts = {
+        line.strip()
+        for line in ssh_client.exec_checked(CJK_FONT_LIST_COMMAND).splitlines()
+        if line.strip()
+    }
+    if not cjk_fonts:
+        return False
+    matched = {}
+    for pattern in CJK_FONT_MATCH_PATTERNS:
+        # The first face may legitimately be Latin; inspect its fallback chain.
+        candidates = ssh_client.exec_checked(
+            "fc-match -s --format='%{file}\\n' " + shlex.quote(pattern)
+        ).splitlines()
+        matched[pattern] = next(
+            (path.strip() for path in candidates if path.strip() in cjk_fonts), ""
+        )
+    logging.info("Chinese language font fallbacks: %s", matched)
+    if any(not path.startswith("/") or path not in cjk_fonts for path in matched.values()):
+        return False
+    # Scan the actual files: cached coverage alone can outlive a removed font.
+    for path in set(matched.values()):
+        languages = ssh_client.exec_checked(
+            "fc-scan --format='%{lang}\\n' " + shlex.quote(path)
+        )
+        if not any("zh-cn" in line.lower().split("|") for line in languages.splitlines()):
+            return False
+    return True
 
 
 def _remote_sha256(ssh_client, path: str) -> str:

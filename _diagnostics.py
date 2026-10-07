@@ -18,6 +18,7 @@ import platform as _platform
 import sys
 import uuid
 import zipfile
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -115,6 +116,57 @@ DEVICE_ITEMS: tuple[DiagItem, ...] = (
         "df -h / /data /home 2>/dev/null; echo ---; "
         "cat /proc/meminfo 2>/dev/null | head -n 5; echo ---; uptime",
     ),
+    DiagItem(
+        "device/font-matching.txt",
+        "字体清单与中文匹配（可能包含字体名）",
+        "for pattern in sans-serif 'sans:lang=zh-cn' 'reMarkable Sans:lang=zh-cn' 'Noto Sans SC'; do "
+        "printf '\\n== %s\\n' \"$pattern\"; "
+        "fc-match --format='%{file}|%{family}|%{style}|%{lang}\\n' \"$pattern\"; "
+        "echo '== Fallback chain'; "
+        "fc-match -s --format='%{file}|%{family}|%{lang}\\n' \"$pattern\"; done; "
+        "echo '== Chinese font inventory'; "
+        "fc-list --format='%{file}|%{family}|%{style}|%{index}|%{lang}\\n' ':lang=zh-cn'",
+        optional=True,
+    ),
+    DiagItem(
+        "device/font-config.txt",
+        "字体配置与缓存清单（可能包含字体名及路径）",
+        "for f in /etc/fonts/fonts.conf /etc/fonts/conf.d/99-rmtool-ui-font.conf "
+        "/home/root/.config/fontconfig/fonts.conf; do "
+        "printf '\\n== %s\\n' \"$f\"; "
+        "if [ -f \"$f\" ] && [ ! -L \"$f\" ]; then tail -c 8192 \"$f\"; else echo MISSING-OR-LINK; fi; done; "
+        "ls -la /etc/fonts/conf.d /var/cache/fontconfig /home/root/.cache/fontconfig 2>/dev/null",
+        optional=True,
+    ),
+    DiagItem(
+        "device/firmware-state.txt",
+        "根分区挂载与 A/B 启动状态",
+        "cat /proc/mounts; echo ---; cat /proc/sys/kernel/random/boot_id; "
+        "echo ---; cat /usr/lib/os-release; "
+        "for f in /sys/bus/mmc/devices/mmc0:0001/boot_part "
+        "/sys/devices/platform/lpgpr/root_part /sys/devices/platform/lpgpr/roota_errcnt "
+        "/sys/devices/platform/lpgpr/rootb_errcnt /sys/devices/platform/lpgpr/swu_status "
+        "/sys/devices/platform/lpgpr/swu_applied /sys/devices/platform/lpgpr/swu_recovery "
+        "/sys/devices/platform/lpgpr/boot_flow; do "
+        "printf '\\n== %s\\n' \"$f\"; cat \"$f\" 2>/dev/null || echo UNAVAILABLE; done",
+    ),
+    DiagItem(
+        "device/firmware-transaction.txt",
+        "当前固件事务与安装日志（可能包含路径）",
+        "ls -ld /home/root/.rmtool-firmware 2>/dev/null; "
+        "base=/home/root/.rmtool-firmware; "
+        "[ ! -L \"$base\" ] && [ ! -L \"$base/current\" ] || exit 1; "
+        "job=$(tail -c 101 \"$base/current\" 2>/dev/null) || exit 0; "
+        "case \"$job\" in ''|*[!0-9a-f]*) echo INVALID-JOB; exit 1;; esac; "
+        "[ \"${#job}\" = 32 ] && [ ! -L \"$base/$job\" ] || exit 1; "
+        "printf 'job=%s\\n' \"$job\"; "
+        "for name in job.json target result install.log; do "
+        "printf '\\n== %s\\n' \"$name\"; f=\"$base/$job/$name\"; "
+        "if [ -f \"$f\" ] && [ ! -L \"$f\" ]; then tail -c 16384 \"$f\"; else echo MISSING-OR-LINK; fi; done; "
+        "systemctl show \"rmtool-firmware-$job\" -p LoadState -p ActiveState "
+        "-p SubState -p Result -p ExecMainStatus 2>/dev/null",
+        optional=True,
+    ),
 )
 
 # Commands must stay read-only. Verified by tests against this denylist.
@@ -159,6 +211,7 @@ def _collect_pc_environment() -> CollectedItem:
     item = DiagItem("pc/environment.txt", "运行环境")
     lines = [
         f"created: {datetime.now().isoformat(timespec='seconds')}",
+        f"rmtool: {getattr(sys.modules.get('rmtool'), 'APP_VERSION', 'unknown')}",
         f"python: {sys.version.split()[0]}",
         f"platform: {_platform.platform()}",
     ]
@@ -179,7 +232,16 @@ def _collect_device_item(ssh_client, diag: DiagItem) -> CollectedItem:
     # also preserves the most recent log lines when output exceeds the cap.
     capped = f"({diag.command}) 2>&1 | tail -c {ITEM_CAP_BYTES}"
     try:
-        stdout, _stderr, code = ssh_client.exec_command(capped)
+        from _firmware import FirmwareSSHClientWrapper, firmware_session
+
+        # Only these fixed read-only probes may bypass the firmware write gate.
+        session = (
+            firmware_session(ssh_client)
+            if isinstance(ssh_client, FirmwareSSHClientWrapper) and diag in DEVICE_ITEMS
+            else nullcontext()
+        )
+        with session:
+            stdout, _stderr, code = ssh_client.exec_command(capped)
     except Exception as exc:
         return CollectedItem(diag, error=f"采集失败：{exc}")
     text = _decode(stdout)

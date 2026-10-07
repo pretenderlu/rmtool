@@ -579,7 +579,7 @@ class NativeChineseTests(unittest.TestCase):
         ), patch.object(
             tap, "_preflight_device", side_effect=lambda _ssh: events.append("preflight")
         ), patch.object(
-            _rmkit_cn, "has_cjk_font", side_effect=lambda _ssh: events.append("font") or True
+            _rmkit_cn, "has_localization_cjk_font", side_effect=lambda _ssh: events.append("font") or True
         ), patch.object(
             native,
             "_reject_active_french_slot",
@@ -591,13 +591,46 @@ class NativeChineseTests(unittest.TestCase):
         self.assertEqual(events, ["font", "preflight", "french"])
         deploy.assert_not_called()
 
+    def test_stock_chinese_fallback_passes_status_and_enable_for_every_package(self):
+        chinese = "/usr/share/fonts/ttf/noto/NotoSansSC-VariableFont_wght.ttf"
+
+        def execute(command):
+            if command == _rmkit_cn.CJK_FONT_LIST_COMMAND:
+                return (chinese + "\n") * 10
+            if command.startswith("fc-match "):
+                return "/usr/share/fonts/latin.ttf\n" + chinese + "\n"
+            if command.startswith("fc-scan "):
+                return "en|zh-cn\n"
+            self.fail(command)
+
+        for package in native._trusted_catalog():
+            identity = tap.DeviceIdentity(
+                package.firmware, package.platform, package.architecture, package.xochitl_sha256
+            )
+            with self.subTest(platform=package.platform, firmware=package.release_version), patch.object(
+                tap, "get_device_identity", return_value=identity
+            ), patch.object(shared, "recovery_sentinel_present", return_value=False), patch.object(
+                shared, "has_shared_artifacts", return_value=False
+            ), patch.object(tap, "_preflight_device") as preflight, patch.object(
+                native, "_reject_active_french_slot", side_effect=RuntimeError("font gate passed")
+            ), patch.object(_rmkit_cn, "install_bundled_fallback_font") as fallback:
+                ssh = Mock(exec_checked=Mock(side_effect=execute))
+                status = native.get_status(ssh, (package,))
+                self.assertTrue(status.has_cjk_font)
+                self.assertEqual(status.state, native.NativeChineseState.NOT_INSTALLED)
+                with self.assertRaisesRegex(RuntimeError, "font gate passed"):
+                    native.enable(ssh, package, "unused.tar.gz", ".rmtool")
+                preflight.assert_called_once_with(ssh)
+                fallback.assert_not_called()
+                ssh.transfer_file.assert_not_called()
+
     def test_enable_rejects_missing_cjk_before_french_or_deployment(self):
         package = native._trusted_catalog()[1]
         identity = tap.DeviceIdentity(*native.CHIAPPA_3273_IDENTITY)
         with patch.object(
             tap, "get_device_identity", return_value=identity
         ), patch.object(tap, "_preflight_device"), patch.object(
-            _rmkit_cn, "has_cjk_font", return_value=False
+            _rmkit_cn, "has_localization_cjk_font", return_value=False
         ), patch.object(native, "_reject_active_french_slot") as french, patch.object(
             shared, "enable_shared"
         ) as deploy:
@@ -628,7 +661,7 @@ class NativeChineseTests(unittest.TestCase):
         with patch.object(
             tap, "get_device_identity", return_value=identity
         ), patch.object(
-            _rmkit_cn, "has_cjk_font", return_value=False
+            _rmkit_cn, "has_localization_cjk_font", return_value=False
         ), patch.object(
             _rmkit_cn, "install_bundled_fallback_font"
         ) as install_font, patch.object(
@@ -686,7 +719,7 @@ class NativeChineseTests(unittest.TestCase):
         with patch.object(
             tap, "get_device_identity", return_value=identity
         ), patch.object(
-            _rmkit_cn, "has_cjk_font", return_value=False
+            _rmkit_cn, "has_localization_cjk_font", return_value=False
         ), patch.object(
             _rmkit_cn, "install_bundled_fallback_font"
         ), patch.object(
@@ -756,7 +789,7 @@ class NativeChineseTests(unittest.TestCase):
         with patch.object(
             tap, "get_device_identity", return_value=self.identity()
         ), patch.object(
-            _rmkit_cn, "has_cjk_font", return_value=True
+            _rmkit_cn, "has_localization_cjk_font", return_value=True
         ), patch.object(
             tap, "_preflight_device"
         ), patch.object(
