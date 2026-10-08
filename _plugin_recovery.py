@@ -1,8 +1,8 @@
 """Quarantine and rebuild recognized shared installations without trusting old code.
 
 The /data layout and RM1's /home layout are recovered. Other /home layouts, mounted-over
-systemd paths, and enabled external programs (AppLoad/KOReader or sidecars) need
-separate ownership/rollback support and remain blocked when repair is needed.
+systemd paths, and unsupported external programs remain blocked. A complete,
+compatible Pinyin service is verified and preserved in place, never rebuilt.
 An active drop-in with a corrupted launcher is also blocked: restoring that
 launcher on rollback cannot be made safe by the emergency sentinel alone.
 External settings, fonts, and books are never edited. Pre-existing emergency
@@ -27,6 +27,7 @@ from itertools import product
 from pathlib import Path, PurePosixPath
 
 import _residue_migration as migration
+import _pinyin_input as pinyin
 import _tap_page_turn as tap
 import _xovi_standalone as shared
 
@@ -68,6 +69,7 @@ class _Plan:
     fingerprint: tuple
     sentinels: tuple[str, ...]
     layout: shared.StandaloneLayout = shared.SHARED_LAYOUT
+    preserved_sidecars: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -966,6 +968,31 @@ def _ownership_snapshot(ssh_client, runtime, states, marker_text, layout=shared.
     return tuple(snapshot), tuple(sentinels)
 
 
+def _preserved_sidecars_snapshot(ssh_client, identity, states, targets):
+    state = states.get(pinyin.FEATURE_ID)
+    if state is None or not state.enabled:
+        return ()
+    target = targets[pinyin.FEATURE_ID]
+    package = pinyin.select_package(pinyin._trusted_catalog(), identity)
+    if (package is None or pinyin._shared_specs(package)[1] != target
+            or state.spec.sidecars != target.sidecars or not target.sidecars):
+        raise RuntimeError("pinyin-input 配套服务与目标插件不兼容，不能直接保留。")
+    # Only preserve the full trusted payload, including its dictionary and marker.
+    # No external program is copied or replaced by this recovery transaction.
+    _ancestors(ssh_client, pinyin.REMOTE_MARKER)
+    pinyin._assert_no_rmkit_ime(ssh_client)
+    try:
+        pinyin._validate_external_payload(ssh_client, package)
+    except RuntimeError as exc:
+        raise RuntimeError(f"pinyin-input 配套服务校验失败，已停止修复：{exc}") from exc
+    snapshot = []
+    for relative in sorted(pinyin._external_specs(package)):
+        path = f"{pinyin.REMOTE_BASE}/{relative}"
+        mode, size = _metadata(ssh_client, path)
+        snapshot.append((path, mode, size, shared._remote_sha256(ssh_client, path)))
+    return tuple(snapshot)
+
+
 def _inspect(ssh_client):
     base = shared.SHARED_LAYOUT.remote_base
     artifacts = (base, shared.LEGACY_SHARED_LAYOUT.remote_base, shared.SHARED_LAYOUT.dropin_path)
@@ -1021,6 +1048,12 @@ def _inspect(ssh_client):
     else:
         try:
             installed = shared.inspect_shared(ssh_client, new_runtime, targets)
+            if installed.startup_pending and installed.active:
+                return RecoveryReport(
+                    RecoveryState.NOT_NEEDED,
+                    f"共享插件已载入，正在确认启动稳定性；请等待 {shared.SHARED_STARTUP_STABLE_SECONDS} 秒后重新检测，期间不要重启或启动其他应用。",
+                    features,
+                ), None
             outdated = any(state.spec != targets.get(fid) for fid, state in states.items())
             if (not installed.launcher_update_available and not installed.startup_pending
                     and not outdated and layout == shared.preferred_layout(new_runtime)):
@@ -1039,11 +1072,13 @@ def _inspect(ssh_client):
     if missing:
         return RecoveryReport(RecoveryState.UNSUPPORTED, "当前固件缺少部分功能的精确包，无法保留开关状态。", features, tuple(sorted(missing))), None
     unsupported = [fid for fid, state in states.items() if state.enabled and (
-        fid not in migration._providers() or state.spec.sidecars or targets[fid].sidecars
+        fid not in migration._providers()
+        or (fid != pinyin.FEATURE_ID and (state.spec.sidecars or targets[fid].sidecars))
     )]
     if unsupported:
         return RecoveryReport(RecoveryState.BLOCKED, "以下功能含外部程序，暂不能保证全新重建及配置保留：" + "、".join(unsupported), features, tuple(unsupported)), None
-    plan = _Plan(identity, new_runtime, {fid: targets[fid] for fid in states}, states, fingerprint, sentinels, layout)
+    preserved = _preserved_sidecars_snapshot(ssh_client, identity, states, targets)
+    plan = _Plan(identity, new_runtime, {fid: targets[fid] for fid in states}, states, fingerprint, sentinels, layout, preserved)
     tap._preflight_device(ssh_client)
     if "native-chinese" in states and states["native-chinese"].enabled:
         migration.native._reject_active_french_slot(ssh_client, identity)
@@ -1134,6 +1169,8 @@ def repair(ssh_client, state_dir) -> RecoveryReport:
                     verified = shared.inspect_shared(ssh_client, plan.runtime, plan.targets)
                     if dict(verified.states) != states:
                         raise RuntimeError("修复后功能状态验证失败。")
+                    if _preserved_sidecars_snapshot(ssh_client, plan.identity, states, plan.targets) != plan.preserved_sidecars:
+                        raise RuntimeError("修复后拼音配套服务验证失败，启动保护保持开启。")
                     if created_sentinel and shared.SHARED_RECOVERY_SENTINEL not in plan.sentinels:
                         try:
                             shared._clear_recovery_sentinel_locked(ssh_client, shared.SHARED_RECOVERY_SENTINEL)
@@ -1163,4 +1200,5 @@ def repair(ssh_client, state_dir) -> RecoveryReport:
     )
     if plan.layout != layout:
         protection += f"旧路径备份仍保留在 {plan.layout.remote_base}.backup-{token}；确认新安装正常前请勿删除。"
-    return RecoveryReport(RecoveryState.NOT_NEEDED, "插件已从受信新包重建；原安装已隔离保留，未自动重启。" + protection, report.features, backup_path=backup)
+    protection += f"重启后请等待至少 {shared.SHARED_STARTUP_STABLE_SECONDS} 秒再检测，期间不要再次重启或启动微信读书等其他应用。"
+    return RecoveryReport(RecoveryState.NOT_NEEDED, "共享插件已从受信新包重建；原安装已隔离保留，已验证的配套服务保持不变，未自动重启。" + protection, report.features, backup_path=backup)

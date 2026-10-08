@@ -24,6 +24,7 @@ import _residue_migration
 import _tap_page_turn
 import _weread_app
 import _weread_launcher
+import _xovi_standalone
 from _ssh import SSHClientWrapper, remount_rw, require_connection
 import rmtool as _rmtool  # late-bound access to avoid circular import
 
@@ -4181,11 +4182,13 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             "rmtool 将重新核对安装归属与当前固件，下载并校验全部所需资源包，"
             "再隔离原安装并用受信资源包重建已知程序，不沿用损坏的旧程序。"
             "这会影响同一共享运行时中全部已启用的插件，并保留各插件启用/停用状态。\n"
+            "已完整校验且兼容的拼音配套服务将保留原文件，不重复安装。\n"
             f"涉及插件：{'、'.join(report.features) or '以重新检测结果为准'}\n"
             "原安装备份将保留，现有设置、字体、书籍等用户数据不会删除。"
             "修复期间会开启紧急停用保护；完整校验成功后仅解除本次新增的保护，"
             "原有保护保持不变，失败时保留保护。不会自动启动插件或重启设备。"
-            "完成后请按结果说明处理原有保护，再从设备菜单手动重启。是否继续？",
+            "完成后请按结果说明处理原有保护，再从设备菜单手动重启。"
+            f"重启后请等待至少 {_xovi_standalone.SHARED_STARTUP_STABLE_SECONDS} 秒再检测，期间不要再次重启或启动其他应用。是否继续？",
             confirm_text="修复并重装", cancel_text="取消",
             danger=True,
         ):

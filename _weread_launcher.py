@@ -480,6 +480,7 @@ def get_status(ssh_client, catalog) -> WeReadLauncherStatus:
             )
         current = tap._xochitl_process_token(ssh_client)
         if record.enabled:
+            shared.assert_startup_guard_not_latched(inspection)
             state = (WeReadLauncherState.ENABLE_PENDING_REBOOT
                      if current == record.process_token else WeReadLauncherState.ENABLED)
             if state is WeReadLauncherState.ENABLED and not inspection.active:

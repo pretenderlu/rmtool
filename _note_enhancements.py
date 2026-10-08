@@ -515,6 +515,7 @@ def get_status(
             )
         current = tap._xochitl_process_token(ssh_client)
         if record.enabled:
+            shared.assert_startup_guard_not_latched(inspection)
             if current == record.process_token:
                 return NoteEnhancementsStatus(
                     NoteEnhancementsState.ENABLE_PENDING_REBOOT,

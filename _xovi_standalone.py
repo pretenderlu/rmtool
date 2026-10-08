@@ -1475,6 +1475,7 @@ def assert_startup_guard_not_latched(inspection: SharedInspection) -> None:
     if inspection.startup_pending and not inspection.active:
         raise RuntimeError(
             "共享 Xovi 自动启动保护已触发；上一次插件启动未稳定，当前正使用原生 xochitl。"
+            "请打开“查看共享插件恢复”，检测后执行“修复并重装”；反复重启不会解除此保护。"
         )
 
 

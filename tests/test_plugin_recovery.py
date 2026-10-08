@@ -24,14 +24,15 @@ DROPIN = shared.SHARED_LAYOUT.dropin_path
 class Device:
     """Read-only device model with real marker/template/ownership validation."""
 
-    def __init__(self, *, enabled=True):
-        self.package = next(p for p in tap._trusted_catalog()
+    def __init__(self, *, enabled=True, package=None):
+        self.package = package or next(p for p in tap._trusted_catalog()
                             if p.release_version == "3.28.0.169" and p.platform == "chiappa")
         self.identity = tap.DeviceIdentity(self.package.firmware, self.package.platform,
                                            self.package.architecture, self.package.xochitl_sha256)
         self.runtime, self.trusted, _ = tap._trusted_shared_context(self.identity)
         self.layout = shared.SHARED_LAYOUT
-        self.states = {"tap-page-turn": shared.SharedFeatureState(self.trusted["tap-page-turn"], enabled, TOKEN)}
+        feature_id = "tap-page-turn" if "tap-page-turn" in self.trusted else "native-chinese"
+        self.states = {feature_id: shared.SharedFeatureState(self.trusted[feature_id], enabled, TOKEN)}
         self.entries = {}
         self.symlinks = set()
         self.events = []
@@ -87,6 +88,16 @@ class Device:
         mutate(value)
         self.add(BASE + "/package.json", (json.dumps(value, sort_keys=True) + "\n").encode())
 
+    def install_pinyin(self):
+        pinyin = recovery.pinyin
+        package = pinyin.select_package(pinyin._trusted_catalog(), self.identity)
+        states = dict(self.states)
+        states[pinyin.FEATURE_ID] = shared.SharedFeatureState(self.trusted[pinyin.FEATURE_ID], True, TOKEN)
+        self.install(states)
+        for relative, item in pinyin._external_specs(package).items():
+            self.add(f"{pinyin.REMOTE_BASE}/{relative}", mode=stat.S_IFREG | item.mode,
+                     digest=item.sha256, size=item.size)
+
     def break_payload(self):
         self.entries[BASE + "/qmd-tool"].digest = "0" * 64
         self.entries[BASE + "/qmd-tool"].size = 3
@@ -110,25 +121,32 @@ class Device:
         return io.BytesIO(self.entries[path].data)
 
     def exec_command(self, command):
+        if command.startswith("pid=$(systemctl") and "grep -Fq" in command:
+            return "", "", 0 if BASE + "/xovi.so" in self.maps else 1
         if command.startswith("[ -e "):
             return "", "", 0 if shlex.split(command)[2] in self.entries else 1
         return "", "", 1
 
     def exec_checked(self, command):
         self.events.append(command)
+        if command.startswith("[ ! -e "):
+            return "\n".join(path for path in recovery.pinyin.RMKIT_IME_PATHS if path in self.entries)
         if command.startswith("[ ! -L "):
             path = shlex.split(command)[3]
             if path in self.symlinks:
                 raise RuntimeError("symbolic link: " + path)
             return ""
         if command.startswith("stat -c '%f|%u|%g|%s|%h'"):
-            path = shlex.split(command)[-1]
+            path = shlex.split(command)[3].rstrip(";")
             if path not in self.entries:
                 raise RuntimeError("missing: " + path)
             e = self.entries[path]
             return f"{e.mode:x}|{e.uid}|{e.gid}|{e.size}|{e.links}"
         if command.startswith("stat -c '%f|%u|%g|%s|%n'"):
-            paths = [BASE] + sorted(p for p in self.entries if p.startswith(BASE + "/"))
+            base = shlex.split(command)[3].rstrip(";")
+            if base not in self.entries:
+                raise RuntimeError("missing: " + base)
+            paths = [base] + sorted(p for p in self.entries if p.startswith(base + "/"))
             return "\n".join(f"{e.mode:x}|{e.uid}|{e.gid}|{e.size}|{p}"
                              for p in paths for e in [self.entries[p]])
         if command.startswith("stat -c '%f %u %g'"):
@@ -200,6 +218,81 @@ class RecoveryInspectionTests(unittest.TestCase):
         self.assertEqual(self.inspect().state, recovery.RecoveryState.NOT_NEEDED)
         self.device.entries.clear()
         self.assertEqual(self.inspect().state, recovery.RecoveryState.NOT_NEEDED)
+
+    def test_loaded_runtime_pending_is_observation_not_failed_startup(self):
+        self.device.add(BASE + "/startup.pending", mode=0o100600)
+        self.device.maps = "a-b r-xp 0 0:0 0 " + BASE + "/xovi.so"
+        report = self.inspect()
+        self.assertEqual(report.state, recovery.RecoveryState.NOT_NEEDED)
+        self.assertIn("90 秒", report.detail)
+        self.assertFalse(report.can_repair)
+        self.device.maps = ""
+        self.assertTrue(self.inspect().can_repair)
+
+    def test_verified_pinyin_can_be_preserved_during_recovery(self):
+        self.device.install_pinyin()
+        self.device.add(BASE + "/startup.pending", mode=0o100600)
+        report = self.inspect()
+        self.assertTrue(report.can_repair, report.detail)
+        self.assertIn("pinyin-input", report.features)
+
+    def test_pinyin_preservation_rejects_unsafe_missing_or_altered_payload(self):
+        self.device.install_pinyin()
+        self.device.add(BASE + "/startup.pending", mode=0o100600)
+        path = recovery.pinyin.REMOTE_SERVER
+        for field, value in (("digest", "f" * 64), ("links", 2), ("uid", 1000),
+                             ("mode", 0o120777), ("size", 0)):
+            with self.subTest(field=field):
+                entry = self.device.entries[path]
+                old = getattr(entry, field)
+                setattr(entry, field, value)
+                self.assertEqual(self.inspect().state, recovery.RecoveryState.BLOCKED)
+                setattr(entry, field, old)
+        self.device.add(recovery.pinyin.REMOTE_BASE + "/unknown", b"unknown")
+        self.assertEqual(self.inspect().state, recovery.RecoveryState.BLOCKED)
+        del self.device.entries[recovery.pinyin.REMOTE_BASE + "/unknown"]
+        del self.device.entries[path]
+        self.assertEqual(self.inspect().state, recovery.RecoveryState.BLOCKED)
+
+    def test_pinyin_preservation_rejects_parent_links_and_foreign_ime(self):
+        self.device.install_pinyin()
+        self.device.add(BASE + "/startup.pending", mode=0o100600)
+        parent = self.device.entries["/home/root/.local/share/rmtool"]
+        parent.mode = 0o120777
+        self.assertEqual(self.inspect().state, recovery.RecoveryState.BLOCKED)
+        parent.mode = 0o40755
+        self.device.add(recovery.pinyin.RMKIT_IME_PATHS[0])
+        self.assertEqual(self.inspect().state, recovery.RecoveryState.BLOCKED)
+
+    def test_incompatible_pinyin_sidecar_is_not_preserved(self):
+        self.device.install_pinyin()
+        state = self.device.states["pinyin-input"]
+        legacy = replace(state.spec, sidecars=(replace(state.spec.sidecars[0], unit_name="", unit_runtime_path=""),))
+        with self.assertRaisesRegex(RuntimeError, "不兼容"):
+            recovery._preserved_sidecars_snapshot(self.device, self.device.identity,
+                {"pinyin-input": replace(state, spec=legacy)}, self.device.trusted)
+
+    def test_shared_feature_pages_explain_latch_but_accept_active_observation(self):
+        self.device = Device(package=next(p for p in recovery.pinyin._trusted_catalog()
+            if p.platform == "chiappa" and p.release_version == "3.28.0.172"))
+        for module, inspector in ((recovery.migration.weread, "_inspect_shared"),
+                                  (recovery.migration.reading, "_inspection_for_migration"),
+                                  (recovery.migration.note, "_inspect_shared")):
+            fid = module.FEATURE_ID
+            self.device.install({fid: shared.SharedFeatureState(self.device.trusted[fid], True, TOKEN)})
+            for active in (False, True):
+                with self.subTest(feature=fid, active=active), \
+                        mock.patch.object(tap, "_vellum_runtime_present", return_value=False), \
+                        mock.patch.object(tap, "_xochitl_process_token", return_value="new-process"), \
+                        mock.patch.object(recovery.migration.weread, "_official_install_error", return_value=""), \
+                        mock.patch.object(module, inspector, return_value=(
+                            shared.SharedInspection(self.device.states, active, True, startup_pending=True),
+                            self.device.trusted, {})):
+                    status = module.get_status(self.device, module._trusted_catalog())
+                    self.assertEqual(status.state.value, "enabled" if active else "broken", status.detail)
+                    if not active:
+                        self.assertIn("启动保护", status.detail)
+                        self.assertIn("查看共享插件恢复", status.detail)
 
     def test_schema1_recovery_recognition_remains_compatible(self):
         self.device.install(self.device.states, schema_version=1)
@@ -617,6 +710,70 @@ class RecoveryRepairTests(unittest.TestCase):
             recovery.repair(self.device, "state")
         self.assertFalse(any(event.startswith(("mkdir", "rm ", "/bin/sh ")) for event in self.device.events))
         self.assertTrue(any(event.startswith("extract:") for event in self.device.events))
+
+    def prepare_pinyin_recovery(self):
+        self.device.install_pinyin()
+        self.device.add(BASE + "/startup.pending", mode=0o100600)
+        self.patch(recovery.pinyin, "download_package", side_effect=self.fetch)
+        return {p: vars(e).copy() for p, e in self.device.entries.items()
+                if p.startswith(recovery.pinyin.REMOTE_BASE + "/")}
+
+    def test_recovery_preserves_pinyin_without_external_writes(self):
+        before = self.prepare_pinyin_recovery()
+        result = recovery.repair(self.device, "state")
+        self.assertEqual(result.state, recovery.RecoveryState.NOT_NEEDED)
+        self.assertIn("90 秒", result.detail)
+        self.assertNotIn(BASE + "/startup.pending", self.device.entries)
+        self.assertNotIn(shared.SHARED_RECOVERY_SENTINEL, self.device.entries)
+        self.assertEqual(before, {p: vars(self.device.entries[p]) for p in before})
+        for event in self.device.events:
+            if event.startswith(("mv ", "rm ", "mkdir ", "chmod ", "chown ")):
+                self.assertNotIn(recovery.pinyin.REMOTE_BASE, event)
+
+    def test_reported_move_five_feature_combination_recovers(self):
+        self.device = Device(package=next(p for p in recovery.pinyin._trusted_catalog()
+            if p.platform == "chiappa" and p.release_version == "3.28.0.172"))
+        features = ("native-chinese", "reading-enhancements", "note-enhancements", "weread-launcher")
+        self.device.install({fid: shared.SharedFeatureState(self.device.trusted[fid], True, TOKEN)
+                             for fid in features})
+        before = self.prepare_pinyin_recovery()
+        self.patch(recovery.migration.native, "_reject_active_french_slot")
+        for fid in features:
+            module = recovery.migration._providers()[fid]
+            self.patch(module, "download_package", side_effect=self.fetch)
+            if hasattr(module, "extract_verified_package"):
+                self.patch(module, "extract_verified_package", side_effect=self.extract_package)
+        result = recovery.repair(self.device, "state")
+        self.assertEqual(set(result.features), {*features, "pinyin-input"})
+        self.assertTrue(all(state.enabled for state in self.device.states.values()))
+        self.assertEqual(before, {p: vars(self.device.entries[p]) for p in before})
+
+    def test_pinyin_drift_before_commit_aborts_and_after_commit_keeps_protection(self):
+        self.prepare_pinyin_recovery()
+        original = self.device.exec_checked
+        for after_commit in (False, True):
+            with self.subTest(after_commit=after_commit):
+                self.device.install_pinyin()
+                self.device.add(BASE + "/startup.pending", mode=0o100600)
+                self.device.events.clear()
+                def corrupt(*args):
+                    self.stage(*args)
+                    if not after_commit:
+                        self.device.entries[recovery.pinyin.REMOTE_SERVER].digest = "f" * 64
+                shared._stage_shared.side_effect = corrupt
+                def execute(command):
+                    result = original(command)
+                    if after_commit and command.startswith("/bin/sh /tmp/rmtool-xovi-recovery-"):
+                        self.device.entries[recovery.pinyin.REMOTE_BASE + "/LICENSE-rmkit"].digest = "f" * 64
+                    return result
+                self.device.exec_checked = execute
+                with self.assertRaises(RuntimeError):
+                    recovery.repair(self.device, "state")
+                if after_commit:
+                    self.assertIn(shared.SHARED_RECOVERY_SENTINEL, self.device.entries)
+                    self.assertNotIn("clear-latch", self.device.events)
+                else:
+                    self.assertFalse(any(e.startswith("/bin/sh ") for e in self.device.events))
 
     def test_success_drops_stale_pending_only_and_preserves_original_sentinel_state(self):
         for sentinel in (None, shared.SHARED_RECOVERY_SENTINEL, shared.LEGACY_RECOVERY_SENTINEL):

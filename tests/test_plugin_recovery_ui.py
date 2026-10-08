@@ -188,7 +188,7 @@ class RecoveryUiTests(unittest.TestCase):
         with mock.patch.object(toolbox, "ask_confirmation", return_value=False) as confirm:
             self.section._repair()
         message = confirm.call_args.args[2]
-        for phrase in ("全部已启用", "受信资源包重建", "启用/停用", "备份", "设置、字体、书籍", "手动重启"):
+        for phrase in ("全部已启用", "受信资源包重建", "启用/停用", "备份", "设置、字体、书籍", "手动重启", "90 秒", "配套服务", "不要再次重启"):
             self.assertIn(phrase, message)
         self.assertIn("仅解除本次新增", message)
         self.assertIn("失败时保留保护", message)
