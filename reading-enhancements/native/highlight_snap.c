@@ -1,4 +1,4 @@
-/* Chinese highlighter range handling for exact Paper Pro and Move 3.28.0.172 builds.
+/* Chinese highlighter range handling for exact Paper Pro and Move builds.
  *
  * The target signature and CJK-only range decision are adapted from
  * bbq191/rm-tweak commit 1ccbdb0 (Apache-2.0). The trampoline, identity
@@ -14,11 +14,15 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#define CONFIG_PATH "/home/root/.config/remarkable/xochitl.conf"
+#define PATCH_LEN 20
+
+#ifdef RMTOOL_HIGHLIGHT_BETA_329
+#include "highlight_snap_329.h"
+#else
 #define EXPECTED_FIRMWARE "20260827113527"
 #define MOVE_XOCHITL_SHA256 "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"
 #define PAPER_PRO_XOCHITL_SHA256 "b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021"
-#define CONFIG_PATH "/home/root/.config/remarkable/xochitl.conf"
-#define PATCH_LEN 20
 
 static const uint8_t TARGET_PATTERN[] = {
     0x3f,0x23,0x03,0xd5,0xfd,0x7b,0xbd,0xa9,0xfd,0x03,0x00,0x91,
@@ -26,6 +30,7 @@ static const uint8_t TARGET_PATTERN[] = {
     0xf3,0x53,0x01,0xa9,0xf4,0x03,0x01,0xaa,0x80,0x00,0x00,0xb4,
     0x01,0x00,0x40,0xb9,
 };
+#endif
 
 typedef struct { uint32_t h[8]; uint64_t bits; uint8_t block[64]; size_t used; } Sha256;
 static const uint32_t K[64] = {
@@ -91,11 +96,17 @@ static int setting_enabled(void) {
     }
     fclose(f);return !invalid&&seen_master==1&&seen_snap==1&&master&&snap;
 }
+#ifndef RMTOOL_HIGHLIGHT_BETA_329
 static int is_cjk(long scene,int index) { long glyphs=0;uint16_t ch=0;if(index<0)return 0;memcpy(&glyphs,(void *)(scene+8),sizeof(glyphs));if(!glyphs)return 0;memcpy(&ch,(void *)(glyphs+(long)index*0x38+0x30),sizeof(ch));return (ch>=0x4e00&&ch<=0x9fff)||(ch>=0x3400&&ch<=0x4dbf)||(ch>=0xf900&&ch<=0xfaff)||(ch>=0x3000&&ch<=0x303f); }
+#endif
 
 static void far_jump(uint32_t out[5],uintptr_t target){out[0]=0xd2800010|(((target>>0)&0xffff)<<5);out[1]=0xf2a00010|(((target>>16)&0xffff)<<5);out[2]=0xf2c00010|(((target>>32)&0xffff)<<5);out[3]=0xf2e00010|(((target>>48)&0xffff)<<5);out[4]=0xd61f0200;}
 typedef void (*ExpandFn)(long,void *); static ExpandFn original_expand;
+#ifdef RMTOOL_HIGHLIGHT_BETA_329
+static void handler(long scene,void *range){if(setting_enabled()&&preserve_cjk_range((uintptr_t)scene,range))return;if(original_expand)original_expand(scene,range);}
+#else
 static void handler(long scene,void *range){if(setting_enabled()&&range){uint64_t *v=range;int *sub=(int *)(uintptr_t)v[1];long count=(long)v[2];if(sub&&count>0&&count<100000&&is_cjk(scene,sub[0]))return;}if(original_expand)original_expand(scene,range);}
+#endif
 static int install(uintptr_t target){long ps=sysconf(_SC_PAGESIZE);if(ps<=0)ps=4096;uintptr_t page=target&~((uintptr_t)ps-1);size_t len=((target-page)+PATCH_LEN>(size_t)ps)?(size_t)ps*2:(size_t)ps;uint8_t *stub=mmap(NULL,PATCH_LEN+PATCH_LEN,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);if(stub==MAP_FAILED)return 0;memcpy(stub,(void *)target,PATCH_LEN);uint32_t jump[5];far_jump(jump,target+PATCH_LEN);memcpy(stub+PATCH_LEN,jump,PATCH_LEN);if(mprotect(stub,PATCH_LEN*2,PROT_READ|PROT_EXEC)!=0){munmap(stub,PATCH_LEN*2);return 0;}original_expand=(ExpandFn)stub;if(mprotect((void *)page,len,PROT_READ|PROT_WRITE|PROT_EXEC)!=0){original_expand=0;munmap(stub,PATCH_LEN*2);return 0;}far_jump(jump,(uintptr_t)handler);memcpy((void *)target,jump,PATCH_LEN);__builtin___clear_cache((char *)stub,(char *)stub+PATCH_LEN*2);__builtin___clear_cache((char *)target,(char *)target+PATCH_LEN);if(mprotect((void *)page,len,PROT_READ|PROT_EXEC)!=0){memcpy((void *)target,stub,PATCH_LEN);__builtin___clear_cache((char *)target,(char *)target+PATCH_LEN);mprotect((void *)page,len,PROT_READ|PROT_EXEC);original_expand=0;munmap(stub,PATCH_LEN*2);return 0;}return 1;}
 
 char _xovi_shouldLoad(void){const char *hash=machine_xochitl_hash();return hash&&file_text_equals("/etc/version",EXPECTED_FIRMWARE)&&xochitl_hash_matches(hash)&&unique_target()!=0;}

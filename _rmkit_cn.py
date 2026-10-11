@@ -2292,7 +2292,7 @@ def _epub_font_ready_status(
 
 
 def get_epub_font_slot_status(ssh_client) -> EpubFontSlotStatus:
-    """Inspect exact 3.28 support and the optional EPUB font link without writes."""
+    """Inspect exact firmware support and the optional EPUB font link."""
     import _reading_enhancements as reading
     import _tap_page_turn as tap
 
@@ -2304,10 +2304,13 @@ def get_epub_font_slot_status(ssh_client) -> EpubFontSlotStatus:
             "unsupported",
             f"无法确认当前设备是否精确支持 EPUB 字体菜单：{exc}",
         )
-    if package is None or not package.release_version.startswith("3.28."):
+    if package is None or not (
+        package.release_version.startswith("3.28.")
+        or package.release_version == "3.29.0.152"
+    ):
         return EpubFontSlotStatus(
             "unsupported",
-            "EPUB 字体菜单仅支持 Paper Pro / Move 已适配的 3.28 固件；"
+            "EPUB 字体菜单仅支持 Paper Pro / Move 已适配的 3.28 和 3.29.0.152 固件；"
             "当前设备仍可上传字体和设置系统字体。",
         )
     try:

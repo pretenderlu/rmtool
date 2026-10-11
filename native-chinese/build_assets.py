@@ -19,6 +19,11 @@ import _xovi_standalone
 
 
 QMD_VARIANTS = {
+    "3.29": (
+        REPO_ROOT / "native-chinese/qmd/native-chinese-3.29.compiled.qmd",
+        2035,
+        "71b4b40163cdffb8f0e31e0ac8d9e1a40fc62984c928af56024c0251f8979f63",
+    ),
     "3.27": (
         REPO_ROOT / "native-chinese/qmd/chiappa-3.27.3.0.qmd",
         1721,
@@ -37,6 +42,8 @@ QMD_VARIANTS = {
     ),
 }
 CATALOG_PATHS = {
+    **{(platform, "3.29.0.152"): REPO_ROOT / f"translations/reMarkable_zh_CN-3.29.0.152-{platform}.qm"
+       for platform in ("ferrari", "chiappa", "tatsu", "rm1", "rm2")},
     ("ferrari", "3.28.0.172"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.166-ferrari.qm",
     ("chiappa", "3.28.0.172"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.166-chiappa.qm",
     ("tatsu", "3.28.0.172"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.166-chiappa.qm",
@@ -90,6 +97,8 @@ def sha256(data: bytes) -> str:
 def _variant(package: tap.TapPageTurnPackage | str) -> str:
     release_version = package if isinstance(package, str) else package.release_version
     platform = None if isinstance(package, str) else package.platform
+    if release_version == "3.29.0.152":
+        return "3.29"
     if release_version == "3.28.0.166" or (
         release_version == "3.28.0.172"
         and platform in {"tatsu", "rm1", "rm2"}
@@ -117,7 +126,7 @@ def _translation_records() -> dict[tuple[str, str, str], tuple[int, str]]:
         for item in (base, *base.get("variants", ())):
             platform = item.get("platform")
             release = item.get("release_version")
-            if platform in {"ferrari", "chiappa"}:
+            if platform in {"ferrari", "chiappa", "tatsu", "rm1", "rm2"}:
                 records[(platform, release, firmware)] = (
                     item["size"],
                     item["sha256"],
@@ -266,6 +275,9 @@ def build_target(
         if package.architecture == "armv7l"
         else (TRANSLATOR_SIZE, TRANSLATOR_SHA256)
     )
+    if package.architecture == "armv7l" and package.release_version == "3.29.0.152":
+        translator = (REPO_ROOT / "native-chinese/native-chinese-translator-armv7-qt32.so").read_bytes()
+        expected_translator = (3756, "494931a218d2296a34275020a658130c617cefc97aee6015494b8e64365f9323")
     if (len(translator), sha256(translator)) != expected_translator:
         raise RuntimeError("Native-Chinese translator does not match the gate")
     files[native.QMD_PATH] = (qmd, 0o644)

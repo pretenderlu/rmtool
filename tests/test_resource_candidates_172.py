@@ -27,7 +27,8 @@ class Candidate172Tests(unittest.TestCase):
         }
         for feature, fingerprint in expected.items():
             entries = json.loads((ROOT / feature / "manifest.json").read_bytes())["packages"]
-            old = [e for e in entries if e["release_version"] != builder.RELEASE]
+            old = [e for e in entries if e["release_version"].startswith(("3.27.", "3.28."))
+                   and e["release_version"] != builder.RELEASE]
             canonical = json.dumps(old, sort_keys=True, separators=(",", ":")).encode()
             self.assertEqual(builder.digest(canonical), fingerprint, feature)
 

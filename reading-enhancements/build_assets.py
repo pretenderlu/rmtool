@@ -175,6 +175,18 @@ def _strip_highlighter(source: str) -> str:
     return source
 
 
+def _tap_source_for_release(text: str, release_version: str) -> str:
+    if release_version == "3.29.0.152":
+        # DeviceSceneView now forwards the same signals used by stock swipes.
+        for old, new in (("moveBackward", "leftPageRequested"),
+                         ("moveForward", "rightPageRequested")):
+            call = f"view.{old}()"
+            if text.count(call) != 1:
+                raise RuntimeError(f"tap source lacks one {call}")
+            text = text.replace(call, f"view.{new}()", 1)
+    return text
+
+
 def _source_for_target(
     source: Path,
     firmware: str,
@@ -184,7 +196,7 @@ def _source_for_target(
     xochitl_sha256: str,
     temporary: Path,
 ) -> Path:
-    text = source.read_text(encoding="utf-8")
+    text = _tap_source_for_release(source.read_text(encoding="utf-8"), release_version)
     if text.count(HIGHLIGHT_AVAILABLE_MARKER) != 1:
         raise RuntimeError("reading-enhancements source lacks one highlighter availability marker")
     if reading._highlight_snap_supported(
@@ -463,6 +475,8 @@ def _build_archive(base, base_archive: Path, qmd: bytes, highlight_extension: Pa
         base.architecture,
         base.xochitl_sha256,
     ):
+        if base.release_version == "3.29.0.152":
+            highlight_extension = highlight_extension.with_name("rmtool-highlight-snap-3.29.so")
         files[reading.HIGHLIGHT_EXTENSION_PATH] = (highlight_extension.read_bytes(), 0o644)
         files[reading.HIGHLIGHT_LICENSE_PATH] = (
             highlight_extension.with_name("LICENSE.rm-tweak").read_bytes(),

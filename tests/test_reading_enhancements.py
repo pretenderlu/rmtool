@@ -48,10 +48,10 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
     def _state(self, spec, enabled=True, token=None):
         return shared.SharedFeatureState(spec, enabled, token or self.process)
 
-    def test_manifest_is_exact_sixteen_target_matrix(self):
+    def test_manifest_is_exact_eighteen_target_matrix(self):
         self.assertEqual(
             len(self.catalog),
-            16,
+            18,
         )
         self.assertEqual(
             {
@@ -62,11 +62,11 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         )
         self.assertEqual(
             len({item.asset for item in self.catalog}),
-            16,
+            18,
         )
         self.assertEqual(
             len({(item.release_version, item.platform) for item in self.catalog}),
-            16,
+            18,
         )
         self.assertTrue(
             all(item.package_revision == reading.PACKAGE_REVISION for item in self.catalog)
@@ -152,23 +152,29 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         self.assertEqual(menu.count('label: "彩色快刷"'), 1)
         self.assertEqual(menu.count('label: "黑白快刷"'), 1)
 
-    def test_highlighter_payload_is_limited_to_exact_color_172_targets(self):
+    def test_highlighter_payload_is_limited_to_exact_verified_color_targets(self):
         carrying = [
             package for package in self.catalog
             if reading.HIGHLIGHT_EXTENSION_PATH in {item.path for item in package.files}
         ]
         self.assertEqual(
             sorted((item.platform, item.release_version) for item in carrying),
-            [("chiappa", "3.28.0.172"), ("ferrari", "3.28.0.172")],
+            [("chiappa", "3.28.0.172"), ("chiappa", "3.29.0.152"),
+             ("ferrari", "3.28.0.172"), ("ferrari", "3.29.0.152")],
         )
         extension = (
             Path(__file__).resolve().parents[1]
             / "reading-enhancements/native/rmtool-highlight-snap.so"
         ).read_bytes()
         for package in carrying:
+            if package.release_version == "3.29.0.152":
+                payload = (Path(__file__).resolve().parents[1] /
+                           "reading-enhancements/native/rmtool-highlight-snap-3.29.so").read_bytes()
+            else:
+                payload = extension
             spec = package.file(reading.HIGHLIGHT_EXTENSION_PATH)
-            self.assertEqual(spec.size, len(extension))
-            self.assertEqual(spec.sha256, hashlib.sha256(extension).hexdigest())
+            self.assertEqual(spec.size, len(payload))
+            self.assertEqual(spec.sha256, hashlib.sha256(payload).hexdigest())
 
     def test_highlighter_gate_requires_the_complete_exact_identity(self):
         identities = reading._HIGHLIGHT_SNAP_IDENTITIES
@@ -217,6 +223,9 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
             predecessor = reading._known_published_revision_feature(
                 package, current, 11
             )
+            if package.release_version == "3.29.0.152":
+                self.assertIsNone(predecessor)
+                continue
             self.assertIsNotNone(predecessor, package.asset)
             expected_extra = (
                 [
@@ -463,6 +472,8 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                         "package-revision-1",
                     ),
                 )
+            elif package.release_version == "3.29.0.152":
+                self.assertEqual(reasons, ())
             elif package.release_version == "3.28.0.172":
                 self.assertEqual(
                     reasons,

@@ -1352,6 +1352,311 @@
           "mode": 420
         }
       ]
+    },
+    {
+      "firmware": "20261009073202",
+      "release_version": "3.29.0.152",
+      "channel": "beta",
+      "platform": "ferrari",
+      "architecture": "aarch64",
+      "xochitl_sha256": "7aa5d67da6850d7021ade5a2232edeb5f34550236eca6f7a102f37f962dd4bd2",
+      "asset": "rmtool-tap-page-turn-ferrari-20261009073202-3.29.0.152.tar.gz",
+      "size": 3851921,
+      "sha256": "9b31a341aa32cc629978eefb230d49ea3b8e2e409352f334d674359cfdf08aee",
+      "files": [
+        {
+          "path": "LICENSE.qmd-tool",
+          "size": 35149,
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420
+        },
+        {
+          "path": "LICENSE.rm-xovi-extensions",
+          "size": 35823,
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420
+        },
+        {
+          "path": "LICENSE.xovi",
+          "size": 7819,
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420
+        },
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "size": 9496456,
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "size": 618502,
+          "sha256": "377187b2197dcfcabaac271ad194bac98fb9fc4994919f250c865a2958f1dbc0",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
+          "size": 2876,
+          "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+          "mode": 420
+        },
+        {
+          "path": "qmd-tool",
+          "size": 1966264,
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493
+        },
+        {
+          "path": "xovi.so",
+          "size": 103008,
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420
+        }
+      ]
+    },
+    {
+      "firmware": "20261009073202",
+      "release_version": "3.29.0.152",
+      "channel": "beta",
+      "platform": "chiappa",
+      "architecture": "aarch64",
+      "xochitl_sha256": "09ba8581a50d96c19b360606ee0288b8863faec620036c8eda3b2a0b5cc2d2e2",
+      "asset": "rmtool-tap-page-turn-chiappa-20261009073202-3.29.0.152.tar.gz",
+      "size": 3849311,
+      "sha256": "a39833daeb79cccd0fb2de96c7444a19a3d7aa39d5adcf83a13b34ed0d108e26",
+      "files": [
+        {
+          "path": "LICENSE.qmd-tool",
+          "size": 35149,
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420
+        },
+        {
+          "path": "LICENSE.rm-xovi-extensions",
+          "size": 35823,
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420
+        },
+        {
+          "path": "LICENSE.xovi",
+          "size": 7819,
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420
+        },
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "size": 9496456,
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "size": 613222,
+          "sha256": "46391654693fa39ce68386904c9b59f3676b4e3f8bf0163e54c82a7f9ec2b5e4",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
+          "size": 2876,
+          "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+          "mode": 420
+        },
+        {
+          "path": "qmd-tool",
+          "size": 1966264,
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493
+        },
+        {
+          "path": "xovi.so",
+          "size": 103008,
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420
+        }
+      ]
+    },
+    {
+      "firmware": "20261009073202",
+      "release_version": "3.29.0.152",
+      "channel": "beta",
+      "platform": "tatsu",
+      "architecture": "aarch64",
+      "xochitl_sha256": "1bf16b6e7d5355e48479fa832871e98834307da652a06245b5fb86d0bbd7a26c",
+      "asset": "rmtool-tap-page-turn-tatsu-20261009073202-3.29.0.152.tar.gz",
+      "size": 3846857,
+      "sha256": "57efbb833a6919ef4af659ed0c62f23f054560ea434c94a12fac00d15c70ce11",
+      "files": [
+        {
+          "path": "LICENSE.qmd-tool",
+          "size": 35149,
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420
+        },
+        {
+          "path": "LICENSE.rm-xovi-extensions",
+          "size": 35823,
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420
+        },
+        {
+          "path": "LICENSE.xovi",
+          "size": 7819,
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420
+        },
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "size": 9496456,
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "size": 608528,
+          "sha256": "4b2c31794b8d0f3984e47029bc0cb091f827cc0eba1f15d6ed75140ab9b3070f",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
+          "size": 2876,
+          "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+          "mode": 420
+        },
+        {
+          "path": "qmd-tool",
+          "size": 1966264,
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493
+        },
+        {
+          "path": "xovi.so",
+          "size": 103008,
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420
+        }
+      ]
+    },
+    {
+      "firmware": "20261009073202",
+      "release_version": "3.29.0.152",
+      "channel": "beta",
+      "platform": "rm1",
+      "architecture": "armv7l",
+      "xochitl_sha256": "2eb775c3ced943c20ccf6271bb107e745db10aece2dc21e0e4bd8450d98fd23c",
+      "asset": "rmtool-tap-page-turn-rm1-20261009073202-3.29.0.152.tar.gz",
+      "size": 3829576,
+      "sha256": "1bb9b7ff41bf6f67e17a062f878cdd4c9580f6af07e78e83dad29683044543a1",
+      "files": [
+        {
+          "path": "LICENSE.qmd-tool",
+          "size": 35149,
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420
+        },
+        {
+          "path": "LICENSE.rm-xovi-extensions",
+          "size": 35823,
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420
+        },
+        {
+          "path": "LICENSE.xovi",
+          "size": 7819,
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420
+        },
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "size": 8539328,
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "size": 595614,
+          "sha256": "ab0fae22a6b5a3c5e6ddc0eede1b1c601808b8a9a6abf18c2fc542b70c209030",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
+          "size": 2876,
+          "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+          "mode": 420
+        },
+        {
+          "path": "qmd-tool",
+          "size": 2031800,
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312",
+          "mode": 493
+        },
+        {
+          "path": "xovi.so",
+          "size": 123620,
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14",
+          "mode": 420
+        }
+      ]
+    },
+    {
+      "firmware": "20261009073202",
+      "release_version": "3.29.0.152",
+      "channel": "beta",
+      "platform": "rm2",
+      "architecture": "armv7l",
+      "xochitl_sha256": "50a5ed69ab9c60d9f3b1d04b19311562194f6cfee769b17a6ea069d255e47760",
+      "asset": "rmtool-tap-page-turn-rm2-20261009073202-3.29.0.152.tar.gz",
+      "size": 3837107,
+      "sha256": "7d80e67e0fc6ac6f60ce6642bf081e3853be8a0eaff7dceab962f9c021079cdd",
+      "files": [
+        {
+          "path": "LICENSE.qmd-tool",
+          "size": 35149,
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420
+        },
+        {
+          "path": "LICENSE.rm-xovi-extensions",
+          "size": 35823,
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420
+        },
+        {
+          "path": "LICENSE.xovi",
+          "size": 7819,
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420
+        },
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "size": 8539328,
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "size": 611060,
+          "sha256": "27a4d840043902fce44563904d05533bf6b178ff804f4ac0be8d3dab00d3c870",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
+          "size": 2876,
+          "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+          "mode": 420
+        },
+        {
+          "path": "qmd-tool",
+          "size": 2031800,
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312",
+          "mode": 493
+        },
+        {
+          "path": "xovi.so",
+          "size": 123620,
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14",
+          "mode": 420
+        }
+      ]
     }
   ]
 }

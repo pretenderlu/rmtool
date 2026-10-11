@@ -81,9 +81,9 @@ class SharedRuntimeSpec:
 
 
 def preferred_layout(runtime: SharedRuntimeSpec) -> StandaloneLayout:
-    # Scope the storage migration to the verified RM1 .172 target. Older
+    # Scope storage migration to exact RM1 builds with an early home mount. Older
     # AppLoad packages also have external shim links tied to the /data layout.
-    if runtime.platform == "rm1" and runtime.firmware == "20260827113527":
+    if runtime.platform == "rm1" and runtime.firmware in {"20260827113527", "20261009073202"}:
         return LEGACY_SHARED_LAYOUT
     return SHARED_LAYOUT
 

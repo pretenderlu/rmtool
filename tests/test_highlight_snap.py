@@ -1,4 +1,5 @@
 import hashlib
+import os
 import subprocess
 import sys
 import tempfile
@@ -30,6 +31,29 @@ TARGET_PATTERN = bytes.fromhex(
 
 
 class HighlightSnapTests(unittest.TestCase):
+    @unittest.skipUnless(ZIG.is_file(), "Zig compiler is not configured")
+    def test_beta_glyph_and_range_layout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / ('test.exe' if os.name == 'nt' else 'test')
+            subprocess.run([str(ZIG), 'cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+                            str(SOURCE.with_name('test_highlight_329.c')), '-o', str(executable)],
+                           check=True, capture_output=True, timeout=120)
+            subprocess.run([str(executable)], check=True, capture_output=True, timeout=10)
+
+    @unittest.skipUnless(ZIG.is_file(), "AArch64 Zig compiler is not configured")
+    def test_beta_extension_is_separate_and_reproducible(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / 'beta.so'
+            subprocess.run([sys.executable, str(BUILDER), '--zig', str(ZIG),
+                            '--beta-329', '--output', str(output)], check=True,
+                           capture_output=True, timeout=120)
+            payload = output.read_bytes()
+            self.assertEqual(payload, COMMITTED.with_name('rmtool-highlight-snap-3.29.so').read_bytes())
+            beta_hash = b'09ba8581a50d96c19b360606ee0288b8863faec620036c8eda3b2a0b5cc2d2e2'
+            self.assertIn(beta_hash, payload)
+            self.assertNotIn(XOCHITL_TARGETS['chiappa'][1].encode(), payload)
+            self.assertNotIn(beta_hash, COMMITTED.read_bytes())
+
     def test_source_fails_closed_and_has_exact_verified_identity(self):
         source = SOURCE.read_text(encoding="utf-8")
         for marker in (

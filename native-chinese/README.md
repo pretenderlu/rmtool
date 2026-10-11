@@ -1,5 +1,10 @@
 # Native Simplified Chinese
 
+Beta 3.29.0.152 has exact offline-verified candidates for all five devices;
+hardware validation and publication are pending. Its new LanguageSettings QML
+requires a separate patch, and RM1/RM2 use a Qt32 translator built against the
+actual firmware exports. See [build and test evidence](../docs/firmware-3.29.0.152.md).
+
 All five devices on stable 3.28.0.172 have exact offline-verified packages.
 The Tatsu, RM1, and RM2 packages have not yet been device-tested. See
 [the .172 matrix and local staging report](172-OFFLINE.md).

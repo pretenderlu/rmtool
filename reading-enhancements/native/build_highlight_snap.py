@@ -11,6 +11,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--zig", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--beta-329", action="store_true")
     args = parser.parse_args()
     source = Path(__file__).with_name("highlight_snap.c")
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -18,6 +19,7 @@ def main() -> int:
         [
             str(args.zig), "cc", "-target", "aarch64-linux-gnu", "-shared",
             "-fPIC", "-Os", "-Wall", "-Wextra", "-Werror",
+            *(["-DRMTOOL_HIGHLIGHT_BETA_329"] if args.beta_329 else []),
             str(source), "-o", str(args.output),
         ],
         capture_output=True,

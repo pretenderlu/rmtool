@@ -51,6 +51,14 @@ _PAYLOAD_PATHS = _REQUIRED_PATHS | {
 _HIGHLIGHT_SNAP_IDENTITIES = frozenset(
     {
         (
+            "20261009073202", "3.29.0.152", "chiappa", "aarch64",
+            "09ba8581a50d96c19b360606ee0288b8863faec620036c8eda3b2a0b5cc2d2e2",
+        ),
+        (
+            "20261009073202", "3.29.0.152", "ferrari", "aarch64",
+            "7aa5d67da6850d7021ade5a2232edeb5f34550236eca6f7a102f37f962dd4bd2",
+        ),
+        (
             "20260827113527",
             "3.28.0.172",
             "chiappa",
@@ -252,6 +260,8 @@ _PUBLISHED_PREDECESSOR_REASONS = frozenset(
 )
 
 ALLOWED_TARGETS = {
+    ("ferrari", "20261009073202", "aarch64", "7aa5d67da6850d7021ade5a2232edeb5f34550236eca6f7a102f37f962dd4bd2"): ("3.29.0.152", "beta", True, False),
+    ("chiappa", "20261009073202", "aarch64", "09ba8581a50d96c19b360606ee0288b8863faec620036c8eda3b2a0b5cc2d2e2"): ("3.29.0.152", "beta", True, False),
     ("ferrari", "20260827113527", "aarch64", "b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021"): ("3.28.0.172", "stable", True, False),
     ("chiappa", "20260827113527", "aarch64", "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"): ("3.28.0.172", "stable", True, True),
     (
@@ -625,6 +635,8 @@ def _shared_specs(package: ReadingEnhancementsPackage):
 
 
 def _known_published_revision_feature(package, current, revision):
+    if package.release_version == "3.29.0.152":
+        return None
     if package.release_version == "3.28.0.172" and revision not in {8, 9, 10, 11, 12}:
         return None
     fingerprints = _PUBLISHED_REVISION_QMDS.get(revision)

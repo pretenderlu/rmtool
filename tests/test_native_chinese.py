@@ -29,7 +29,7 @@ class NativeChineseTests(unittest.TestCase):
 
     def test_manifest_is_complete_dual_source_three_file_feature(self):
         packages = native.parse_manifest(native.BUNDLED_MANIFEST.read_bytes())
-        self.assertEqual(len(packages), 19)
+        self.assertEqual(len(packages), 24)
         self.assertEqual(
             {
                 (item.platform, item.release_version)
@@ -55,6 +55,11 @@ class NativeChineseTests(unittest.TestCase):
                 ("tatsu", "3.28.0.172"),
                 ("rm1", "3.28.0.172"),
                 ("rm2", "3.28.0.172"),
+                ("ferrari", "3.29.0.152"),
+                ("chiappa", "3.29.0.152"),
+                ("tatsu", "3.29.0.152"),
+                ("rm1", "3.29.0.152"),
+                ("rm2", "3.29.0.152"),
             },
         )
         self.assertTrue(all(item.offline_verified for item in packages))
@@ -179,7 +184,7 @@ class NativeChineseTests(unittest.TestCase):
             if other is package:
                 continue
             predecessors = native._known_shared_predecessor_specs(other)
-            if other.platform in native.ARM_CATALOG_PREDECESSORS:
+            if other.platform in native.ARM_CATALOG_PREDECESSORS and other.release_version == "3.28.0.172":
                 self.assertEqual(len(predecessors), 1)
                 self.assertEqual(predecessors[0].reason, "catalog_runtime_path")
                 self.assertEqual(predecessors[0].archive_sha256, native.ARM_CATALOG_PREDECESSORS[other.platform])
@@ -275,7 +280,9 @@ class NativeChineseTests(unittest.TestCase):
         bases = builder._target_base_packages()
         records = builder._translation_records()
         self.assertEqual(len(bases), len(packages))
-        for base, package in zip(bases, packages):
+        by_identity = {(p.firmware, p.platform, p.xochitl_sha256): p for p in bases}
+        for package in packages:
+            base = by_identity[(package.firmware, package.platform, package.xochitl_sha256)]
             with self.subTest(platform=package.platform, release=package.release_version):
                 self.assertEqual((
                     base.firmware,

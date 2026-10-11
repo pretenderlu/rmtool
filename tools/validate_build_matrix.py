@@ -34,13 +34,15 @@ COLOR_RELEASES = frozenset((
 # from both code and its manifest must not silently narrow a published feature.
 COLOR_TARGETS = {(platform, release) for platform in COLOR_PLATFORMS for release in COLOR_RELEASES}
 MONO_TARGETS = {(platform, release) for platform in MONO_PLATFORMS for release in ("3.27.3.0", "3.28.0.172")}
+BETA_329_TARGETS = {(platform, "3.29.0.152") for platform in COLOR_PLATFORMS | MONO_PLATFORMS}
+BETA_329_COLOR_TARGETS = {(platform, "3.29.0.152") for platform in COLOR_PLATFORMS}
 EXPECTED_COVERAGE = {
-    "tap-page-turn": COLOR_TARGETS | MONO_TARGETS,
+    "tap-page-turn": COLOR_TARGETS | MONO_TARGETS | BETA_329_TARGETS,
     "fast-mono-reading": COLOR_TARGETS,
-    "native-chinese": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS},
-    "pinyin-input": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS},
-    "reading-enhancements": COLOR_TARGETS,
-    "note-enhancements": COLOR_TARGETS,
+    "native-chinese": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS} | BETA_329_TARGETS,
+    "pinyin-input": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS} | BETA_329_TARGETS,
+    "reading-enhancements": COLOR_TARGETS | BETA_329_COLOR_TARGETS,
+    "note-enhancements": COLOR_TARGETS | BETA_329_COLOR_TARGETS,
     "weread-launcher": {(platform, "3.28.0.172") for platform in COLOR_PLATFORMS},
 }
 
@@ -77,6 +79,40 @@ OFFICIAL_172 = {
         "xochitl_sha256": "071d85beef3ef2d4cc0e11002140b27b82a2cc04a2ed740a5669f591069b77df",
         "stock_french_sha256": "6b946dcbe013d66a4ac270a34f79f57c327c8bfbcc73ffe5c44a5a3efd35d6fb",
         "localized_qm": ("reMarkable_zh_CN-3.28.0.172-rm1-rm2.qm", 205621, "0f1de519ab4ac1998f432dab014d40fb0cdae2fe528ab30ca47c7a507df82485"),
+    },
+}
+
+
+OFFICIAL_329 = {
+    "ferrari": {
+        "architecture": "aarch64",
+        "xochitl_sha256": "7aa5d67da6850d7021ade5a2232edeb5f34550236eca6f7a102f37f962dd4bd2",
+        "stock_french_sha256": "8ac6be8693319e5f2f9c29f91dec87e30854d3e6ffb4a5eb5ffb71d01a6df47c",
+        "localized_qm": ("reMarkable_zh_CN-3.29.0.152-ferrari.qm", 205597, "d51a54b693e233cfe654185fa6f65abcaf6616e10c4216dc6fecb6a550687c68"),
+    },
+    "chiappa": {
+        "architecture": "aarch64",
+        "xochitl_sha256": "09ba8581a50d96c19b360606ee0288b8863faec620036c8eda3b2a0b5cc2d2e2",
+        "stock_french_sha256": "a693ba91b9e3123840b09d6dcc1bf1a29e55672258abcf664ab06eba6a53d35b",
+        "localized_qm": ("reMarkable_zh_CN-3.29.0.152-chiappa.qm", 201371, "71423229aa311950bb640b71ff903ce78206c068f2dc36ffae042c22d2b4c3b6"),
+    },
+    "tatsu": {
+        "architecture": "aarch64",
+        "xochitl_sha256": "1bf16b6e7d5355e48479fa832871e98834307da652a06245b5fb86d0bbd7a26c",
+        "stock_french_sha256": "d4cac61e20cadeb88bcf2cc3d88b5fb7f709cb1e547529034f1a3135ac2597db",
+        "localized_qm": ("reMarkable_zh_CN-3.29.0.152-tatsu.qm", 201371, "71423229aa311950bb640b71ff903ce78206c068f2dc36ffae042c22d2b4c3b6"),
+    },
+    "rm1": {
+        "architecture": "armv7l",
+        "xochitl_sha256": "2eb775c3ced943c20ccf6271bb107e745db10aece2dc21e0e4bd8450d98fd23c",
+        "stock_french_sha256": "9cc0ef23b734e7d5d5be0cd18efaf366824ec86c32db8e46024bf63fae468fd7",
+        "localized_qm": ("reMarkable_zh_CN-3.29.0.152-rm1.qm", 214592, "f545de827901f7fc0fa91c31a33392429aea3ec79d4c644ae546856fa6e5d6e6"),
+    },
+    "rm2": {
+        "architecture": "armv7l",
+        "xochitl_sha256": "50a5ed69ab9c60d9f3b1d04b19311562194f6cfee769b17a6ea069d255e47760",
+        "stock_french_sha256": "25661b271e867a60327c97ff6518097b50b14c9e8a64b179d6d401f4799c6f1c",
+        "localized_qm": ("reMarkable_zh_CN-3.29.0.152-rm2.qm", 214592, "f545de827901f7fc0fa91c31a33392429aea3ec79d4c644ae546856fa6e5d6e6"),
     },
 }
 
@@ -205,38 +241,38 @@ def _translation_candidates() -> dict[tuple[str, str], list]:
     return result
 
 
-def _validate_172_localization() -> None:
+def _validate_localization(firmware: str, release: str, targets: dict) -> None:
     import _native_chinese as native
 
     candidates = _translation_candidates()
-    for platform, expected in OFFICIAL_172.items():
-        key = ("20260827113527", platform)
+    for platform, expected in targets.items():
+        key = (firmware, platform)
         matches = [
             package
             for package in candidates.get(key, ())
-            if package.release_version == "3.28.0.172"
+            if package.release_version == release
             and package.xochitl_sha256 == expected["xochitl_sha256"]
         ]
         if len(matches) != 1:
             raise RuntimeError(
-                f"localization matrix missing exact 3.28.0.172 {platform} carrier"
+                f"localization matrix missing exact {release} {platform} carrier"
             )
         package = matches[0]
         if package.stock_french_sha256 != expected["stock_french_sha256"]:
-            raise RuntimeError(f"3.28.0.172 {platform} stock French hash mismatch")
+            raise RuntimeError(f"{release} {platform} stock French hash mismatch")
         if (package.asset, package.size, package.localized_qm_sha256) != expected["localized_qm"]:
-            raise RuntimeError(f"3.28.0.172 {platform} Chinese catalog mismatch")
+            raise RuntimeError(f"{release} {platform} Chinese catalog mismatch")
 
         identity = next(
             raw_identity
             for raw_identity, policy in native.ALLOWED_TARGETS.items()
             if _allowed_key(raw_identity, policy[0])
             == (
-                "20260827113527",
+                firmware,
                 platform,
                 expected["architecture"],
                 expected["xochitl_sha256"],
-                "3.28.0.172",
+                release,
             )
         )
         selected = native._bundled_french_slot_package(
@@ -250,15 +286,16 @@ def validate() -> None:
     for feature in FEATURE_MODULES:
         _validate_feature_matrix(feature)
     _validate_cross_feature_support()
-    _validate_172_localization()
+    _validate_localization("20260827113527", "3.28.0.172", OFFICIAL_172)
+    _validate_localization("20261009073202", "3.29.0.152", OFFICIAL_329)
 
 
 def main() -> int:
     validate()
     print(
-        "PASS: 22 device/firmware targets, seven plugin matrices, shared runtimes, "
+        "PASS: 27 device/firmware targets, seven plugin matrices, shared runtimes, "
         "AppLoad/KOReader and WeRead boundaries, five preview profiles, and "
-        "five official 3.28.0.172 localization carriers."
+        "ten official 3.28.0.172 / 3.29.0.152 localization carriers."
     )
     return 0
 

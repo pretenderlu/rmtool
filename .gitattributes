@@ -1,2 +1,4 @@
 *.qmd binary
+*/manifest.json text eol=lf
 reading-enhancements/qmd-src/*.qmd text eol=lf diff merge
+native-chinese/qmd/native-chinese-3.29.qmd text eol=lf diff merge

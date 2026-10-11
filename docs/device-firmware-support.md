@@ -1,9 +1,11 @@
 # Device, Firmware and Feature Support
 
-Audited on 2026-10-07. This describes **rmtool's current installation gates**,
+Updated on 2026-10-11. This describes **rmtool's current source installation gates**,
 not everything an upstream application might run on. A package requires the
-exact platform, architecture, internal build and stock xochitl SHA-256. No
-new firmware or plugin port is enabled by this audit.
+exact platform, architecture, internal build and stock xochitl SHA-256.
+3.29.0.152 resources are included in v1.16.16. All five platforms passed offline
+checks; Paper Pro reading-enhancement tap navigation passed hardware retesting.
+Other device and feature hardware checks remain separately recorded.
 
 ## Known Firmware
 
@@ -17,6 +19,7 @@ new firmware or plugin port is enabled by this audit.
 | 3.28.0.166 | 20260806095513 | ferrari, chiappa | beta |
 | 3.28.0.169 | 20260806095513 | ferrari, chiappa | beta |
 | 3.28.0.172 | 20260827113527 | ferrari, chiappa, tatsu, rm1, rm2 | stable |
+| 3.29.0.152 | 20261009073202 | ferrari, chiappa, tatsu, rm1, rm2 | beta |
 
 Paper Pro = ferrari; Move = chiappa; Paper Pure = tatsu. RM1/RM2 use armv7l;
 the other three use aarch64. Internal builds are not unique firmware identities:
@@ -41,6 +44,8 @@ does not apply to a monochrome screen.
 | Paper Pro, Move | 3.28.0.172 | Yes | Yes | In reading | Yes | Yes | Yes | Yes | Yes | Yes | No |
 | Pure, RM1, RM2 | 3.27.3.0 | No (legacy French-slot resource only) | No | Yes | No | N/A | No | No | No | No | Yes |
 | Pure, RM1, RM2 | 3.28.0.172 | Yes | Yes | Yes | No | N/A | No | No | No | No | No |
+| Paper Pro, Move | 3.29.0.152 beta (offline) | Yes | Yes | In reading | Yes | Yes | Yes | Yes | No | No | No |
+| Pure, RM1, RM2 | 3.29.0.152 beta (offline) | Yes | Yes | Yes | No | N/A | No | No | No | No | No |
 
 - The standalone tap/fast-mono packages remain trusted for migration. On color
   devices their normal UI entry is consolidated into reading enhancements;
@@ -48,11 +53,13 @@ does not apply to a monochrome screen.
 - Reading enhancements includes the native table-of-contents shortcut, per-book
   refresh preferences and forced refresh. Its color/mono refresh modes are
   restricted to color-device PDF/EPUB reading. The Chinese highlighting hook
-  exists only for Paper Pro/Move .172. Reading-specific features on Pure/RM1/RM2
+  exists only for Paper Pro/Move 3.28.0.172 and 3.29.0.152 (beta offline only).
+  Reading-specific features on Pure/RM1/RM2
   are missing ports, not intrinsically impossible on those screens.
 - Note enhancements specifically delays color settlement after pen lift or
   until a page change. Do not advertise it on monochrome devices.
-- EPUB menu injection depends on the reading package and 3.28. It is separate
+- EPUB menu injection depends on the reading package and a listed 3.28 build or
+  exact 3.29.0.152. It is separate
   from generic font upload/system-font selection; those remain available on all
   five devices subject to file, glyph, storage and mount checks.
 - The WeRead App installer accepts the 3.28 series on Paper Pro/Move. Only .172
@@ -91,6 +98,11 @@ from a 3.28 version string or from a font file being present; the live font matc
 and glyph checks remain authoritative.
 
 ## Evidence and Reproduction
+
+The entries below record the 2026-10-07 baseline. For the five additional beta
+targets, 19 new archives, Qt ABI checks, translation coverage and hardware test
+checklist, see [3.29.0.152 evidence](firmware-3.29.0.152.md). Existing package
+records and device-verification flags were preserved.
 
 - All 22 known target xochitl hashes and `/etc/version` values matched locally
   extracted cached firmware. Ferrari .166 also has a device-derived baseline;

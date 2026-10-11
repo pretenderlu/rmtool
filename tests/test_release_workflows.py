@@ -70,6 +70,10 @@ class ReleaseWorkflowTests(unittest.TestCase):
             self.assertNotIn("myqcloud.com", workflow)
 
     def test_application_release_publishes_three_verified_github_artifacts(self):
+        self.assertIn(
+            "*/manifest.json text eol=lf",
+            (ROOT / ".gitattributes").read_text(encoding="utf-8"),
+        )
         workflow = (ROOT / ".github/workflows/release.yml").read_text(
             encoding="utf-8"
         )
