@@ -154,7 +154,13 @@ def _validate_feature_matrix(feature: str) -> None:
     module = importlib.import_module(FEATURE_MODULES[feature])
     document = _manifest(feature)
     # The parser performs the detailed schema, hash, URL and payload checks.
-    module.parse_manifest(json.dumps(document).encode("utf-8"))
+    packages = module.parse_manifest(json.dumps(document).encode("utf-8"))
+    if feature == "native-chinese":
+        for package in packages:
+            if package.architecture == "armv7l":
+                extension = package.file(module.EXTENSION_PATH)
+                if (extension.size, extension.sha256) != module.ARM_TRANSLATOR:
+                    raise RuntimeError(f"Native Chinese ARM Qt ABI mismatch: {package.asset}")
     pairs = [(package["platform"], package["release_version"]) for package in document["packages"]]
     expected_pairs = EXPECTED_COVERAGE[feature]
     if len(pairs) != len(set(pairs)) or set(pairs) != expected_pairs:

@@ -172,7 +172,7 @@ def _legacy_payloads(platform, base_files, target, catalogs, rmkit_root):
         (ROOT / "native-chinese/qmd/ferrari-3.28.0.166.qmd").read_bytes(), 0o644
     )
     translator = ROOT / "native-chinese" / (
-        "native-chinese-translator-armv7.so" if architecture == "armv7l"
+        "native-chinese-translator-armv7-qt32.so" if architecture == "armv7l"
         else "native-chinese-translator.so"
     )
     translator_gate = ARM_TRANSLATOR if architecture == "armv7l" else (

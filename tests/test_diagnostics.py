@@ -57,7 +57,8 @@ class DiagnosticsTests(unittest.TestCase):
         optional = [item for item in _diagnostics.DEVICE_ITEMS if item.optional]
         self.assertEqual(
             [item.name for item in optional], [
-                "device/journal-xochitl.txt", "device/font-matching.txt",
+                "device/journal-xochitl.txt", "device/pinyin-service.txt",
+                "device/font-runtime.txt", "device/font-matching.txt",
                 "device/font-config.txt", "device/firmware-transaction.txt",
             ]
         )
@@ -77,6 +78,12 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertIn("%{index}", fonts)
         self.assertIn("fc-match -s", fonts)
         self.assertNotIn("fc-cache", " ".join(item.command for item in items.values()))
+        self.assertIn("-n 80", items["device/pinyin-service.txt"].command)
+        self.assertIn("ExecMainStatus", items["device/pinyin-service.txt"].command)
+        runtime_fonts = items["device/font-runtime.txt"].command
+        self.assertIn("FONTCONFIG_FILE", runtime_fonts)
+        self.assertIn('/proc/\"$pid\"/environ', runtime_fonts)
+        self.assertIn('/proc/\"$pid\"/maps', runtime_fonts)
         self.assertIn("/proc/mounts", items["device/firmware-state.txt"].command)
         job = items["device/firmware-transaction.txt"].command
         self.assertIn("*[!0-9a-f]*", job)
@@ -120,6 +127,23 @@ class DiagnosticsTests(unittest.TestCase):
         for item in _diagnostics.DEVICE_ITEMS:
             result = subprocess.run([shell, "-n"], input=item.command, text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
+
+        fonts = next(item.command for item in _diagnostics.DEVICE_ITEMS
+                     if item.name == "device/font-runtime.txt")
+        with tempfile.TemporaryDirectory() as folder:
+            environ = Path(folder) / "environ"
+            maps = Path(folder) / "maps"
+            environ.write_bytes(b"HOME=/home/root\0FONTCONFIG_FILE=/etc/fonts/fonts.conf\0SECRET=private\0")
+            maps.write_text("mapped /usr/share/fonts/test.ttf\nmapped /home/root/private-document\n")
+            fonts = fonts.replace('/proc/"$pid"/environ', '"' + environ.as_posix() + '"')
+            fonts = fonts.replace('/proc/"$pid"/maps', '"' + maps.as_posix() + '"')
+            fonts = 'systemctl() { printf "123\\n"; }; ' + fonts
+            result = subprocess.run([shell], input=fonts, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("HOME=/home/root", result.stdout)
+            self.assertIn("FONTCONFIG_FILE=/etc/fonts/fonts.conf", result.stdout)
+            self.assertIn("/usr/share/fonts/test.ttf", result.stdout)
+            self.assertNotIn("private", result.stdout)
 
         command = next(item.command for item in _diagnostics.DEVICE_ITEMS
                        if item.name == "device/firmware-transaction.txt")

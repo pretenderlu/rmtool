@@ -132,6 +132,14 @@ DEVICE_ITEMS: tuple[DiagItem, ...] = (
         "END {if (!found) print \"NO-MATCH-IN-CURRENT-MAINPID\"}' /proc/\"$pid\"/maps",
     ),
     DiagItem(
+        "device/pinyin-service.txt",
+        "拼音服务状态与日志（可能包含输入内容）",
+        "systemctl show rmtool-pinyin-input.service -p ActiveState -p SubState "
+        "-p MainPID -p ExecMainStatus -p NRestarts -p ExecMainStartTimestamp; "
+        "journalctl -u rmtool-pinyin-input.service -n 80 --no-pager -o short-iso",
+        optional=True,
+    ),
+    DiagItem(
         "device/sidecar-logs.txt",
         "拼音输入法 sidecar 日志",
         'for f in /tmp/rmtool-*.log; do [ -f "$f" ] || continue; '
@@ -149,6 +157,17 @@ DEVICE_ITEMS: tuple[DiagItem, ...] = (
         "磁盘与内存",
         "df -h / /data /home 2>/dev/null; echo ---; "
         "cat /proc/meminfo 2>/dev/null | head -n 5; echo ---; uptime",
+    ),
+    DiagItem(
+        "device/font-runtime.txt",
+        "系统界面字体环境与已加载字体（可能包含字体路径）",
+        "pid=$(systemctl show xochitl -p MainPID --value) || exit 1; "
+        "case \"$pid\" in ''|*[!0-9]*) echo UNKNOWN-PID; exit 1;; 0) echo NOT-RUNNING; exit 0;; esac; "
+        "printf 'MainPID=%s\\n' \"$pid\"; "
+        "tr '\\0' '\\n' < /proc/\"$pid\"/environ | "
+        "grep -E '^(HOME|XDG_CONFIG_HOME|XDG_DATA_HOME|FONTCONFIG_FILE|FONTCONFIG_PATH|QT_QPA_FONTDIR)='; "
+        "awk '/\\/fonts\\/|fontconfig|freetype/ {print}' /proc/\"$pid\"/maps",
+        optional=True,
     ),
     DiagItem(
         "device/font-matching.txt",

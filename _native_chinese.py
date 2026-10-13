@@ -144,12 +144,18 @@ ALLOWED_TARGETS = {
 EXPECTED_ASSETS = {
     identity: (
         f"rmtool-native-chinese-{identity[1]}-{identity[0]}-{policy[0]}"
+        + ("-qt32" if identity[2] == "armv7l" and policy[0] == "3.28.0.172" else "")
         + ("-runtime-catalog" if identity[2] == "armv7l" else "") + ".tar.gz"
     )
     for identity, policy in ALLOWED_TARGETS.items()
 }
 MAX_PACKAGE_BYTES = 32 * 1024 * 1024
-ARM_TRANSLATOR = (3756, "7627c21c45726113f706e748a52cd516c751c5f92c7ccf9422b9af6641eea427")
+ARM_TRANSLATOR = (3756, "494931a218d2296a34275020a658130c617cefc97aee6015494b8e64365f9323")
+ARM_TRANSLATOR_RUNTIME_PREDECESSOR = (3756, "7627c21c45726113f706e748a52cd516c751c5f92c7ccf9422b9af6641eea427")
+ARM_RUNTIME_CATALOG_PREDECESSORS = {
+    "rm1": "08857a11b6895e3bf5ceab2054a9c2f77e2102b8e8cd7b759c6e5920415de645",
+    "rm2": "9901d0f7328091a8785358963a64eb103309cc6ee61e9058b04550b5a04089a8",
+}
 ARM_TRANSLATOR_PREDECESSOR = (2888, "9569d723d4057f741fcb70522b90a69e11aa5c75998cee8a6dcb69ad668be722")
 ARM_CATALOG_PREDECESSORS = {
     "rm1": "92a8a41daec8016ab413d774b9ead911753e8bb2dc70a5b905439cd92d6fa159",
@@ -431,14 +437,19 @@ def _known_shared_predecessor_specs(
     )
     _runtime, current = _shared_specs(package)
     if package.firmware == "20260827113527" and package.platform in ARM_CATALOG_PREDECESSORS:
-        size, digest = ARM_TRANSLATOR_PREDECESSOR
-        return (_SharedPredecessor(
-            "catalog_runtime_path", ARM_CATALOG_PREDECESSORS[package.platform],
-            replace(current, extra_files=tuple(
-                replace(item, sha256=digest, size=size) if item.runtime_path == EXTENSION_PATH else item
-                for item in current.extra_files
-            )),
-        ),)
+        return tuple(
+            _SharedPredecessor(
+                reason, archives[package.platform],
+                replace(current, extra_files=tuple(
+                    replace(item, sha256=digest, size=size) if item.runtime_path == EXTENSION_PATH else item
+                    for item in current.extra_files
+                )),
+            )
+            for reason, archives, (size, digest) in (
+                ("qt_string_abi", ARM_RUNTIME_CATALOG_PREDECESSORS, ARM_TRANSLATOR_RUNTIME_PREDECESSOR),
+                ("catalog_runtime_path", ARM_CATALOG_PREDECESSORS, ARM_TRANSLATOR_PREDECESSOR),
+            )
+        )
     catalog_predecessor = CATALOG_LABEL_PREDECESSORS.get(identity)
     if catalog_predecessor is not None:
         archive_sha256, catalog_sha256, catalog_size = catalog_predecessor
@@ -696,6 +707,9 @@ def get_status(
             )
         if FEATURE_ID in revisions:
             detail = (
+                "汉化扩展需要修复中文加载接口，可直接修复更新"
+                if revisions[FEATURE_ID] == "qt_string_abi"
+                else
                 "汉化扩展需要更新翻译目录路径，可直接修复更新"
                 if revisions[FEATURE_ID] == "catalog_runtime_path"
                 else

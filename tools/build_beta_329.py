@@ -89,31 +89,7 @@ def validate_catalog(stock_paths, merged_ts, qt, work, qml_ts):
 
 
 def build_arm_translator(zig, work):
-    # Qt's 32-bit qsizetype is int; leave already-published ARM payloads intact.
-    with tempfile.TemporaryDirectory() as temporary:
-        source = Path(temporary)
-        for name in ('hook.c', 'xovi.c', 'xovi.h', 'test_hook.c'):
-            text = (ROOT / 'native-chinese/xovi-src' / name).read_text()
-            text = text.replace('_ZN7QStringC1EPK5QCharx', '_ZN7QStringC1EPK5QChari')
-            text = text.replace('typedef long long i64;', '')
-            text = re.sub(r'\bi64\b', 'int', text)
-            (source / name).write_text(text)
-        executable = source / ('test_hook.exe' if os.name == 'nt' else 'test_hook')
-        run([zig, 'cc', '-std=c11', '-DRMTOOL_RUNTIME_CATALOG', source / 'test_hook.c', '-o', executable])
-        home = '/home/root/.local/share/rmtool/xovi-standalone'
-        data = '/data/rmtool/xovi-standalone'
-        for configured in (home, data, '', '/untrusted'):
-            selected = home if configured == home else data
-            subprocess.run([str(executable), selected + '/native-chinese/reMarkable_zh_CN.qm'],
-                           env=dict(os.environ, XOVI_ROOT=configured), check=True, timeout=30)
-        destination = work / 'native-chinese-translator-armv7-qt32.so'
-        run([zig, 'cc', '-target', 'arm-linux-gnueabihf.2.4', '-std=c11', '-Oz', '-shared',
-             '-fPIC', '-fno-stack-protector', '-s', '-DRMTOOL_RUNTIME_CATALOG',
-             source / 'hook.c', source / 'xovi.c', '-o', destination])
-        payload = destination.read_bytes()
-        if b'I_ZN7QStringC1EPK5QChari\0' not in payload or b'_ZN7QStringC1EPK5QCharx' in payload:
-            raise RuntimeError('Incorrect ARM QString ABI in generated translator')
-        return payload
+    return load(ROOT / 'native-chinese/build_translator_armv7.py').build_arm_translator(zig, work)
 
 
 def abi_check(root, architecture, work):

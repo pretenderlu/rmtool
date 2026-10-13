@@ -265,7 +265,7 @@ def build_target(
         tap_qmd = extracted.joinpath(*PurePosixPath(TAP_QMD_PATH).parts).read_bytes()
 
     translator_path = REPO_ROOT / "native-chinese" / (
-        "native-chinese-translator-armv7.so"
+        "native-chinese-translator-armv7-qt32.so"
         if package.architecture == "armv7l"
         else "native-chinese-translator.so"
     )
@@ -275,9 +275,6 @@ def build_target(
         if package.architecture == "armv7l"
         else (TRANSLATOR_SIZE, TRANSLATOR_SHA256)
     )
-    if package.architecture == "armv7l" and package.release_version == "3.29.0.152":
-        translator = (REPO_ROOT / "native-chinese/native-chinese-translator-armv7-qt32.so").read_bytes()
-        expected_translator = (3756, "494931a218d2296a34275020a658130c617cefc97aee6015494b8e64365f9323")
     if (len(translator), sha256(translator)) != expected_translator:
         raise RuntimeError("Native-Chinese translator does not match the gate")
     files[native.QMD_PATH] = (qmd, 0o644)

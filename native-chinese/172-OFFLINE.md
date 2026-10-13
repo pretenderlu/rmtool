@@ -100,3 +100,27 @@ device verified. The tests prohibit network fallback while selecting staged
 archives. Publication is verified separately from package construction and does
 not change the device-verification level. Firmware flashing and device
 operations are outside this resource pipeline.
+
+## Qt32 repair (2026-10-13)
+
+The two published ARM translators imported `QString(QChar const*, long long)`.
+Exact RM1/RM2 3.28.0.172 QtCore exports `QString(QChar const*, int)`. The
+corrected packages use the existing 3.29 ARM translator (3756 bytes, SHA-256
+`494931a218d2296a34275020a658130c617cefc97aee6015494b8e64365f9323`).
+All four Xovi Qt imports resolve against both models' exact stable and beta
+QtCore exports. The shared build helper host-tests both catalog storage paths.
+
+| Platform | New asset suffix | Archive bytes | SHA-256 |
+| --- | --- | ---: | --- |
+| rm1 | `3.28.0.172-qt32-runtime-catalog.tar.gz` | 3877629 | `42a7dc9e56d4be399012fa296c65876c1871a7088606b520ea18762d3dbc6dfa` |
+| rm2 | `3.28.0.172-qt32-runtime-catalog.tar.gz` | 3884580 | `d3babaa309995e95d5d5aa4f60d1183a384691782e1e7e2f5206d2a74c9971a6` |
+
+Both published predecessors remain pinned for repair and cleanup. Repair keeps
+Pinyin installed, respects the selected storage layout and retains capacity and
+rollback checks. Other manifest records remain unchanged. The build matrix
+rejects the old translator on either ARM firmware, including 3.29.
+
+These packages are locally staged, not published or hardware validated. The
+reported GUI font rendering and IME service remain hardware follow-ups;
+command-line Fontconfig matching alone does not prove either. Diagnostics now
+collect optional bounded IME service logs and filtered GUI font environment/maps.

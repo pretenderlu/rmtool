@@ -54,7 +54,7 @@ class RM1PluginStorageTests(unittest.TestCase):
                 ssh.transfer_file.assert_not_called()
 
     def test_arm_translator_payload_and_published_predecessor(self):
-        binary = (Path(native.__file__).parent / "native-chinese/native-chinese-translator-armv7.so").read_bytes()
+        binary = (Path(native.__file__).parent / "native-chinese/native-chinese-translator-armv7-qt32.so").read_bytes()
         self.assertEqual((len(binary), hashlib.sha256(binary).hexdigest()), native.ARM_TRANSLATOR)
         self.assertEqual(binary[:6], b"\x7fELF\x01\x01")
         self.assertEqual(int.from_bytes(binary[18:20], "little"), 40)
@@ -62,7 +62,9 @@ class RM1PluginStorageTests(unittest.TestCase):
             self.assertIn((base + "/" + native.CATALOG_PATH).encode("utf-16le"), binary)
         self.assertIn(b"XOVI_ROOT", binary)
         self.assertNotIn("/home/root/.local/share/rmtool/native-chinese/".encode("utf-16le"), binary)
-        old = native._known_shared_predecessor_specs(self.package)[0]
+        self.assertIn(b"I_ZN7QStringC1EPK5QChari\0", binary)
+        self.assertNotIn(b"_ZN7QStringC1EPK5QCharx", binary)
+        old = native._known_shared_predecessor_specs(self.package)[1]
         contexts = recovery._trusted_cleanup_contexts(native._package_identity(self.package))
         self.assertTrue(any(runtime == self.runtime and trusted.get(native.FEATURE_ID) == old.feature
                             for runtime, trusted in contexts))
@@ -85,6 +87,46 @@ class RM1PluginStorageTests(unittest.TestCase):
         present.add(shared.SHARED_LAYOUT.remote_base)
         with self.assertRaisesRegex(RuntimeError, "两套"):
             shared.inspect_shared(ssh, runtime, trusted)
+        ssh.transfer_file.assert_not_called()
+
+    def test_stable_arm_predecessors_are_repairable_and_preserve_pinyin(self):
+        import _rmkit_cn as fonts
+
+        for package in native._trusted_catalog():
+            if package.platform not in {"rm1", "rm2"} or package.release_version != "3.28.0.172":
+                continue
+            identity = native._package_identity(package)
+            runtime, trusted, _ = native._trusted_shared_context(identity)
+            self.assertIn("-qt32-runtime-catalog", package.asset)
+            for predecessor in native._known_shared_predecessor_specs(package):
+                for schema in (1, 2):
+                    with self.subTest(platform=package.platform, reason=predecessor.reason, schema=schema):
+                        ssh, _, _, _, _ = fixtures.SharedXoviTests().shared_residue_ssh(
+                            package, None, feature_ids=(native.FEATURE_ID, "pinyin-input"),
+                            visible_dropins=(shared.SHARED_LAYOUT.dropin_path,),
+                            feature_overrides={native.FEATURE_ID: predecessor.feature},
+                            marker_schema=schema, layout=shared.preferred_layout(runtime),
+                        )
+                        inspection, installed, revisions = native._inspect_shared_revision(
+                            ssh, runtime, trusted, package)
+                        self.assertEqual(revisions[native.FEATURE_ID], predecessor.reason)
+                        self.assertEqual(installed["pinyin-input"], trusted["pinyin-input"])
+                        self.assertTrue(inspection.states["pinyin-input"].enabled)
+                        with patch.object(tap, "get_device_identity", return_value=identity), patch.object(
+                            fonts, "has_localization_cjk_font", return_value=True
+                        ):
+                            status = native.get_status(ssh, (package,))
+                        self.assertEqual(status.state, native.NativeChineseState.OUTDATED)
+                        self.assertIn("可直接修复更新", status.detail)
+                        ssh.transfer_file.assert_not_called()
+
+    def test_stable_arm_tampered_predecessor_is_not_repair_trusted(self):
+        predecessor = native._known_shared_predecessor_specs(self.package)[0]
+        ssh, _, runtime, trusted, _ = self.device(
+            feature_overrides={native.FEATURE_ID: predecessor.feature},
+            modified_path=native.EXTENSION_PATH)
+        with self.assertRaises(RuntimeError):
+            native._inspect_shared_revision(ssh, runtime, trusted, self.package)
         ssh.transfer_file.assert_not_called()
 
     def test_rm1_capacity_uses_home_but_requires_small_root_headroom(self):

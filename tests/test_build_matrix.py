@@ -30,6 +30,19 @@ class BuildMatrixTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "identity disagrees"):
                     matrix._validate_cross_feature_support()
 
+    def test_stale_arm_translator_is_rejected_for_stable_and_beta(self):
+        import _native_chinese as native
+
+        for release in ("3.28.0.172", "3.29.0.152"):
+            document = matrix._manifest("native-chinese")
+            package = next(p for p in document["packages"]
+                           if p["platform"] == "rm2" and p["release_version"] == release)
+            extension = next(f for f in package["files"] if f["path"] == native.EXTENSION_PATH)
+            extension["size"], extension["sha256"] = native.ARM_TRANSLATOR_RUNTIME_PREDECESSOR
+            with self.subTest(release=release), patch.object(matrix, "_manifest", return_value=document):
+                with self.assertRaisesRegex(RuntimeError, "ARM Qt ABI mismatch"):
+                    matrix._validate_feature_matrix("native-chinese")
+
     def test_plugin_selectors_cover_every_known_target_and_reject_unknown_hashes(self):
         for feature, name in matrix.FEATURE_MODULES.items():
             module = importlib.import_module(name)

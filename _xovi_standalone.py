@@ -2459,14 +2459,13 @@ def check_shared_capacity(ssh_client, runtime, states, *, staged=False):
 
 def _assert_home_catalog(runtime, states):
     if preferred_layout(runtime) == LEGACY_SHARED_LAYOUT:
-        # Published ARM translators used a different absolute catalog path.
-        # Do not relocate them unchanged while updating a sibling feature.
+        # Require the corrected ARM interface and catalog path before relocation.
         for state in states.values():
             if state.enabled and state.spec.feature_id == "native-chinese":
                 import _native_chinese as native
                 extension = next((item for item in state.spec.files if item.runtime_path == native.EXTENSION_PATH), None)
                 if extension is None or (extension.size, extension.sha256) != native.ARM_TRANSLATOR:
-                    raise RuntimeError("汉化扩展需同步更新翻译目录路径，请先在“原生简体中文”中修复更新，再操作其他插件。")
+                    raise RuntimeError("汉化扩展需同步更新，请先在“原生简体中文”中修复更新，再操作其他插件。")
 
 
 def _stage_shared(

@@ -47,7 +47,7 @@ class Candidate172Tests(unittest.TestCase):
             self.assertFalse(package.device_verified)
             predecessors = native._known_shared_predecessor_specs(package)
             self.assertEqual(tuple(item.reason for item in predecessors),
-                             ("catalog_runtime_path",) if architecture == "armv7l" else ())
+                             ("qt_string_abi", "catalog_runtime_path") if architecture == "armv7l" else ())
             self.assertIsNotNone(pinyin.select_package(pinyin._trusted_catalog(), identity))
             reading_package = reading.select_package(reading._trusted_catalog(), identity)
             if platform in builder.COLOR_PLATFORMS:
@@ -133,7 +133,7 @@ class Candidate172Tests(unittest.TestCase):
         self.assertFalse(report["application_enabled"])
 
     def test_committed_legacy_binary_inputs_are_exact(self):
-        translator = ROOT / "native-chinese/native-chinese-translator-armv7.so"
+        translator = ROOT / "native-chinese/native-chinese-translator-armv7-qt32.so"
         catalog = ROOT / "translations/reMarkable_zh_CN-3.28.0.172-rm1-rm2.qm"
         builder.verified(translator, *builder.ARM_TRANSLATOR)
         builder.verified(

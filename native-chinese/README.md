@@ -10,6 +10,11 @@ The Tatsu, RM1, and RM2 packages have not yet been device-tested. See
 [the .172 matrix and local staging report](172-OFFLINE.md).
 Existing support and fingerprints below are unchanged.
 
+RM1/RM2 stable 3.28.0.172 now use the same verified 32-bit QString interface
+as their beta packages. The two published ARM predecessors remain exact repair
+candidates, so detection offers a repair update without removing Pinyin. See
+[the stable repair evidence](172-OFFLINE.md#qt32-repair-2026-10-13).
+
 Packages are gated to the exact firmware identity and stock xochitl SHA-256
 recorded in `manifest.json`.
 
