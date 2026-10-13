@@ -1,7 +1,7 @@
 # Native Simplified Chinese
 
-Beta 3.29.0.152 has exact offline-verified candidates for all five devices;
-hardware validation and publication are pending. Its new LanguageSettings QML
+Beta 3.29.0.152 has exact offline-verified packages for all five devices;
+hardware validation is pending. Its new LanguageSettings QML
 requires a separate patch, and RM1/RM2 use a Qt32 translator built against the
 actual firmware exports. See [build and test evidence](../docs/firmware-3.29.0.152.md).
 

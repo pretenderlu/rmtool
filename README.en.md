@@ -14,7 +14,7 @@ rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, a
 classic offline-verified tap-to-turn plugin for Paper Pure, reMarkable 1,
 and reMarkable 2, plus a one-click read-only diagnostic bundle for support. Device operations do not depend on reMarkable cloud services. Release builds include baseline trusted manifests for these firmware-specific features, enabling offline support discovery and verified cache reuse. Payloads are not bundled and still require a network download or an existing validated cache.
 
-The current release is [v1.16.16](https://github.com/pretenderlu/rmtool/releases/tag/v1.16.16). It adds native Chinese, offline Pinyin and tap-to-turn support for beta 3.29.0.152 on all five devices. Paper Pro / Move also receive reading enhancements, precise Chinese highlighting, custom EPUB fonts and note enhancements. See the [release notes](docs/releases/v1.16.16.md) and the device and verification matrix below.
+The current release is [v1.16.17](https://github.com/pretenderlu/rmtool/releases/tag/v1.16.17). It fixes native Chinese loading compatibility on RM1/RM2 running stable 3.28.0.172 and improves font and Pinyin diagnostics. See the [release notes](docs/releases/v1.16.17.md) and the device, firmware and verification matrix below.
 
 > [!WARNING]
 > rmtool directly modifies files on the device. Sync or back up important content first, and make sure you accept the data and warranty risks associated with Developer Mode, root SSH, and third-party modifications. This project is not official reMarkable software.

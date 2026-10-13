@@ -120,7 +120,7 @@ Pinyin installed, respects the selected storage layout and retains capacity and
 rollback checks. Other manifest records remain unchanged. The build matrix
 rejects the old translator on either ARM firmware, including 3.29.
 
-These packages are locally staged, not published or hardware validated. The
+These packages ship with v1.16.17 and remain offline verified. The
 reported GUI font rendering and IME service remain hardware follow-ups;
 command-line Fontconfig matching alone does not prove either. Diagnostics now
 collect optional bounded IME service logs and filtered GUI font environment/maps.
