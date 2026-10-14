@@ -1,4 +1,4 @@
-"""Quarantine and rebuild recognized shared installations without trusting old code.
+"""Repair verified startup controls or quarantine and rebuild damaged payloads.
 
 The /data layout and RM1's /home layout are recovered. Other /home layouts, mounted-over
 systemd paths, and unsupported external programs remain blocked. A complete,
@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import shlex
 import stat
 import tempfile
@@ -70,6 +71,7 @@ class _Plan:
     sentinels: tuple[str, ...]
     layout: shared.StandaloneLayout = shared.SHARED_LAYOUT
     preserved_sidecars: tuple = ()
+    controls_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -115,8 +117,10 @@ def _known_dropin_hashes(runtime, states, layout=shared.SHARED_LAYOUT):
         hashlib.sha256(shared.shared_dropin(
             runtime, tuple(feature for feature, enabled in zip(features, flags) if enabled),
             layout=layout,
+            clean_stop_guard=clean_stop,
         ).encode()).hexdigest()
         for flags in product((False, True), repeat=len(features))
+        for clean_stop in (True, False)
     }
 
 
@@ -170,16 +174,17 @@ def _recognized_marker(marker, runtime, trusted, revisions, layout=shared.SHARED
     for states in state_sets:
         shared.assert_feature_layout(runtime, (state.spec for state in states.values()))
         enabled = tuple(state.spec for state in states.values() if state.enabled)
-        dropin = shared.shared_dropin(runtime, enabled, layout=layout)
-        dropin_sha = hashlib.sha256(dropin.encode()).hexdigest()
-        for guard, sentinel, unmatched in (
+        for clean_stop, (guard, sentinel, unmatched) in product((True, False), (
             (True, True, False), (False, True, False), (False, False, False),
             (True, True, True), (False, True, True), (False, False, True),
-        ):
+        )):
+            dropin = shared.shared_dropin(runtime, enabled, layout=layout, clean_stop_guard=clean_stop)
+            dropin_sha = hashlib.sha256(dropin.encode()).hexdigest()
             launcher = shared.shared_launcher(
                 runtime, enabled, startup_guard=guard,
                 recovery_sentinel=sentinel, legacy_unmatched_qmd_glob=unmatched,
                 layout=layout,
+                clean_stop_guard=clean_stop,
             )
             launcher_sha = hashlib.sha256(launcher.encode()).hexdigest()
             if marker == shared._marker_document(
@@ -363,8 +368,8 @@ def _cleanup_trust_data(contexts, layout=shared.SHARED_LAYOUT):
             enabled = tuple(
                 feature for feature, flag in zip(feature_values, flags) if flag
             )
-            for recovery_sentinel, startup_guard, unmatched in product(
-                (False, True), repeat=3
+            for recovery_sentinel, startup_guard, unmatched, clean_stop in product(
+                (False, True), repeat=4
             ):
                 try:
                     launcher = shared.shared_launcher(
@@ -374,6 +379,7 @@ def _cleanup_trust_data(contexts, layout=shared.SHARED_LAYOUT):
                         startup_guard=startup_guard,
                         legacy_unmatched_qmd_glob=unmatched,
                         layout=layout,
+                        clean_stop_guard=clean_stop,
                     ).encode()
                 except (RuntimeError, OSError, ValueError, TypeError):
                     continue
@@ -381,11 +387,11 @@ def _cleanup_trust_data(contexts, layout=shared.SHARED_LAYOUT):
                     (hashlib.sha256(launcher).hexdigest(), len(launcher), 0o755)
                 )
         try:
-            dropin = shared.shared_dropin(runtime, (), layout=layout)
+            for clean_stop in (True, False):
+                dropin = shared.shared_dropin(runtime, (), layout=layout, clean_stop_guard=clean_stop)
+                dropin_hashes.add(hashlib.sha256(dropin.encode()).hexdigest())
         except (RuntimeError, OSError, ValueError, TypeError):
             continue
-        dropin_bytes = dropin.encode()
-        dropin_hashes.add(hashlib.sha256(dropin_bytes).hexdigest())
 
     add_spec("launcher.sh", "", -1, 0o755)
     file_specs["launcher.sh"] = launcher_specs
@@ -883,7 +889,7 @@ def cleanup_incomplete(ssh_client) -> RecoveryReport:
 
 
 def _check_capacity(ssh_client, plan, *, staged=False):
-    if shared.preferred_layout(plan.runtime) == shared.LEGACY_SHARED_LAYOUT:
+    if shared.preferred_layout(plan.runtime) == shared.LEGACY_SHARED_LAYOUT and not plan.controls_only:
         states = {fid: shared.SharedFeatureState(plan.targets[fid], state.enabled, state.process_token)
                   for fid, state in plan.states.items()}
         shared.check_shared_capacity(ssh_client, plan.runtime, states, staged=staged)
@@ -893,21 +899,27 @@ def _check_capacity(ssh_client, plan, *, staged=False):
               for fid, state in plan.states.items()}
     sizes = [len(shared.shared_marker(plan.runtime, states, "0" * 64, "0" * 64))]
     if enabled:
-        sizes.extend(item.size for item in plan.runtime.files)
-        sizes.extend(item.size for feature in enabled for item in feature.files)
+        if not plan.controls_only:
+            sizes.extend(item.size for item in plan.runtime.files)
+            sizes.extend(item.size for feature in enabled for item in feature.files)
         sizes.extend((len(shared.shared_launcher(plan.runtime, enabled).encode()),
                       len(shared.shared_dropin(plan.runtime, enabled).encode())))
-    # Free bytes already exclude the old base, which will only be renamed.
+    # Verified control-only repair leaves payloads in place; full rebuilds
+    # retain the old base by rename. Neither reclaims old backups to make room.
     # Include filesystem allocation rounding and transaction/drop-in overhead.
     needed = (24 + 1) * 1024 * 1024
     if not staged:
         needed += sum(((size + 4095) // 4096) * 4096 for size in sizes)
-    try:
-        available = int(ssh_client.exec_checked("df -Pk /data | awk 'NR==2 {print $4}'").strip()) * 1024
-    except ValueError as exc:
-        raise RuntimeError("无法确认 /data 剩余空间。") from exc
+    partition = "/home" if shared.preferred_layout(plan.runtime) == shared.LEGACY_SHARED_LAYOUT else "/data"
+    if partition == "/home":
+        ssh_client.exec_checked("mountpoint -q /home")
+        shared.check_shared_capacity(ssh_client, plan.runtime, {}, staged=True)
+    value = ssh_client.exec_checked(f"df -Pk {partition} | awk 'NR==2 {{print $4}}'").strip()
+    if not re.fullmatch(r"[0-9]+", value):
+        raise RuntimeError(f"无法确认 {partition} 剩余空间。")
+    available = int(value) * 1024
     if available < needed:
-        raise RuntimeError(f"/data 空间不足：保留旧安装并暂存新包至少需要 {needed} 字节，当前 {available} 字节。")
+        raise RuntimeError(f"{partition} 空间不足：保留旧安装并暂存修复内容至少需要 {needed} 字节，当前 {available} 字节。")
 
 
 def _ownership_snapshot(ssh_client, runtime, states, marker_text, layout=shared.SHARED_LAYOUT):
@@ -1043,6 +1055,7 @@ def _inspect(ssh_client):
     fingerprint, sentinels = _ownership_snapshot(ssh_client, old_runtime, states, marker_text, layout)
     features = tuple(sorted(states))
     issues = []
+    controls_only = False
     if old_identity != identity:
         issues.append("检测到固件升级残留，需要重建全部已启用功能。")
     else:
@@ -1055,6 +1068,8 @@ def _inspect(ssh_client):
                     features,
                 ), None
             outdated = any(state.spec != targets.get(fid) for fid, state in states.items())
+            controls_only = (not outdated and layout == shared.preferred_layout(new_runtime)
+                             and any(state.enabled for state in states.values()))
             if (not installed.launcher_update_available and not installed.startup_pending
                     and not outdated and layout == shared.preferred_layout(new_runtime)):
                 return RecoveryReport(RecoveryState.NOT_NEEDED, "共享插件完整，无需修复。", features), None
@@ -1078,13 +1093,15 @@ def _inspect(ssh_client):
     if unsupported:
         return RecoveryReport(RecoveryState.BLOCKED, "以下功能含外部程序，暂不能保证全新重建及配置保留：" + "、".join(unsupported), features, tuple(unsupported)), None
     preserved = _preserved_sidecars_snapshot(ssh_client, identity, states, targets)
-    plan = _Plan(identity, new_runtime, {fid: targets[fid] for fid in states}, states, fingerprint, sentinels, layout, preserved)
-    tap._preflight_device(ssh_client)
+    plan = _Plan(identity, new_runtime, {fid: targets[fid] for fid in states}, states, fingerprint, sentinels, layout, preserved, controls_only)
+    tap._preflight_device(ssh_client, allow_stopped=True)
     if "native-chinese" in states and states["native-chinese"].enabled:
         migration.native._reject_active_french_slot(ssh_client, identity)
     return RecoveryReport(
         RecoveryState.REPAIR_AVAILABLE,
-        "归属已由 rmtool 完成安装收据或已发布标记确认；可隔离原安装并用受信新包重建，保留外部设置及紧急停用标记。",
+        ("插件文件已逐项校验，可只修复启动配置并重置启动保护，无需重复暂存运行库；原配置将备份保留。"
+         if controls_only else
+         "归属已由 rmtool 完成安装收据或已发布标记确认；可隔离原安装并用受信新包重建，保留外部设置及紧急停用标记。"),
         features,
         tuple(issues),
     ), plan
@@ -1102,7 +1119,7 @@ def inspect_recovery(ssh_client) -> RecoveryReport:
 
 
 def repair(ssh_client, state_dir) -> RecoveryReport:
-    """Rebuild every enabled peer from fresh verified bytes; retain quarantine."""
+    """Repair verified controls or rebuild damaged payloads; retain rollback."""
     session = getattr(ssh_client, "operation_session", None)
     with session() if callable(session) else nullcontext():
         report, plan = _inspect(ssh_client)
@@ -1112,7 +1129,7 @@ def repair(ssh_client, state_dir) -> RecoveryReport:
         with tempfile.TemporaryDirectory() as temporary:
             roots = {}
             for feature_id, state in sorted(plan.states.items()):
-                if not state.enabled:
+                if not state.enabled or plan.controls_only:
                     continue
                 module = migration._providers()[feature_id]
                 package = module.select_package(module._trusted_catalog(), plan.identity)
@@ -1128,7 +1145,7 @@ def repair(ssh_client, state_dir) -> RecoveryReport:
                 if not current_report.can_repair or current != plan:
                     raise RuntimeError("下载期间设备或插件状态发生变化，请重新检测后重试。")
                 _check_capacity(ssh_client, plan)
-                process_token = shared._process_token(ssh_client)
+                process_token = shared._process_token(ssh_client, allow_stopped=True)
                 states = {
                     fid: shared.SharedFeatureState(plan.targets[fid], state.enabled,
                                                    process_token if state.enabled else state.process_token)
@@ -1144,11 +1161,12 @@ def repair(ssh_client, state_dir) -> RecoveryReport:
                 try:
                     ssh_client.exec_checked(f"mkdir -m 0755 {shlex.quote(stage)}")
                     stage_created = True
-                    shared._stage_shared(ssh_client, plan.runtime, states, roots, {}, stage)
-                    # Stale startup.pending belongs only to the quarantined
-                    # original, never to this fresh, verified installation.
+                    kwargs = {"controls_only": True} if plan.controls_only else {}
+                    shared._stage_shared(ssh_client, plan.runtime, states, roots, {}, stage, **kwargs)
+                    # Only the validated old pending marker is backed up;
+                    # neither repair mode installs a fresh startup latch.
                     final_report, final = _inspect(ssh_client)
-                    if not final_report.can_repair or final != plan or shared._process_token(ssh_client) != process_token:
+                    if not final_report.can_repair or final != plan or shared._process_token(ssh_client, allow_stopped=True) != process_token:
                         raise RuntimeError("暂存期间设备或插件状态发生变化，已中止修复。")
                     _check_capacity(ssh_client, plan, staged=True)
                     # A rollback may restore damaged bytes. Never clear this
@@ -1158,6 +1176,7 @@ def repair(ssh_client, state_dir) -> RecoveryReport:
                         stage, token, (plan.layout,) if plan.layout != layout else (),
                         enable_dropin=any(s.enabled for s in states.values()), retain_backup=True,
                         layout=layout,
+                        controls_only=plan.controls_only,
                     ).encode()
                     if shared._remote_entry_exists(ssh_client, script_path):
                         raise RuntimeError("恢复事务临时路径已存在，拒绝覆盖。")
@@ -1201,4 +1220,7 @@ def repair(ssh_client, state_dir) -> RecoveryReport:
     if plan.layout != layout:
         protection += f"旧路径备份仍保留在 {plan.layout.remote_base}.backup-{token}；确认新安装正常前请勿删除。"
     protection += f"重启后请等待至少 {shared.SHARED_STARTUP_STABLE_SECONDS} 秒再检测，期间不要再次重启或启动微信读书等其他应用。"
-    return RecoveryReport(RecoveryState.NOT_NEEDED, "共享插件已从受信新包重建；原安装已隔离保留，已验证的配套服务保持不变，未自动重启。" + protection, report.features, backup_path=backup)
+    detail = ("共享插件启动配置已修复，启动保护已重置；原配置已备份，插件文件和用户设置保持不变，未自动重启。"
+              if plan.controls_only else
+              "共享插件已从受信新包重建；原安装已隔离保留，已验证的配套服务保持不变，未自动重启。")
+    return RecoveryReport(RecoveryState.NOT_NEEDED, detail + protection, report.features, backup_path=backup)

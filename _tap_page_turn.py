@@ -1659,7 +1659,7 @@ def _deployment_mode(
     return "standalone"
 
 
-def _preflight_device(ssh_client) -> None:
+def _preflight_device(ssh_client, *, allow_stopped: bool = False) -> None:
     required_commands = (
         "awk",
         "cat",
@@ -1685,10 +1685,12 @@ def _preflight_device(ssh_client) -> None:
         + 'echo "missing:$cmd" >&2; exit 1; }; done'
     )
     service_state = ssh_client.exec_checked(
-        "systemctl is-active xochitl"
+        "systemctl show xochitl -p ActiveState --value" if allow_stopped else "systemctl is-active xochitl"
     ).strip()
-    if service_state != "active":
+    if service_state not in (("active", "inactive", "failed") if allow_stopped else ("active",)):
         raise RuntimeError(
+            f"原生 xochitl 当前状态不稳定（{service_state or '未知'}），请等待启动或停止完成后重试。"
+            if allow_stopped else
             f"原生 xochitl 当前不是 active（{service_state or '未知'}），拒绝部署。"
         )
     available_output = ssh_client.exec_checked(

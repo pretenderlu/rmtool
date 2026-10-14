@@ -352,6 +352,7 @@ def shared_launcher(
     *,
     recovery_sentinel: bool = True,
     startup_guard: bool = True,
+    clean_stop_guard: bool = True,
     legacy_unmatched_qmd_glob: bool = False,
     layout: Optional[StandaloneLayout] = None,
 ) -> str:
@@ -512,9 +513,23 @@ done
         if startup_guard
         else ""
     )
+    invocation_check = ""
+    invocation_arm = ""
+    if startup_guard and clean_stop_guard:
+        # Only the invocation that armed this latch may clear it on clean stop.
+        invocation_check = (
+            '    case "$INVOCATION_ID" in ""|*[!0-9a-f]*) return 1 ;; esac\n'
+            '    [ "${#INVOCATION_ID}" -eq 32 ] || return 1\n'
+            '    ARMED="/run/rmtool-xovi-startup-$INVOCATION_ID"\n'
+            '    [ ! -e "$ARMED" ] && [ ! -L "$ARMED" ] || return 1\n'
+        )
+        invocation_arm = (
+            '    (set -C; : > "$ARMED") && chmod 0600 "$ARMED" &&\n'
+            '        chown root:root "$ARMED" || return 1\n'
+        )
     startup_functions = f"""
 arm_startup_guard() {{
-    [ ! -e "$PENDING" ] && [ ! -L "$PENDING" ] || return 1
+{invocation_check}    [ ! -e "$PENDING" ] && [ ! -L "$PENDING" ] || return 1
     trap 'rm -f "$PENDING_TMP"' EXIT HUP INT TERM
     umask 077
     if ! (: > "$PENDING_TMP" &&
@@ -527,7 +542,7 @@ arm_startup_guard() {{
     fi
     rm -f "$PENDING_TMP"
     trap - EXIT HUP INT TERM
-    [ -f "$PENDING" ] && [ ! -L "$PENDING" ] &&
+{invocation_arm}    [ -f "$PENDING" ] && [ ! -L "$PENDING" ] &&
         [ "$(stat -c '%a:%u:%g:%s' "$PENDING")" = '600:0:0:0' ]
 }}
 
@@ -611,6 +626,7 @@ def shared_dropin(
     enabled: Iterable[SharedFeatureSpec],
     *,
     layout: Optional[StandaloneLayout] = None,
+    clean_stop_guard: bool = True,
 ) -> str:
     layout = layout or preferred_layout(runtime)
     if layout == LEGACY_SHARED_LAYOUT and runtime.platform != "rm1":
@@ -625,6 +641,32 @@ WatchdogSec=0
 """
     launcher = shlex.quote(layout.launcher_path)
     mount = "home.mount" if layout == LEGACY_SHARED_LAYOUT else "data.mount"
+    stop_post = ""
+    if clean_stop_guard:
+        parents = tuple(reversed(PurePosixPath(layout.remote_base).parents)) + (PurePosixPath(layout.remote_base),)
+        checks = " && ".join(
+            f'[ -d "{path}" ] && [ ! -L "{path}" ] && '
+            f'[ "$(stat -c "%u:%g" "{path}")" = "0:0" ] && '
+            f'[ "$((0$(stat -c "%a" "{path}") & 0022))" -eq 0 ]'
+            for path in parents
+        )
+        command = (
+            'case "$INVOCATION_ID" in ""|*[!0-9a-f]*) exit 0 ;; esac; '
+            '[ "${#INVOCATION_ID}" -eq 32 ] || exit 0; '
+            'armed="/run/rmtool-xovi-startup-$INVOCATION_ID"; '
+            f'pending="{layout.remote_base}/startup.pending"; '
+            '[ -f "$armed" ] && [ ! -L "$armed" ] && '
+            '[ "$(stat -c "%a:%u:%g:%s" "$armed")" = "600:0:0:0" ] || exit 0; '
+            'case "$EXIT_CODE:$EXIT_STATUS" in exited:0|killed:TERM) clean=1 ;; *) clean=0 ;; esac; '
+            f'if [ "$SERVICE_RESULT" = success ] && [ "$clean" = 1 ] && {checks} && '
+            '[ -f "$pending" ] && [ ! -L "$pending" ] && '
+            '[ "$(stat -c "%a:%u:%g:%s" "$pending")" = "600:0:0:0" ]; '
+            'then rm -f "$pending"; fi; rm -f "$armed"'
+        )
+        # systemd expands dollars and percent specifiers before invoking sh.
+        stop_post = "ExecStopPost=-/bin/sh -c " + shlex.quote(
+            command.replace("$", "$$").replace("%", "%%")
+        ) + "\n"
     return f"""[Unit]
 After={mount}
 
@@ -632,6 +674,7 @@ After={mount}
 ExecStart=
 ExecStart=/bin/sh -c 'if [ -f {launcher} ] && [ ! -L {launcher} ] && [ -r {launcher} ]; then exec /bin/sh {launcher}; else exec /usr/bin/xochitl --system; fi'
 KillMode=control-group
+{stop_post}\
 WatchdogSec=0
 """
 
@@ -960,7 +1003,7 @@ def _assert_owned_dropin(ssh_client, path: str, digest: str, label: str) -> None
         raise RuntimeError(f"{label} drop-in 类型、权限、所有权或内容已变化。")
 
 
-def _process_token(ssh_client) -> str:
+def _process_token(ssh_client, *, allow_stopped: bool = False) -> str:
     command = (
         "pid=$(systemctl show xochitl -p MainPID --value 2>/dev/null || true); "
         '[ -n "$pid" ] && [ "$pid" != 0 ] || exit 1; '
@@ -968,6 +1011,16 @@ def _process_token(ssh_client) -> str:
         "start=$(awk '{print $22}' /proc/$pid/stat 2>/dev/null); "
         'printf "%s:%s:%s\\n" "$boot" "$pid" "$start"'
     )
+    if allow_stopped:
+        command = (
+            "pid=$(systemctl show xochitl -p MainPID --value); "
+            "boot=$(cat /proc/sys/kernel/random/boot_id); "
+            'if [ "$pid" = 0 ]; then '
+            'state=$(systemctl show xochitl -p ActiveState --value); '
+            'case "$state" in inactive|failed) printf "%s:0:0\\n" "$boot" ;; *) exit 1 ;; esac; '
+            'else start=$(awk \'{print $22}\' /proc/$pid/stat 2>/dev/null); '
+            'printf "%s:%s:%s\\n" "$boot" "$pid" "$start"; fi'
+        )
     token = ssh_client.exec_checked(command).strip()
     if not _PROCESS_TOKEN_RE.fullmatch(token):
         raise RuntimeError("设备未返回有效的 xochitl 进程身份。")
@@ -1717,53 +1770,32 @@ def _inspect_shared(
     ):
         launcher_update_available = True
         candidates = (
-            shared_launcher(
-                runtime,
-                enabled,
-                layout=layout,
-                startup_guard=False,
-            ),
-            shared_launcher(
-                runtime,
-                enabled,
-                layout=layout,
-                recovery_sentinel=False,
-                startup_guard=False,
-            ),
-            shared_launcher(
-                runtime,
-                enabled,
-                layout=layout,
-                startup_guard=layout == SHARED_LAYOUT or runtime.platform == "rm1",
-                legacy_unmatched_qmd_glob=True,
-            ),
-            shared_launcher(
-                runtime,
-                enabled,
-                layout=layout,
-                startup_guard=False,
-                legacy_unmatched_qmd_glob=True,
-            ),
-            shared_launcher(
-                runtime,
-                enabled,
-                layout=layout,
-                recovery_sentinel=False,
-                startup_guard=False,
-                legacy_unmatched_qmd_glob=True,
-            ),
+            (shared_launcher(
+                runtime, enabled, layout=layout,
+                startup_guard=guard and (layout == SHARED_LAYOUT or runtime.platform == "rm1"),
+                recovery_sentinel=sentinel, legacy_unmatched_qmd_glob=unmatched,
+                clean_stop_guard=clean_stop,
+            ), shared_dropin(runtime, enabled, layout=layout, clean_stop_guard=clean_stop))
+            for clean_stop in (True, False)
+            for guard, sentinel, unmatched in (
+                (True, True, False), (False, True, False), (False, False, False),
+                (True, True, True), (False, True, True), (False, False, True),
+            )
         )
-        for candidate in candidates:
+        for candidate, candidate_dropin in candidates:
             candidate_sha = hashlib.sha256(candidate.encode()).hexdigest()
+            candidate_dropin_sha = hashlib.sha256(candidate_dropin.encode()).hexdigest()
             if marker == _marker_document(
                 runtime,
                 states,
                 candidate_sha,
-                dropin_sha,
+                candidate_dropin_sha,
                 schema_version=schema_version,
             ):
                 launcher_text = candidate
                 launcher_sha = candidate_sha
+                dropin_text = candidate_dropin
+                dropin_sha = candidate_dropin_sha
                 break
         else:
             if not tolerate_legacy_templates or schema_version != 1:
@@ -2174,8 +2206,11 @@ def shared_transaction_script(
     remove_base: bool = False,
     retain_backup: bool = False,
     layout: StandaloneLayout = SHARED_LAYOUT,
+    controls_only: bool = False,
 ) -> str:
     layouts = tuple(legacy_layouts)
+    if controls_only and (layouts or remove_base or not retain_backup or not enable_dropin):
+        raise ValueError("启动配置修复不能同时迁移布局、删除主体或丢弃备份。")
     bases = tuple(dict.fromkeys(
         (layout.remote_base, *(item.remote_base for item in layouts))
     ))
@@ -2221,6 +2256,21 @@ def shared_transaction_script(
         f'mv {shlex.quote(backup)} {shlex.quote(base)}; then :; else ROLLBACK_OK=0; fi; fi'
         for base, backup, flag in zip(bases, base_backups, base_flags)
     )
+    stage_commit = 'mv "$STAGE" "$BASE"\nSTAGE_MOVED=1'
+    if controls_only:
+        controls = ("package.json", "launcher.sh", f"systemd/{layout.dropin_name}", "startup.pending")
+        paths = tuple(f"{layout.remote_base}/{path}" for path in controls)
+        base_backups = tuple(f"{backup_dir}/control-{index}" for index in range(len(controls)))
+        base_backup = backup_lines("", paths, base_backups) + "\nCONTROLS_SNAPSHOTTED=1"
+        base_restore = ('if [ "$CONTROLS_SNAPSHOTTED" -eq 1 ]; then\n'
+                        + restore_lines("", paths, base_backups) + "\nfi")
+        stage_commit = "\n".join(
+            f'cp "$STAGE/{path}" "$BASE/{path}.tmp"; '
+            f'chmod {mode:o} "$BASE/{path}.tmp"; '
+            f'mv -f "$BASE/{path}.tmp" "$BASE/{path}"; '
+            f'cmp -s "$STAGE/{path}" "$BASE/{path}"'
+            for path, mode in zip(controls[:3], (0o644, 0o755, 0o644))
+        ) + '\nrm -f "$BASE/startup.pending"\nrm -rf "$STAGE"'
     cleanup_backups = " ".join(shlex.quote(path) for path in base_backups)
     remove_upper = "\n".join(f"rm -f {shlex.quote(path)}" for path in dropins)
     remove_lower = "\n".join(f'rm -f "$MOUNT_DIR{path}"' for path in dropins)
@@ -2244,8 +2294,8 @@ cmp -s {shlex.quote(source_dropin)} "$MOUNT_DIR{SHARED_LAYOUT.dropin_path}"
         'rm -rf "$BASE"; rmdir "$BASE" 2>/dev/null || true; '
         'test ! -e "$BASE"' if remove_base else ":"
     )
-    # Recovery keeps the original programs as inert evidence, never as staging
-    # inputs. Refuse a colliding backup instead of deleting an earlier recovery.
+    # Keep original bytes as rollback evidence. Refuse a colliding backup
+    # instead of deleting an earlier recovery.
     prepare_backups = (
         '[ ! -e "$BACKUP_DIR" ] && [ ! -L "$BACKUP_DIR" ]; '
         + "\n".join(f"[ ! -e {shlex.quote(path)} ] && [ ! -L {shlex.quote(path)} ]; "
@@ -2270,6 +2320,7 @@ MOUNTED=0
 COMMITTED=0
 STAGE_MOVED=0
 DROPINS_SNAPSHOTTED=0
+CONTROLS_SNAPSHOTTED=0
 ROOT_RELEASED=1
 ROLLBACK_OK=1
 ROOT_MOUNT_FOUND=0
@@ -2365,8 +2416,7 @@ unmount_root
 DROPINS_SNAPSHOTTED=1
 
 {base_backup}
-mv "$STAGE" "$BASE"
-STAGE_MOVED=1
+{stage_commit}
 
 {remove_upper}
 {write_upper}
@@ -2475,9 +2525,12 @@ def _stage_shared(
     incoming_roots: Mapping[str, Path],
     previous_sources: Mapping[str, str],
     stage: str,
+    *,
+    controls_only: bool = False,
 ) -> tuple[str, str]:
     _assert_home_catalog(runtime, states)
-    check_shared_capacity(ssh_client, runtime, states)
+    if not controls_only:
+        check_shared_capacity(ssh_client, runtime, states)
     enabled = tuple(state.spec for state in states.values() if state.enabled)
     launcher_text = shared_launcher(runtime, enabled)
     dropin_text = shared_dropin(runtime, enabled)
@@ -2485,7 +2538,7 @@ def _stage_shared(
     dropin_sha = hashlib.sha256(dropin_text.encode()).hexdigest()
     marker = shared_marker(runtime, states, launcher_sha, dropin_sha)
     expected = {}
-    if enabled:
+    if enabled and not controls_only:
         expected.update({item.path: item for item in runtime.files})
         expected.update({
             item.runtime_path: SharedFileSpec(
@@ -2501,7 +2554,7 @@ def _stage_shared(
     ssh_client.exec_checked(
         "mkdir -p " + " ".join(shlex.quote(path) for path in sorted(directories))
     )
-    if enabled:
+    if enabled and not controls_only:
         for item in runtime.files:
             # Every feature package carries the identical common runtime files.
             # Removal transactions have no incoming archive, so they copy these
@@ -2534,6 +2587,7 @@ def _stage_shared(
                     ssh_client.exec_checked(
                         f"cp {shlex.quote(source)} {shlex.quote(remote)} && chmod {item.mode:o} {shlex.quote(remote)}"
                     )
+    if enabled:
         _upload_bytes(
             ssh_client, launcher_text.encode(), f"{stage}/launcher.sh", 0o755
         )
@@ -2558,7 +2612,7 @@ def _stage_shared(
     for path, digest in generated:
         if _remote_sha256(ssh_client, f"{stage}/{path}") != digest:
             raise RuntimeError(f"设备端共享 Xovi 文件 {path} 上传校验失败。")
-    if any(
+    if not controls_only and any(
         item.runtime_path.endswith(".qmd")
         for feature in enabled
         for item in feature.files
@@ -2929,7 +2983,7 @@ def _disable_shared_locked(
             )
         ):
             raise RuntimeError("共享 Xovi 旧版功能替换规则无效。")
-    current = _process_token(ssh_client) if state.enabled else state.process_token
+    current = _process_token(ssh_client, allow_stopped=True) if state.enabled else state.process_token
     states = dict(inspection.states)
     states[feature_id] = SharedFeatureState(
         replacement_spec or state.spec,

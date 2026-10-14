@@ -62,11 +62,12 @@ class RecoveryTransactionTests(unittest.TestCase):
         return {str(path.relative_to(directory)).replace("\\", "/"): path.read_bytes()
                 for path in directory.rglob("*") if path.is_file()}
 
-    def execute(self, failure="", *, enable_dropin=True, root_mode="ro", legacy_layouts=()):
+    def execute(self, failure="", *, enable_dropin=True, root_mode="ro", legacy_layouts=(), controls_only=False):
         script = shared.shared_transaction_script(
             self.LAYOUT.remote_base + ".staging-" + self.TOKEN,
             self.TOKEN, legacy_layouts, enable_dropin=enable_dropin, retain_backup=True,
             layout=self.LAYOUT,
+            controls_only=controls_only,
         )
         self.assertNotRegex(script, r"\b(?:reboot|shutdown)\b|systemctl\s+(?:start|restart|try-restart)")
         # The trailing slash preserves concatenated lower-root paths after the
@@ -84,7 +85,8 @@ class RecoveryTransactionTests(unittest.TestCase):
         (self.root / "sandbox/proc-mounts").write_text(
             f"rootfs / ext4 {root_mode},relatime 0 0\n", encoding="ascii"
         )
-        self.assertIn(failure, ("", "base-move", "stage-move", "upper-write", "lower-write", "rollback-move"))
+        self.assertIn(failure, ("", "base-move", "stage-move", "upper-write", "lower-write", "rollback-move",
+                                "control-write", "control-rollback", "daemon-reload"))
         prelude = r'''
 FAILURE=__FAILURE__
 WINDOWS=__WINDOWS__
@@ -118,13 +120,20 @@ mv() {
 }
 cp() {
     guard_paths "$@"
+    if [ "$1" = "$STAGE/launcher.sh" ]; then
+        inject control-write || { printf 'partial write' > "$2"; return 71; }
+    fi
+    if [ "$FAILURE" = control-rollback ] && { [ "$1" = "$BACKUP_DIR/control-1" ] || [ "$2" = "$BACKUP_DIR/control-1" ]; }; then
+        printf '%s\n' control-rollback >> ./sandbox/failures
+        return 72
+    fi
     if [ "$1" = "$BASE/systemd/__DROPIN__" ]; then
         case "$2" in
             "$MOUNT_DIR"*)
                 inject lower-write || { printf 'partial write' > "$2"; return 71; }
                 ;;
             *)
-                if [ "$FAILURE" = rollback-move ]; then
+                if [ "$FAILURE" = rollback-move ] || [ "$FAILURE" = control-rollback ]; then
                     printf '%s\n' upper-write >> ./sandbox/failures
                     return 71
                 fi
@@ -165,7 +174,7 @@ umount() {
 }
 systemctl() {
     printf 'systemctl %s\n' "$*" >> ./sandbox/events
-    [ "$*" = daemon-reload ]
+    [ "$*" = daemon-reload ] && inject daemon-reload
 }
 '''.replace("__FAILURE__", "'" + failure + "'").replace(
             "__WINDOWS__", "1" if os.name == "nt" else "0"
@@ -216,6 +225,53 @@ systemctl() {
         self.assertEqual((self.backup / "lower-0").read_bytes(), b"old lower\n")
         self.assertEqual(self.upper.read_bytes(), b"new dropin\n")
         self.assertEqual(self.lower.read_bytes(), b"new dropin\n")
+
+    def prepare_controls(self):
+        self.old_tree["systemd/" + self.LAYOUT.dropin_name] = b"old control dropin\n"
+        self.old_tree["extensions.d/payload.so"] = b"verified payload\n"
+        for name, data in self.old_tree.items():
+            path = self.base / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+
+    def test_control_only_repair_keeps_payload_and_backs_up_old_pending(self):
+        self.prepare_controls()
+        result = self.execute(controls_only=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.tree(self.base), {**self.new_tree, "extensions.d/payload.so": b"verified payload\n"})
+        self.assertEqual((self.backup / "control-0").read_bytes(), self.old_tree["package.json"])
+        self.assertEqual((self.backup / "control-3").read_bytes(), b"")
+        self.assertFalse((self.backup / "base-0").exists())
+
+    def test_control_only_write_failure_restores_original_controls_and_pending(self):
+        self.prepare_controls()
+        self.assertNotEqual(self.execute("lower-write", controls_only=True).returncode, 0)
+        self.assert_restored()
+
+    def test_control_only_partial_control_write_rolls_back(self):
+        self.prepare_controls()
+        self.assertNotEqual(self.execute("control-write", controls_only=True).returncode, 0)
+        self.assert_restored()
+
+    def test_control_only_reload_failure_rolls_back(self):
+        self.prepare_controls()
+        self.assertNotEqual(self.execute("daemon-reload", controls_only=True).returncode, 0)
+        self.assert_restored()
+
+    def test_control_only_failed_rollback_keeps_original_configuration_backup(self):
+        self.prepare_controls()
+        result = self.execute("control-rollback", controls_only=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rollback incomplete; recovery kept", result.stderr)
+        self.assertEqual((self.backup / "control-1").read_bytes(), self.old_tree["launcher.sh"])
+        self.assertEqual((self.base / "extensions.d/payload.so").read_bytes(), b"verified payload\n")
+
+    def test_control_only_refuses_migration_or_missing_rollback(self):
+        for kwargs in ({"remove_base": True}, {"retain_backup": False}, {"enable_dropin": False}):
+            options = dict(enable_dropin=True, retain_backup=True, controls_only=True)
+            options.update(kwargs)
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                shared.shared_transaction_script("/unused", self.TOKEN, (), **options)
 
     def test_already_writable_root_skips_busy_remounts(self):
         result = self.execute(root_mode="rw")

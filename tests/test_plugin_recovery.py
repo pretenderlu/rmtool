@@ -38,7 +38,9 @@ class Device:
         self.events = []
         self.pinned = False
         self.free_kib = 1024 * 1024
+        self.home_free_kib = 1024 * 1024
         self.service_state = "active"
+        self.process_token = TOKEN
         self.counters = "0 0"
         self.maps = ""
         self.mountinfo = "1 0 8:1 / / ro - ext4 /dev/root ro\n2 1 8:2 / /data rw - ext4 /dev/data rw\n"
@@ -166,13 +168,13 @@ class Device:
                              and p.startswith("/etc/systemd/") and
                              any(x in e.data for x in (b"LD_PRELOAD", b"XOVI_ROOT", b"ExecStart=")))
         if command.startswith("pid=$(systemctl"):
-            return TOKEN if "printf" in command else self.maps
+            return self.process_token if "printf" in command else self.maps
         if command.startswith("for cmd in "):
             return ""
-        if command == "systemctl is-active xochitl":
+        if command in ("systemctl is-active xochitl", "systemctl show xochitl -p ActiveState --value"):
             return self.service_state
         if command.startswith("df -Pk "):
-            return str(self.free_kib)
+            return str(self.home_free_kib if command.startswith("df -Pk /home ") else self.free_kib)
         if command.startswith("for file in /sys/devices/platform/lpgpr"):
             return self.counters
         if command.startswith("[ -f ") and "600:0:0:0" in command:
@@ -228,6 +230,54 @@ class RecoveryInspectionTests(unittest.TestCase):
         self.assertFalse(report.can_repair)
         self.device.maps = ""
         self.assertTrue(self.inspect().can_repair)
+
+    def test_previous_published_startup_template_is_recognized(self):
+        enabled = tuple(s.spec for s in self.device.states.values() if s.enabled)
+        launcher = shared.shared_launcher(self.device.runtime, enabled, clean_stop_guard=False).encode()
+        dropin = shared.shared_dropin(self.device.runtime, enabled, clean_stop_guard=False).encode()
+        self.device.add(BASE + "/launcher.sh", launcher, 0o100755)
+        self.device.add(BASE + "/systemd/" + shared.SHARED_LAYOUT.dropin_name, dropin)
+        self.device.add(DROPIN, dropin)
+        self.device.add(BASE + "/package.json", shared.shared_marker(
+            self.device.runtime, self.device.states,
+            hashlib.sha256(launcher).hexdigest(), hashlib.sha256(dropin).hexdigest(),
+        ))
+        self.device.add(BASE + "/startup.pending", mode=0o100600)
+        self.device.free_kib = 38518784 // 1024
+        report, plan = recovery._inspect(self.device)
+        self.assertTrue(report.can_repair, report.detail)
+        self.assertTrue(plan.controls_only)
+        self.assertTrue(self.inspect().can_repair)
+        installed = shared.inspect_shared(self.device, self.device.runtime, self.device.trusted)
+        self.assertTrue(installed.launcher_update_available)
+
+    def test_low_space_control_repair_requires_exact_healthy_payload(self):
+        self.device.add(BASE + "/startup.pending", mode=0o100600)
+        self.device.free_kib = 26 * 1024
+        self.assertTrue(self.inspect().can_repair)
+        self.device.entries[BASE + "/extensions.d/qt-resource-rebuilder.so"].digest = "0" * 64
+        report, plan = recovery._inspect(self.device)
+        self.assertTrue(report.can_repair)
+        self.assertFalse(plan.controls_only)
+        self.assertEqual(self.inspect().state, recovery.RecoveryState.BLOCKED)
+
+    def test_control_repair_keeps_space_reserve_and_rejects_invalid_df(self):
+        self.device.add(BASE + "/startup.pending", mode=0o100600)
+        for free in (25 * 1024 - 1, -1, "not a number"):
+            with self.subTest(free=free):
+                self.device.free_kib = free
+                self.assertEqual(self.inspect().state, recovery.RecoveryState.BLOCKED)
+
+    def test_reported_move_previous_template_hashes_remain_exact(self):
+        device = Device(package=next(p for p in recovery.pinyin._trusted_catalog()
+            if p.platform == "chiappa" and p.release_version == "3.28.0.172"))
+        enabled = tuple(device.trusted[fid] for fid in ("native-chinese", "weread-launcher"))
+        self.assertEqual(hashlib.sha256(shared.shared_launcher(
+            device.runtime, enabled, clean_stop_guard=False).encode()).hexdigest(),
+            "e37aa9c3d60067a3f05eac8241739b21e17292189772d1f54bfcba515df94f0a")
+        self.assertEqual(hashlib.sha256(shared.shared_dropin(
+            device.runtime, enabled, clean_stop_guard=False).encode()).hexdigest(),
+            "fba1d5899d914d3c30c8d0808416b4e0c1a512ad433308e8ea7201f5a2ddbe4f")
 
     def test_verified_pinyin_can_be_preserved_during_recovery(self):
         self.device.install_pinyin()
@@ -463,7 +513,7 @@ class RecoveryInspectionTests(unittest.TestCase):
         self.assertEqual(self.inspect().state, recovery.RecoveryState.UNSUPPORTED)
         self.device.identity = replace(self.device.identity, xochitl_sha256=self.device.package.xochitl_sha256)
         self.device.break_payload()
-        for field, value in (("service_state", "inactive"), ("counters", "1 0"), ("free_kib", 1)):
+        for field, value in (("service_state", "activating"), ("counters", "1 0"), ("free_kib", 1)):
             with self.subTest(field=field):
                 old = getattr(self.device, field)
                 setattr(self.device, field, value)
@@ -654,9 +704,9 @@ class RecoveryRepairTests(unittest.TestCase):
         self.device.events.append("extract:" + package.package_id)
         return destination
 
-    def stage(self, ssh, runtime, states, roots, sources, stage):
+    def stage(self, ssh, runtime, states, roots, sources, stage, *, controls_only=False):
         self.assertFalse(sources)
-        self.assertEqual(set(roots), {fid for fid, state in states.items() if state.enabled})
+        self.assertEqual(set(roots), set() if controls_only else {fid for fid, state in states.items() if state.enabled})
         self.device.events.append("stage")
         self.device.staged_states = states
 
@@ -697,6 +747,45 @@ class RecoveryRepairTests(unittest.TestCase):
         self.assertLess(next(i for i, event in enumerate(events) if event.startswith("extract:")), lock)
         self.assertLess(events.index("latch"), next(i for i, event in enumerate(events) if event.startswith("/bin/sh ")))
         self.assertFalse(any("restart xochitl" in event or "reboot" in event for event in events))
+
+    def test_reported_move_control_repair_needs_no_download_or_payload_replacement(self):
+        self.device = Device(package=next(p for p in recovery.pinyin._trusted_catalog()
+            if p.platform == "chiappa" and p.release_version == "3.28.0.172"))
+        self.device.install({fid: shared.SharedFeatureState(self.device.trusted[fid], True, TOKEN)
+                             for fid in ("native-chinese", "weread-launcher")})
+        self.device.add(BASE + "/startup.pending", mode=0o100600)
+        self.device.free_kib = 38518784 // 1024
+        self.patch(recovery.migration.native, "_reject_active_french_slot")
+        before = {p: vars(e).copy() for p, e in self.device.entries.items()
+                  if p.startswith(BASE + "/") and not p.endswith(("package.json", "launcher.sh", ".conf", "startup.pending"))}
+        result = recovery.repair(self.device, "state")
+        self.assertIn("启动配置已修复", result.detail)
+        self.assertIn("手动重启", result.detail)
+        self.assertEqual(set(result.features), {"native-chinese", "weread-launcher"})
+        self.assertEqual(before, {p: vars(self.device.entries[p]).copy() for p in before})
+        self.assertNotIn(BASE + "/startup.pending", self.device.entries)
+        self.download.assert_not_called()
+        self.assertTrue(shared._stage_shared.call_args.kwargs["controls_only"])
+
+    def test_stopped_main_process_can_be_repaired_without_starting_it(self):
+        self.device.service_state = "failed"
+        self.device.process_token = TOKEN.split(":")[0] + ":0:0"
+        result = recovery.repair(self.device, "state")
+        self.assertEqual(result.state, recovery.RecoveryState.NOT_NEEDED)
+        self.assertEqual(self.device.states["tap-page-turn"].process_token, self.device.process_token)
+        self.assertFalse(any("restart xochitl" in event or "start xochitl" in event for event in self.device.events))
+
+    def test_main_process_appearing_during_repair_aborts_before_commit(self):
+        self.device.service_state = "failed"
+        self.device.process_token = TOKEN.split(":")[0] + ":0:0"
+        def restart_during_stage(*args, **kwargs):
+            self.stage(*args, **kwargs)
+            self.device.service_state = "active"
+            self.device.process_token = TOKEN
+        shared._stage_shared.side_effect = restart_during_stage
+        with self.assertRaisesRegex(RuntimeError, "状态发生变化"):
+            recovery.repair(self.device, "state")
+        self.assertFalse(any(event.startswith("/bin/sh ") for event in self.device.events))
 
     def test_all_enabled_packages_verified_before_first_device_mutation(self):
         fast = recovery.migration.fast
@@ -756,8 +845,8 @@ class RecoveryRepairTests(unittest.TestCase):
                 self.device.install_pinyin()
                 self.device.add(BASE + "/startup.pending", mode=0o100600)
                 self.device.events.clear()
-                def corrupt(*args):
-                    self.stage(*args)
+                def corrupt(*args, **kwargs):
+                    self.stage(*args, **kwargs)
                     if not after_commit:
                         self.device.entries[recovery.pinyin.REMOTE_SERVER].digest = "f" * 64
                 shared._stage_shared.side_effect = corrupt
