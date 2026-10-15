@@ -299,6 +299,7 @@ Paper Pure、reMarkable 1 和 reMarkable 2 不在统一阅读增强包的覆盖�
 - **无法安装笔记增强**：先点击“检测状态”。只有精确匹配的 Paper Pro 或 Paper Pro Move 固件可以安装；未知、被修改或混合的 Xovi 布局会被拒绝。安装、更新或停用后请从设备菜单完整重启。
 - **AppLoad/KOReader 安装按钮不可用**：先在 KOReader 页面点击“检测状态”。这里只接受精确匹配的正式版固件，全部 3.28 测试版以及正式版 3.28.0.172 均不支持。旧版 KOReader 目录可以迁移，但 Vellum/Xovi 混合运行时或已经存在旧版完整备份时，仍会为安全起见拒绝修改。
 - **macOS 无法创建配置**：确认当前用户可以创建并写入 `~/Library/Application Support/rmtool/`。
+- **反馈问题**：任意报错弹窗都有“反馈问题”按钮。点击后会自动打开“设备工具 > 诊断日志导出”，按“采集诊断信息 → 确认内容 → 保存诊断包 → 发送给维护者”引导完成：先只读采集（设备未连接时只采集电脑端日志和运行环境），再预览并可取消可选条目，保存 zip 后可一键打开所在文件夹或前往 GitHub 新建问题，把 zip 拖入问题描述即可。报错原文会作为可选条目写入诊断包，包内不包含任何设备密码。
 - **需要诊断信息**：点击左下角日志按钮，按级别筛选，或选择“打开日志文件”。分享日志前请检查其中是否含设备地址等隐私信息。
 
 ## 源码运行
@@ -328,7 +329,8 @@ Windows 也可在依赖安装完成后双击 `rmtool.bat`，通过 `pythonw.exe`
 ## 开发与发布检查
 
 ```bash
-python -m compileall -q rmtool.py _dialogs.py _diagnostics.py _fast_mono_reading.py _log_viewer.py _note_enhancements.py _package_download.py _pinyin_input.py _residue_migration.py _reading_enhancements.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tools tests
+python -m compileall -q -l . rmrl tools tests
+python -m ruff check .
 python -m unittest discover -s tests -v
 git diff --check
 actionlint .github/workflows/release.yml .github/workflows/sync-localization-assets.yml .github/workflows/sync-feature-assets.yml

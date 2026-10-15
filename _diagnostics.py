@@ -314,11 +314,48 @@ def _collect_device_item(ssh_client, diag: DiagItem) -> CollectedItem:
     return CollectedItem(diag, text, "", truncated)
 
 
-def collect(ssh_client, pc_log_path: Optional[Path] = None) -> List[CollectedItem]:
-    """Collect every whitelisted item; individual failures are recorded."""
+def collect(
+    ssh_client,
+    pc_log_path: Optional[Path] = None,
+    *,
+    include_device: bool = True,
+) -> List[CollectedItem]:
+    """Collect every whitelisted item; individual failures are recorded.
+
+    With ``include_device=False`` (no connection) only PC-side items are read
+    and every device item is recorded as not collected, so the manifest still
+    tells the maintainer what is missing.
+    """
     results = [_collect_pc_environment(), _collect_pc_log_tail(pc_log_path)]
-    results.extend(_collect_device_item(ssh_client, item) for item in DEVICE_ITEMS)
+    if include_device:
+        results.extend(_collect_device_item(ssh_client, item) for item in DEVICE_ITEMS)
+    else:
+        results.extend(
+            CollectedItem(item, error="设备未连接，未采集") for item in DEVICE_ITEMS
+        )
     return results
+
+
+REPORTED_ERROR_ITEM = DiagItem(
+    "pc/reported-error.txt",
+    "触发反馈的报错信息（可能包含本地路径）",
+    optional=True,
+)
+
+
+def reported_error(message: str) -> CollectedItem:
+    """Wrap the error text the user chose to report, capped like other items."""
+    text = (
+        f"reported: {datetime.now().isoformat(timespec='seconds')}\n\n"
+        f"{message.strip()}\n"
+    )
+    data = text.encode("utf-8")
+    truncated = len(data) > ITEM_CAP_BYTES
+    return CollectedItem(
+        REPORTED_ERROR_ITEM,
+        data[:ITEM_CAP_BYTES].decode("utf-8", "ignore"),
+        truncated=truncated,
+    )
 
 
 def platform_label(collected: List[CollectedItem]) -> str:

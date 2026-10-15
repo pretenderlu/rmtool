@@ -311,6 +311,7 @@ All removable rmtool plugins now distinguish **Disable** from **Uninstall**. Dis
 - **Note enhancements cannot be installed**: Click "Check Status" first. Only exact supported Paper Pro and Paper Pro Move firmware builds are accepted; unknown, modified, or mixed Xovi layouts are rejected. Restart from the device menu after installation, update, or disable.
 - **AppLoad/KOReader installation is unavailable**: Click "Check Status" on the KOReader page. Only exact production-firmware matches are accepted; all 3.28 beta builds and stable 3.28.0.172 are unsupported. A previous KOReader directory can be migrated, but mixed Vellum/Xovi runtimes or an already existing legacy backup still block mutation for safety.
 - **macOS cannot create its configuration**: Make sure the current user can create and write `~/Library/Application Support/rmtool/`.
+- **Reporting a problem**: Every error dialog has a "反馈问题" (Report problem) button. It opens "设备工具 > 诊断日志导出" and walks through four steps: collect read-only diagnostics (PC-side log and environment only when no device is connected), review and optionally exclude items, save the zip, then open its folder or a new GitHub issue and drag the zip into it. The original error text is included as an optional item; the bundle never contains device passwords.
 - **Diagnostic information is needed**: Click the log button in the lower-left corner, filter by level, or choose "Open Log File". Before sharing a log, check it for private information such as the device address.
 
 ## Running from source
@@ -340,7 +341,8 @@ On Windows, after installing dependencies, you can also double-click `rmtool.bat
 ## Development and release checks
 
 ```bash
-python -m compileall -q rmtool.py _dialogs.py _diagnostics.py _fast_mono_reading.py _log_viewer.py _note_enhancements.py _package_download.py _pinyin_input.py _residue_migration.py _reading_enhancements.py _rmkit_cn.py _ssh.py _styles.py _tab_connection.py _tab_documents.py _tab_toolbox.py _tab_wallpaper.py _tap_page_turn.py _xovi_standalone.py rmrl tools tests
+python -m compileall -q -l . rmrl tools tests
+python -m ruff check .
 python -m unittest discover -s tests -v
 git diff --check
 actionlint .github/workflows/release.yml .github/workflows/sync-localization-assets.yml .github/workflows/sync-feature-assets.yml

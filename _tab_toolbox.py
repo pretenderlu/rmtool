@@ -405,6 +405,16 @@ class ToolboxTab(QtWidgets.QWidget):
             return "已启用"
         return "已检测"
 
+    def show_diagnostics(self):
+        """Select the diagnostics entry, clearing filters that could hide it."""
+        self.search_input.clear()
+        self.category_combo.setCurrentIndex(0)
+        row = next(
+            row for row, entry in enumerate(self._tool_entries)
+            if entry["section"] is self.diagnostics_section
+        )
+        self.tool_table.setCurrentCell(row, 0)
+
     def _show_plugin_recovery(self):
         self.search_input.clear()
         self.category_combo.setCurrentIndex(0)

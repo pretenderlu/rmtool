@@ -882,6 +882,47 @@ QSplitter#mainSplitter::handle:hover {
     min-height: 38px;
     padding: 0 18px;
 }
+#appDialogFeedback {
+    min-height: 38px;
+    padding: 0 14px;
+}
+
+/* ===== Guided feedback banner (diagnostics) ===== */
+#feedbackGuide {
+    background: {note_bg};
+    border: 1px solid {note_border};
+    border-radius: {radius_inner};
+}
+#feedbackGuideTitle {
+    color: {text_primary};
+    font-size: {font_md};
+    font-weight: 700;
+}
+#feedbackGuideError,
+#feedbackGuideHint {
+    color: {note_text};
+}
+#feedbackGuideStep {
+    background: {chip_bg};
+    color: {text_faded};
+    border-radius: {radius_control};
+    padding: 3px 9px;
+    font-size: {font_sm};
+}
+#feedbackGuideStep[state="active"] {
+    background: {accent};
+    color: {text_on_accent};
+    font-weight: 600;
+}
+#feedbackGuideStep[state="done"] {
+    background: {success_bg};
+    color: {success};
+}
+#feedbackGuideStep[state="failed"] {
+    background: {danger_bg};
+    color: {danger};
+    font-weight: 600;
+}
 
 /* ===== Restart confirmation dialog ===== */
 #restartConfirmDialog {

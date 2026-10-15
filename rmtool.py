@@ -897,6 +897,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.documents_tab.set_connection_state(False)
         self.screen_preview_tab.set_connection_state(False)
         self._set_connection_chip(False, initial_device)
+        diagnostics = self._diagnostics_section()
+        if diagnostics is not None:
+            # Closing the feedback guide re-applies the normal connection gate.
+            diagnostics.guide.close_button.clicked.connect(
+                lambda: self._update_tabs_enabled(self.ssh_client.is_connected())
+            )
 
     def _default_window_size(self) -> QtCore.QSize:
         """Size the window to ~80% of the usable screen, within design bounds."""
@@ -917,14 +923,43 @@ class MainWindow(QtWidgets.QMainWindow):
         return QtCore.QSize(width, height)
 
     def _update_tabs_enabled(self, enabled: bool):
+        feedback_open = self._feedback_open()
         for idx in range(self.pages.count()):
             widget = self.pages.widget(idx)
             if widget is self.dashboard_tab:
                 continue
             if widget is self.firmware_tab:
                 continue
-            widget.setEnabled(enabled)
-            self.nav_buttons[idx].setEnabled(enabled)
+            # Keep the toolbox reachable while a feedback flow is open, so
+            # a disconnect does not strand the user mid-report.
+            page_enabled = enabled or (widget is self.toolbox_tab and feedback_open)
+            widget.setEnabled(page_enabled)
+            self.nav_buttons[idx].setEnabled(page_enabled)
+
+    def _diagnostics_section(self):
+        return getattr(self.toolbox_tab, "diagnostics_section", None)
+
+    def _feedback_open(self) -> bool:
+        section = self._diagnostics_section()
+        return section is not None and section.guide.isVisibleTo(section)
+
+    def start_feedback(self, error_message: str = "") -> None:
+        """Error dialog "反馈问题": open device diagnostics and start collecting."""
+        index = self.pages.indexOf(self.toolbox_tab)
+        # The toolbox is disabled while disconnected; feedback must still work
+        # (PC-side items only), so enable just this page for the flow.
+        self.toolbox_tab.setEnabled(True)
+        self.nav_buttons[index].setEnabled(True)
+        self.nav_buttons[index].setChecked(True)
+        self.pages.setCurrentIndex(index)
+        self.toolbox_tab.show_diagnostics()
+        self.raise_()
+        self.activateWindow()
+        try:
+            self.toolbox_tab.diagnostics_section.start_feedback(error_message)
+        except Exception:
+            self._update_tabs_enabled(self.ssh_client.is_connected())
+            raise
 
     def start_app_update_check(self) -> None:
         """Check the public release without delaying the first usable window."""
@@ -1193,6 +1228,11 @@ def main():
     )
 
     window = MainWindow(log_bridge=log_bridge)
+    # Every error dialog now offers "反馈问题", which opens the guided
+    # diagnostics flow in this window.
+    import _dialogs
+
+    _dialogs.set_feedback_handler(window.start_feedback)
     window._current_theme = theme
     window.connection_widget.set_footer_theme(theme)
     window.dashboard_tab.set_theme(theme)

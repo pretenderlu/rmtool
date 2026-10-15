@@ -1,8 +1,23 @@
 """Shared styled dialogs for the desktop UI."""
 
-from typing import Optional
+import logging
+from typing import Callable, Optional
 
 from PyQt5 import QtCore, QtWidgets
+
+# Result code for the error dialog's "反馈问题" button.  Distinct from
+# Accepted/Rejected so Esc or the close button never starts the feedback flow.
+FEEDBACK_RESULT = 2
+
+# Set by the main window: called with the error text after the user picks
+# "反馈问题".  None (tests, standalone widgets) hides the button entirely.
+_feedback_handler: Optional[Callable[[str], None]] = None
+
+
+def set_feedback_handler(handler: Optional[Callable[[str], None]]) -> None:
+    """Register the callback that starts the guided diagnostics flow."""
+    global _feedback_handler
+    _feedback_handler = handler
 
 
 _KIND_HEADINGS = {
@@ -31,6 +46,7 @@ def _build_dialog(
     primary_text: str = "知道了",
     secondary_text: Optional[str] = None,
     primary_role: str = "primary",
+    feedback_text: Optional[str] = None,
 ) -> QtWidgets.QDialog:
     dialog = QtWidgets.QDialog(parent)
     dialog.setObjectName("appDialog")
@@ -99,6 +115,13 @@ def _build_dialog(
     button_row = QtWidgets.QHBoxLayout()
     button_row.setContentsMargins(0, 2, 0, 0)
     button_row.setSpacing(10)
+    if feedback_text:
+        feedback_button = QtWidgets.QPushButton(feedback_text)
+        feedback_button.setObjectName("appDialogFeedback")
+        feedback_button.setToolTip("生成只读诊断包，便于把问题发给维护者")
+        feedback_button.setAutoDefault(False)
+        feedback_button.clicked.connect(lambda: dialog.done(FEEDBACK_RESULT))
+        button_row.addWidget(feedback_button)
     button_row.addStretch()
 
     if secondary_text:
@@ -128,8 +151,30 @@ def show_warning(parent: Optional[QtWidgets.QWidget], title: str, message: str) 
     _show_message(parent, title, message, kind="warning")
 
 
-def show_error(parent: Optional[QtWidgets.QWidget], title: str, message: str) -> None:
-    _show_message(parent, title, message, kind="error")
+def show_error(
+    parent: Optional[QtWidgets.QWidget],
+    title: str,
+    message: str,
+    *,
+    feedback: bool = True,
+) -> None:
+    """Show an error; offers "反馈问题" when a feedback handler is registered.
+
+    Pass ``feedback=False`` for errors raised by the feedback flow itself.
+    """
+    handler = _feedback_handler if feedback else None
+    result = _show_message(
+        parent,
+        title,
+        message,
+        kind="error",
+        feedback_text="反馈问题" if handler else None,
+    )
+    if handler and result == FEEDBACK_RESULT:
+        try:
+            handler(message)
+        except Exception:
+            logging.exception("Could not start the feedback flow")
 
 
 def _show_message(
@@ -138,7 +183,8 @@ def _show_message(
     message: str,
     *,
     kind: str,
-) -> None:
+    feedback_text: Optional[str] = None,
+) -> int:
     dialog = _build_dialog(
         parent,
         title,
@@ -146,8 +192,9 @@ def _show_message(
         message,
         kind=kind,
         primary_text="知道了",
+        feedback_text=feedback_text,
     )
-    dialog.exec_()
+    return dialog.exec_()
 
 
 def ask_confirmation(
