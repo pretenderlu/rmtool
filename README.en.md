@@ -14,7 +14,7 @@ rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, a
 classic offline-verified tap-to-turn plugin for Paper Pure, reMarkable 1,
 and reMarkable 2, plus a one-click read-only diagnostic bundle for support. Device operations do not depend on reMarkable cloud services. Release builds include baseline trusted manifests for these firmware-specific features, enabling offline support discovery and verified cache reuse. Payloads are not bundled and still require a network download or an existing validated cache.
 
-The current release is [v1.17.0](https://github.com/pretenderlu/rmtool/releases/tag/v1.17.0). It adds a one-click "Report problem" flow to error dialogs (send by email or GitHub) and moves time, restart and other device actions to the background so they no longer freeze the window. See the [release notes](docs/releases/v1.17.0.md) and the device, firmware and verification matrix below.
+The current release is [v1.17.1](https://github.com/pretenderlu/rmtool/releases/tag/v1.17.1). It fixes queued actions potentially running on a newly connected device and improves reliability when multiple background device actions overlap. See the [release notes](docs/releases/v1.17.1.md) and the device, firmware and verification matrix below.
 
 > [!WARNING]
 > rmtool directly modifies files on the device. Sync or back up important content first, and make sure you accept the data and warranty risks associated with Developer Mode, root SSH, and third-party modifications. This project is not official reMarkable software.
