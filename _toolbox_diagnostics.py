@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from urllib.parse import quote
 from typing import Optional
 
 from PyQt5 import QtCore, QtGui, QtWidgets, sip
@@ -132,10 +133,17 @@ class FeedbackGuide(QtWidgets.QFrame):
         actions.setSpacing(_rmtool.SUBSECTION_GAP)
         self.retry_button = QtWidgets.QPushButton("重新生成")
         self.open_folder_button = QtWidgets.QPushButton("打开所在文件夹")
+        self.email_button = QtWidgets.QPushButton("发送到邮箱")
+        self.email_button.setProperty("btnRole", "primary")
         self.issue_button = QtWidgets.QPushButton("前往 GitHub 提交问题")
         self.issue_button.setProperty("btnRole", "primary")
         self.close_button = QtWidgets.QPushButton("结束反馈")
-        for button in (self.retry_button, self.open_folder_button, self.issue_button):
+        for button in (
+            self.retry_button,
+            self.open_folder_button,
+            self.email_button,
+            self.issue_button,
+        ):
             actions.addWidget(button)
         actions.addStretch()
         actions.addWidget(self.close_button)
@@ -200,6 +208,7 @@ class FeedbackGuide(QtWidgets.QFrame):
         self.hint_label.setText(hint)
         finished = current >= len(FEEDBACK_STEPS) - 1 and not failed
         self.issue_button.setVisible(finished)
+        self.email_button.setVisible(finished)
         self.open_folder_button.setVisible(finished)
         # Also offered after saving: a user who was disconnected can connect
         # and regenerate a bundle that includes the device items.
@@ -267,6 +276,7 @@ class DiagnosticsSection(QtWidgets.QWidget):
         self.guide.retry_button.clicked.connect(self._run_feedback)
         self.guide.open_folder_button.clicked.connect(self._open_saved_folder)
         self.guide.issue_button.clicked.connect(self._open_issue_page)
+        self.guide.email_button.clicked.connect(self._send_email)
         self.guide.close_button.clicked.connect(self.end_feedback)
         self.ssh_client.connection_changed.connect(self._on_connection_changed)
         self._on_connection_changed(self.ssh_client.is_connected())
@@ -344,6 +354,53 @@ class DiagnosticsSection(QtWidgets.QWidget):
         QtGui.QDesktopServices.openUrl(
             QtCore.QUrl(f"{_rmtool.GITHUB_REPO_URL}/issues/new")
         )
+
+    def _email_url(self) -> str:
+        """mailto: link with a prefilled subject and body.
+
+        mailto cannot carry attachments, so the body tells the user to attach
+        the saved zip.  The error text is shortened to keep the URL well
+        under the ~2 KB limit some Windows mail handlers enforce.
+        """
+        error = self._feedback_message.strip()
+        if len(error) > 300:
+            error = error[:300] + "…"
+        bundle = self._saved_path.name if self._saved_path is not None else "（未生成）"
+        subject = f"rmtool {_rmtool.APP_VERSION} 问题反馈"
+        body = "\n".join(
+            (
+                "问题描述（请补充操作步骤）：",
+                "",
+                "",
+                f"报错信息：{error or '无'}",
+                f"rmtool 版本：{_rmtool.APP_VERSION}",
+                f"诊断包：{bundle}",
+                "",
+                "请把上面的诊断包 zip 作为附件添加到这封邮件中。",
+            )
+        )
+        return (
+            f"mailto:{_rmtool.FEEDBACK_EMAIL}"
+            f"?subject={quote(subject)}&body={quote(body)}"
+        )
+
+    def _send_email(self) -> None:
+        # Copy the address first: many PCs have no default mail client, in
+        # which case openUrl fails and the user pastes it into webmail.
+        QtWidgets.QApplication.clipboard().setText(_rmtool.FEEDBACK_EMAIL)
+        self._open_saved_folder()
+        opened = QtGui.QDesktopServices.openUrl(QtCore.QUrl(self._email_url()))
+        if opened:
+            hint = (
+                f"已打开邮件客户端并复制收件地址 {_rmtool.FEEDBACK_EMAIL}。"
+                "请把诊断包 zip 添加为附件后发送。"
+            )
+        else:
+            hint = (
+                f"未找到默认邮件客户端，收件地址 {_rmtool.FEEDBACK_EMAIL} 已复制到剪贴板。"
+                "请在网页邮箱中新建邮件，粘贴地址并添加诊断包 zip 作为附件。"
+            )
+        self._feedback_step(3, hint)
 
     # -- collection --------------------------------------------------------------
     @require_connection
@@ -438,8 +495,8 @@ class DiagnosticsSection(QtWidgets.QWidget):
             self._feedback_step(
                 3,
                 f"诊断包已保存：{saved}\n"
-                "请在 GitHub 新建问题，简单描述操作步骤，并把这个 zip 拖入问题描述中上传。"
-                "包内不包含任何设备密码。",
+                f"请通过“发送到邮箱”（{_rmtool.FEEDBACK_EMAIL}）或在 GitHub 新建问题，"
+                "简单描述操作步骤并附上这个 zip。包内不包含任何设备密码。",
             )
             self._open_saved_folder()
             return
@@ -448,7 +505,7 @@ class DiagnosticsSection(QtWidgets.QWidget):
             _rmtool.APP_NAME,
             "诊断包已保存：\n"
             f"{saved}\n\n"
-            "请把这个文件发给维护者以协助定位问题。"
+            f"请把这个文件发给维护者（{_rmtool.FEEDBACK_EMAIL}）以协助定位问题。"
             "包内不包含任何设备密码。",
         )
         self._open_saved_folder()

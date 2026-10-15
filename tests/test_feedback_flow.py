@@ -1,5 +1,6 @@
 import os
 import tempfile
+from urllib.parse import parse_qs, unquote, urlsplit
 import unittest
 import zipfile
 from pathlib import Path
@@ -157,6 +158,44 @@ class FeedbackFlowTests(unittest.TestCase):
         with mock.patch.object(QtGui.QDesktopServices, "openUrl") as open_url:
             section.guide.issue_button.click()
         self.assertTrue(open_url.call_args.args[0].toString().endswith("/issues/new"))
+
+    def test_email_button_opens_prefilled_mail_and_copies_address(self):
+        section = self.make_section()
+        section._feedback_active = True
+        section._feedback_message = "安装失败：SHA-256 不匹配"
+        section._saved_path = Path("C:/diag/rmtool-diag-ferrari.zip")
+        section.guide.set_step(3, "saved")
+        section.guide.show()
+        self.assertTrue(section.guide.email_button.isVisibleTo(section))
+        with mock.patch.object(QtGui.QDesktopServices, "openUrl", return_value=True) as open_url:
+            section.guide.email_button.click()
+        urls = [call.args[0] for call in open_url.call_args_list]
+        mail = next(url for url in urls if url.scheme() == "mailto")
+        parts = urlsplit(mail.toString(QtCore.QUrl.FullyEncoded))
+        self.assertEqual(unquote(parts.path), "luqingqin@126.com")
+        query = parse_qs(parts.query)
+        self.assertIn(rmtool.APP_VERSION, query["subject"][0])
+        body = query["body"][0]
+        self.assertIn("SHA-256 不匹配", body)
+        self.assertIn("rmtool-diag-ferrari.zip", body)
+        self.assertIn("附件", body)
+        self.assertTrue(any(url.isLocalFile() for url in urls))  # folder opened
+        self.assertEqual(QtWidgets.QApplication.clipboard().text(), "luqingqin@126.com")
+        self.assertIn("已打开邮件客户端", section.guide.hint_label.text())
+
+    def test_email_without_mail_client_falls_back_to_clipboard_hint(self):
+        section = self.make_section()
+        section._feedback_active = True
+        section.guide.show()
+        with mock.patch.object(QtGui.QDesktopServices, "openUrl", return_value=False):
+            section._send_email()
+        self.assertIn("未找到默认邮件客户端", section.guide.hint_label.text())
+        self.assertIn("luqingqin@126.com", section.guide.hint_label.text())
+
+    def test_email_url_stays_short_for_long_errors(self):
+        section = self.make_section()
+        section._feedback_message = "x" * 5000
+        self.assertLess(len(section._email_url()), 2000)
 
     def test_disconnected_feedback_collects_pc_side_only(self):
         section = self.make_section(connected=False)
