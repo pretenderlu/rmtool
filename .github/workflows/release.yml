@@ -73,8 +73,6 @@ jobs:
             --name rmtool \
             --icon "$root/build/rmtool.icns" \
             --collect-data certifi \
-            --copy-metadata keyring \
-            --collect-submodules keyring.backends \
             --add-data "$root/assets/fonts:assets/fonts" \
             --add-data "$root/assets/device_frames:assets/device_frames" \
             --add-data "$root/translations/manifest.json:translations" \

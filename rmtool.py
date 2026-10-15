@@ -1180,17 +1180,6 @@ def main():
 
     # -- Load saved theme preference, default to dark --
     config = load_config()
-    # Remembered root passwords live in the OS credential store when one is
-    # available; move any plaintext entries left by older versions.
-    import _credentials
-
-    _credentials.enable()
-    try:
-        if _credentials.migrate_plaintext(config):
-            save_config(config)
-            logging.info("Migrated saved device passwords to the system keyring")
-    except Exception:
-        logging.exception("Password migration to the system keyring failed")
     theme = config.get("theme", "dark")
 
     app.setPalette(_dark_palette() if theme == "dark" else _light_palette())

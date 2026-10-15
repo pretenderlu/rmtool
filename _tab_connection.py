@@ -7,7 +7,6 @@ from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
 from _ssh import SSHClientWrapper, UnknownHostKeyError
-import _credentials
 import _tokens
 import rmtool as _rmtool  # late-bound access to avoid circular import
 
@@ -305,7 +304,10 @@ class ConnectionWidget(QtWidgets.QWidget):
         device = self._current_device()
         if not device:
             return
-        self._refresh_credential_status(device)
+        password = self._load_password(device)
+        self._set_credential_status(
+            "已保存到项目本地文件" if password else "未保存", bool(password)
+        )
         self._disconnect_if_device_target_changed(device)
         active_changed = (
             self.config.get("active_device_id") != device["id"]
@@ -394,9 +396,7 @@ class ConnectionWidget(QtWidgets.QWidget):
         password_edit.setText(saved_password)
         remember_checkbox = QtWidgets.QCheckBox("记住密码")
         remember_checkbox.setChecked(bool(saved_password) or not initial)
-        remember_checkbox.setToolTip(
-            "优先保存到系统凭据管理器；不可用时保存到项目本地文件。"
-        )
+        remember_checkbox.setToolTip("将 root 密码保存到项目本地文件。")
 
         form = QtWidgets.QFormLayout()
         form.setContentsMargins(18, 18, 18, 12)
@@ -492,8 +492,6 @@ class ConnectionWidget(QtWidgets.QWidget):
             self.config["active_device_id"] = ""
             self.config["active_device"] = ""
         _rmtool.save_config(self.config)
-        # Only drop the stored secret once the device is gone from the saved config.
-        _credentials.delete(device)
         self._populate_devices()
 
     def _edit_device(self):
@@ -520,7 +518,11 @@ class ConnectionWidget(QtWidgets.QWidget):
                 _rmtool.APP_NAME,
                 "要记住密码，请先填写 root 密码。",
             )
-            self._refresh_credential_status(device)
+            saved_password = self._load_password(device)
+            self._set_credential_status(
+                "已保存到项目本地文件" if saved_password else "未保存",
+                bool(saved_password),
+            )
             return
         device["name"] = name
         device["mode"] = details.get("mode", "usb")
@@ -546,12 +548,8 @@ class ConnectionWidget(QtWidgets.QWidget):
         self.credential_status_label.setText(text)
         self.forget_password_button.setEnabled(can_forget)
 
-    def _refresh_credential_status(self, device: Optional[Dict]) -> None:
-        label = _credentials.status_label(device)
-        self._set_credential_status(label, label != _credentials.LABEL_NONE)
-
     def _load_password(self, device: Dict) -> str:
-        return _credentials.load(device)
+        return str(device.get("password", ""))
 
     def _store_password(
         self, device: Dict, password: str, *, persist: bool = True
@@ -564,16 +562,18 @@ class ConnectionWidget(QtWidgets.QWidget):
             )
             self._set_credential_status("未保存", False)
             return False
-        _credentials.store(device, password)
+        device["password"] = password
         if persist:
             _rmtool.save_config(self.config)
-        self._refresh_credential_status(device)
+        self._set_credential_status("已保存到项目本地文件", True)
         return True
 
     def _delete_password(self, device: Dict, *, persist: bool = True):
-        if _credentials.delete(device) and persist:
-            _rmtool.save_config(self.config)
-        self._set_credential_status(_credentials.LABEL_NONE, False)
+        if "password" in device:
+            device.pop("password")
+            if persist:
+                _rmtool.save_config(self.config)
+        self._set_credential_status("未保存", False)
 
     def _sync_password_preference(
         self,
@@ -705,9 +705,7 @@ class ConnectionWidget(QtWidgets.QWidget):
         password_edit.setPlaceholderText("root 密码")
         remember_checkbox = QtWidgets.QCheckBox("记住密码")
         remember_checkbox.setChecked(True)
-        remember_checkbox.setToolTip(
-            "优先保存到系统凭据管理器；不可用时保存到项目本地文件。"
-        )
+        remember_checkbox.setToolTip("将 root 密码保存到项目本地文件。")
 
         form = QtWidgets.QFormLayout()
         form.setContentsMargins(18, 18, 18, 12)
