@@ -5016,7 +5016,8 @@ class FontUiTests(unittest.TestCase):
         start_worker.assert_not_called()
 
     def test_restart_is_only_sent_by_dedicated_confirmed_action(self):
-        client = FakeConnectionClient(connected=True)
+        client = rmtool.SSHClientWrapper()
+        client._client = mock.Mock()
         client.exec_command = mock.Mock()
         widget = rmtool.FontTab(client, rmtool._default_config())
         self.addCleanup(widget.deleteLater)
