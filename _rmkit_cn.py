@@ -20,6 +20,7 @@ from xml.etree import ElementTree
 from xml.sax.saxutils import escape
 
 import _https
+import _device_storage as storage
 from _ssh import remount_rw
 
 
@@ -134,13 +135,8 @@ LEGACY_SYSTEM_FONT_BACKUP_PATHS = {
     for remote_path in (*LEGACY_SYSTEM_FONT_PATHS.values(), SYSTEM_FONTCONFIG_FILE)
 }
 SYSTEM_FONT_FREE_RESERVE = 24 * 1024 * 1024
-LEGACY_SYSTEM_FONT_FREE_RESERVE = 8 * 1024 * 1024
-SYSTEM_FONT_FREE_COMMAND = (
-    "target=/; if mountpoint -q /data 2>/dev/null; then target=/data; fi; "
-    "printf '%s=' \"$target\"; "
-    "df -Pk \"$target\" 2>/dev/null | "
-    "awk 'NR > 1 && $4 ~ /^[0-9]+$/ {print $4; exit}'"
-)
+LEGACY_SYSTEM_FONT_FREE_RESERVE = storage.LEGACY_ROOT_RESERVE
+SYSTEM_FONT_FREE_COMMAND = storage.SYSTEM_SPACE_COMMAND
 SYSTEM_FONT_VALIDATION_ARTIFACTS = (
     f"{SYSTEM_FONT_DIR}/99-rmtool-ui-font.conf",
     f"{SYSTEM_FONT_DIR}/test-fonts.conf",
@@ -922,30 +918,8 @@ def _system_font_snapshot(ssh_client) -> dict[str, Optional[bytes]]:
 
 
 def _data_free_bytes(ssh_client) -> int:
-    output = ssh_client.exec_checked(SYSTEM_FONT_FREE_COMMAND).strip()
-    values = []
-    legacy_storage = False
-    for line in output.splitlines():
-        prefix, separator, value = line.partition("=")
-        if separator and prefix in ("/", "/data"):
-            if re.fullmatch(r"[0-9]+", value):
-                values.append(value)
-                legacy_storage = prefix == "/"
-            continue
-        fields = line.split()
-        if len(fields) == 1 and re.fullmatch(r"[0-9]+", fields[0]):
-            values.append(fields[0])
-        elif len(fields) >= 4 and re.fullmatch(r"[0-9]+", fields[3]):
-            values.append(fields[3])
-    if len(values) != 1:
-        raise RuntimeError("无法读取设备 /data 分区可用空间，已停止设置系统字体。")
-    try:
-        free_kib = int(values[0])
-    except ValueError as exc:
-        raise RuntimeError("无法读取设备 /data 分区可用空间，已停止设置系统字体。") from exc
-    if free_kib < 0:
-        raise RuntimeError("设备返回了无效的 /data 分区可用空间，已停止设置系统字体。")
-    return _DataFreeBytes(free_kib * 1024, legacy_storage=legacy_storage)
+    partition, available = storage.system_free_bytes(ssh_client)
+    return _DataFreeBytes(available, legacy_storage=partition == "/")
 
 
 def _prepare_system_font_mirror(
@@ -972,9 +946,11 @@ def _prepare_system_font_mirror(
             1024 * 1024
         )
         raise RuntimeError(
-            "设备 /data 分区空间不足，无法保存当前系统字体："
+            f"设备 {'/（根分区）' if legacy_storage else '/data'} 分区空间不足，无法保存当前系统字体："
             f"替换后约剩余 {final_mib} MiB，至少需保留 "
-            f"{free_reserve // (1024 * 1024)} MiB。"
+            f"{free_reserve // (1024 * 1024)} MiB，"
+            f"还差 {(free_reserve + len(font_data) - available - reclaimable) / 1048576:.2f} MiB。"
+            "不使用密码锁屏时，可取消锁屏字体支持，将字体仅保存在 /home。"
         )
     return _SystemFontMirrorPlan(
         font_data=font_data,
@@ -1328,6 +1304,14 @@ def _install_system_font_mirror(
     swap_dir: Optional[str] = None
     mirror_mutated = False
     try:
+        available = _data_free_bytes(ssh_client)
+        if bool(getattr(available, "legacy_storage", False)) != plan.legacy_storage:
+            raise RuntimeError("字体目标分区发生变化，请重新检测后再试。")
+        if not plan.reclaim_before_write:
+            storage.require_capacity(
+                "/" if plan.legacy_storage else "/data", available,
+                len(plan.font_data) + plan.free_reserve,
+            )
         ssh_client.exec_checked(f"mkdir -p {shlex.quote(SYSTEM_FONT_DIR)}")
         if plan.reclaim_before_write:
             swap_dir = f"{BACKUP_DIR}/.font-data-swap-{token}"
@@ -1353,11 +1337,10 @@ def _install_system_font_mirror(
             )
             ssh_client.exec_checked("sync")
             required = len(plan.font_data) + plan.free_reserve
-            if _data_free_bytes(ssh_client) < required:
-                raise RuntimeError(
-                    "回收旧锁屏字体后 /data 分区空间仍不足，"
-                    "已停止设置系统字体。"
-                )
+            available = _data_free_bytes(ssh_client)
+            if bool(getattr(available, "legacy_storage", False)) != plan.legacy_storage:
+                raise RuntimeError("字体目标分区发生变化，请重新检测后再试。")
+            storage.require_capacity("/" if plan.legacy_storage else "/data", available, required)
         else:
             mirror_mutated = True
         _write_remote_bytes_unique(ssh_client, target, plan.font_data, token)

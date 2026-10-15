@@ -889,10 +889,11 @@ def cleanup_incomplete(ssh_client) -> RecoveryReport:
 
 
 def _check_capacity(ssh_client, plan, *, staged=False):
-    if shared.preferred_layout(plan.runtime) == shared.LEGACY_SHARED_LAYOUT and not plan.controls_only:
+    if plan.runtime.platform in {"rm1", "rm2"}:
         states = {fid: shared.SharedFeatureState(plan.targets[fid], state.enabled, state.process_token)
                   for fid, state in plan.states.items()}
-        shared.check_shared_capacity(ssh_client, plan.runtime, states, staged=staged)
+        shared.check_shared_capacity(ssh_client, plan.runtime, states, staged=staged,
+                                     controls_only=plan.controls_only)
         return
     enabled = tuple(plan.targets[fid] for fid, state in plan.states.items() if state.enabled)
     states = {fid: shared.SharedFeatureState(plan.targets[fid], state.enabled, state.process_token)

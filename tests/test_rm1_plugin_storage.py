@@ -135,6 +135,7 @@ class RM1PluginStorageTests(unittest.TestCase):
             ssh = Mock()
             ssh.exec_checked.side_effect = lambda command: (
                 "" if command == "mountpoint -q /home" else
+                "ordinary" if command == shared.storage.ROOT_SPACE_COMMAND else
                 str(home_kib if command.startswith("df -Pk /home") else root_kib))
             if error:
                 with self.assertRaisesRegex(RuntimeError, error):

@@ -131,6 +131,10 @@ class Device:
 
     def exec_checked(self, command):
         self.events.append(command)
+        if command == shared.storage.SYSTEM_SPACE_COMMAND:
+            return f"/data={self.free_kib}"
+        if command == shared.storage.ROOT_SPACE_COMMAND:
+            return "ordinary"
         if command.startswith("[ ! -e "):
             return "\n".join(path for path in recovery.pinyin.RMKIT_IME_PATHS if path in self.entries)
         if command.startswith("[ ! -L "):

@@ -17,6 +17,7 @@ from itertools import product
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Mapping, Optional
 
+import _device_storage as storage
 
 @dataclass(frozen=True)
 class StandaloneLayout:
@@ -2473,38 +2474,38 @@ def _qmd_check_command(stage: str, enabled: Iterable[SharedFeatureSpec]) -> str:
     )
 
 
-def check_shared_capacity(ssh_client, runtime, states, *, staged=False):
-    """Keep RM1 payloads off its small root filesystem, including staging."""
-    if preferred_layout(runtime) != LEGACY_SHARED_LAYOUT:
+def check_shared_capacity(ssh_client, runtime, states, *, staged=False, controls_only=False):
+    """Budget legacy installs and repairs without changing boot-time storage."""
+    if runtime.platform not in {"rm1", "rm2"}:
         return
-    ssh_client.exec_checked("mountpoint -q /home")
+    home_layout = preferred_layout(runtime) == LEGACY_SHARED_LAYOUT
+    if home_layout:
+        ssh_client.exec_checked("mountpoint -q /home")
     enabled = tuple(state.spec for state in states.values() if state.enabled)
     sizes = [len(shared_marker(runtime, states, "0" * 64, "0" * 64))]
     if enabled:
-        sizes.extend(item.size for item in runtime.files)
-        sizes.extend(item.size for feature in enabled for item in feature.files)
-        # qmd-tool validation also makes a temporary copy of the QML inputs.
-        sizes.extend(item.size for item in runtime.files if item.path.endswith("hashtab"))
-        sizes.extend(item.size for feature in enabled for item in feature.files
-                     if item.runtime_path.endswith(".qmd"))
+        if not controls_only:
+            sizes.extend(item.size for item in runtime.files)
+            sizes.extend(item.size for feature in enabled for item in feature.files)
+            # qmd-tool validation also makes a temporary copy of the QML inputs.
+            sizes.extend(item.size for item in runtime.files if item.path.endswith("hashtab"))
+            sizes.extend(item.size for feature in enabled for item in feature.files
+                         if item.runtime_path.endswith(".qmd"))
         sizes.extend((len(shared_launcher(runtime, enabled).encode()),
                       len(shared_dropin(runtime, enabled).encode())))
-    needed = 24 * 1024 * 1024
-    if not staged:
-        needed += sum(((size + 4095) // 4096) * 4096 for size in sizes)
-    for path, required in (("/home", needed), ("/", 1024 * 1024)):
-        value = ssh_client.exec_checked(
-            f"df -Pk {path} | awk 'NR > 1 && $(NF-2) ~ /^[0-9]+$/ {{print $(NF-2); exit}}'"
-        ).strip()
-        if not re.fullmatch(r"[0-9]+", value):
-            raise RuntimeError(f"无法确认 {path} 剩余空间，未上传共享插件。")
-        available = int(value) * 1024
-        if available < required:
-            raise RuntimeError(
-                f"{path} 空间不足：至少需要 {required} 字节，当前 {available} 字节。"
-                "RM1 插件主体部署到 /home，但根分区仍需少量空间保存启动配置；"
-                "请先导出诊断并清理已确认归属的旧安装，不要删除未知系统文件。"
-            )
+    allocated = sum(((size + 4095) // 4096) * 4096 for size in sizes)
+    # Existing payload backups are renamed, not reclaimed or counted as free.
+    overhead = 64 * 1024 + (allocated if controls_only else 0)
+    needed = overhead + (0 if staged else allocated)
+    if home_layout:
+        storage.require_capacity("/home", storage.df_free_bytes(ssh_client, "/home"),
+                                 24 * 1024 * 1024 + needed)
+        available = storage.root_free_bytes(ssh_client, storage.df_free_bytes(ssh_client, "/"))
+        storage.require_capacity("/", available, 1024 * 1024 + overhead)
+    else:
+        partition, available = storage.system_free_bytes(ssh_client)
+        reserve = storage.LEGACY_ROOT_RESERVE if partition == "/" else 25 * 1024 * 1024
+        storage.require_capacity(partition, available, reserve + needed)
 
 
 def _assert_home_catalog(runtime, states):
@@ -2529,8 +2530,8 @@ def _stage_shared(
     controls_only: bool = False,
 ) -> tuple[str, str]:
     _assert_home_catalog(runtime, states)
-    if not controls_only:
-        check_shared_capacity(ssh_client, runtime, states)
+    if not controls_only or runtime.platform in {"rm1", "rm2"}:
+        check_shared_capacity(ssh_client, runtime, states, controls_only=controls_only)
     enabled = tuple(state.spec for state in states.values() if state.enabled)
     launcher_text = shared_launcher(runtime, enabled)
     dropin_text = shared_dropin(runtime, enabled)
@@ -2619,6 +2620,8 @@ def _stage_shared(
     ):
         ssh_client.exec_checked(_qmd_check_command(stage, enabled))
     ssh_client.exec_checked(f"rm -rf {shlex.quote(stage + '/check')}")
+    if runtime.platform in {"rm1", "rm2"}:
+        check_shared_capacity(ssh_client, runtime, states, staged=True, controls_only=controls_only)
     return launcher_sha, dropin_sha
 
 
@@ -3075,6 +3078,7 @@ def _disable_shared_locked(
         ):
             ssh_client.exec_checked(_qmd_check_command(stage, enabled))
         ssh_client.exec_checked(f"rm -rf {shlex.quote(stage + '/check')}")
+        check_shared_capacity(ssh_client, runtime, states, staged=True)
         migrated_layouts = (
             (inspection.layout,) if inspection.layout != layout else ()
         )

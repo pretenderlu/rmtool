@@ -234,6 +234,14 @@ class SharedXoviTests(unittest.TestCase):
         ssh.exec_command.side_effect = execute_raw
 
         def execute(command):
+            if command == shared.storage.SYSTEM_SPACE_COMMAND:
+                return "/data=1048576"
+            if command == shared.storage.ROOT_SPACE_COMMAND:
+                return "ordinary"
+            if command == "mountpoint -q /home":
+                return ""
+            if command.startswith("df -Pk "):
+                return "1048576"
             if command.startswith("for file in /etc/systemd/system"):
                 return "\n".join(visible_dropins)
             if (

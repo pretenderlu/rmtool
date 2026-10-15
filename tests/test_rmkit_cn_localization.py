@@ -435,6 +435,8 @@ class RmkitCnLocalizationTests(unittest.TestCase):
     def test_data_free_bytes_marks_root_fallback_as_legacy_storage(self):
         class RootFallbackProbe:
             def exec_checked(self, command):
+                if command == _rmkit_cn.storage.ROOT_SPACE_COMMAND:
+                    return "ordinary"
                 self.command = command
                 return "/=9000\n"
 
@@ -2462,7 +2464,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         with patch.object(
             _rmkit_cn,
             "_data_free_bytes",
-            side_effect=(available, available + len(old_font_data)),
+            side_effect=(available, available, available + len(old_font_data)),
         ):
             _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
 
@@ -2517,7 +2519,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         with patch.object(
             _rmkit_cn,
             "_data_free_bytes",
-            side_effect=(available, available + len(old_font)),
+            side_effect=(available, available, available + len(old_font)),
         ), patch.object(
             _rmkit_cn.os, "urandom", return_value=token_bytes
         ), self.assertLogs(level="WARNING") as logs:
@@ -2590,6 +2592,62 @@ class RmkitCnLocalizationTests(unittest.TestCase):
 
         self.assertFalse(plan.reclaim_before_write)
 
+    def test_system_mirror_rechecks_capacity_before_any_write(self):
+        ssh = self.make_ssh()
+        plan = _rmkit_cn._prepare_system_font_mirror(ssh, b"new font", ".ttf")
+        before = dict(ssh.files)
+        ssh.events.clear()
+        with patch.object(_rmkit_cn, "_data_free_bytes", return_value=0), \
+                self.assertRaisesRegex(RuntimeError, "/data 空间不足"):
+            _rmkit_cn._install_system_font_mirror(ssh, plan, "Test")
+        self.assertEqual(ssh.files, before)
+        self.assertEqual(ssh.events, [])
+        self.assertEqual(ssh.transfer_count, 0)
+
+    def test_system_mirror_refuses_partition_change_before_write(self):
+        ssh = self.make_ssh()
+        plan = _rmkit_cn._prepare_system_font_mirror(ssh, b"new font", ".ttf")
+        before = dict(ssh.files)
+        with patch.object(_rmkit_cn, "_data_free_bytes", return_value=
+                          _rmkit_cn._DataFreeBytes(100 * 1048576, legacy_storage=True)), \
+                self.assertRaisesRegex(RuntimeError, "目标分区发生变化"):
+            _rmkit_cn._install_system_font_mirror(ssh, plan, "Test")
+        self.assertEqual(ssh.files, before)
+        self.assertEqual(ssh.transfer_count, 0)
+
+    def test_tight_system_mirror_space_drift_restores_exact_previous_state(self):
+        old_target = _rmkit_cn.SYSTEM_FONT_PATHS[".otf"]
+        ssh = self.make_ssh()
+        ssh.files[old_target] = b"previous font larger than new"
+        before = dict(ssh.files)
+        available = _rmkit_cn.SYSTEM_FONT_FREE_RESERVE
+        with patch.object(_rmkit_cn, "_data_free_bytes", side_effect=(available, available, available)):
+            plan = _rmkit_cn._prepare_system_font_mirror(ssh, b"new", ".ttf")
+            self.assertTrue(plan.reclaim_before_write)
+            with self.assertRaisesRegex(RuntimeError, "/data 空间不足"):
+                _rmkit_cn._install_system_font_mirror(ssh, plan, "Test")
+        self.assertEqual(ssh.files, before)
+
+    def test_root_backed_font_mirror_uses_verified_root_capacity(self):
+        from tests.test_device_storage import root_snapshot
+
+        ssh = self.make_ssh()
+        original_exec = ssh.exec_checked
+        def execute(command):
+            if command == _rmkit_cn.SYSTEM_FONT_FREE_COMMAND:
+                return "/=0"
+            if command == _rmkit_cn.storage.ROOT_SPACE_COMMAND:
+                return root_snapshot()
+            return original_exec(command)
+        ssh.exec_checked = execute
+        plan = _rmkit_cn._prepare_system_font_mirror(ssh, b"small font", ".ttf")
+        self.assertTrue(plan.legacy_storage)
+        self.assertEqual(plan.free_reserve, 8 * 1048576)
+        _rmkit_cn._install_system_font_mirror(ssh, plan, "Test")
+        self.assertEqual(ssh.files[_rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]], b"small font")
+        with self.assertRaisesRegex(RuntimeError, r"根分区.*还差.*仅保存在 /home"):
+            _rmkit_cn._prepare_system_font_mirror(ssh, b"x" * (3 * 1048576), ".ttf")
+
     def test_large_system_font_is_allowed_with_sufficient_final_capacity(self):
         font_dir = "/home/root/.local/share/fonts"
         target = f"{font_dir}/selected.ttf"
@@ -2623,7 +2681,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         with patch.object(
             _rmkit_cn,
             "_data_free_bytes",
-            side_effect=(available, available + len(old_font)),
+            side_effect=(available, available, available + len(old_font)),
         ), self.assertRaisesRegex(IOError, "simulated upload failure"):
             _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
 
