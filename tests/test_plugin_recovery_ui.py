@@ -13,7 +13,10 @@ from PyQt5 import QtWidgets, sip
 import _package_download
 import _plugin_recovery as recovery
 import rmtool
+import _legacy_vellum
+import _residue_migration
 import _tab_toolbox as toolbox
+import _toolbox_common as toolbox_common
 from _ssh import SSHClientWrapper
 
 
@@ -71,7 +74,7 @@ class RecoveryUiTests(unittest.TestCase):
 
     def queued_repair(self):
         self.section._apply_status(report())
-        with mock.patch.object(toolbox, "ask_confirmation", return_value=True):
+        with mock.patch.object(toolbox_common, "ask_confirmation", return_value=True):
             self.section._repair()
         return self.pool.start.call_args.args[0]
 
@@ -80,7 +83,7 @@ class RecoveryUiTests(unittest.TestCase):
         done = mock.Mock()
         with mock.patch.object(recovery, "inspect_recovery", return_value=result) as inspect, \
                 mock.patch.object(recovery, "repair") as repair, \
-                mock.patch.object(toolbox._residue_migration, "inspect_residue") as migrate, \
+                mock.patch.object(_residue_migration, "inspect_residue") as migrate, \
                 mock.patch.object(self.ssh, "exec_checked") as write:
             self.section._start_status_detection(on_done=done)
             worker = self.pool.start.call_args.args[0]
@@ -132,7 +135,7 @@ class RecoveryUiTests(unittest.TestCase):
                 self.assertIn("pinyin-input", text)
                 self.assertEqual(toolbox.ToolboxTab._status_summary(text), summary)
                 self.assertEqual(self.section.repair_button.isEnabled(), state == recovery.RecoveryState.REPAIR_AVAILABLE)
-        with mock.patch.object(toolbox, "ask_confirmation") as confirm:
+        with mock.patch.object(toolbox_common, "ask_confirmation") as confirm:
             self.section._repair()
         confirm.assert_not_called()
 
@@ -185,7 +188,7 @@ class RecoveryUiTests(unittest.TestCase):
 
     def test_confirmation_explains_scope_and_can_cancel(self):
         self.section._apply_status(report())
-        with mock.patch.object(toolbox, "ask_confirmation", return_value=False) as confirm:
+        with mock.patch.object(toolbox_common, "ask_confirmation", return_value=False) as confirm:
             self.section._repair()
         message = confirm.call_args.args[2]
         for phrase in ("全部已启用", "受信资源包重建", "启用/停用", "备份", "设置、字体、书籍", "手动重启", "90 秒", "配套服务", "不要再次重启"):
@@ -197,21 +200,21 @@ class RecoveryUiTests(unittest.TestCase):
 
     def test_device_switch_during_confirmation_does_not_queue(self):
         self.section._apply_status(report())
-        with mock.patch.object(toolbox, "ask_confirmation", side_effect=lambda *a, **k: (self.reconnect() or True)):
+        with mock.patch.object(toolbox_common, "ask_confirmation", side_effect=lambda *a, **k: (self.reconnect() or True)):
             self.section._repair()
         self.pool.start.assert_not_called()
         self.assertFalse(self.section.repair_button.isEnabled())
 
     def test_report_replaced_during_confirmation_does_not_queue(self):
         self.section._apply_status(report())
-        with mock.patch.object(toolbox, "ask_confirmation", side_effect=lambda *a, **k: (self.section._apply_status(report()) or True)):
+        with mock.patch.object(toolbox_common, "ask_confirmation", side_effect=lambda *a, **k: (self.section._apply_status(report()) or True)):
             self.section._repair()
         self.pool.start.assert_not_called()
 
     def test_changed_transport_before_signal_delivery_rejects_cached_report(self):
         self.section._apply_status(report())
         self.ssh._client = mock.Mock()
-        with mock.patch.object(toolbox, "ask_confirmation") as confirm:
+        with mock.patch.object(toolbox_common, "ask_confirmation") as confirm:
             self.section._repair()
         confirm.assert_not_called()
         self.pool.start.assert_not_called()
@@ -256,7 +259,7 @@ class RecoveryUiTests(unittest.TestCase):
         self.section._start_status_detection()
         text = self.section.status_label.text()
         with mock.patch.object(self.ssh, "close") as close, \
-                mock.patch.object(toolbox, "show_error") as error:
+                mock.patch.object(toolbox_common, "show_error") as error:
             worker.signals.finished.emit(report())
             worker.signals.error.emit(RuntimeError("old error"))
         done.assert_called_once_with()
@@ -280,7 +283,7 @@ class RecoveryUiTests(unittest.TestCase):
         for state in recovery.RecoveryState:
             with self.subTest(state=state):
                 worker = self.queued_repair()
-                with mock.patch.object(toolbox, "show_info") as info, \
+                with mock.patch.object(toolbox_common, "show_info") as info, \
                         mock.patch.object(self.ssh, "close") as close:
                     worker.signals.finished.emit(report(state))
                 info.assert_not_called()
@@ -290,7 +293,7 @@ class RecoveryUiTests(unittest.TestCase):
 
     def test_backup_path_alone_is_not_a_success_signal(self):
         worker = self.queued_repair()
-        with mock.patch.object(toolbox, "show_info") as info, \
+        with mock.patch.object(toolbox_common, "show_info") as info, \
                 mock.patch.object(self.ssh, "close") as close:
             worker.signals.finished.emit(report(recovery.RecoveryState.BLOCKED, "/retained-backup"))
         info.assert_not_called()
@@ -305,7 +308,7 @@ class RecoveryUiTests(unittest.TestCase):
             value = worker.execute()
         repair.assert_called_once_with(self.ssh, rmtool.app_state_dir())
         old_client = self.ssh._client
-        with mock.patch.object(toolbox, "show_info", side_effect=lambda *a: self.reconnect()) as info:
+        with mock.patch.object(toolbox_common, "show_info", side_effect=lambda *a: self.reconnect()) as info:
             worker.signals.finished.emit(value)
         old_client.close.assert_called_once_with()
         self.assertTrue(self.ssh.is_connected())
@@ -321,15 +324,15 @@ class RecoveryUiTests(unittest.TestCase):
         worker = self.queued_repair()
         self.reconnect()
         with mock.patch.object(self.ssh, "close") as close, \
-                mock.patch.object(toolbox, "show_info") as info:
+                mock.patch.object(toolbox_common, "show_info") as info:
             worker.signals.finished.emit(report(recovery.RecoveryState.NOT_NEEDED, "/backup"))
         close.assert_not_called()
         info.assert_not_called()
 
     def test_failed_repair_warns_against_restart_and_preserves_backup_detail(self):
         worker = self.queued_repair()
-        with mock.patch.object(toolbox, "show_error") as error, \
-                mock.patch.object(toolbox, "show_info") as info, \
+        with mock.patch.object(toolbox_common, "show_error") as error, \
+                mock.patch.object(toolbox_common, "show_info") as info, \
                 mock.patch.object(self.ssh, "close") as close:
             worker.signals.error.emit(RuntimeError("rollback incomplete; /retained-backup"))
         self.assertIn("/retained-backup", error.call_args.args[2])
@@ -342,7 +345,7 @@ class RecoveryUiTests(unittest.TestCase):
     def test_download_error_uses_manual_load_and_retry_is_session_bound(self):
         worker = self.queued_repair()
         error = _package_download.PackageDownloadError("plugin", "test.tar.gz", ("https://example.test/pkg",), 10, "a" * 64)
-        with mock.patch.object(toolbox, "_show_package_download_error") as manual, \
+        with mock.patch.object(toolbox_common, "_show_package_download_error") as manual, \
                 mock.patch.object(self.ssh, "close") as close:
             worker.signals.error.emit(error)
         close.assert_not_called()
@@ -362,7 +365,7 @@ class RecoveryUiTests(unittest.TestCase):
                 self.section._apply_status(report())
                 self.section._report = SimpleNamespace(migratable=True, features=(SimpleNamespace(label="pinyin", enabled=True),))
                 self.section._report_session = self.section._session_token()
-                with mock.patch.object(toolbox, "ask_confirmation", return_value=True):
+                with mock.patch.object(toolbox_common, "ask_confirmation", return_value=True):
                     getattr(self.section, method)()
                 self.assertIsNone(self.section._recovery_report)
                 self.assertFalse(self.section.repair_button.isEnabled())
@@ -375,7 +378,7 @@ class RecoveryUiTests(unittest.TestCase):
                     self.section._report = SimpleNamespace(migratable=True, features=(SimpleNamespace(label="pinyin", enabled=True),))
                     self.section._report_session = self.section._session_token()
                     confirm = (lambda *a, **k: True) if queued else (lambda *a, **k: (self.reconnect() or True))
-                    with mock.patch.object(toolbox, "ask_confirmation", side_effect=confirm):
+                    with mock.patch.object(toolbox_common, "ask_confirmation", side_effect=confirm):
                         getattr(self.section, method)()
                     if queued:
                         worker = self.pool.start.call_args.args[0]
@@ -388,14 +391,14 @@ class RecoveryUiTests(unittest.TestCase):
     def test_old_cleanup_callback_cannot_close_new_device(self):
         self.section._report = SimpleNamespace(features=(SimpleNamespace(label="pinyin"),))
         self.section._report_session = self.section._session_token()
-        with mock.patch.object(toolbox, "ask_confirmation", return_value=True):
+        with mock.patch.object(toolbox_common, "ask_confirmation", return_value=True):
             self.section._cleanup_residue()
         worker = self.pool.start.call_args.args[0]
         self.reconnect()
         current_text = self.section.status_label.text()
         with mock.patch.object(self.ssh, "close") as close, \
-                mock.patch.object(toolbox, "show_info") as info, \
-                mock.patch.object(toolbox, "show_error") as error:
+                mock.patch.object(toolbox_common, "show_info") as info, \
+                mock.patch.object(toolbox_common, "show_error") as error:
             worker.signals.finished.emit(None)
             worker.signals.error.emit(RuntimeError("old cleanup"))
         close.assert_not_called()
@@ -405,7 +408,7 @@ class RecoveryUiTests(unittest.TestCase):
 
     def test_migration_report_is_bound_to_detection_session(self):
         result = SimpleNamespace(migratable=True, features=(), blockers=(), detail="verified")
-        with mock.patch.object(toolbox._residue_migration, "inspect_residue", return_value=result) as inspect, \
+        with mock.patch.object(_residue_migration, "inspect_residue", return_value=result) as inspect, \
                 mock.patch.object(self.section, "_report_text", return_value="verified"):
             self.section._detect()
             worker = self.pool.start.call_args.args[0]
@@ -419,7 +422,7 @@ class RecoveryUiTests(unittest.TestCase):
         self.section._report_session = self.section._session_token()
         self.section._detect()
         worker = self.pool.start.call_args.args[0]
-        with mock.patch.object(toolbox, "show_error"):
+        with mock.patch.object(toolbox_common, "show_error"):
             worker.signals.error.emit(RuntimeError("ownership changed"))
         self.assertIsNone(self.section._report)
         self.assertIsNone(self.section._report_session)
@@ -432,7 +435,7 @@ class RecoveryUiTests(unittest.TestCase):
                 self.section._report = SimpleNamespace(migratable=True, features=(SimpleNamespace(label="pinyin", enabled=True),))
                 self.section._report_session = self.section._session_token()
                 self.ssh._client = mock.Mock()
-                with mock.patch.object(toolbox, "ask_confirmation") as confirm:
+                with mock.patch.object(toolbox_common, "ask_confirmation") as confirm:
                     getattr(self.section, method)()
                 confirm.assert_not_called()
                 self.pool.start.assert_not_called()
@@ -447,21 +450,21 @@ class RecoveryUiTests(unittest.TestCase):
                     self.section._report = None
                     return True
 
-                with mock.patch.object(toolbox, "ask_confirmation", side_effect=replace_report):
+                with mock.patch.object(toolbox_common, "ask_confirmation", side_effect=replace_report):
                     getattr(self.section, method)()
                 self.pool.start.assert_not_called()
 
     def test_existing_mutations_execute_correct_backend_inside_session(self):
         for method, module, backend in (
-            ("_migrate", toolbox._residue_migration, "migrate"),
-            ("_cleanup_residue", toolbox._residue_migration, "cleanup"),
-            ("_cleanup", toolbox._legacy_vellum, "remove_legacy_plugins"),
+            ("_migrate", _residue_migration, "migrate"),
+            ("_cleanup_residue", _residue_migration, "cleanup"),
+            ("_cleanup", _legacy_vellum, "remove_legacy_plugins"),
         ):
             with self.subTest(method=method):
                 self.section._busy = False
                 self.section._report = SimpleNamespace(migratable=True, features=(SimpleNamespace(label="pinyin", enabled=True),))
                 self.section._report_session = self.section._session_token()
-                with mock.patch.object(toolbox, "ask_confirmation", return_value=True), \
+                with mock.patch.object(toolbox_common, "ask_confirmation", return_value=True), \
                         mock.patch.object(module, backend, return_value="result") as operation, \
                         mock.patch.object(self.ssh, "operation_session", wraps=self.ssh.operation_session) as session:
                     getattr(self.section, method)()

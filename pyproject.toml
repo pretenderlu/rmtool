@@ -1,0 +1,30 @@
+[project]
+name = "rmtool"
+description = "Desktop manager for reMarkable tablets over root SSH"
+requires-python = ">=3.12"
+license = "GPL-3.0-or-later"
+dynamic = ["version"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+extend-exclude = [
+    "build",
+    "dist",
+    "tmp",
+    ".rmtool",
+    ".trellis",
+    ".agents",
+    ".codex",
+    "local-archive",
+]
+
+[tool.ruff.lint]
+# Start with correctness checks only (syntax errors, undefined names,
+# unused imports/variables).  Widen the rule set incrementally.
+select = ["E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# rmtool.py re-exports names from split modules for backward compatibility
+# (tests and plugins access them as rmtool.<name>).
+"rmtool.py" = ["F401"]

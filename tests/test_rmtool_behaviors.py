@@ -42,6 +42,9 @@ import _tab_documents
 import _diagnostics
 import _package_download
 import _tab_toolbox
+import _toolbox_common
+import _toolbox_diagnostics
+import _toolbox_reading
 import _tab_wallpaper
 import _tokens
 
@@ -575,7 +578,6 @@ def build_rm_v6_page() -> bytes:
     from io import BytesIO
     from uuid import uuid4
 
-    import rmscene
     from rmscene import scene_items as si
     from rmscene import (
         AuthorIdsBlock,
@@ -1407,7 +1409,7 @@ class WallpaperUiTests(unittest.TestCase):
                 identity, package, (package,), recovery_available=True
             )
         )
-        with mock.patch.object(_tab_toolbox, "show_info") as show_info:
+        with mock.patch.object(_toolbox_common, "show_info") as show_info:
             section.explain_button.click()
         self.assertIn("快刷模式", section.detail_label.text())
         self.assertIn("彩色快刷", section.detail_label.text())
@@ -1642,7 +1644,7 @@ class WallpaperUiTests(unittest.TestCase):
                 "getOpenFileName",
                 return_value=(str(Path(folder) / "manual.tar.gz"), ""),
             ) as dialog,
-            mock.patch.object(_tab_toolbox, "show_info") as show_info,
+            mock.patch.object(_toolbox_common, "show_info") as show_info,
         ):
             (Path(folder) / "manual.tar.gz").write_bytes(archive)
             with mock.patch.object(
@@ -1704,7 +1706,7 @@ class WallpaperUiTests(unittest.TestCase):
                     "getOpenFileName",
                     return_value=(str(manual), ""),
                 ) as dialog,
-                mock.patch.object(_tab_toolbox, "show_info") as show_info,
+                mock.patch.object(_toolbox_common, "show_info") as show_info,
             ):
                 box.return_value.addButton.side_effect = add_button
                 box.return_value.clickedButton.side_effect = (
@@ -1737,7 +1739,7 @@ class WallpaperUiTests(unittest.TestCase):
                 _tab_toolbox.QtWidgets.QApplication, "clipboard",
                 return_value=clipboard,
             ),
-            mock.patch.object(_tab_toolbox, "show_info"),
+            mock.patch.object(_toolbox_common, "show_info"),
         ):
             box.return_value.addButton.side_effect = add_button
             box.return_value.clickedButton.side_effect = (
@@ -1821,15 +1823,15 @@ class WallpaperUiTests(unittest.TestCase):
             target = Path(folder) / "diag.zip"
             with (
                 mock.patch.object(
-                    _tab_toolbox, "DiagnosticPreviewDialog", return_value=dialog
+                    _toolbox_diagnostics, "DiagnosticPreviewDialog", return_value=dialog
                 ),
                 mock.patch.object(
                     _tab_toolbox.QtWidgets.QFileDialog,
                     "getSaveFileName",
                     return_value=(str(target), ""),
                 ),
-                mock.patch.object(_tab_toolbox, "show_info"),
-                mock.patch.object(_tab_toolbox.QtGui.QDesktopServices, "openUrl"),
+                mock.patch.object(_toolbox_common, "show_info"),
+                mock.patch.object(QtGui.QDesktopServices, "openUrl"),
             ):
                 section._preview_and_save(collected)
             self.assertTrue(target.is_file())
@@ -2025,7 +2027,7 @@ class WallpaperUiTests(unittest.TestCase):
         with mock.patch.object(
             section, "_bundled_fallback_font", return_value=("fallback.otf", "Fallback CJK")
         ), mock.patch.object(
-            _tab_toolbox, "ask_confirmation", return_value=False
+            _toolbox_common, "ask_confirmation", return_value=False
         ) as confirm, mock.patch.object(section, "_start_worker") as start:
             section._enable()
 
@@ -2065,7 +2067,7 @@ class WallpaperUiTests(unittest.TestCase):
             "_bundled_fallback_font",
             return_value=("fallback.otf", "Fallback CJK"),
         ), mock.patch.object(
-            _tab_toolbox, "ask_confirmation", return_value=True
+            _toolbox_common, "ask_confirmation", return_value=True
         ) as confirm, mock.patch.object(section, "_start_worker") as start:
             section._enable()
 
@@ -2128,9 +2130,9 @@ class WallpaperUiTests(unittest.TestCase):
                 with mock.patch.object(
                     rmtool, "Worker", return_value=worker
                 ), mock.patch.object(section.thread_pool, "start"), mock.patch.object(
-                    _tab_toolbox, "_show_package_download_error"
+                    _toolbox_common, "_show_package_download_error"
                 ) as show_download, mock.patch.object(
-                    _tab_toolbox, "show_error"
+                    _toolbox_common, "show_error"
                 ) as show_error:
                     section._start_worker(
                         lambda: None,
@@ -2157,13 +2159,13 @@ class WallpaperUiTests(unittest.TestCase):
         worker.signals = mock.Mock()
 
         with mock.patch.object(
-            _tab_toolbox, "ask_confirmation", return_value=True
+            _toolbox_common, "ask_confirmation", return_value=True
         ) as ask, mock.patch.object(
             rmtool, "Worker", return_value=worker
         ) as worker_cls, mock.patch.object(
             section.thread_pool, "start"
         ), mock.patch.object(
-            _tab_toolbox, "show_info"
+            _toolbox_common, "show_info"
         ) as show_info:
             section.cleanup_button.click()
             worker.signals.finished.connect.call_args.args[0](
@@ -2188,10 +2190,10 @@ class WallpaperUiTests(unittest.TestCase):
         worker.signals = mock.Mock()
 
         with mock.patch.object(
-            _tab_toolbox, "ask_confirmation", return_value=True
+            _toolbox_common, "ask_confirmation", return_value=True
         ), mock.patch.object(rmtool, "Worker", return_value=worker), mock.patch.object(
             section.thread_pool, "start"
-        ), mock.patch.object(_tab_toolbox, "show_info") as show_info:
+        ), mock.patch.object(_toolbox_common, "show_info") as show_info:
             section.cleanup_button.click()
             worker.signals.finished.connect.call_args.args[0](())
 
@@ -2209,10 +2211,10 @@ class WallpaperUiTests(unittest.TestCase):
         )
 
         with mock.patch.object(
-            _tab_toolbox, "ask_confirmation", return_value=True
+            _toolbox_common, "ask_confirmation", return_value=True
         ), mock.patch.object(rmtool, "Worker", return_value=worker), mock.patch.object(
             section.thread_pool, "start"
-        ), mock.patch.object(_tab_toolbox, "show_error") as show_error:
+        ), mock.patch.object(_toolbox_common, "show_error") as show_error:
             section.cleanup_button.click()
             worker.signals.error.connect.call_args.args[0](error)
 
@@ -2309,11 +2311,11 @@ class WallpaperUiTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                _tab_toolbox, "ask_confirmation", return_value=True
+                _toolbox_common, "ask_confirmation", return_value=True
             ) as ask,
             mock.patch.object(rmtool, "Worker", return_value=worker) as worker_cls,
             mock.patch.object(section.thread_pool, "start"),
-            mock.patch.object(_tab_toolbox, "show_info") as show_info,
+            mock.patch.object(_toolbox_common, "show_info") as show_info,
         ):
             section.cleanup_residue_button.click()
             worker.signals.finished.connect.call_args.args[0](report)
@@ -2364,11 +2366,11 @@ class WallpaperUiTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                _tab_toolbox, "ask_confirmation", return_value=True
+                _toolbox_common, "ask_confirmation", return_value=True
             ) as ask,
             mock.patch.object(rmtool, "Worker", return_value=worker) as worker_cls,
             mock.patch.object(section.thread_pool, "start"),
-            mock.patch.object(_tab_toolbox, "show_info") as show_info,
+            mock.patch.object(_toolbox_common, "show_info") as show_info,
             mock.patch.object(rmtool, "app_state_dir", return_value=Path("state")),
         ):
             section.migrate_button.click()
@@ -2506,11 +2508,11 @@ class WallpaperUiTests(unittest.TestCase):
             _reading_enhancements.ReadingEnhancementsState.ENABLE_PENDING_REBOOT,
             identity, package, (package,), recovery_available=True
         )
-        with mock.patch.object(_tab_toolbox, "ask_confirmation", return_value=True) as ask, mock.patch.object(
+        with mock.patch.object(_toolbox_common, "ask_confirmation", return_value=True) as ask, mock.patch.object(
             rmtool, "app_state_dir", return_value=Path("state")
         ), mock.patch.object(rmtool, "Worker", return_value=worker) as worker_cls, mock.patch.object(
             section.thread_pool, "start"
-        ), mock.patch.object(_tab_toolbox, "show_info") as show_info:
+        ), mock.patch.object(_toolbox_common, "show_info") as show_info:
             section._install()
             worker.signals.finished.connect.call_args.args[0](result)
         worker_cls.assert_called_once_with(
@@ -2544,10 +2546,10 @@ class WallpaperUiTests(unittest.TestCase):
             _reading_enhancements.ReadingEnhancementsState.ENABLE_PENDING_REBOOT,
             identity, package, (package,), recovery_available=True
         )
-        with mock.patch.object(_tab_toolbox, "ask_confirmation", return_value=True) as ask, mock.patch.object(
+        with mock.patch.object(_toolbox_common, "ask_confirmation", return_value=True) as ask, mock.patch.object(
             rmtool, "Worker", return_value=worker
         ) as worker_cls, mock.patch.object(section.thread_pool, "start"), mock.patch.object(
-            _tab_toolbox, "show_info"
+            _toolbox_common, "show_info"
         ):
             section._install()
             worker.signals.finished.connect.call_args.args[0](result)
@@ -2584,11 +2586,11 @@ class WallpaperUiTests(unittest.TestCase):
             package,
             (package,),
         )
-        with mock.patch.object(_tab_toolbox, "ask_confirmation", return_value=True) as ask, mock.patch.object(
+        with mock.patch.object(_toolbox_common, "ask_confirmation", return_value=True) as ask, mock.patch.object(
             rmtool, "app_state_dir", return_value=Path("state")
         ), mock.patch.object(rmtool, "Worker", return_value=worker) as worker_cls, mock.patch.object(
             section.thread_pool, "start"
-        ), mock.patch.object(_tab_toolbox, "show_info") as show_info:
+        ), mock.patch.object(_toolbox_common, "show_info") as show_info:
             section._cleanup_legacy()
             worker.signals.finished.connect.call_args.args[0](result)
         worker_cls.assert_called_once_with(
@@ -2636,10 +2638,10 @@ class WallpaperUiTests(unittest.TestCase):
         )
         worker = mock.Mock()
         worker.signals = mock.Mock()
-        with mock.patch.object(_tab_toolbox, "ask_confirmation", return_value=True), mock.patch.object(
+        with mock.patch.object(_toolbox_common, "ask_confirmation", return_value=True), mock.patch.object(
             rmtool, "Worker", return_value=worker
         ) as worker_cls, mock.patch.object(section.thread_pool, "start"), mock.patch.object(
-            _tab_toolbox, "show_info"
+            _toolbox_common, "show_info"
         ) as show_info:
             section._disable()
             worker.signals.finished.connect.call_args.args[0](
@@ -2842,7 +2844,7 @@ class WallpaperUiTests(unittest.TestCase):
 
         with mock.patch.object(
             QtWidgets.QApplication, "clipboard", return_value=clipboard
-        ), mock.patch.object(_tab_toolbox, "show_info") as show_info:
+        ), mock.patch.object(_toolbox_common, "show_info") as show_info:
             section._copy_package_download_link()
 
         clipboard.setText.assert_called_once_with(package.download_url)
@@ -2877,7 +2879,7 @@ class WallpaperUiTests(unittest.TestCase):
         ) as worker_cls, mock.patch.object(
             section.thread_pool, "start"
         ) as start_worker, mock.patch.object(
-            _tab_toolbox, "show_info"
+            _toolbox_common, "show_info"
         ) as show_info:
             section._load_local_package()
             worker.signals.finished.connect.call_args.args[0](
@@ -2924,7 +2926,7 @@ class WallpaperUiTests(unittest.TestCase):
         ) as worker_cls, mock.patch.object(
             section.thread_pool, "start"
         ) as start_worker, mock.patch.object(
-            _tab_toolbox, "show_info"
+            _toolbox_common, "show_info"
         ) as show_info:
             section._download_package_to_computer()
             worker.signals.finished.connect.call_args.args[0](
@@ -2958,11 +2960,11 @@ class WallpaperUiTests(unittest.TestCase):
         worker = mock.Mock()
         worker.signals = mock.Mock()
         state_dir = Path(".rmtool")
-        with mock.patch.object(_tab_toolbox, "ask_confirmation", return_value=True), mock.patch.object(
+        with mock.patch.object(_toolbox_common, "ask_confirmation", return_value=True), mock.patch.object(
             rmtool, "app_state_dir", return_value=state_dir
         ), mock.patch.object(rmtool, "Worker", return_value=worker) as worker_cls, mock.patch.object(
             section.thread_pool, "start"
-        ) as start_worker, mock.patch.object(_tab_toolbox, "show_info") as show_info:
+        ) as start_worker, mock.patch.object(_toolbox_common, "show_info") as show_info:
             section._enable_localization()
             worker.signals.finished.connect.call_args.args[0](
                 _rmkit_cn.LocalizationStatus(
@@ -3000,7 +3002,7 @@ class WallpaperUiTests(unittest.TestCase):
         )
 
         with mock.patch.object(
-            _tab_toolbox, "ask_confirmation", return_value=True
+            _toolbox_common, "ask_confirmation", return_value=True
         ), mock.patch.object(
             section, "_choose_missing_font", return_value=None
         ), mock.patch.object(rmtool, "Worker") as worker_cls, mock.patch.object(
@@ -3030,7 +3032,7 @@ class WallpaperUiTests(unittest.TestCase):
         font_path = "C:/Fonts/selected-ui.ttf"
 
         with mock.patch.object(
-            _tab_toolbox, "ask_confirmation", return_value=True
+            _toolbox_common, "ask_confirmation", return_value=True
         ), mock.patch.object(
             section,
             "_choose_missing_font",
@@ -4164,7 +4166,7 @@ class FontUiTests(unittest.TestCase):
         )
 
         with mock.patch.object(widget, "_start_font_worker") as start_worker, mock.patch.object(
-            _tab_toolbox, "show_warning"
+            _toolbox_common, "show_warning"
         ) as warning:
             widget._upload_selected_font()
 
@@ -4314,7 +4316,7 @@ class FontUiTests(unittest.TestCase):
         )
 
         with mock.patch.object(
-            _tab_toolbox, "ask_confirmation", return_value=False
+            _toolbox_common, "ask_confirmation", return_value=False
         ) as confirm:
             widget._set_selected_active()
 
@@ -4364,7 +4366,7 @@ class FontUiTests(unittest.TestCase):
         )
 
         with mock.patch.object(
-            _tab_toolbox, "ask_confirmation", return_value=True
+            _toolbox_common, "ask_confirmation", return_value=True
         ) as confirm, mock.patch.object(widget, "_start_font_worker") as start_worker:
             widget.migrate_font_button.click()
 
@@ -4492,7 +4494,7 @@ class FontUiTests(unittest.TestCase):
             (font,), select_filename="reader.ttf", epub_status=status
         )
         with mock.patch.object(
-            _tab_toolbox, "ask_confirmation", return_value=True
+            _toolbox_common, "ask_confirmation", return_value=True
         ) as confirm, mock.patch.object(widget, "_start_font_worker") as start_worker:
             widget._toggle_selected_epub_font()
         self.assertIs(
@@ -4538,7 +4540,7 @@ class FontUiTests(unittest.TestCase):
             (epub,), select_filename="reader.ttf", epub_status=status
         )
         with mock.patch.object(
-            _tab_toolbox, "ask_confirmation", return_value=True
+            _toolbox_common, "ask_confirmation", return_value=True
         ) as confirm, mock.patch.object(widget, "_start_font_worker") as start_worker:
             widget._toggle_selected_epub_font()
         self.assertIs(start_worker.call_args.args[0], _rmkit_cn.remove_epub_font_slot)
@@ -4615,7 +4617,7 @@ class FontUiTests(unittest.TestCase):
                     state=initial_state, package=package
                 ),
             ), mock.patch.object(
-                _tab_toolbox,
+                _toolbox_reading,
                 "_install_reading_enhancements",
                 side_effect=install,
             ) as deploy, mock.patch.object(
@@ -4640,7 +4642,7 @@ class FontUiTests(unittest.TestCase):
         ), mock.patch.object(
             _reading_enhancements, "get_status", return_value=migration
         ), mock.patch.object(
-            _tab_toolbox,
+            _toolbox_reading,
             "_install_reading_enhancements",
             return_value=deployed,
         ) as migrate, mock.patch.object(
@@ -4868,7 +4870,7 @@ class FontUiTests(unittest.TestCase):
             rmtool, "Worker", return_value=worker_instance
         ), mock.patch.object(widget.thread_pool, "start"), mock.patch.object(
             widget, "_refresh_fonts"
-        ) as refresh, mock.patch.object(_tab_toolbox, "ask_confirmation") as confirm:
+        ) as refresh, mock.patch.object(_toolbox_common, "ask_confirmation") as confirm:
             widget._upload_selected_font()
             worker_instance.signals.finished.connect.call_args.args[0](uploaded)
 
@@ -4925,7 +4927,7 @@ class FontUiTests(unittest.TestCase):
         widget._apply_font_inventory((active,), select_filename="active.ttf")
 
         with mock.patch.object(
-            _tab_toolbox, "ask_confirmation", return_value=True
+            _toolbox_common, "ask_confirmation", return_value=True
         ) as confirm, mock.patch.object(widget, "_start_font_worker") as start_worker:
             widget._set_selected_active()
 
@@ -4955,7 +4957,7 @@ class FontUiTests(unittest.TestCase):
             widget.lock_screen_font_checkbox.setChecked(False)
 
         with mock.patch.object(
-            _tab_toolbox, "ask_confirmation", return_value=True
+            _toolbox_common, "ask_confirmation", return_value=True
         ) as confirm, mock.patch.object(widget, "_start_font_worker") as start_worker:
             widget._set_selected_active()
 
@@ -4978,7 +4980,7 @@ class FontUiTests(unittest.TestCase):
         )
 
         with mock.patch.object(
-            _tab_toolbox, "ask_confirmation", return_value=True
+            _toolbox_common, "ask_confirmation", return_value=True
         ), mock.patch.object(widget, "_start_font_worker") as start_worker:
             widget._set_selected_active()
 
@@ -5005,7 +5007,7 @@ class FontUiTests(unittest.TestCase):
         widget._apply_font_inventory((inactive,), select_filename="inactive.ttf")
 
         with mock.patch.object(
-            _tab_toolbox, "ask_confirmation", return_value=False
+            _toolbox_common, "ask_confirmation", return_value=False
         ) as confirm, mock.patch.object(widget, "_start_font_worker") as start_worker:
             widget._set_selected_active()
 
@@ -5019,15 +5021,19 @@ class FontUiTests(unittest.TestCase):
         widget = rmtool.FontTab(client, rmtool._default_config())
         self.addCleanup(widget.deleteLater)
 
-        with mock.patch.object(_tab_toolbox, "ask_confirmation", return_value=False):
+        with mock.patch.object(_toolbox_common, "ask_confirmation", return_value=False):
             widget._restart_device()
         client.exec_command.assert_not_called()
 
         with mock.patch.object(
-            _tab_toolbox, "ask_confirmation", return_value=True
-        ), mock.patch.object(_tab_toolbox, "show_info"):
+            _toolbox_common, "ask_confirmation", return_value=True
+        ), mock.patch.object(_toolbox_common, "show_info"):
             widget._restart_device()
+            # Reboot runs on a worker so a stalled link cannot freeze the UI.
+            QtCore.QThreadPool.globalInstance().waitForDone(5000)
+            QtWidgets.QApplication.processEvents()
         client.exec_command.assert_called_once_with("reboot")
+        self.assertTrue(widget.restart_button.isEnabled())
 
 
 class MainWindowConstructionTests(unittest.TestCase):

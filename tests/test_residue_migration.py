@@ -224,7 +224,6 @@ class ResidueMigrationTests(unittest.TestCase):
 
     def test_migrate_fetches_every_enabled_feature_and_delegates(self):
         ssh = mock.Mock()
-        enabled = {fid: True for fid in self.old_context[1]}
         report = _residue_migration.ResidueReport(
             self.old_identity,
             self.new_identity,

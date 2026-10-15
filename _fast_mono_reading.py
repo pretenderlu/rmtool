@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import posixpath
 import re
 import shlex
@@ -18,6 +17,7 @@ from pathlib import Path, PurePosixPath
 from typing import Iterable, Optional
 
 import _package_download
+import _plugin_packages
 import _tap_page_turn as tap
 import _xovi_standalone
 
@@ -422,80 +422,43 @@ def _trusted_catalog() -> tuple[FastMonoReadingPackage, ...]:
 
 
 def _cache_dir(state_dir: str) -> Path:
-    return Path(state_dir) / "cache" / "fast-mono-reading"
+    return _plugin_packages.cache_dir(state_dir, FEATURE_ID)
 
 
 def load_catalog(
     state_dir: str, *, refresh: bool = True
 ) -> tuple[FastMonoReadingPackage, ...]:
-    manifest_path = _cache_dir(state_dir) / "manifest.json"
-    if refresh:
-        for manifest_url in MANIFEST_URLS:
-            try:
-                data = tap._download_limited(manifest_url, MAX_MANIFEST_BYTES)
-                catalog = parse_manifest(data)
-                tap._write_atomic(manifest_path, data)
-                return catalog
-            except Exception as exc:
-                logging.warning(
-                    "Could not load fast-mono manifest from %s: %s",
-                    manifest_url,
-                    exc,
-                )
-    for candidate in (manifest_path, BUNDLED_MANIFEST):
-        if candidate.is_file():
-            try:
-                return parse_manifest(candidate.read_bytes())
-            except Exception as exc:
-                logging.warning("Fast-mono manifest is invalid (%s): %s", candidate, exc)
-    raise RuntimeError("无法获取快速黑白清单，且没有可用的内置清单。")
+    return _plugin_packages.load_catalog(
+        manifest_urls=MANIFEST_URLS,
+        cache_path=_cache_dir(state_dir) / "manifest.json",
+        bundled_path=BUNDLED_MANIFEST,
+        parse=parse_manifest,
+        max_manifest_bytes=MAX_MANIFEST_BYTES,
+        refresh=refresh,
+        log_label="fast-mono",
+        error_message="无法获取快速黑白清单，且没有可用的内置清单。",
+        # Resolved at call time so tests can patch tap._download_limited.
+        download=lambda url, maximum: tap._download_limited(url, maximum),
+    )
 
 
 def download_package(package: FastMonoReadingPackage, state_dir: str) -> Path:
-    destination = _cache_dir(state_dir) / package.firmware / package.asset
-    if destination.is_file():
-        data = destination.read_bytes()
-        if len(data) == package.size and hashlib.sha256(data).hexdigest() == package.sha256:
-            return destination
-    last_error: Optional[Exception] = None
-    for download_url in package.download_urls:
-        try:
-            data = tap._download_limited(download_url, MAX_PACKAGE_BYTES)
-            if (
-                len(data) != package.size
-                or hashlib.sha256(data).hexdigest() != package.sha256
-            ):
-                raise RuntimeError("快速黑白资源包与清单校验不匹配。")
-            tap._write_atomic(destination, data)
-            return destination
-        except Exception as exc:
-            last_error = exc
-            logging.warning(
-                "Could not download fast-mono package from %s: %s",
-                download_url,
-                exc,
-            )
-    raise _package_download.PackageDownloadError(
-        "快速黑白阅读",
-        package.asset,
-        package.download_urls,
-        package.size,
-        package.sha256,
-        store=lambda source_path: load_local_package(
-            package, source_path, state_dir
-        ),
-    ) from last_error
-
-
-def load_local_package(package, source_path: str | Path, state_dir: str) -> Path:
-    """Verify a manually downloaded archive and store it in the package cache."""
-    data = Path(source_path).read_bytes()
-    _package_download.verify_local_package(
-        data, package.size, package.sha256, "快速黑白阅读"
+    return _package_download.download_verified_package(
+        package, _cache_dir(state_dir) / package.firmware / package.asset,
+        MAX_PACKAGE_BYTES, feature_label="快速黑白阅读",
+        mismatch_message="快速黑白资源包与清单校验不匹配。",
+        log_label="fast-mono",
+        store=lambda source_path: load_local_package(package, source_path, state_dir),
     )
-    destination = _cache_dir(state_dir) / package.firmware / package.asset
-    tap._write_atomic(destination, data)
-    return destination
+
+
+def load_local_package(
+    package: FastMonoReadingPackage, source_path: str | Path, state_dir: str
+) -> Path:
+    """Verify a manually downloaded archive and store it in the package cache."""
+    return _plugin_packages.load_local_package(
+        package, source_path, _cache_dir(state_dir) / package.firmware / package.asset, "快速黑白阅读"
+    )
 
 
 def extract_verified_package(

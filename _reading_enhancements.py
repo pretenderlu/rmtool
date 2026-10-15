@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
-import logging
 import re
 import tempfile
 from dataclasses import dataclass, replace
@@ -14,6 +12,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 import _package_download
+import _plugin_packages
 import _tap_page_turn as tap
 import _xovi_standalone as shared
 
@@ -537,29 +536,24 @@ def _trusted_catalog() -> tuple[ReadingEnhancementsPackage, ...]:
 
 
 def _cache_dir(state_dir: str) -> Path:
-    return Path(state_dir) / "cache" / FEATURE_ID
+    return _plugin_packages.cache_dir(state_dir, FEATURE_ID)
 
 
 def load_catalog(
     state_dir: str, *, refresh: bool = True
 ) -> tuple[ReadingEnhancementsPackage, ...]:
-    manifest_path = _cache_dir(state_dir) / "manifest.json"
-    if refresh:
-        for url in MANIFEST_URLS:
-            try:
-                data = tap._download_limited(url, MAX_MANIFEST_BYTES)
-                catalog = parse_manifest(data)
-                tap._write_atomic(manifest_path, data)
-                return catalog
-            except Exception as exc:
-                logging.warning("Could not load reading-enhancements manifest from %s: %s", url, exc)
-    for candidate in (manifest_path, BUNDLED_MANIFEST):
-        if candidate.is_file():
-            try:
-                return parse_manifest(candidate.read_bytes())
-            except Exception as exc:
-                logging.warning("Reading-enhancements manifest is invalid (%s): %s", candidate, exc)
-    raise RuntimeError("无法获取阅读增强清单，且没有可用缓存或内置清单。")
+    return _plugin_packages.load_catalog(
+        manifest_urls=MANIFEST_URLS,
+        cache_path=_cache_dir(state_dir) / "manifest.json",
+        bundled_path=BUNDLED_MANIFEST,
+        parse=parse_manifest,
+        max_manifest_bytes=MAX_MANIFEST_BYTES,
+        refresh=refresh,
+        log_label="reading-enhancements",
+        error_message="无法获取阅读增强清单，且没有可用缓存或内置清单。",
+        # Resolved at call time so tests can patch tap._download_limited.
+        download=lambda url, maximum: tap._download_limited(url, maximum),
+    )
 
 
 def download_package(package: ReadingEnhancementsPackage, state_dir: str) -> Path:
@@ -576,13 +570,9 @@ def load_local_package(
     package: ReadingEnhancementsPackage, source_path: str | Path, state_dir: str
 ) -> Path:
     """Verify a manually downloaded archive and store it in the package cache."""
-    data = Path(source_path).read_bytes()
-    _package_download.verify_local_package(
-        data, package.size, package.sha256, "阅读增强"
+    return _plugin_packages.load_local_package(
+        package, source_path, _cache_dir(state_dir) / package.firmware / package.asset, "阅读增强"
     )
-    destination = _cache_dir(state_dir) / package.firmware / package.asset
-    tap._write_atomic(destination, data)
-    return destination
 
 
 def extract_verified_package(
@@ -596,25 +586,7 @@ def extract_verified_package(
 def select_package(
     catalog: Iterable[ReadingEnhancementsPackage], identity: DeviceIdentity
 ) -> Optional[ReadingEnhancementsPackage]:
-    return next(
-        (
-            item
-            for item in catalog
-            if (
-                item.firmware,
-                item.platform,
-                item.architecture,
-                item.xochitl_sha256,
-            )
-            == (
-                identity.firmware,
-                identity.platform,
-                identity.architecture,
-                identity.xochitl_sha256,
-            )
-        ),
-        None,
-    )
+    return _plugin_packages.select_by_identity(catalog, identity)
 
 
 def _shared_specs(package: ReadingEnhancementsPackage):

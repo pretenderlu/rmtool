@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import re
 import tempfile
 from dataclasses import dataclass, replace
@@ -13,6 +12,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 import _package_download
+import _plugin_packages
 import _tap_page_turn as tap
 import _weread_app
 import _xovi_standalone as shared
@@ -269,27 +269,24 @@ def _trusted_catalog():
 
 
 def _cache_dir(state_dir: str) -> Path:
-    return Path(state_dir) / "cache" / FEATURE_ID
+    return _plugin_packages.cache_dir(state_dir, FEATURE_ID)
 
 
-def load_catalog(state_dir: str, *, refresh: bool = True):
-    cache = _cache_dir(state_dir) / "manifest.json"
-    if refresh:
-        for url in MANIFEST_URLS:
-            try:
-                data = tap._download_limited(url, MAX_MANIFEST_BYTES)
-                result = parse_manifest(data)
-                tap._write_atomic(cache, data)
-                return result
-            except Exception as exc:
-                logging.warning("Could not load WeRead launcher manifest from %s: %s", url, exc)
-    for candidate in (cache, BUNDLED_MANIFEST):
-        if candidate.is_file():
-            try:
-                return parse_manifest(candidate.read_bytes())
-            except Exception as exc:
-                logging.warning("WeRead launcher manifest is invalid (%s): %s", candidate, exc)
-    raise RuntimeError("无法获取微信读书启动器清单，且没有可用内置清单。")
+def load_catalog(
+    state_dir: str, *, refresh: bool = True
+) -> tuple[WeReadLauncherPackage, ...]:
+    return _plugin_packages.load_catalog(
+        manifest_urls=MANIFEST_URLS,
+        cache_path=_cache_dir(state_dir) / "manifest.json",
+        bundled_path=BUNDLED_MANIFEST,
+        parse=parse_manifest,
+        max_manifest_bytes=MAX_MANIFEST_BYTES,
+        refresh=refresh,
+        log_label="WeRead launcher",
+        error_message="无法获取微信读书启动器清单，且没有可用内置清单。",
+        # Resolved at call time so tests can patch tap._download_limited.
+        download=lambda url, maximum: tap._download_limited(url, maximum),
+    )
 
 
 def download_package(package, state_dir: str) -> Path:
@@ -302,20 +299,18 @@ def download_package(package, state_dir: str) -> Path:
     )
 
 
-def load_local_package(package, source_path, state_dir: str) -> Path:
-    data = Path(source_path).read_bytes()
-    _package_download.verify_local_package(data, package.size, package.sha256, "微信读书启动器")
-    destination = _cache_dir(state_dir) / package.firmware / package.asset
-    tap._write_atomic(destination, data)
-    return destination
+def load_local_package(
+    package: WeReadLauncherPackage, source_path: str | Path, state_dir: str
+) -> Path:
+    return _plugin_packages.load_local_package(
+        package, source_path, _cache_dir(state_dir) / package.firmware / package.asset, "微信读书启动器"
+    )
 
 
-def select_package(catalog: Iterable[WeReadLauncherPackage], identity):
-    return next((item for item in catalog if (
-        item.firmware, item.platform, item.architecture, item.xochitl_sha256
-    ) == (
-        identity.firmware, identity.platform, identity.architecture, identity.xochitl_sha256
-    )), None)
+def select_package(
+    catalog: Iterable[WeReadLauncherPackage], identity: tap.DeviceIdentity
+) -> Optional[WeReadLauncherPackage]:
+    return _plugin_packages.select_by_identity(catalog, identity)
 
 
 def extract_verified_package(archive_path, package, destination):

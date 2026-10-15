@@ -1,9 +1,8 @@
 import json
 import tempfile
 import unittest
-from dataclasses import replace
 from pathlib import Path
-from unittest.mock import ANY, Mock, patch
+from unittest.mock import Mock, patch
 
 import _note_enhancements as note
 import _tap_page_turn as tap

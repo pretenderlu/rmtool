@@ -1280,7 +1280,6 @@ def _clear_system_font_mirror(
     if config is None and not has_mirror_files:
         return previous_files
 
-    desired = {path: None for path in SYSTEM_FONT_STATE_PATHS}
     token = os.urandom(6).hex()
     try:
         # Do not recreate /data/rmtool/fonts when the user explicitly chose
@@ -3724,7 +3723,7 @@ def restore_localization(
     """Restore the carrier catalog and original language, without restart."""
     package = package or _default_translation_package()
     try:
-        firmware = _require_supported(ssh_client, package)
+        _require_supported(ssh_client, package)
         if not _file_exists(ssh_client, BACKUP_READY_PATH):
             return get_localization_status(ssh_client, package)
         status = get_localization_status(ssh_client, package)

@@ -119,7 +119,7 @@ The main files are:
 - `cache/official/`: verified AppLoad and KOReader archives downloaded directly from their official GitHub Releases.
 
 > [!CAUTION]
-> When "Remember password" is selected, the root password is stored in **plain text** in `devices.json` under the state directory above; it is not stored in the operating system credential manager. Do not share, upload, or sync the entire state directory to an untrusted location, and do not attach it to an issue. Use "Forget password" in the sidebar to remove a saved password.
+> When "Remember password" is selected, the root password is stored in the operating system credential manager (Windows Credential Manager / macOS Keychain); `devices.json` only records that a password is saved there. Passwords saved in plain text by older versions are migrated automatically at startup. Only when no credential manager is available does rmtool fall back to storing the password in **plain text** in `devices.json`, and the UI then shows "saved to the local project file". Do not share, upload, or sync the entire state directory to an untrusted location, and do not attach it to an issue. Use "Forget password" in the sidebar to remove a saved password.
 
 ## Device and Firmware Boundaries
 

@@ -27,3 +27,10 @@ remarkable_tool.log
 .superpowers/
 docs/superpowers/
 tmp/
+
+# Local AI tooling, archives and licensed fonts (previously only in .git/info/exclude)
+/.agents/
+/.codex/
+/AGENTS.md
+/fonts/
+/local-archive/

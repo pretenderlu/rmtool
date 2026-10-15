@@ -14,8 +14,8 @@ jobs:
     name: Build Windows x64
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
           architecture: x64
@@ -24,7 +24,7 @@ jobs:
       - name: Run unit tests
         run: .\build\.venv\Scripts\python.exe -m unittest discover -s tests -v
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: rmtool-windows-x64
           path: |
@@ -36,8 +36,8 @@ jobs:
     name: Build macOS ARM64
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
           architecture: arm64
@@ -73,6 +73,8 @@ jobs:
             --name rmtool \
             --icon "$root/build/rmtool.icns" \
             --collect-data certifi \
+            --copy-metadata keyring \
+            --collect-submodules keyring.backends \
             --add-data "$root/assets/fonts:assets/fonts" \
             --add-data "$root/assets/device_frames:assets/device_frames" \
             --add-data "$root/translations/manifest.json:translations" \
@@ -93,7 +95,7 @@ jobs:
           dist/rmtool.app/Contents/MacOS/rmtool --https-smoke-test
           ditto -c -k --sequesterRsrc --keepParent dist/rmtool.app dist/rmtool-macos-arm64.app.zip
       - name: Upload macOS artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: rmtool-macos-arm64
           path: dist/rmtool-macos-arm64.app.zip
@@ -109,9 +111,9 @@ jobs:
       - build-macos
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Download build artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: dist
           merge-multiple: true

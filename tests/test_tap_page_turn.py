@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import _package_download
+import _plugin_packages
 import _tap_page_turn as tap
 
 
@@ -262,7 +263,7 @@ class TapPageTurnTests(unittest.TestCase):
 
     def test_atomic_cache_write_flushes_to_disk_and_leaves_no_temporary_file(self):
         with tempfile.TemporaryDirectory() as state_dir, patch.object(
-            tap.os, "fsync", wraps=tap.os.fsync
+            _plugin_packages.os, "fsync", wraps=_plugin_packages.os.fsync
         ) as fsync:
             destination = Path(state_dir) / "cache" / "manifest.json"
             tap._write_atomic(destination, b"validated")

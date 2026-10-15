@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Callable, Dict, Iterator, Optional, Tuple
 
 import paramiko
-from PyQt5 import QtCore, QtWidgets
+from PyQt5 import QtCore
 
 from _dialogs import show_warning
 

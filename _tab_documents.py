@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 import paramiko
-from PIL import Image
 from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
@@ -184,7 +183,7 @@ class _DocumentTransferService:
             )
 
     def _device_available_bytes(self) -> int:
-        output = self.ssh_client.exec_checked(f"df -Pk {self.document_root}")
+        output = self.ssh_client.exec_checked(f"df -Pk {shlex.quote(self.document_root)}")
         for line in reversed(output.splitlines()):
             parts = line.split()
             if len(parts) >= 4 and parts[3].isdigit():
@@ -236,7 +235,8 @@ class _DocumentTransferService:
         for identifier in identifiers:
             try:
                 self.ssh_client.exec_checked(
-                    f"rm -rf {self.document_root}/{identifier} {self.document_root}/{identifier}.*"
+                    f"rm -rf {shlex.quote(posixpath.join(self.document_root, identifier))} "
+                    f"{shlex.quote(posixpath.join(self.document_root, identifier))}.*"
                 )
             except Exception:
                 logging.exception("Failed to clean partial document upload %s", identifier)

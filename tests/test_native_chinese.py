@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import json
 import tempfile
@@ -122,7 +123,7 @@ class NativeChineseTests(unittest.TestCase):
         qmd = Path("native-chinese/qmd/ferrari-3.28.0.166.qmd").read_bytes()
         spec = package.file(native.QMD_PATH)
         self.assertEqual(
-            (len(qmd), native.hashlib.sha256(qmd).hexdigest()),
+            (len(qmd), hashlib.sha256(qmd).hexdigest()),
             (spec.size, spec.sha256),
         )
         source = qmd.decode("utf-8")
@@ -137,7 +138,7 @@ class NativeChineseTests(unittest.TestCase):
             "native-chinese/qmd/ferrari-3.28.0.162-164.qmd"
         ).read_bytes()
         self.assertEqual(
-            (len(legacy), native.hashlib.sha256(legacy).hexdigest()),
+            (len(legacy), hashlib.sha256(legacy).hexdigest()),
             (native.FERRARI_166_V1_QMD_SIZE, native.FERRARI_166_V1_QMD_SHA256),
         )
 
@@ -436,7 +437,7 @@ class NativeChineseTests(unittest.TestCase):
         package = replace(
             native._trusted_catalog()[0],
             size=len(data),
-            sha256=native.hashlib.sha256(data).hexdigest(),
+            sha256=hashlib.sha256(data).hexdigest(),
         )
         with tempfile.TemporaryDirectory() as temporary:
             cached = (

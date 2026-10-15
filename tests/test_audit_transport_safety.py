@@ -17,7 +17,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import paramiko
 
-import rmtool
 import _ssh
 import _tab_wallpaper
 

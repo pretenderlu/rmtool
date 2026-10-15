@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import tempfile
@@ -14,6 +13,7 @@ from typing import Iterable, Optional
 
 import _rmkit_cn
 import _package_download
+import _plugin_packages
 import _tap_page_turn as tap
 import _xovi_standalone
 
@@ -380,19 +380,11 @@ def load_catalog(_state_dir: str) -> tuple[NativeChinesePackage, ...]:
 def select_package(
     catalog: Iterable[NativeChinesePackage], identity: tap.DeviceIdentity
 ) -> Optional[NativeChinesePackage]:
-    for package in catalog:
-        if (
-            package.firmware == identity.firmware
-            and package.platform == identity.platform
-            and package.architecture == identity.architecture
-            and package.xochitl_sha256 == identity.xochitl_sha256
-        ):
-            return package
-    return None
+    return _plugin_packages.select_by_identity(catalog, identity)
 
 
 def _cache_path(state_dir: str, package: NativeChinesePackage) -> Path:
-    return Path(state_dir) / "cache" / FEATURE_ID / package.firmware / package.asset
+    return _plugin_packages.package_cache_path(state_dir, FEATURE_ID, package)
 
 
 def download_package(package: NativeChinesePackage, state_dir: str) -> Path:
@@ -409,12 +401,9 @@ def load_local_package(
     package: NativeChinesePackage, source_path: str | Path, state_dir: str
 ) -> Path:
     """Verify a manually downloaded archive and store it in the package cache."""
-    data = Path(source_path).read_bytes()
-    _package_download.verify_local_package(
-        data, package.size, package.sha256, "原生简体中文"
+    return _plugin_packages.load_local_package(
+        package, source_path, _cache_path(state_dir, package), "原生简体中文"
     )
-    tap._write_atomic(_cache_path(state_dir, package), data)
-    return _cache_path(state_dir, package)
 
 
 def _shared_specs(package: NativeChinesePackage):

@@ -16,7 +16,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5 import QtWidgets
 
-import rmtool  # must load before tab modules (see test_rmtool_behaviors.py)
 import _appload
 import _koreader
 import _tab_koreader

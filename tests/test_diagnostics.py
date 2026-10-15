@@ -7,7 +7,6 @@ import unittest
 import zipfile
 from pathlib import Path
 from unittest import mock
-from unittest.mock import Mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 

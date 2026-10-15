@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import posixpath
 import shlex
 import tempfile
 import uuid
@@ -16,6 +15,7 @@ from pathlib import Path, PurePosixPath
 from typing import Iterable, Optional
 
 import _package_download
+import _plugin_packages
 import _tap_page_turn as tap
 import _xovi_standalone
 
@@ -279,29 +279,11 @@ def _trusted_catalog() -> tuple[PinyinInputPackage, ...]:
 def select_package(
     catalog: Iterable[PinyinInputPackage], identity: tap.DeviceIdentity
 ) -> Optional[PinyinInputPackage]:
-    return next(
-        (
-            package
-            for package in catalog
-            if (
-                package.firmware,
-                package.platform,
-                package.architecture,
-                package.xochitl_sha256,
-            )
-            == (
-                identity.firmware,
-                identity.platform,
-                identity.architecture,
-                identity.xochitl_sha256,
-            )
-        ),
-        None,
-    )
+    return _plugin_packages.select_by_identity(catalog, identity)
 
 
 def _cache_path(state_dir: str, package: PinyinInputPackage) -> Path:
-    return Path(state_dir) / "cache" / FEATURE_ID / package.firmware / package.asset
+    return _plugin_packages.package_cache_path(state_dir, FEATURE_ID, package)
 
 
 def download_package(package: PinyinInputPackage, state_dir: str) -> Path:
@@ -318,12 +300,9 @@ def load_local_package(
     package: PinyinInputPackage, source_path: str | Path, state_dir: str
 ) -> Path:
     """Verify a manually downloaded archive and store it in the package cache."""
-    data = Path(source_path).read_bytes()
-    _package_download.verify_local_package(
-        data, package.size, package.sha256, "拼音输入"
+    return _plugin_packages.load_local_package(
+        package, source_path, _cache_path(state_dir, package), "拼音输入"
     )
-    tap._write_atomic(_cache_path(state_dir, package), data)
-    return _cache_path(state_dir, package)
 
 
 def _shared_specs(package: PinyinInputPackage):

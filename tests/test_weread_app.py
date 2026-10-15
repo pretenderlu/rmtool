@@ -210,8 +210,8 @@ class WeReadAppTests(unittest.TestCase):
         validate.assert_called_once_with(cache / self.package.inner_asset, self.package)
 
     def test_ui_exposes_separate_app_and_launcher_actions_without_revision_labels(self):
-        source = (ROOT / "_tab_toolbox.py").read_text(encoding="utf-8")
-        section = source[source.index("class WeReadLauncherSection"):source.index("_LEGACY_PLATFORM_LABELS")]
+        source = (ROOT / "_toolbox_reading.py").read_text(encoding="utf-8")
+        section = source[source.index("class WeReadLauncherSection"):]
         self.assertIn('QLabel("微信读书 App")', section)
         self.assertIn('QLabel("设备启动入口")', section)
         self.assertIn('QPushButton("安装微信读书 App")', section)
@@ -244,10 +244,10 @@ class WeReadAppTests(unittest.TestCase):
         self.assertNotIn("releases/download/weread-app", sources)
 
     def test_manual_download_fallback_accepts_the_official_outer_zip(self):
-        source = (ROOT / "_tab_toolbox.py").read_text(encoding="utf-8")
+        source = (ROOT / "_toolbox_common.py").read_text(encoding="utf-8")
         dialog = source[
             source.index("def _show_package_download_error"):
-            source.index("def _collect_diagnostics")
+            source.index("def select_font_file")
         ]
         self.assertIn('exc.asset.casefold().endswith(".zip")', dialog)
         self.assertIn('"资源包 (*.zip);;所有文件 (*)"', dialog)

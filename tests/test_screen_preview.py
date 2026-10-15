@@ -11,7 +11,6 @@ from PIL import Image
 from PyQt5 import QtWidgets
 
 import _screen_preview as preview
-import rmtool
 from _tab_screen_preview import LIVE_PREVIEW_COOLDOWN_MS, ScreenPreviewTab
 
 

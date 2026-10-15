@@ -84,6 +84,8 @@ $commonArguments = @(
     "--windowed",
     "--icon", (Join-Path $root "assets\rmtool-icon.ico"),
     "--collect-data", "certifi",
+    "--copy-metadata", "keyring",
+    "--collect-submodules", "keyring.backends",
     "--add-data", "$(Join-Path $root 'assets\fonts');assets\fonts",
     "--add-data", "$(Join-Path $root 'assets\device_frames');assets\device_frames",
     "--add-data", "$(Join-Path $root 'assets\rmtool-icon.ico');assets",

@@ -7,13 +7,10 @@ import gzip
 import io
 import json
 import logging
-import os
 import posixpath
 import re
 import shlex
-import tarfile
 import tempfile
-import urllib.request
 import uuid
 from dataclasses import dataclass, replace
 from enum import Enum
@@ -21,8 +18,8 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Optional
 
-import _https
 import _package_download
+import _plugin_packages
 import _xovi_standalone
 
 
@@ -70,12 +67,12 @@ MAX_MANIFEST_BYTES = 256 * 1024
 MAX_PACKAGE_BYTES = 32 * 1024 * 1024
 MAX_UNPACKED_BYTES = 40 * 1024 * 1024
 
-_SHA256_RE = re.compile(r"[0-9a-f]{64}")
-_FIRMWARE_RE = re.compile(r"[0-9]{14}")
-_VERSION_RE = re.compile(r"[0-9]+(?:\.[0-9]+){2,3}")
-_PLATFORM_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
-_ARCH_RE = re.compile(r"[a-z0-9_][a-z0-9_-]{0,31}")
-_ASSET_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.tar\.gz")
+_SHA256_RE = _plugin_packages.SHA256_RE
+_FIRMWARE_RE = _plugin_packages.FIRMWARE_RE
+_VERSION_RE = _plugin_packages.VERSION_RE
+_PLATFORM_RE = _plugin_packages.PLATFORM_RE
+_ARCH_RE = _plugin_packages.ARCH_RE
+_ASSET_RE = _plugin_packages.ASSET_RE
 _PROCESS_TOKEN_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9]+:[0-9]+"
 )
@@ -112,12 +109,7 @@ class TapPageTurnState(Enum):
     BROKEN = "broken"
 
 
-@dataclass(frozen=True)
-class PayloadFile:
-    path: str
-    sha256: str
-    size: int
-    mode: int
+PayloadFile = _plugin_packages.PayloadFile
 
 
 @dataclass(frozen=True)
@@ -171,33 +163,14 @@ class TapPageTurnStatus:
 
 
 def _safe_relative_path(value: object) -> str:
-    if not isinstance(value, str) or not value or "\\" in value:
-        raise RuntimeError("点击翻页资源路径无效。")
-    path = PurePosixPath(value)
-    if path.is_absolute() or ".." in path.parts or str(path) != value:
-        raise RuntimeError("点击翻页资源路径不安全。")
-    return value
+    return _plugin_packages.safe_relative_path(value)
 
 
-def _required_string(entry: dict, key: str, pattern: re.Pattern[str]) -> str:
-    value = entry.get(key)
-    if not isinstance(value, str) or not pattern.fullmatch(value):
-        raise RuntimeError(f"点击翻页清单字段 {key} 无效。")
-    return value
+# Kept as module-level names: other feature modules and their tests use them.
+_required_string = _plugin_packages.required_string
 
 
-def _parse_payload_file(entry: object) -> PayloadFile:
-    if not isinstance(entry, dict):
-        raise RuntimeError("点击翻页资源文件格式无效。")
-    path = _safe_relative_path(entry.get("path"))
-    digest = _required_string(entry, "sha256", _SHA256_RE)
-    size = entry.get("size")
-    mode = entry.get("mode")
-    if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
-        raise RuntimeError(f"点击翻页资源 {path} 的大小无效。")
-    if mode not in (0o644, 0o755):
-        raise RuntimeError(f"点击翻页资源 {path} 的权限无效。")
-    return PayloadFile(path, digest, size, mode)
+_parse_payload_file = _plugin_packages.parse_payload_file
 
 
 def parse_manifest(data: bytes) -> tuple[TapPageTurnPackage, ...]:
@@ -277,127 +250,56 @@ def _trusted_catalog() -> tuple[TapPageTurnPackage, ...]:
 
 
 def _download_limited(url: str, maximum: int) -> bytes:
-    request = urllib.request.Request(
-        url, headers={"User-Agent": "rmtool-tap-page-turn/1"}
-    )
-    with _https.urlopen(request, timeout=30) as response:
-        declared = response.headers.get("Content-Length")
-        if declared and int(declared) > maximum:
-            raise RuntimeError("云端文件超过允许大小。")
-        data = response.read(maximum + 1)
-    if len(data) > maximum:
-        raise RuntimeError("云端文件超过允许大小。")
-    return data
+    return _plugin_packages.download_limited(url, maximum)
 
 
-def _write_atomic(path: Path, data: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd: Optional[int] = None
-    temporary: Optional[Path] = None
-    try:
-        fd, temporary_name = tempfile.mkstemp(
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            dir=path.parent,
-        )
-        temporary = Path(temporary_name)
-        output = os.fdopen(fd, "wb")
-        fd = None
-        with output:
-            output.write(data)
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temporary, path)
-    finally:
-        if fd is not None:
-            os.close(fd)
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+_write_atomic = _plugin_packages.write_atomic
 
 
 def _cache_dir(state_dir: str) -> Path:
-    return Path(state_dir) / "cache" / "tap-page-turn"
+    return _plugin_packages.cache_dir(state_dir, FEATURE_ID)
 
 
 def load_catalog(
     state_dir: str, *, refresh: bool = True
 ) -> tuple[TapPageTurnPackage, ...]:
-    manifest_path = _cache_dir(state_dir) / "manifest.json"
-    if refresh:
-        for manifest_url in MANIFEST_URLS:
-            try:
-                data = _download_limited(manifest_url, MAX_MANIFEST_BYTES)
-                catalog = parse_manifest(data)
-                _write_atomic(manifest_path, data)
-                return catalog
-            except Exception as exc:
-                logging.warning(
-                    "Could not load tap-to-turn manifest from %s: %s",
-                    manifest_url,
-                    exc,
-                )
-    for candidate in (manifest_path, BUNDLED_MANIFEST):
-        if candidate.is_file():
-            try:
-                return parse_manifest(candidate.read_bytes())
-            except Exception as exc:
-                logging.warning(
-                    "Tap-to-turn manifest is invalid (%s): %s", candidate, exc
-                )
-    raise RuntimeError("无法获取点击翻页云端清单，且没有可用缓存或内置清单。")
+    return _plugin_packages.load_catalog(
+        manifest_urls=MANIFEST_URLS,
+        cache_path=_cache_dir(state_dir) / "manifest.json",
+        bundled_path=BUNDLED_MANIFEST,
+        parse=parse_manifest,
+        max_manifest_bytes=MAX_MANIFEST_BYTES,
+        refresh=refresh,
+        log_label="tap-to-turn",
+        error_message="无法获取点击翻页云端清单，且没有可用缓存或内置清单。",
+        download=lambda url, maximum: _download_limited(url, maximum),
+    )
 
 
 def download_package(
     package: TapPageTurnPackage, state_dir: str
 ) -> Path:
-    destination = _cache_dir(state_dir) / package.firmware / package.asset
-    if destination.is_file():
-        data = destination.read_bytes()
-        if (
-            len(data) == package.size
-            and hashlib.sha256(data).hexdigest() == package.sha256
-        ):
-            return destination
-    last_error: Optional[Exception] = None
-    for download_url in package.download_urls:
-        try:
-            data = _download_limited(download_url, MAX_PACKAGE_BYTES)
-            if len(data) != package.size:
-                raise RuntimeError("点击翻页资源包大小与云端清单不匹配。")
-            if hashlib.sha256(data).hexdigest() != package.sha256:
-                raise RuntimeError("点击翻页资源包 SHA-256 校验失败。")
-            _write_atomic(destination, data)
-            return destination
-        except Exception as exc:
-            last_error = exc
-            logging.warning(
-                "Could not download tap-to-turn package from %s: %s",
-                download_url,
-                exc,
-            )
-    raise _package_download.PackageDownloadError(
-        "点击翻页",
-        package.asset,
-        package.download_urls,
-        package.size,
-        package.sha256,
-        store=lambda source_path: load_local_package(
-            package, source_path, state_dir
-        ),
-    ) from last_error
+    return _package_download.download_verified_package(
+        package,
+        _cache_dir(state_dir) / package.firmware / package.asset,
+        MAX_PACKAGE_BYTES,
+        feature_label="点击翻页",
+        mismatch_message="点击翻页资源包与云端清单校验不匹配。",
+        log_label="tap-to-turn",
+        store=lambda source_path: load_local_package(package, source_path, state_dir),
+    )
 
 
 def load_local_package(
     package: TapPageTurnPackage, source_path: str | Path, state_dir: str
 ) -> Path:
     """Verify a manually downloaded archive and store it in the package cache."""
-    data = Path(source_path).read_bytes()
-    _package_download.verify_local_package(
-        data, package.size, package.sha256, "点击翻页"
+    return _plugin_packages.load_local_package(
+        package,
+        source_path,
+        _cache_dir(state_dir) / package.firmware / package.asset,
+        "点击翻页",
     )
-    destination = _cache_dir(state_dir) / package.firmware / package.asset
-    _write_atomic(destination, data)
-    return destination
 
 
 def extract_verified_package(
@@ -405,39 +307,7 @@ def extract_verified_package(
     package: TapPageTurnPackage,
     destination: str | Path,
 ) -> Path:
-    archive = Path(archive_path)
-    output = Path(destination)
-    output.mkdir(parents=True, exist_ok=True)
-    expected = {item.path: item for item in package.files}
-    seen: set[str] = set()
-    try:
-        with tarfile.open(archive, "r:gz") as bundle:
-            for member in bundle.getmembers():
-                name = _safe_relative_path(member.name)
-                if name not in expected or name in seen or not member.isfile():
-                    raise RuntimeError("点击翻页资源包包含未授权文件。")
-                spec = expected[name]
-                if member.size != spec.size:
-                    raise RuntimeError(f"点击翻页资源 {name} 大小不匹配。")
-                source = bundle.extractfile(member)
-                if source is None:
-                    raise RuntimeError(f"无法读取点击翻页资源 {name}。")
-                target = output.joinpath(*PurePosixPath(name).parts)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                digest = hashlib.sha256()
-                with source, target.open("wb") as destination_file:
-                    while chunk := source.read(1024 * 1024):
-                        digest.update(chunk)
-                        destination_file.write(chunk)
-                if digest.hexdigest() != spec.sha256:
-                    raise RuntimeError(f"点击翻页资源 {name} SHA-256 校验失败。")
-                os.chmod(target, spec.mode)
-                seen.add(name)
-    except (tarfile.TarError, OSError) as exc:
-        raise RuntimeError("无法解压点击翻页资源包。") from exc
-    if seen != set(expected):
-        raise RuntimeError("点击翻页资源包缺少清单文件。")
-    return output
+    return _plugin_packages.extract_verified_package(archive_path, package, destination)
 
 
 def _gzip_member(data: bytes) -> bytes:
@@ -587,15 +457,7 @@ def get_device_identity(ssh_client) -> DeviceIdentity:
 def select_package(
     catalog: Iterable[TapPageTurnPackage], identity: DeviceIdentity
 ) -> Optional[TapPageTurnPackage]:
-    for package in catalog:
-        if (
-            package.firmware == identity.firmware
-            and package.platform == identity.platform
-            and package.architecture == identity.architecture
-            and package.xochitl_sha256 == identity.xochitl_sha256
-        ):
-            return package
-    return None
+    return _plugin_packages.select_by_identity(catalog, identity)
 
 
 def _remote_text(ssh_client, path: str) -> str:

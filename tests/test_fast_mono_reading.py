@@ -1,8 +1,6 @@
 import hashlib
 import inspect
-import io
 import json
-import tarfile
 import tempfile
 import unittest
 from dataclasses import replace
