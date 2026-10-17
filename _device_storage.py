@@ -1,6 +1,6 @@
 """Read-only capacity checks for small, root-backed legacy device storage."""
 
-import base64
+import logging
 import re
 import shlex
 import struct
@@ -13,36 +13,52 @@ SYSTEM_SPACE_COMMAND = (
     "df -Pk \"$target\" 2>/dev/null | "
     "awk 'NR > 1 && $4 ~ /^[0-9]+$/ {print $4; exit}'"
 )
-ROOT_SPACE_COMMAND = r"""set -eu
+ROOT_SPACE_COMMAND = r"""set -efu
 export LC_ALL=C
-machine=$(cat /sys/devices/soc0/machine)
+fail() { printf 'root-capacity: %s\n' "$1" >&2; exit 1; }
+machine=$(cat /sys/devices/soc0/machine) || fail 'machine read failed'
 case "$machine" in
     'reMarkable 1.0'|'reMarkable 2.0') ;;
     *) printf 'ordinary\n'; exit 0 ;;
 esac
-if [ "$(id -u)" != 0 ]; then printf 'ordinary\n'; exit 0; fi
-root_mount=$(awk '$5 == "/" {print}' /proc/self/mountinfo)
+uid=$(id -u) || fail 'uid read failed'
+if [ "$uid" != 0 ]; then printf 'ordinary\n'; exit 0; fi
+root_mount=$(awk '$5 == "/" {print}' /proc/self/mountinfo) || fail 'mountinfo read failed'
 device_id=$(printf '%s\n' "$root_mount" | awk '{print $3}')
-case "$device_id" in ''|*[!0-9:]*) exit 1 ;; esac
-device_path=$(readlink -f "/sys/dev/block/$device_id")
+case "$device_id" in ''|*[!0-9:]*) fail 'invalid root device id' ;; esac
+device_path=$(readlink -f "/sys/dev/block/$device_id") || fail 'root device resolution failed'
 device=${device_path##*/}
-case "$device" in ''|*[!a-zA-Z0-9_-]*) exit 1 ;; esac
-[ -b "/dev/$device" ]
-printf '%s\n' "$root_mount"
-stat -f -c '%t %S %b %f %a %c %d' /
-cat "/sys/fs/ext4/$device/reserved_clusters"
-dd if="/dev/$device" bs=1024 skip=1 count=1 2>/dev/null | base64 | tr -d '\n'
-printf '\n'
+case "$device" in ''|*[!a-zA-Z0-9_-]*) fail 'invalid root device name' ;; esac
+[ -b "/dev/$device" ] || fail 'root block device missing'
+printf 'mount=%s\n' "$root_mount"
+stats=$(stat -f -c '%t %S %b %f %a %c %d' /) || fail 'filesystem statistics failed'
+printf 'stats=%s\n' "$stats"
+reserved=$(cat "/sys/fs/ext4/$device/reserved_clusters") || fail 'reserved clusters read failed'
+printf 'reserved=%s\n' "$reserved"
+# Stock RM1/RM2 .172 lacks base64 and full od; hexdump supports a checked bounded read.
+superblock=$(hexdump -v -s 1024 -n 1024 -e '1/1 "%02x"' "/dev/$device") || fail 'superblock read failed'
+[ "${#superblock}" -eq 2048 ] || fail 'superblock short or invalid read'
+printf 'superblock=%s\n' "$superblock"
 """
 
 
 def root_free_bytes(ssh_client, ordinary_free: int) -> int:
     """Count privileged ext4 blocks only with complete legacy-root evidence."""
+    values = {}
     try:
         output = ssh_client.exec_checked(ROOT_SPACE_COMMAND).strip()
         if output == "ordinary":
             return ordinary_free
-        mount, stats, reserved, encoded = output.splitlines()
+        keys = ("mount", "stats", "reserved", "superblock")
+        for line in output.splitlines():
+            key, separator, value = line.partition("=")
+            if not separator or key not in keys or key in values:
+                raise ValueError("unexpected or duplicate root capacity field")
+            values[key] = value
+        missing = [key for key in keys if key not in values]
+        if missing:
+            raise ValueError("missing root capacity fields: " + ", ".join(missing))
+        mount, stats, reserved, encoded = (values[key] for key in keys)
         fields = mount.split()
         separator = fields.index("-")
         if fields[3:5] != ["/", "/"] or fields[separator + 1] != "ext4":
@@ -59,7 +75,9 @@ def root_free_bytes(ssh_client, ordinary_free: int) -> int:
             raise ValueError("invalid block size")
         if total <= 0 or not 0 <= available <= free <= total or not 0 < free_inodes <= inodes:
             raise ValueError("invalid or exhausted blocks/inodes")
-        sb = base64.b64decode(encoded, validate=True)
+        if not re.fullmatch(r"[0-9a-fA-F]{2048}", encoded):
+            raise ValueError("invalid superblock hex data or length")
+        sb = bytes.fromhex(encoded)
         if len(sb) != 1024 or struct.unpack_from("<H", sb, 0x38)[0] != 0xEF53:
             raise ValueError("invalid ext4 superblock")
         log_block, log_cluster = struct.unpack_from("<II", sb, 0x18)
@@ -87,6 +105,9 @@ def root_free_bytes(ssh_client, ordinary_free: int) -> int:
             raise ValueError("inconsistent available capacity")
         return usable
     except (RuntimeError, ValueError, IndexError, struct.error) as exc:
+        # Superblock bytes include a filesystem UUID; keep payloads out of the PC log.
+        logging.error("Legacy root capacity probe failed: %s; field lengths=%s",
+                      exc, {key: len(value) for key, value in values.items()})
         raise RuntimeError("无法确认根分区 / 的安全可用空间，已停止写入；请导出诊断日志。") from exc
 
 

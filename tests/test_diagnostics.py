@@ -50,8 +50,11 @@ class DiagnosticsTests(unittest.TestCase):
                     item.command,
                     f"{item.name} contains forbidden fragment {fragment!r}",
                 )
-            self.assertRegex(item.command, r"^(cat|ls|journalctl|systemctl show|"
-                            r"sha256sum|df|uname|uptime|for|pid=)")
+            if item.name == "device/root-capacity.txt":
+                self.assertEqual(item.command, _diagnostics.ROOT_SPACE_COMMAND)
+            else:
+                self.assertRegex(item.command, r"^(cat|ls|journalctl|systemctl show|"
+                                r"sha256sum|df|uname|uptime|for|pid=)")
         # The device journal that may contain document names is opt-out.
         optional = [item for item in _diagnostics.DEVICE_ITEMS if item.optional]
         self.assertEqual(
@@ -117,6 +120,72 @@ class DiagnosticsTests(unittest.TestCase):
             with zipfile.ZipFile(archive) as bundle:
                 self.assertIn(b"/home/root/xovi/xovi.so", bundle.read("device/external-xovi-paths.txt"))
                 self.assertIn(b"NO-MATCH-IN-CURRENT-MAINPID", bundle.read("device/xovi-loaded-maps.txt"))
+
+    def test_font_config_missing_cache_is_not_failure_but_io_errors_are(self):
+        git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
+        shell = str(git_bash) if git_bash.is_file() else shutil.which("sh")
+        self.assertIsNotNone(shell)
+        command = next(item.command for item in _diagnostics.DEVICE_ITEMS
+                       if item.name == "device/font-config.txt")
+        for remote, local in (("/etc/fonts", "etc-fonts"),
+                              ("/var/cache/fontconfig", "system-cache"),
+                              ("/home/root/.cache/fontconfig", "home-cache"),
+                              ("/home/root/.config/fontconfig", "user-fontconfig")):
+            command = command.replace(remote, local)
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "etc-fonts/conf.d").mkdir(parents=True)
+            (root / "etc-fonts/fonts.conf").write_text("<fontconfig/>\n")
+            (root / "system-cache").mkdir()
+            before = sorted(p.relative_to(root).as_posix() for p in root.rglob("*"))
+            result = subprocess.run([shell, "-c", command], cwd=folder,
+                                    text=True, capture_output=True, timeout=20)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stderr, "")
+            self.assertIn("<fontconfig/>", result.stdout)
+            self.assertIn("== home-cache\nMISSING", result.stdout)
+            for prefix in ("ls() { printf 'listing denied\\n' >&2; return 2; }; ",
+                           "tail() { printf 'read denied\\n' >&2; return 1; }; "):
+                result = subprocess.run([shell, "-c", prefix + command], cwd=folder,
+                                        text=True, capture_output=True, timeout=20)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("denied", result.stderr)
+            self.assertEqual(sorted(p.relative_to(root).as_posix() for p in root.rglob("*")), before)
+
+    def test_root_capacity_bundle_retains_raw_evidence_and_failing_command_status(self):
+        from tests.test_device_storage import root_probe_fixture, root_snapshot
+
+        git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
+        shell = str(git_bash) if git_bash.is_file() else shutil.which("sh")
+        self.assertIsNotNone(shell)
+        item = next(item for item in _diagnostics.DEVICE_ITEMS
+                    if item.name == "device/root-capacity.txt")
+        with tempfile.TemporaryDirectory() as folder:
+            script = root_probe_fixture(Path(folder))
+            for prefix, status in (("", 0), ("hexdump() { printf 'hexdump: read error\\n' >&2; return 1; }\n", 1)):
+                def execute(command, **_kwargs):
+                    command = command.replace(_diagnostics.ROOT_SPACE_COMMAND, prefix + script)
+                    result = subprocess.run([shell, "-c", command], cwd=folder,
+                                            text=True, capture_output=True, timeout=20)
+                    return result.stdout, result.stderr, result.returncode
+
+                ssh = mock.Mock()
+                ssh.exec_command.side_effect = execute
+                result = _diagnostics._collect_device_item(ssh, item)
+                if status:
+                    self.assertEqual(result.error, "命令退出码 1")
+                    self.assertIn("hexdump: read error", result.text)
+                    self.assertIn("root-capacity: superblock read failed", result.text)
+                    self.assertIn("reserved=4096", result.text)
+                else:
+                    self.assertFalse(result.error)
+                    self.assertEqual(result.text.strip(), root_snapshot())
+                archive = Path(folder) / "diagnostics.zip"
+                _diagnostics.write_bundle(archive, [result])
+                with zipfile.ZipFile(archive) as bundle:
+                    self.assertEqual(bundle.read(item.name).decode(), result.text)
+                    manifest = bundle.read("MANIFEST.txt").decode()
+                    self.assertIn(item.name + (": error: 命令退出码 1" if status else ": ok"), manifest)
 
     def test_diagnostic_shell_syntax_and_transaction_path_validation(self):
         git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"

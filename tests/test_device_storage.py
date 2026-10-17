@@ -1,4 +1,3 @@
-import base64
 import hashlib
 import os
 import shutil
@@ -26,10 +25,36 @@ def root_snapshot(*, free=14311, available=0, internal=4096, resuid=0,
     struct.pack_into("<H", sb, 0x50, resuid)
     struct.pack_into("<II", sb, 0x60, 0x80, 0x200 if bigalloc else 0)
     return (
-        f"1 0 179:2 / / {options} - ext4 /dev/root {options}\n"
-        f"ef53 {1024 << log_block} 230000 {free} {available} 10000 1000\n"
-        f"{internal}\n{base64.b64encode(sb).decode()}"
+        f"mount=1 0 179:2 / / {options} - ext4 /dev/root {options}\n"
+        f"stats=ef53 {1024 << log_block} 230000 {free} {available} 10000 1000\n"
+        f"reserved={internal}\nsuperblock={sb.hex()}"
     )
+
+
+def root_probe_fixture(root):
+    values = dict(line.split("=", 1) for line in root_snapshot().splitlines())
+    (root / "machine").write_text("reMarkable 1.0\n")
+    (root / "mountinfo").write_text(values["mount"] + "\n")
+    (root / "reserved").write_text(values["reserved"] + "\n")
+    (root / "mmcblk2p2").write_bytes(bytes(1024) + bytes.fromhex(values["superblock"]))
+    # Replace hardware endpoints; the probe still reads the fixture file.
+    script = storage.ROOT_SPACE_COMMAND.replace("/sys/devices/soc0/machine", "machine")
+    script = script.replace("/proc/self/mountinfo", "mountinfo")
+    script = script.replace('"/dev/$device"', '"$device"').replace('[ -b ', '[ -f ')
+    script = script.replace('"/sys/fs/ext4/$device/reserved_clusters"', '"reserved"')
+    # Git Bash lacks hexdump; emulate this format for shell-flow tests only.
+    hexdump = r'''if ! command -v hexdump >/dev/null 2>&1; then
+hexdump() {
+    [ "$#" -eq 8 ] && [ "$1 $2 $3 $4 $5 $6 $7" = '-v -s 1024 -n 1024 -e 1/1 "%02x"' ] || return 2
+    hex=$(od -An -v -tx1 -j "$3" -N "$5" "$8") || return $?
+    printf '%s' "$hex" | tr -d ' \n'
+}
+fi
+'''
+    return (hexdump + f"stat() {{ printf '%s\\n' '{values['stats']}'; }}\n"
+            "readlink() { printf '/devices/mmcblk2p2\\n'; }\n"
+            "id() { printf '0\\n'; }\n"
+            "base64() { printf 'base64: not found\\n' >&2; return 127; }\n" + script)
 
 
 class RootCapacityTests(unittest.TestCase):
@@ -72,19 +97,43 @@ class RootCapacityTests(unittest.TestCase):
                  root_snapshot(internal=300000), root_snapshot(free=5000, available=2000),
                  root_snapshot(log_cluster=2), root_snapshot(options="rw,resuid=oops")]
         lines = valid.splitlines()
-        cases.extend("\n".join([*lines[:3], encoded]) for encoded in ("!", "AA=="))
-        sb = bytearray(base64.b64decode(lines[3]))
+        cases.extend("\n".join([*lines[:3], "superblock=" + encoded]) for encoded in ("!", "00"))
+        sb = bytearray.fromhex(lines[3].split("=", 1)[1])
         struct.pack_into("<H", sb, 0x3A, 3)
-        cases.append("\n".join([*lines[:3], base64.b64encode(sb).decode()]))
+        cases.append("\n".join([*lines[:3], "superblock=" + sb.hex()]))
         for output in cases:
             with self.subTest(output=output[:100]):
                 ssh = Mock()
                 ssh.exec_checked.return_value = output
-                with self.assertRaisesRegex(RuntimeError, "无法确认根分区"):
+                with self.assertLogs(level="ERROR"), self.assertRaisesRegex(RuntimeError, "无法确认根分区"):
                     storage.root_free_bytes(ssh, 100)
         ssh.exec_checked.side_effect = RuntimeError("missing reserved_clusters")
-        with self.assertRaisesRegex(RuntimeError, "已停止写入"):
+        with self.assertLogs(level="ERROR"), self.assertRaisesRegex(RuntimeError, "已停止写入"):
             storage.root_free_bytes(ssh, 100)
+
+    def test_missing_or_duplicate_fields_report_reason_without_logging_superblock(self):
+        lines = root_snapshot().splitlines()
+        for key in ("mount", "stats", "reserved", "superblock"):
+            ssh = Mock()
+            ssh.exec_checked.return_value = "\n".join(line for line in lines if not line.startswith(key + "="))
+            with self.subTest(key=key), self.assertLogs(level="ERROR") as logs:
+                with self.assertRaisesRegex(RuntimeError, "已停止写入") as error:
+                    storage.root_free_bytes(ssh, 100)
+            self.assertIn("missing root capacity fields: " + key, str(error.exception.__cause__))
+            self.assertIn(key, " ".join(logs.output))
+            self.assertNotIn(lines[3].split("=", 1)[1], " ".join(logs.output))
+        ssh.exec_checked.return_value = "\n".join([*lines, lines[0]])
+        with self.assertLogs(level="ERROR"), self.assertRaises(RuntimeError) as error:
+            storage.root_free_bytes(ssh, 100)
+        self.assertIn("duplicate", str(error.exception.__cause__))
+
+    def test_remote_read_failure_preserves_cause(self):
+        ssh = Mock()
+        ssh.exec_checked.side_effect = RuntimeError("hexdump: read error; root-capacity: superblock read failed")
+        with self.assertLogs(level="ERROR") as logs, self.assertRaises(RuntimeError) as error:
+            storage.root_free_bytes(ssh, 100)
+        self.assertIn("superblock read failed", str(error.exception.__cause__))
+        self.assertIn("hexdump: read error", " ".join(logs.output))
 
     def test_only_root_backed_system_storage_uses_privileged_probe(self):
         for partition in ("/", "/data"):
@@ -110,20 +159,9 @@ class RootCapacityTests(unittest.TestCase):
         git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
         shell = str(git_bash) if git_bash.is_file() else shutil.which("bash")
         self.assertIsNotNone(shell, "A POSIX shell is required for the storage probe test")
-        valid = root_snapshot().splitlines()
-        # Replace only hardware endpoints; all parsing and read commands run unchanged.
-        script = storage.ROOT_SPACE_COMMAND.replace("/sys/devices/soc0/machine", "machine")
-        script = script.replace("/proc/self/mountinfo", "mountinfo")
-        script = script.replace('"/dev/$device"', '"$device"').replace('[ -b ', '[ -f ')
-        script = script.replace('"/sys/fs/ext4/$device/reserved_clusters"', '"reserved"')
-        script = (f"stat() {{ printf '%s\\n' '{valid[1]}'; }}\n"
-                  "readlink() { printf '/devices/mmcblk2p2\\n'; }\n"
-                  "id() { printf '0\\n'; }\n" + script)
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            (root / "mountinfo").write_text(valid[0] + "\n")
-            (root / "reserved").write_text(valid[2] + "\n")
-            (root / "mmcblk2p2").write_bytes(bytes(1024) + base64.b64decode(valid[3]))
+            script = root_probe_fixture(root)
             for machine, uid in (("reMarkable 1.0", 0), ("reMarkable 2.0", 0),
                                  ("reMarkable Ferrari", 0), ("reMarkable 2.0", 1000)):
                 (root / "machine").write_text(machine + "\n")
@@ -132,13 +170,46 @@ class RootCapacityTests(unittest.TestCase):
                 result = subprocess.run([shell, "-c", probe], cwd=temp, capture_output=True,
                                         text=True, timeout=20)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                expected = "ordinary" if uid != 0 or "Ferrari" in machine else "\n".join(valid)
+                expected = "ordinary" if uid != 0 or "Ferrari" in machine else root_snapshot()
                 self.assertEqual(result.stdout.strip(), expected)
+                self.assertEqual(result.stderr, "")
+                ssh = Mock()
+                ssh.exec_checked.return_value = result.stdout
+                self.assertEqual(storage.root_free_bytes(ssh, 0), 0 if expected == "ordinary" else 10215 * 1024)
                 self.assertEqual({p.name: p.read_bytes() for p in root.iterdir()}, before)
             (root / "machine").write_text("reMarkable 2.0\n")
             (root / "reserved").unlink()
             result = subprocess.run([shell, "-c", script], cwd=temp, capture_output=True, timeout=20)
             self.assertNotEqual(result.returncode, 0)
+            self.assertIn(b"reserved clusters read failed", result.stderr)
+
+    def test_probe_shell_rejects_missing_failed_empty_and_short_superblock_reads(self):
+        git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
+        shell = str(git_bash) if git_bash.is_file() else shutil.which("bash")
+        self.assertIsNotNone(shell)
+        cases = [
+            ("hexdump() { printf 'hexdump: not found\\n' >&2; return 127; }\n", "superblock read failed"),
+            ("hexdump() { printf '00'; printf 'hexdump: read error\\n' >&2; return 1; }\n", "superblock read failed"),
+            ("hexdump() { return 0; }\n", "superblock short or invalid read"),
+            ("hexdump() { printf '0000'; }\n", "superblock short or invalid read"),
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            script = root_probe_fixture(root)
+            for prefix, error in cases:
+                with self.subTest(prefix=prefix):
+                    before = {p.name: p.read_bytes() for p in root.iterdir()}
+                    result = subprocess.run([shell, "-c", prefix + script], cwd=temp,
+                                            capture_output=True, text=True, timeout=20)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(error, result.stderr)
+                    self.assertNotIn("superblock=", result.stdout)
+                    self.assertEqual({p.name: p.read_bytes() for p in root.iterdir()}, before)
+            (root / "mmcblk2p2").write_bytes(bytes(1024 + 100))
+            result = subprocess.run([shell, "-c", script], cwd=temp,
+                                    capture_output=True, text=True, timeout=20)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("superblock short or invalid read", result.stderr)
 
 
 class LegacyPluginCapacityTests(unittest.TestCase):

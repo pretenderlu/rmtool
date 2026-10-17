@@ -24,6 +24,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+from _device_storage import ROOT_SPACE_COMMAND
 from _tap_page_turn import EXTERNAL_XOVI_PATHS
 
 # Per-item and total size budgets keep a bundle small even on noisy devices.
@@ -187,9 +188,18 @@ DEVICE_ITEMS: tuple[DiagItem, ...] = (
         "for f in /etc/fonts/fonts.conf /etc/fonts/conf.d/99-rmtool-ui-font.conf "
         "/home/root/.config/fontconfig/fonts.conf; do "
         "printf '\\n== %s\\n' \"$f\"; "
-        "if [ -f \"$f\" ] && [ ! -L \"$f\" ]; then tail -c 8192 \"$f\"; else echo MISSING-OR-LINK; fi; done; "
-        "ls -la /etc/fonts/conf.d /var/cache/fontconfig /home/root/.cache/fontconfig 2>/dev/null",
+        "if [ -f \"$f\" ] && [ ! -L \"$f\" ]; then tail -c 8192 \"$f\" || exit $?; "
+        "else echo MISSING-OR-LINK; fi; done; "
+        "for d in /etc/fonts/conf.d /var/cache/fontconfig /home/root/.cache/fontconfig; do "
+        "printf '\\n== %s\\n' \"$d\"; "
+        "if [ -e \"$d\" ] || [ -L \"$d\" ]; then ls -la \"$d\" || exit $?; "
+        "else echo MISSING; fi; done",
         optional=True,
+    ),
+    DiagItem(
+        "device/root-capacity.txt",
+        "旧设备根分区容量探测（含文件系统标识）",
+        ROOT_SPACE_COMMAND,
     ),
     DiagItem(
         "device/firmware-state.txt",
