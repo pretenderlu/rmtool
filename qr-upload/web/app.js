@@ -46,8 +46,12 @@ filesInput.addEventListener("change", () => {
     size.textContent = (file.size / 1000000).toFixed(1) + " MB";
     const state = document.createElement("span");
     state.className = "state";
-    const valid = /\.(pdf|epub)$/i.test(file.name) && file.size > 0 && file.size <= 100000000;
-    state.textContent = valid ? "待发送" : "仅支持不超过 100 MB 的非空 PDF/EPUB";
+    const cleanName = file.name.trim();
+    const validName = cleanName.length > 0 && !cleanName.startsWith(".") &&
+      new TextEncoder().encode(file.name).length <= 240 && !/[\\/:\p{Cc}\p{Cf}]/u.test(file.name);
+    const valid = validName && /\.(pdf|epub)$/i.test(cleanName) && file.size > 0 && file.size <= 200000000;
+    state.textContent = !validName ? "文件名过长或含不支持的字符，请重命名后重选" :
+      valid ? "待发送" : "仅支持不超过 200 MB 的非空 PDF/EPUB；更大文件请使用 USB 传输";
     row.dataset.state = valid ? "pending" : "error";
     row.append(name, size, state);
     queue.append(row);
@@ -59,6 +63,23 @@ filesInput.addEventListener("change", () => {
 function upload(item) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    const started = performance.now();
+    let loaded = 0;
+    let changedAt = started;
+    let sent = false;
+    const showProgress = () => {
+      const seconds = Math.floor((performance.now() - started) / 1000);
+      if (sent) {
+        item.state.textContent = `已发送，等待设备校验和系统导入 · ${seconds} 秒`;
+      } else if (loaded === 0) {
+        item.state.textContent = `正在读取文件或连接设备 · 已等待 ${seconds} 秒`;
+      } else {
+        const percent = Math.min(100, Math.floor(100 * loaded / item.file.size));
+        const stalled = performance.now() - changedAt >= 8000;
+        item.state.textContent = `${stalled ? "等待继续上传" : "发送中"} ${percent}% · ${(loaded / 1000000).toFixed(1)} / ${(item.file.size / 1000000).toFixed(1)} MB · ${seconds} 秒`;
+      }
+    };
+    const timer = setInterval(showProgress, 1000);
     active = xhr;
     xhr.open("POST", "/upload");
     xhr.setRequestHeader("Authorization", "Bearer " + token);
@@ -66,9 +87,17 @@ function upload(item) {
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.timeout = 6 * 60 * 1000;
     xhr.upload.onprogress = event => {
+      if (event.loaded > loaded) changedAt = performance.now();
+      loaded = event.loaded;
       if (event.lengthComputable) progress.value = 100 * event.loaded / event.total;
+      showProgress();
     };
-    xhr.upload.onload = () => { item.state.textContent = "等待系统导入"; };
+    xhr.upload.onload = () => {
+      sent = true;
+      progress.removeAttribute("value");
+      showProgress();
+    };
+    xhr.onloadend = () => clearInterval(timer);
     xhr.onload = () => {
       let data;
       try { data = JSON.parse(xhr.responseText); }
@@ -78,9 +107,13 @@ function upload(item) {
     };
     xhr.onerror = xhr.ontimeout = () => reject(new Error("连接中断，请先检查设备资料库，避免重复上传。"));
     xhr.onabort = () => reject(new Error("已取消传输；若已进入导入阶段，请先检查设备资料库。"));
-    item.state.textContent = "发送中";
-    progress.value = 0;
-    xhr.send(item.file);
+    showProgress();
+    progress.removeAttribute("value");
+    try { xhr.send(item.file); }
+    catch (_) {
+      clearInterval(timer);
+      reject(new Error("浏览器无法读取所选文件，请确认该文件已完整保存在手机上。"));
+    }
   });
 }
 

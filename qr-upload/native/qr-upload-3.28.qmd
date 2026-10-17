@@ -1,0 +1,175 @@
+; Experimental settings entry, replay-gated to the Move 3.28.0.172 canary.
+AFFECT /qml/device/view/settings/Settings.qml
+    IMPORT cn.rmtool.QrUpload 1.0
+
+    TRAVERSE ?#settingsSidebar > ColumnLayout#settingsColumn
+        LOCATE AFTER ALL
+        INSERT {
+            ArkControls.SidebarItem {
+                id: rmtoolQrSidebarItem
+                objectName: "rmtoolQrSidebarItem"
+                type: ArkTokens.Sidebar.primary
+                text: showLabels ? "扫码传输" : ""
+                iconSource: "qrc:/ark/icons/import"
+                highlighted: root._selectedPage === 1004
+                focusPolicy: Qt.StrongFocus
+                Layout.fillWidth: true
+                onTriggered: {
+                    root._selectedPage = 1004
+                    sidebarTimer.running = true
+                }
+            }
+        }
+    END TRAVERSE
+
+    TRAVERSE ?#payloadLoader
+        REBUILD sourceComponent
+            LOCATE AFTER STREAM /{/
+            INSERT STREAM /if (root._selectedPage === 1004) return rmtoolQrTransfer;/
+        END REBUILD
+    END TRAVERSE
+
+    TRAVERSE Item#root
+        LOCATE BEFORE Component#general
+        INSERT {
+            Component {
+                id: rmtoolQrTransfer
+                Item {
+                    id: rmtoolQrPage
+                    objectName: "rmtoolQrTransferPage"
+
+                    QrUpload { id: rmtoolQrBridge; settings: Settings }
+                    onVisibleChanged: { if (!visible) rmtoolQrBridge.stop() }
+                    Component.onDestruction: rmtoolQrBridge.stop()
+                    Connections {
+                        target: PowerManager
+                        function onPowerButtonShortPress() { rmtoolQrBridge.stop() }
+                    }
+                    Connections {
+                        target: Qt.application
+                        function onStateChanged() {
+                            if (Qt.application.state !== Qt.ApplicationActive) rmtoolQrBridge.stop()
+                        }
+                    }
+
+                    ScrollArea {
+                        anchors.fill: parent
+                        contentWidth: width
+                        contentHeight: rmtoolQrWrapper.childrenRect.height
+                            + ArkControls.Values.platform.spacing.x2large
+                        enableScrollbar: true
+                        permanentScrollbar: true
+                        Item {
+                            id: rmtoolQrWrapper
+                            implicitWidth: parent.width
+                            ArkControls.PlaceholderBar {
+                                id: rmtoolQrPlaceholder
+                                width: parent.width
+                            }
+                            ArkControls.Title {
+                                id: rmtoolQrHeader
+                                type: ArkControls.Title.Large
+                                anchors {
+                                    top: rmtoolQrPlaceholder.bottom
+                                    left: parent.left
+                                    leftMargin: ArkControls.Values.margin.horizontal.large
+                                    right: parent.right
+                                    rightMargin: ArkControls.Values.margin.horizontal.large
+                                }
+                                text: "扫码传输"
+                            }
+                            ColumnLayout {
+                                anchors {
+                                    top: rmtoolQrHeader.bottom
+                                    topMargin: ArkControls.Values.platform.spacing.x2large
+                                    left: parent.left
+                                    leftMargin: ArkControls.Values.margin.horizontal.large
+                                    right: parent.right
+                                    rightMargin: ArkControls.Values.margin.horizontal.large
+                                }
+                                spacing: ArkControls.Values.platform.spacing.x2large
+                                ArkControls.Body {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.Wrap
+                                    textFormat: Text.PlainText
+                                    text: rmtoolQrBridge.status
+                                }
+                                ArkControls.Body {
+                                    Layout.fillWidth: true
+                                    visible: rmtoolQrBridge.filename.length > 0
+                                    Layout.minimumWidth: 0
+                                    Layout.preferredWidth: 0
+                                    text: rmtoolQrBridge.filename
+                                    textFormat: Text.PlainText
+                                    elide: Text.ElideMiddle
+                                    maximumLineCount: 1
+                                }
+                                ArkControls.ProgressBar {
+                                    Layout.fillWidth: true
+                                    visible: rmtoolQrBridge.progress >= 0
+                                    value: Math.max(0, rmtoolQrBridge.progress) / 100
+                                }
+                                ArkControls.Body {
+                                    Layout.fillWidth: true
+                                    visible: rmtoolQrBridge.transferDetail.length > 0
+                                    text: rmtoolQrBridge.transferDetail
+                                    wrapMode: Text.Wrap
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: ArkControls.Values.spacing.medium
+                                    ArkControls.Button {
+                                        text: "开启接收"
+                                        type: ArkTokens.Button.primary
+                                        enabled: !rmtoolQrBridge.busy
+                                        onClicked: rmtoolQrBridge.start()
+                                    }
+                                    ArkControls.Button {
+                                        text: "停止接收"
+                                        type: ArkTokens.Button.secondary
+                                        enabled: rmtoolQrBridge.busy
+                                        onClicked: rmtoolQrBridge.stop()
+                                    }
+                                }
+                                Rectangle {
+                                    Layout.preferredWidth: Math.min(360, rmtoolQrPage.width - 100)
+                                    Layout.preferredHeight: Layout.preferredWidth
+                                    Layout.alignment: Qt.AlignHCenter
+                                    color: "white"
+                                    visible: rmtoolQrBridge.url.length > 0
+                                    QRCodeProvider {
+                                        id: rmtoolQrProvider
+                                        text: rmtoolQrBridge.url
+                                    }
+                                    Image {
+                                        anchors.fill: parent
+                                        anchors.margins: 16
+                                        fillMode: Image.PreserveAspectFit
+                                        source: rmtoolQrBridge.url.length > 0 ? rmtoolQrProvider.imageUrl : ""
+                                        smooth: false
+                                    }
+                                }
+                                ArkControls.Body {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.Wrap
+                                    visible: rmtoolQrBridge.expires.length > 0
+                                    text: "有效至 " + rmtoolQrBridge.expires
+                                }
+                                ArkControls.Body {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.Wrap
+                                    text: "PDF / EPUB，单个文件不超过 200 MB；更大文件推荐使用 USB 传输。"
+                                }
+                                ArkControls.Body {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.Wrap
+                                    text: "传输未加密，仅限可信 Wi-Fi。请勿在公共网络上传敏感文件。"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    END TRAVERSE
+END AFFECT

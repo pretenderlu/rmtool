@@ -16,6 +16,7 @@ import _pinyin_input as pinyin
 import _reading_enhancements as reading
 import _tap_page_turn as tap
 import _weread_launcher as weread
+import _qr_upload as qr
 import _xovi_standalone as shared
 
 
@@ -315,6 +316,8 @@ class SharedXoviTests(unittest.TestCase):
                         expected_features.add(note.FEATURE_ID)
                     if weread.select_package(weread._trusted_catalog(), identity):
                         expected_features.add(weread.FEATURE_ID)
+                    if qr.select_package(qr._trusted_catalog(), identity):
+                        expected_features.add(qr.FEATURE_ID)
                     app_runtime, app_features = appload.trusted_specs(identity)
                     if app_runtime is not None:
                         self.assertEqual(app_runtime, tap_runtime)

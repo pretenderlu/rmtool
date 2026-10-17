@@ -1,22 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/sha256"
-	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log"
-	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -33,11 +24,42 @@ func main() {
 	upstream := flag.String("upstream", "http://10.11.99.1:80", "already-active device-local native importer")
 	spool := flag.String("spool-parent", "/home/root", "existing private home directory for temporary uploads")
 	state := flag.String("state-dir", "/run/rmtool-qr-upload", "new private directory for session.json; existing directory is refused")
+	parent := flag.Int("parent-pid", 0, "optional owning UI process; stop when it exits")
+	activate := flag.Bool("activate-native", false, "temporarily prepare the verified device-local importer address")
 	flag.Parse()
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := run(ctx, *listen, *upstream, *spool, *state); err != nil {
+	if *parent != 0 {
+		if *parent <= 1 || os.Getppid() != *parent {
+			log.Fatal("owning UI process does not match")
+		}
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		go watchParent(ctx, cancel, *parent, os.Getppid, ticker.C)
+	}
+	start := run
+	if *activate {
+		if *parent <= 1 {
+			log.Fatal("native activation requires the owning UI process")
+		}
+		start = runManaged
+	}
+	if err := start(ctx, *listen, *upstream, *spool, *state); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func watchParent(ctx context.Context, cancel context.CancelFunc, parent int, current func() int, tick <-chan time.Time) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick:
+			if current() != parent {
+				cancel()
+				return
+			}
+		}
 	}
 }
 
@@ -67,33 +89,11 @@ func run(ctx context.Context, address, upstream, spoolParent, stateDir string) e
 		return err
 	}
 	defer os.Remove(spool)
-	s, err := newReceiver("https://"+address, upstream, spool)
+	s, err := newReceiver("http://"+address, upstream, spool)
 	if err != nil {
 		return err
 	}
 	defer s.stop()
-	// This experiment never edits networking or xochitl to make the endpoint work.
-	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, upstream, nil)
-	if err != nil {
-		cancel()
-		return err
-	}
-	response, err := s.client.Do(req)
-	if err != nil {
-		cancel()
-		return errors.New("native importer is unavailable; no Wi-Fi receiver was opened")
-	}
-	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1024))
-	_ = response.Body.Close()
-	cancel()
-	if response.StatusCode != http.StatusOK {
-		return errors.New("native importer readiness check failed")
-	}
-	certificate, fingerprint, err := sessionCertificate(ip)
-	if err != nil {
-		return err
-	}
 	if !filepath.IsAbs(stateDir) || filepath.Clean(stateDir) != stateDir {
 		return errors.New("session state must use an absolute, clean directory path")
 	}
@@ -104,32 +104,32 @@ func run(ctx context.Context, address, upstream, spoolParent, stateDir string) e
 		return errors.New("cannot create private session directory; inspect any existing experiment before retrying")
 	}
 	defer os.Remove(stateDir)
+	// The UI enables the stock service only after its bind address exists.
+	readyFile := filepath.Join(stateDir, "native-ready")
+	if err := writeSession(readyFile, []byte("ready\n")); err != nil {
+		return err
+	}
+	defer os.Remove(readyFile)
+	if err := waitNativeImporter(ctx, s.client, upstream); err != nil {
+		return err
+	}
 	listener, err := net.Listen("tcp4", address)
 	if err != nil {
 		return err
 	}
 	defer listener.Close()
 	stateFile := filepath.Join(stateDir, "session.json")
-	stateData, err := json.MarshalIndent(struct {
-		URL         string    `json:"url"`
-		Expires     time.Time `json:"expires_at"`
-		Fingerprint string    `json:"certificate_sha256"`
-	}{s.origin + "/#" + s.token, s.expires, fingerprint}, "", "  ")
+	stateData, err := s.sessionData()
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(stateFile+".tmp", stateData, 0600); err != nil {
-		return err
-	}
-	defer os.Remove(stateFile + ".tmp")
-	if err := os.Rename(stateFile+".tmp", stateFile); err != nil {
+	if err := writeSession(stateFile, stateData); err != nil {
 		return err
 	}
 	defer os.Remove(stateFile)
 	srv := &http.Server{
 		Handler: s, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 5 * time.Minute,
 		WriteTimeout: 6 * time.Minute, IdleTimeout: 15 * time.Second, MaxHeaderBytes: 16 * 1024,
-		TLSConfig:   &tls.Config{Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS12},
 		BaseContext: func(net.Listener) context.Context { return s.sessionCtx },
 	}
 	defer func() {
@@ -139,12 +139,14 @@ func run(ctx context.Context, address, upstream, spoolParent, stateDir string) e
 	}()
 	limited := &limitedListener{Listener: listener, slots: make(chan struct{}, 12), done: make(chan struct{})}
 	result := make(chan error, 1)
-	go func() { result <- srv.ServeTLS(limited, "", "") }()
-	log.Print("Experimental receiver started; credentials are only in the private session file")
+	go func() { result <- srv.Serve(limited) }()
+	log.Print("Experimental HTTP receiver started; unencrypted, trusted Wi-Fi only; credentials are only in the private session file")
 	timer := time.NewTimer(time.Until(s.expires))
 	defer timer.Stop()
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+	progressTick := time.NewTicker(time.Second)
+	defer progressTick.Stop()
 	waiting := true
 	for waiting {
 		select {
@@ -155,6 +157,17 @@ func run(ctx context.Context, address, upstream, spoolParent, stateDir string) e
 		case <-ticker.C:
 			if !assignedIP(ip) {
 				waiting = false
+			}
+		case <-progressTick.C:
+			data, err := s.sessionData()
+			if err != nil {
+				return errors.New("cannot encode private transfer status")
+			}
+			if !bytes.Equal(data, stateData) {
+				if err := writeSession(stateFile, data); err != nil {
+					return errors.New("cannot update private transfer status")
+				}
+				stateData = data
 			}
 		case err := <-result:
 			return err
@@ -171,6 +184,31 @@ func run(ctx context.Context, address, upstream, spoolParent, stateDir string) e
 	}
 	log.Print("Experimental receiver stopped")
 	return nil
+}
+
+func (s *receiver) sessionData() ([]byte, error) {
+	return json.Marshal(struct {
+		URL      string           `json:"url"`
+		Expires  time.Time        `json:"expires_at"`
+		Transfer transferProgress `json:"transfer"`
+	}{s.origin + "/#" + s.token, s.expires, s.transferSnapshot()})
+}
+
+func writeSession(path string, data []byte) error {
+	f, err := os.OpenFile(path+".tmp", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(path + ".tmp")
+	_, err = f.Write(data)
+	closeErr := f.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Rename(path+".tmp", path)
 }
 
 func listenIP(address string) (net.IP, error) {
@@ -199,29 +237,6 @@ func assignedIP(ip net.IP) bool {
 		}
 	}
 	return false
-}
-
-func sessionCertificate(ip net.IP) (tls.Certificate, string, error) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return tls.Certificate{}, "", err
-	}
-	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	if err != nil {
-		return tls.Certificate{}, "", err
-	}
-	template := x509.Certificate{
-		SerialNumber: serial, Subject: pkix.Name{CommonName: "rmtool temporary document receiver"},
-		NotBefore: time.Now().Add(-5 * time.Minute), NotAfter: time.Now().Add(time.Hour),
-		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		IPAddresses: []net.IP{ip}, BasicConstraintsValid: true,
-	}
-	der, err := x509.CreateCertificate(rand.Reader, &template, &template, key.Public(), key)
-	if err != nil {
-		return tls.Certificate{}, "", err
-	}
-	digest := sha256.Sum256(der)
-	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, hex.EncodeToString(digest[:]), nil
 }
 
 type limitedListener struct {

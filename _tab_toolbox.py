@@ -48,6 +48,7 @@ from _toolbox_reading import (  # noqa: F401 - re-exported for callers and tests
     ReadingEnhancementsSection,
     NoteEnhancementsSection,
     WeReadLauncherSection,
+    QrUploadSection,
 )
 from _toolbox_tap import (  # noqa: F401 - re-exported for callers and tests
     _tap_page_turn_status,
@@ -82,6 +83,7 @@ class ToolboxTab(QtWidgets.QWidget):
         self.reading_enhancements_section = ReadingEnhancementsSection(ssh_client)
         self.note_enhancements_section = NoteEnhancementsSection(ssh_client)
         self.weread_launcher_section = WeReadLauncherSection(ssh_client)
+        self.qr_upload_section = QrUploadSection(ssh_client)
         self.tap_page_turn_section = TapPageTurnSection(ssh_client)
         self.diagnostics_section = DiagnosticsSection(ssh_client)
         self.legacy_plugin_section = LegacyPluginMigrationSection(ssh_client)
@@ -91,6 +93,7 @@ class ToolboxTab(QtWidgets.QWidget):
             self.reading_enhancements_section,
             self.note_enhancements_section,
             self.weread_launcher_section,
+            self.qr_upload_section,
             self.tap_page_turn_section,
             self.legacy_plugin_section,
         )
@@ -144,6 +147,13 @@ class ToolboxTab(QtWidgets.QWidget):
                 "status": self.tap_page_turn_section.status_label,
                 "device_scoped": True,
                 "hidden_for_device": True,
+            },
+            {
+                "title": "扫码传输",
+                "category": "设备维护",
+                "keywords": "扫码 手机 Wi-Fi PDF EPUB 传书 上传",
+                "section": self.qr_upload_section,
+                "status": self.qr_upload_section.status_label,
             },
             {
                 "title": "时间管理",

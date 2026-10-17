@@ -21,6 +21,7 @@ FEATURE_MODULES = {
     "reading-enhancements": "_reading_enhancements",
     "note-enhancements": "_note_enhancements",
     "weread-launcher": "_weread_launcher",
+    "qr-upload": "_qr_upload",
 }
 FIRMWARE_RE = re.compile(r"^[0-9]{14}$")
 COLOR_PLATFORMS = frozenset(("ferrari", "chiappa"))
@@ -44,6 +45,7 @@ EXPECTED_COVERAGE = {
     "reading-enhancements": COLOR_TARGETS | BETA_329_COLOR_TARGETS,
     "note-enhancements": COLOR_TARGETS | BETA_329_COLOR_TARGETS,
     "weread-launcher": {(platform, "3.28.0.172") for platform in COLOR_PLATFORMS},
+    "qr-upload": {("chiappa", "3.28.0.172")},
 }
 
 # These are the official 3.28.0.172 identities extracted from the five cached
@@ -299,7 +301,7 @@ def validate() -> None:
 def main() -> int:
     validate()
     print(
-        "PASS: 27 device/firmware targets, seven plugin matrices, shared runtimes, "
+        f"PASS: 27 device/firmware targets, {len(FEATURE_MODULES)} plugin matrices, shared runtimes, "
         "AppLoad/KOReader and WeRead boundaries, five preview profiles, and "
         "ten official 3.28.0.172 / 3.29.0.152 localization carriers."
     )

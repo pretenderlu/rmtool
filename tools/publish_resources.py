@@ -157,6 +157,13 @@ RESOURCES = {
                 "https://github.com/pretenderlu/rmtool/releases/download/weread-launcher-assets",
             ),
         ),
+        Resource(
+            "qr-upload", "qr-upload-assets", ROOT / "qr-upload" / "manifest.json",
+            "qr-upload", "rmtool-qr-upload-",
+            frozenset({"offline_verified", "device_verified", "package_revision", "urls"}),
+            (f"{COS_PUBLIC_BASE_URL}/qr-upload",
+             "https://github.com/pretenderlu/rmtool/releases/download/qr-upload-assets"),
+        ),
     )
 }
 
@@ -378,6 +385,7 @@ def _validate_feature(resource: Resource, release_dir: Path) -> Bundle:
             "reading-enhancements",
             "note-enhancements",
             "weread-launcher",
+            "qr-upload",
         } and (
             type(package.get("package_revision")) is not int
             or package["package_revision"] <= 0

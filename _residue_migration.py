@@ -17,6 +17,7 @@ import _pinyin_input as pinyin
 import _reading_enhancements as reading
 import _tap_page_turn as tap
 import _weread_launcher as weread
+import _qr_upload as qr
 import _xovi_standalone
 
 
@@ -28,12 +29,13 @@ FEATURE_LABELS = {
     "reading-enhancements": "阅读增强",
     "note-enhancements": "笔记增强",
     "weread-launcher": "微信读书启动器",
+    "qr-upload": "扫码传输",
     "appload": "AppLoad",
     "koreader": "KOReader",
 }
 
 OPTIONAL_EXTERNAL_FEATURES = frozenset(
-    {appload.FEATURE_ID, appload.KOREADER_FEATURE_ID}
+    {appload.FEATURE_ID, appload.KOREADER_FEATURE_ID, qr.FEATURE_ID}
 )
 
 
@@ -67,6 +69,7 @@ def _providers() -> Dict[str, object]:
         "reading-enhancements": reading,
         "note-enhancements": note,
         "weread-launcher": weread,
+        "qr-upload": qr,
     }
 
 
@@ -194,7 +197,7 @@ def inspect_residue(ssh_client) -> ResidueReport | None:
             feature_id in _xovi_standalone.MIGRATABLE_FEATURE_IDS
             and feature_id in new_trusted
             and (
-                feature_id not in OPTIONAL_EXTERNAL_FEATURES
+                feature_id not in (appload.FEATURE_ID, appload.KOREADER_FEATURE_ID)
                 or appload.app_asset(new_identity) is not None
             )
         )

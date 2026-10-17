@@ -25,6 +25,7 @@ $required = @(
     "note-enhancements\manifest.json",
     "weread-app\manifest.json",
     "weread-launcher\manifest.json",
+    "qr-upload\manifest.json",
     "rmrl\__init__.py"
 )
 foreach ($path in $required) {
@@ -96,6 +97,7 @@ $commonArguments = @(
     "--add-data", "$(Join-Path $root 'note-enhancements\manifest.json');note-enhancements",
     "--add-data", "$(Join-Path $root 'weread-app\manifest.json');weread-app",
     "--add-data", "$(Join-Path $root 'weread-launcher\manifest.json');weread-launcher",
+    "--add-data", "$(Join-Path $root 'qr-upload\manifest.json');qr-upload",
     "--distpath", (Join-Path $root "dist"),
     "--specpath", (Join-Path $root "build")
 )

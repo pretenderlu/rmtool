@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	maxDocumentBytes = int64(100_000_000)
+	maxDocumentBytes = int64(200_000_000)
 	storageReserve   = uint64(64 * 1024 * 1024)
 	sessionDuration  = 15 * time.Minute
 )
@@ -52,6 +52,45 @@ type receiver struct {
 	closed     bool
 	cancel     context.CancelFunc
 	sessionCtx context.Context
+	progress   transferProgress
+}
+
+type transferProgress struct {
+	Phase    string `json:"phase"`
+	Filename string `json:"filename"`
+	Received int64  `json:"received"`
+	Total    int64  `json:"total"`
+	Message  string `json:"message"`
+}
+
+func (s *receiver) transferSnapshot() transferProgress {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.progress
+}
+
+func (s *receiver) transferPhase(phase, message string) {
+	s.mu.Lock()
+	s.progress.Phase, s.progress.Message = phase, message
+	s.mu.Unlock()
+}
+
+// Count bytes actually saved on the device, not bytes queued by the phone.
+type progressWriter struct {
+	file    *os.File
+	s       *receiver
+	firstAt time.Time
+}
+
+func (w *progressWriter) Write(p []byte) (int, error) {
+	n, err := w.file.Write(p)
+	if n > 0 && w.firstAt.IsZero() {
+		w.firstAt = time.Now()
+	}
+	w.s.mu.Lock()
+	w.s.progress.Received += int64(n)
+	w.s.mu.Unlock()
+	return n, err
 }
 
 func newReceiver(origin, upstream, spoolDir string) (*receiver, error) {
@@ -75,6 +114,7 @@ func newReceiver(origin, upstream, spoolDir string) (*receiver, error) {
 		upstream: strings.TrimRight(upstream, "/") + "/upload", spoolDir: spoolDir,
 		expires: time.Now().Add(sessionDuration), gate: make(chan struct{}, 1),
 		freeSpace: availableBytes, sessionCtx: ctx, cancel: cancel,
+		progress: transferProgress{Phase: "idle", Message: "等待手机传入文档"},
 		client: &http.Client{
 			Timeout: 2 * time.Minute,
 			// Never follow redirects, use environment proxies or forward phone headers.
@@ -98,6 +138,9 @@ func (s *receiver) active() bool {
 }
 
 func jsonReply(w http.ResponseWriter, status int, message string) {
+	if status >= 400 {
+		log.Printf("Request refused: status=%d", status)
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"message": message})
@@ -118,7 +161,7 @@ func (s *receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.requests.Add(1)
 	s.mu.Unlock()
 	defer s.requests.Done()
-	if "https://"+r.Host != s.origin || r.URL.RawQuery != "" {
+	if "http://"+r.Host != s.origin || r.URL.RawQuery != "" {
 		jsonReply(w, http.StatusBadRequest, "无效的传输地址")
 		return
 	}
@@ -126,7 +169,10 @@ func (s *receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w, http.StatusForbidden, "请从设备二维码打开上传页面")
 		return
 	}
-	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
+	// Scanners and external links may navigate cross-site to the public landing page.
+	pageNavigation := r.Method == http.MethodGet && r.URL.Path == "/" &&
+		r.Header.Get("Sec-Fetch-Mode") == "navigate" && r.Header.Get("Sec-Fetch-Dest") == "document"
+	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" && !pageNavigation {
 		jsonReply(w, http.StatusForbidden, "不允许跨站点请求")
 		return
 	}
@@ -171,7 +217,7 @@ func (s *receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func documentName(encoded string) (string, string, error) {
 	name, err := url.PathUnescape(encoded)
-	if err != nil || !utf8.ValidString(name) || len(name) == 0 || len(name) > 240 || strings.TrimSpace(name) != name {
+	if err != nil || !utf8.ValidString(name) || len(name) == 0 || len(name) > 240 {
 		return "", "", errors.New("invalid filename")
 	}
 	for _, c := range name {
@@ -179,6 +225,8 @@ func documentName(encoded string) (string, string, error) {
 			return "", "", errors.New("unsafe filename")
 		}
 	}
+	// Ignore harmless edge spaces, but reject control characters before trimming.
+	name = strings.TrimSpace(name)
 	ext := ""
 	switch {
 	case strings.HasSuffix(strings.ToLower(name), ".pdf"):
@@ -202,11 +250,20 @@ func (s *receiver) upload(w http.ResponseWriter, r *http.Request) {
 	}
 	name, kind, err := documentName(r.Header.Get("X-Filename"))
 	if err != nil {
+		log.Print("Upload admission: invalid filename")
 		jsonReply(w, http.StatusBadRequest, "文件名无效，仅支持 PDF 和 EPUB")
 		return
 	}
+	log.Printf("Upload admission: kind=%s content_length=%d", kind, r.ContentLength)
+	s.mu.Lock()
+	s.progress = transferProgress{Phase: "receiving", Filename: name, Total: max(0, min(r.ContentLength, maxDocumentBytes)), Message: "等待手机发送文件数据"}
+	s.mu.Unlock()
+	reject := func(code int, message string) {
+		s.transferPhase("error", message)
+		jsonReply(w, code, message)
+	}
 	if r.ContentLength == 0 || r.ContentLength > maxDocumentBytes {
-		jsonReply(w, http.StatusRequestEntityTooLarge, "文件不能为空或超过 100 MB")
+		reject(http.StatusRequestEntityTooLarge, "仅支持不超过 200 MB 的非空文件；更大文件请使用 USB 传输")
 		return
 	}
 	expected := r.ContentLength
@@ -215,12 +272,12 @@ func (s *receiver) upload(w http.ResponseWriter, r *http.Request) {
 	}
 	available, err := s.freeSpace(s.spoolDir)
 	if err != nil || available < uint64(expected)*2+storageReserve {
-		jsonReply(w, http.StatusInsufficientStorage, "设备空间不足或无法确认剩余空间")
+		reject(http.StatusInsufficientStorage, "设备空间不足或无法确认剩余空间")
 		return
 	}
 	f, err := os.CreateTemp(s.spoolDir, "upload-*")
 	if err != nil {
-		jsonReply(w, http.StatusInternalServerError, "设备无法创建接收文件")
+		reject(http.StatusInternalServerError, "设备无法创建接收文件")
 		return
 	}
 	defer func() {
@@ -237,38 +294,61 @@ func (s *receiver) upload(w http.ResponseWriter, r *http.Request) {
 	body := r.Body
 	stopBody := context.AfterFunc(ctx, func() { _ = body.Close() })
 	defer stopBody()
-	size, err := io.Copy(f, r.Body)
+	started := time.Now()
+	writer := &progressWriter{file: f, s: s}
+	size, err := io.Copy(writer, r.Body)
+	firstByteMS := int64(-1)
+	if !writer.firstAt.IsZero() {
+		firstByteMS = writer.firstAt.Sub(started).Milliseconds()
+	}
+	log.Printf("Upload receive: bytes=%d first_data_ms=%d receive_ms=%d complete=%t", size, firstByteMS, time.Since(started).Milliseconds(), err == nil)
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			jsonReply(w, http.StatusRequestEntityTooLarge, "文件超过 100 MB")
+			reject(http.StatusRequestEntityTooLarge, "文件超过 200 MB，请使用 USB 传输")
 		} else {
-			jsonReply(w, http.StatusBadRequest, "文件传输中断，未提交导入")
+			reject(http.StatusBadRequest, "文件传输中断，未提交导入")
 		}
 		return
 	}
 	if r.ContentLength >= 0 && size != r.ContentLength {
-		jsonReply(w, http.StatusBadRequest, "文件传输不完整，未提交导入")
+		reject(http.StatusBadRequest, "文件传输不完整，未提交导入")
 		return
 	}
+	s.transferPhase("validating", "接收完成，正在校验文件")
+	started = time.Now()
 	if err := validateDocument(f, size, kind); err != nil {
-		jsonReply(w, http.StatusBadRequest, "文件内容无效或超出当前支持范围，未提交导入")
+		message := "文件格式检查未通过"
+		var detail documentError
+		if errors.As(err, &detail) {
+			message = detail.message
+			log.Printf("Upload validation rejected: kind=%s bytes=%d reason=%s", kind, size, detail.reason)
+		} else {
+			log.Printf("Upload validation rejected: kind=%s bytes=%d reason=unknown", kind, size)
+		}
+		reject(http.StatusBadRequest, message+"，未提交系统导入")
 		return
 	}
+	log.Printf("Upload validation: elapsed_ms=%d", time.Since(started).Milliseconds())
 	available, err = s.freeSpace(s.spoolDir)
 	if err != nil || available < uint64(size)+storageReserve {
-		jsonReply(w, http.StatusInsufficientStorage, "设备剩余空间不足，未提交导入")
+		reject(http.StatusInsufficientStorage, "设备剩余空间不足，未提交导入")
 		return
 	}
 	if !s.active() || ctx.Err() != nil {
-		jsonReply(w, http.StatusGone, "接收已结束，未提交导入")
+		reject(http.StatusGone, "接收已结束，未提交导入")
 		return
 	}
-	if err := s.importDocument(ctx, f, size, name); err != nil {
+	s.transferPhase("importing", "正在导入系统资料库")
+	started = time.Now()
+	err = s.importDocument(ctx, f, size, name)
+	log.Printf("Native import: elapsed_ms=%d accepted=%t", time.Since(started).Milliseconds(), err == nil)
+	if err != nil {
 		// A timeout can follow a successful import. Never automatically retry it.
-		jsonReply(w, http.StatusBadGateway, "无法确认系统导入结果，请先检查设备资料库，避免重复上传")
+		reject(http.StatusBadGateway, "无法确认系统导入结果，请先检查设备资料库，避免重复上传")
 		return
 	}
+	s.transferPhase("done", "系统已接受导入，请在资料库查看")
 	jsonReply(w, http.StatusOK, "系统已接受导入，请在设备资料库查看")
 }
 

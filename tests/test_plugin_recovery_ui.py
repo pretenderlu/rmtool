@@ -497,7 +497,7 @@ class RecoveryUiTests(unittest.TestCase):
             link.click()
         detect.assert_called_once_with(show_errors=False)
         self.assertEqual(tab.search_input.text(), "")
-        self.assertEqual(tab.tool_table.currentRow(), 9)
+        self.assertEqual(tab.tool_table.item(tab.tool_table.currentRow(), 0).text(), "旧版插件迁移/清理")
 
 
 if __name__ == "__main__":

@@ -15,6 +15,8 @@ reMarkable 2 的经典离线验证点击翻页插件，以及一键只读诊断�
 
 当前发布版为 [v1.17.3](https://github.com/pretenderlu/rmtool/releases/tag/v1.17.3)。本版修复 RM1/RM2 部分固件容量检测失败导致插件安装或修复受阻的问题，并修正字体诊断误报，详见[更新日志](docs/releases/v1.17.3.md)。各插件的设备、固件覆盖和验证情况见下方支持表。
 
+主分支另含未发布的[扫码传输测试功能](qr-upload/README.md)：仅适配 Paper Pro Move 3.28.0.172，同一可信 Wi-Fi 下由手机直传 PDF/EPUB，单文件最多 200 MB。设备页面和上传已实测，rmtool 安装及重启后的完整流程仍待验证；不计入下方已发布支持表。
+
 > [!WARNING]
 > rmtool 会直接修改设备文件。请先同步或备份重要内容，并确认自己能够承担开发者模式、root SSH 和第三方修改带来的数据与保修风险。本项目不是 reMarkable 官方软件。
 

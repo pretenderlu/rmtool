@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "firmware": "20260827113527",
+      "platform": "chiappa",
+      "architecture": "aarch64",
+      "xochitl_sha256": "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4",
+      "release_version": "3.28.0.172",
+      "channel": "stable",
+      "offline_verified": true,
+      "device_verified": false,
+      "package_revision": 1,
+      "asset": "rmtool-qr-upload-chiappa-20260827113527-3.28.0.172.tar.gz",
+      "sha256": "e0abdb9331b159a412c1c5c275296dbad2387eb206129daa908ef51455a95cfb",
+      "size": 7244793,
+      "urls": [
+        "https://github.com/pretenderlu/rmtool/releases/download/qr-upload-assets/rmtool-qr-upload-chiappa-20260827113527-3.28.0.172.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/qr-upload/rmtool-qr-upload-chiappa-20260827113527-3.28.0.172.tar.gz"
+      ],
+      "files": [
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
+          "size": 9496456,
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
+        },
+        {
+          "path": "extensions.d/rmtool-qr-upload.so",
+          "mode": 420,
+          "size": 2129544,
+          "sha256": "610aad3ece264a2bef217a3cec3e052017e44beea57776361345be6b25b5c66d"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
+          "size": 618942,
+          "sha256": "d947afca520b16a06efc0e5462d9c4db68928f2b4591ac67d59bc2e1f519c27d"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/qr-upload.qmd",
+          "mode": 420,
+          "size": 12033,
+          "sha256": "7bc3c759debf7909876771d464e332371f064e7e743113d13926b509b9aac8a3"
+        },
+        {
+          "path": "helpers/rmtool-qr-upload",
+          "mode": 493,
+          "size": 7078048,
+          "sha256": "51cfaa94e0043b05354e455691034c55f22f4a61062e6785c0580b50b10829db"
+        },
+        {
+          "path": "qmd-tool",
+          "mode": 493,
+          "size": 1966264,
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
+        },
+        {
+          "path": "xovi.so",
+          "mode": 420,
+          "size": 103008,
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
+        }
+      ]
+    }
+  ]
+}

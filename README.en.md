@@ -16,6 +16,8 @@ and reMarkable 2, plus a one-click read-only diagnostic bundle for support. Devi
 
 The current release is [v1.17.3](https://github.com/pretenderlu/rmtool/releases/tag/v1.17.3). It fixes capacity-detection failures blocking plugin installation or repair on some RM1/RM2 firmware versions and corrects false font diagnostic errors. See the [release notes](docs/releases/v1.17.3.md) and the device, firmware and verification matrix below.
 
+The main branch also includes an unreleased [QR transfer test feature](qr-upload/README.md) for Paper Pro Move 3.28.0.172 only: phone-to-tablet PDF/EPUB uploads over trusted Wi-Fi, up to 200 MB per file. The device page and uploads passed hardware tests; managed installation and the post-reboot workflow still await acceptance. This is not included in the released support matrix below.
+
 > [!WARNING]
 > rmtool directly modifies files on the device. Sync or back up important content first, and make sure you accept the data and warranty risks associated with Developer Mode, root SSH, and third-party modifications. This project is not official reMarkable software.
 

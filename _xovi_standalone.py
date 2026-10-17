@@ -2831,6 +2831,7 @@ def _enable_shared_locked(
         "reading-enhancements",
         "note-enhancements",
         "weread-launcher",
+        "qr-upload",
     }:
         raise RuntimeError("共享 Xovi 包含不受支持的功能。")
     assert_feature_layout(runtime, trusted.values())
@@ -3173,6 +3174,7 @@ MIGRATABLE_FEATURE_IDS = frozenset(
         "reading-enhancements",
         "note-enhancements",
         "weread-launcher",
+        "qr-upload",
     }
 )
 

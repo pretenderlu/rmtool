@@ -477,6 +477,7 @@ class PublishResourcesTests(unittest.TestCase):
                 "reading-enhancements",
                 "note-enhancements",
                 "weread-launcher",
+                "qr-upload",
             ),
         )
         reading = publisher.RESOURCES["reading-enhancements"]

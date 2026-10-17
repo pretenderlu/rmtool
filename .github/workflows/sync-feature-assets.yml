@@ -13,6 +13,7 @@ on:
       - reading-enhancements/manifest.json
       - note-enhancements/manifest.json
       - weread-launcher/manifest.json
+      - qr-upload/manifest.json
       - tools/publish_resources.py
       - .github/workflows/sync-feature-assets.yml
 
@@ -46,7 +47,8 @@ jobs:
             "pinyin-input:pinyin-input-assets" \
             "reading-enhancements:reading-enhancements-assets" \
             "note-enhancements:note-enhancements-assets" \
-            "weread-launcher:weread-launcher-assets"
+            "weread-launcher:weread-launcher-assets" \
+            "qr-upload:qr-upload-assets"
           do
             name="${item%%:*}"
             tag="${item#*:}"
@@ -66,4 +68,5 @@ jobs:
             --resource pinyin-input \
             --resource reading-enhancements \
             --resource note-enhancements \
-            --resource weread-launcher
+            --resource weread-launcher \
+            --resource qr-upload

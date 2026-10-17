@@ -1312,7 +1312,7 @@ class WallpaperUiTests(unittest.TestCase):
         toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
         self.addCleanup(toolbox.deleteLater)
 
-        self.assertEqual(toolbox.tool_table.rowCount(), 10)
+        self.assertEqual(toolbox.tool_table.rowCount(), 11)
         self.assertEqual(
             [
                 toolbox.tool_table.item(row, 0).text()
@@ -1325,6 +1325,7 @@ class WallpaperUiTests(unittest.TestCase):
                 "笔记增强",
                 "微信读书",
                 "点击翻页（RM1/RM2/Paper Pure）",
+                "扫码传输",
                 "时间管理",
                 "设备控制",
                 "诊断日志导出",
@@ -1438,6 +1439,7 @@ class WallpaperUiTests(unittest.TestCase):
             ("reading", toolbox.reading_enhancements_section),
             ("note", toolbox.note_enhancements_section),
             ("weread", toolbox.weread_launcher_section),
+            ("qr", toolbox.qr_upload_section),
             ("tap", toolbox.tap_page_turn_section),
             ("recovery", toolbox.legacy_plugin_section),
         ):
@@ -1455,10 +1457,10 @@ class WallpaperUiTests(unittest.TestCase):
         # so detect-all skips it without starting a detection.
         toolbox.detect_all_button.click()
         self.assertEqual(calls, [("native", False)])
-        self.assertEqual(toolbox.detect_all_button.text(), "正在检测 1/7")
+        self.assertEqual(toolbox.detect_all_button.text(), "正在检测 1/8")
         self.assertFalse(toolbox.detect_all_button.isEnabled())
 
-        for expected in ("pinyin", "reading", "note", "weread", "recovery"):
+        for expected in ("pinyin", "reading", "note", "weread", "qr", "recovery"):
             pending.pop(0)()
             self.assertEqual(calls[-1], (expected, False))
 
@@ -1471,6 +1473,7 @@ class WallpaperUiTests(unittest.TestCase):
                 ("reading", False),
                 ("note", False),
                 ("weread", False),
+                ("qr", False),
                 ("recovery", False),
             ],
         )

@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"crypto/x509"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -25,13 +24,46 @@ import (
 
 const testPDF = "%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n"
 
+func TestParentExitCancelsSession(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var parent atomic.Int32
+	parent.Store(123)
+	tick := make(chan time.Time)
+	checked := make(chan struct{}, 2)
+	done := make(chan struct{})
+	go func() {
+		watchParent(ctx, cancel, 123, func() int {
+			value := parent.Load()
+			checked <- struct{}{}
+			return int(value)
+		}, tick)
+		close(done)
+	}()
+	tick <- time.Now()
+	<-checked
+	if ctx.Err() != nil {
+		t.Fatal("live owner canceled the session")
+	}
+	parent.Store(1)
+	tick <- time.Now()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("orphaned receiver did not stop")
+	}
+	if ctx.Err() == nil {
+		t.Fatal("owner exit left uploads authorized")
+	}
+}
+
 type transportFunc func(*http.Request) (*http.Response, error)
 
 func (f transportFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func setup(t *testing.T) (*receiver, *atomic.Int32) {
 	t.Helper()
-	s, err := newReceiver("https://192.168.1.2:8765", "http://127.0.0.1:80", t.TempDir())
+	s, err := newReceiver("http://192.168.1.2:8765", "http://127.0.0.1:80", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,6 +152,7 @@ func TestUpload(t *testing.T) {
 		data []byte
 	}{
 		{"中文 & \"摘录\".PDF", []byte(testPDF)}, {"书籍.epub", epub(validEPUB())},
+		{" 书籍.epub ", epub(validEPUB())},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			s, calls := setup(t)
@@ -135,7 +168,7 @@ func TestUpload(t *testing.T) {
 					t.Fatal(err)
 				}
 				part, err := mr.NextPart()
-				if err != nil || part.FileName() != test.name {
+				if err != nil || part.FileName() != strings.TrimSpace(test.name) {
 					t.Fatalf("filename changed: %v", err)
 				}
 				got, _ := io.ReadAll(part)
@@ -167,6 +200,7 @@ func TestRefusalsNeverImport(t *testing.T) {
 		{"stopped", func(s *receiver, _ *http.Request) { s.stop() }, 410},
 		{"other origin", func(_ *receiver, r *http.Request) { r.Header.Set("Origin", "https://evil.example") }, 403},
 		{"null origin", func(_ *receiver, r *http.Request) { r.Header.Set("Origin", "null") }, 403},
+		{"wrong scheme", func(_ *receiver, r *http.Request) { r.Header.Set("Origin", "https://"+r.Host) }, 403},
 		{"cross site", func(_ *receiver, r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") }, 403},
 		{"wrong host", func(_ *receiver, r *http.Request) { r.Host = "evil.example" }, 400},
 		{"token in query", func(_ *receiver, r *http.Request) { r.URL.RawQuery = "token=secret" }, 400},
@@ -204,8 +238,54 @@ func TestRefusalsNeverImport(t *testing.T) {
 	}
 }
 
+func TestCrossSitePageNavigation(t *testing.T) {
+	tests := []struct {
+		name, method, path, mode, destination, site string
+		mutate                                      func(*receiver, *http.Request)
+		code                                        int
+	}{
+		{"scan landing", "GET", "/", "navigate", "document", "cross-site", nil, 200},
+		{"same-site link", "GET", "/", "navigate", "document", "same-site", nil, 200},
+		{"iframe", "GET", "/", "navigate", "iframe", "cross-site", nil, 403},
+		{"fetch landing", "GET", "/", "cors", "empty", "cross-site", nil, 403},
+		{"missing navigation metadata", "GET", "/", "", "", "cross-site", nil, 403},
+		{"status navigation", "GET", "/status", "navigate", "document", "cross-site", nil, 403},
+		{"upload navigation", "POST", "/upload", "navigate", "document", "cross-site", nil, 403},
+		{"form landing", "POST", "/", "navigate", "document", "cross-site", nil, 403},
+		{"script fetch", "GET", "/app.js", "no-cors", "script", "cross-site", nil, 403},
+		{"foreign origin", "GET", "/", "navigate", "document", "cross-site", func(_ *receiver, r *http.Request) { r.Header.Set("Origin", "https://other.example") }, 403},
+		{"wrong host", "GET", "/", "navigate", "document", "cross-site", func(_ *receiver, r *http.Request) { r.Host = "other.example" }, 400},
+		{"query token", "GET", "/?token=secret", "navigate", "document", "cross-site", nil, 400},
+		{"expired", "GET", "/", "navigate", "document", "cross-site", func(s *receiver, _ *http.Request) { s.expires = time.Now().Add(-time.Second) }, 410},
+		{"stopped", "GET", "/", "navigate", "document", "cross-site", func(s *receiver, _ *http.Request) { s.stop() }, 410},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			s, calls := setup(t)
+			r := httptest.NewRequest(test.method, s.origin+test.path, nil)
+			r.Header.Set("Sec-Fetch-Mode", test.mode)
+			r.Header.Set("Sec-Fetch-Dest", test.destination)
+			r.Header.Set("Sec-Fetch-Site", test.site)
+			if test.mutate != nil {
+				test.mutate(s, r)
+			}
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, r)
+			if w.Code != test.code || calls.Load() != 0 {
+				t.Fatalf("HTTP %d, imports %d, want %d", w.Code, calls.Load(), test.code)
+			}
+			if test.code == 200 && (!bytes.Equal(w.Body.Bytes(), indexHTML) || strings.Contains(w.Body.String(), s.token)) {
+				t.Fatal("landing must serve only the public page, without credentials")
+			}
+			if w.Header().Get("X-Frame-Options") != "DENY" || w.Header().Get("Access-Control-Allow-Origin") != "" {
+				t.Fatal("navigation exception must not allow framing or CORS")
+			}
+		})
+	}
+}
+
 func TestFilename(t *testing.T) {
-	for _, name := range []string{"../book.pdf", "a/b.pdf", `a\b.pdf`, "a\x00.pdf", "a\r\n.pdf", "a\u202e.pdf", "book.txt", ".pdf", "x:book.pdf", " book.pdf", "book.pdf ", strings.Repeat("中", 90) + ".pdf"} {
+	for _, name := range []string{"../book.pdf", "a/b.pdf", `a\b.pdf`, "a\x00.pdf", "a\r\n.pdf", "a\u202e.pdf", "book.txt", ".pdf", "x:book.pdf", " .pdf ", "\nbook.pdf", "book.pdf\t", " \u202e书籍.pdf", strings.Repeat("中", 90) + ".pdf"} {
 		if _, _, err := documentName(url.PathEscape(name)); err == nil {
 			t.Errorf("accepted unsafe filename %q", name)
 		}
@@ -213,6 +293,12 @@ func TestFilename(t *testing.T) {
 	for _, encoded := range []string{"%GG.pdf", "%FF.pdf"} {
 		if _, _, err := documentName(encoded); err == nil {
 			t.Error("accepted malformed encoding")
+		}
+	}
+	for _, name := range []string{" book.pdf", "book.pdf ", "　中文.epub　"} {
+		got, _, err := documentName(url.PathEscape(name))
+		if err != nil || got != strings.TrimSpace(name) {
+			t.Errorf("filename edge spaces were not normalized: %q, %v", got, err)
 		}
 	}
 }
@@ -239,6 +325,59 @@ type zeroReader struct{}
 
 func (zeroReader) Read(p []byte) (int, error) { clear(p); return len(p), nil }
 
+func TestUploadSizeBoundary(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		size    int64
+		chunked bool
+		code    int
+	}{
+		{"200 MB", 200_000_000, false, 200},
+		{"200 MB chunked", 200_000_000, true, 200},
+		{"one byte over", 200_000_001, false, 413},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s, calls := setup(t)
+			s.client.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
+				calls.Add(1)
+				parts, err := r.MultipartReader()
+				if err != nil {
+					t.Fatal(err)
+				}
+				part, err := parts.NextPart()
+				if err != nil || part.FormName() != "file" {
+					t.Fatal("missing native document", err)
+				}
+				if n, err := io.Copy(io.Discard, part); err != nil || n != test.size {
+					t.Fatalf("native payload size %d, want %d: %v", n, test.size, err)
+				}
+				return &http.Response{StatusCode: 201, Body: io.NopCloser(strings.NewReader("{}"))}, nil
+			})
+			prefix, suffix := "%PDF-1.4\n", "\n%%EOF\n"
+			body := io.MultiReader(strings.NewReader(prefix),
+				io.LimitReader(zeroReader{}, test.size-int64(len(prefix)+len(suffix))), strings.NewReader(suffix))
+			r := request(s, "boundary.pdf", body)
+			r.ContentLength = test.size
+			if test.chunked {
+				r.ContentLength = -1
+			}
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, r)
+			if w.Code != test.code {
+				t.Fatalf("HTTP %d, want %d: %s", w.Code, test.code, w.Body.String())
+			}
+			if test.code == 200 {
+				if calls.Load() != 1 || s.progress.Received != test.size {
+					t.Fatal("accepted upload must retain full progress and import exactly once")
+				}
+			} else if calls.Load() != 0 || !strings.Contains(w.Body.String(), "200 MB") || !strings.Contains(w.Body.String(), "USB") {
+				t.Fatal("oversized upload must refuse import and recommend USB")
+			}
+			checkClean(t, s)
+		})
+	}
+}
+
 func TestChunkedUploadCap(t *testing.T) {
 	s, calls := setup(t)
 	w := httptest.NewRecorder()
@@ -247,6 +386,9 @@ func TestChunkedUploadCap(t *testing.T) {
 	s.ServeHTTP(w, r)
 	if w.Code != 413 || calls.Load() != 0 {
 		t.Fatal("unknown-length upload escaped size cap")
+	}
+	if !strings.Contains(w.Body.String(), "200 MB") || !strings.Contains(w.Body.String(), "USB") {
+		t.Fatal("oversized unknown-length upload must recommend USB")
 	}
 	checkClean(t, s)
 }
@@ -398,6 +540,10 @@ func TestEPUBValidation(t *testing.T) {
 		{"traversal", func(m map[string]string) { m["../escaped"] = "bad" }},
 		{"absolute path", func(m map[string]string) { m["/etc/passwd"] = "bad" }},
 		{"backslash", func(m map[string]string) { m[`EPUB\escape`] = "bad" }},
+		{"drive path", func(m map[string]string) { m["C:/escaped"] = "bad" }},
+		{"drive relative path", func(m map[string]string) { m["C:escaped"] = "bad" }},
+		{"URL path", func(m map[string]string) { m["https:/example.invalid/book"] = "bad" }},
+		{"nested traversal", func(m map[string]string) { m["EPUB/../../escaped"] = "bad" }},
 		{"oversized metadata", func(m map[string]string) { m["mimetype"] = strings.Repeat("x", 65) }},
 	}
 	for _, test := range tests {
@@ -434,7 +580,7 @@ func TestEPUBValidation(t *testing.T) {
 
 func TestLocalOnlyUpstreamAndListener(t *testing.T) {
 	for _, u := range []string{"https://127.0.0.1", "http://evil.example", "http://127.0.0.1:9999", "http://user:password@127.0.0.1", "http://127.0.0.1/admin", "http://127.0.0.1/?x=1"} {
-		if s, err := newReceiver("https://192.168.1.2:8765", u, t.TempDir()); err == nil {
+		if s, err := newReceiver("http://192.168.1.2:8765", u, t.TempDir()); err == nil {
 			s.stop()
 			t.Fatalf("accepted upstream %s", u)
 		}
@@ -449,38 +595,44 @@ func TestLocalOnlyUpstreamAndListener(t *testing.T) {
 	}
 }
 
-func TestTokenAndTLS(t *testing.T) {
-	s, _ := setup(t)
+func TestTokenAndHTTP(t *testing.T) {
+	s, calls := setup(t)
 	other, _ := setup(t)
 	if s.token == other.token || len(s.token) != 43 {
 		t.Fatal("session tokens are not independent 256-bit values")
 	}
-	cert, fingerprint, err := sessionCertificate(net.ParseIP("192.168.1.2"))
-	if err != nil || len(fingerprint) != 64 {
-		t.Fatal(err)
-	}
-	leaf, err := x509.ParseCertificate(cert.Certificate[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	roots := x509.NewCertPool()
-	roots.AddCert(leaf)
-	if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, DNSName: "192.168.1.2"}); err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewTLSServer(s)
+	server := httptest.NewServer(s)
 	defer server.Close()
 	s.origin = server.URL
-	req, _ := http.NewRequest("GET", server.URL+"/status", nil)
-	req.Header.Set("Authorization", "Bearer "+s.token)
+	for _, test := range []struct {
+		token string
+		code  int
+	}{{"", 401}, {other.token, 401}, {s.token, 200}} {
+		req, _ := http.NewRequest("GET", server.URL+"/status", nil)
+		// Plain HTTP browsers may omit Fetch Metadata; the token must still be required.
+		if test.token != "" {
+			req.Header.Set("Authorization", "Bearer "+test.token)
+		}
+		res, err := server.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != test.code || res.TLS != nil || res.Header.Get("Access-Control-Allow-Origin") != "" {
+			t.Fatalf("HTTP/auth boundary failed: %d, want %d", res.StatusCode, test.code)
+		}
+	}
+	req := request(s, "http.pdf", strings.NewReader(testPDF))
+	req.RequestURI = ""
 	res, err := server.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
-	if res.StatusCode != 200 || res.Header.Get("Access-Control-Allow-Origin") != "" {
-		t.Fatal("TLS/auth boundary failed")
+	res.Body.Close()
+	if res.StatusCode != 200 || calls.Load() != 1 {
+		t.Fatal("plain HTTP upload failed")
 	}
+	checkClean(t, s)
 }
 
 func TestStaticPageHasNoCredentialsOrCDN(t *testing.T) {
@@ -494,6 +646,9 @@ func TestStaticPageHasNoCredentialsOrCDN(t *testing.T) {
 	}
 	if calls.Load() != 0 {
 		t.Fatal("static pages contacted importer")
+	}
+	if !bytes.Contains(indexHTML, []byte("传输未加密，仅限可信 Wi-Fi")) {
+		t.Fatal("missing trusted-network warning")
 	}
 	if bytes.Contains(indexHTML, []byte("https://")) || bytes.Contains(appJS, []byte("innerHTML")) || bytes.Contains(appJS, []byte("localStorage")) {
 		t.Fatal("remote asset, unsafe filename rendering or token persistence")

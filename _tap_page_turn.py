@@ -617,6 +617,18 @@ def _trusted_shared_context(identity: DeviceIdentity):
     except ImportError:
         pass
     try:
+        import _qr_upload as qr
+
+        peer = qr.select_package(qr._trusted_catalog(), identity)
+        if peer is not None:
+            peer_runtime, peer_feature = qr._shared_specs(peer)
+            if runtime is not None and peer_runtime != runtime:
+                raise RuntimeError("扫码传输与共享 Xovi 的内置运行资源不一致。")
+            runtime = runtime or peer_runtime
+            trusted[peer_feature.feature_id] = peer_feature
+    except ImportError:
+        pass
+    try:
         import _appload as appload
 
         peer_runtime, peer_features = appload.trusted_specs(identity)

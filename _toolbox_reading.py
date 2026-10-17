@@ -10,6 +10,7 @@ import _note_enhancements
 import _reading_enhancements
 import _weread_app
 import _weread_launcher
+import _qr_upload
 from _ssh import SSHClientWrapper, require_connection
 # Dialog helpers are looked up on _toolbox_common at call time so a single
 # patch point covers every toolbox section.
@@ -576,6 +577,29 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             self.feature_name,
             self.explanation,
         )
+
+
+def _qr_upload_status(ssh_client, state_dir):
+    return _qr_upload.get_status(ssh_client, _qr_upload.load_catalog(state_dir, refresh=False))
+
+
+def _install_qr_upload(ssh_client, package, state_dir, migrate):
+    archive = _qr_upload.download_package(package, state_dir)
+    return _qr_upload.install(ssh_client, package, archive)
+
+
+class QrUploadSection(ReadingEnhancementsSection):
+    def __init__(self, ssh_client, parent=None):
+        super().__init__(ssh_client, parent, backend=_qr_upload,
+            state_type=_qr_upload.QrUploadState, status_loader=_qr_upload_status,
+            installer=_install_qr_upload, cleaner=_qr_upload.cleanup_legacy,
+            feature_name="扫码传输",
+            description="同一可信 Wi-Fi 下接收手机发送的 PDF / EPUB，单个文件最多 200 MB。"
+                "传输未加密，更大文件推荐使用 USB。首版仅适配 Paper Pro Move 3.28.0.172。",
+            explanation="安装后手动重启设备，在“设置 > 扫码传输”开启接收。手机与设备须连接同一可信 Wi-Fi；"
+                "接收时不需要电脑、rmtool 或 USB 连接。停止接收或退出页面后链接失效。"
+                "停用、更新或卸载前，请先在设备上停止接收并退出；已导入的书籍不会被删除。")
+        self.cleanup_legacy_button.hide()
 
 
 class NoteEnhancementsSection(ReadingEnhancementsSection):
