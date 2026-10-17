@@ -1,0 +1,28 @@
+:root { color-scheme: light; font: 16px/1.5 system-ui, sans-serif; color: #202621; background: #f5f7f6; }
+* { box-sizing: border-box; letter-spacing: 0; }
+body { margin: 0; }
+main { max-width: 640px; margin: auto; padding: 24px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 24px; border-bottom: 1px solid #d8dfdb; }
+.brand { font-weight: 750; font-size: 20px; }
+#connection { font-size: 14px; color: #53645a; overflow-wrap: anywhere; text-align: right; }
+h1 { font-size: 28px; line-height: 1.3; margin: 28px 0 8px; }
+.formats { color: #526359; margin: 0 0 32px; }
+.formats span { display: block; font-size: 14px; margin-top: 4px; color: #696e6a; }
+label { display: block; font-weight: 600; margin-bottom: 8px; }
+input { font: inherit; width: 100%; min-width: 0; padding: 12px; border: 1px solid #a4b0a8; border-radius: 6px; background: white; }
+input::file-selector-button { font: inherit; border: 0; background: #e3ece7; color: #263d30; padding: 8px 12px; border-radius: 4px; margin-right: 12px; }
+ul { padding: 0; list-style: none; margin: 24px 0; }
+li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 14px 0; border-bottom: 1px solid #d8dfdb; }
+li .name { overflow-wrap: anywhere; }
+li .size { font-size: 14px; color: #696e6a; white-space: nowrap; }
+li .state { grid-column: 1 / -1; color: #53645a; font-size: 14px; }
+li[data-state="error"] .state { color: #a02939; }
+li[data-state="done"] .state { color: #16734c; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; }
+button { min-height: 48px; font: inherit; font-weight: 600; border-radius: 6px; padding: 10px 16px; cursor: pointer; border: 1px solid #a4b0a8; color: #303b34; background: white; }
+#send { flex: 1 1 180px; background: #176949; color: white; border-color: #176949; }
+button:disabled, input:disabled { opacity: .48; cursor: default; }
+:focus-visible { outline: 3px solid #c49724; outline-offset: 3px; }
+progress { width: 100%; height: 12px; margin-top: 24px; accent-color: #176949; }
+#result { min-height: 48px; overflow-wrap: anywhere; color: #48594f; }
+@media (max-width: 360px) { main { padding: 18px; } }

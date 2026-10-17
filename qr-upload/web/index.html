@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>扫码传书 · rmtool</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><span class="brand">rmtool</span><span id="connection" role="status">连接中</span></header>
+    <h1>扫码传书</h1>
+    <p class="formats">PDF · EPUB <span>单个文件不超过 100 MB</span></p>
+    <label for="files">选择文档</label>
+    <input id="files" type="file" accept=".pdf,.epub,application/pdf,application/epub+zip" multiple disabled>
+    <ul id="queue" aria-label="待传文档"></ul>
+    <div class="actions">
+      <button id="send" type="button" disabled>发送到设备</button>
+      <button id="cancel" type="button" disabled>取消传输</button>
+    </div>
+    <progress id="progress" max="100" value="0" aria-label="文件传输进度" hidden></progress>
+    <p id="result" role="status" aria-live="polite"></p>
+  </main>
+</body>
+</html>
