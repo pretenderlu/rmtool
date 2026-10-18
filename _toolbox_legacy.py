@@ -493,15 +493,24 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         if session is None or not self._session_current(session):
             return
         features = "、".join(
-            item.label for item in report.features if item.enabled
+            item.label for item in report.features if item.enabled and item.target_available
+        )
+        skipped = "、".join(
+            item.label for item in report.features if item.enabled and not item.target_available
+        )
+        migration_notice = (
+            f"再把兼容的已启用功能（{features}）一次性替换为当前固件的精确包，"
+            "并保持这些功能的启用状态。" if features else "当前没有可迁移的已启用功能。"
+        )
+        skip_notice = (
+            f"将跳过不兼容入口（{skipped}），保留对应 App 和数据。" if skipped else ""
         )
         if not _ui.ask_confirmation(
             self,
             "迁移到当前固件",
             "rmtool 会先用旧固件的受信清单逐文件验证共享 Xovi 残留，"
-            f"再把已启用功能（{features}）一次性替换为当前固件的精确包，"
-            "并保持各功能的启用状态。任一验证失败都不会写入。"
-            "迁移完成后请从设备菜单手动重启设备。是否继续？",
+            + migration_notice + skip_notice + "任一验证失败都不会写入。"
+            + "迁移完成后请从设备菜单手动重启设备。是否继续？",
             confirm_text="迁移插件",
             cancel_text="取消",
         ):
@@ -528,12 +537,19 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             self._busy = False
             self._report = None
             self._on_connection_changed(self.ssh_client.is_connected())
-            self.status_label.setText("迁移完成。请从设备菜单手动重启设备。")
+            skipped = "、".join(
+                item.label for item in report.features
+                if item.enabled and not item.target_available
+            )
+            message = "迁移处理完成。"
+            if skipped:
+                message += f"已跳过不兼容入口（{skipped}），对应 App 和数据已保留。"
+            message += "请从设备菜单手动重启设备后生效。"
+            self.status_label.setText(message)
             _ui.show_info(
                 self,
                 _rmtool.APP_NAME,
-                "已把全部已启用插件迁移到当前固件的精确包。"
-                "请从设备菜单手动重启设备后生效。",
+                message,
             )
 
         def on_error(exc: Exception):

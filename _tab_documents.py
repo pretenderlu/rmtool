@@ -1,6 +1,5 @@
 """DocumentsTab extracted from rmtool.py."""
 
-import json
 import logging
 import os
 import posixpath
@@ -8,31 +7,20 @@ import shlex
 import shutil
 import stat
 import tempfile
-import uuid
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import paramiko
 from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
+from _native_document_import import NativeDocumentImporter
+import _native_import_control as native_control
 from _ssh import SSHClientWrapper, require_connection
+from _ui_tasks import run_in_background
 import rmtool as _rmtool  # late-bound access to avoid circular import
-
-
-@dataclass
-class _PreparedDocumentUpload:
-    identifier: str
-    tmpdir: str
-    remote_dirs: List[str]
-    files: List[Tuple[str, str, int]]
-
-    @property
-    def total_size(self) -> int:
-        return sum(size for _local, _remote, size in self.files)
 
 
 @dataclass(frozen=True)
@@ -44,202 +32,6 @@ class _OrphanThumbnailScan:
     @property
     def directory_count(self) -> int:
         return len(self.candidate_ids)
-
-
-class _DocumentTransferService:
-    def __init__(
-        self,
-        ssh_client: SSHClientWrapper,
-        document_root: str,
-        pdf_page_count: Callable[[str], int],
-    ):
-        self.ssh_client = ssh_client
-        self.document_root = document_root.rstrip("/")
-        self.pdf_page_count = pdf_page_count
-
-    def transfer_one(
-        self,
-        file_path: str,
-        progress_callback: Optional[Callable[[int, int], None]] = None,
-    ) -> None:
-        self.transfer_batch([file_path], progress_callback=progress_callback)
-
-    def transfer_batch(
-        self,
-        file_paths: List[str],
-        progress_callback: Optional[Callable[[int, int], None]] = None,
-    ) -> None:
-        packages: List[_PreparedDocumentUpload] = []
-        started_identifiers: List[str] = []
-        try:
-            for file_path in file_paths:
-                packages.append(self._prepare_upload(file_path))
-            total_size = sum(package.total_size for package in packages)
-            self._ensure_device_space(total_size)
-            self._upload_packages(packages, started_identifiers, progress_callback)
-        except Exception:
-            if started_identifiers:
-                self._cleanup_remote_uploads(started_identifiers)
-            raise
-        finally:
-            for package in packages:
-                shutil.rmtree(package.tmpdir, ignore_errors=True)
-
-    def _prepare_upload(self, file_path: str) -> _PreparedDocumentUpload:
-        extension = os.path.splitext(file_path)[1][1:].lower()
-        if extension not in {"pdf", "epub"}:
-            raise RuntimeError("仅支持上传 PDF 或 EPUB 文件")
-
-        tmpdir = tempfile.mkdtemp()
-        uuid_value = str(uuid.uuid4()).lower()
-        try:
-            shutil.copy(file_path, os.path.join(tmpdir, f"{uuid_value}.{extension}"))
-
-            metadata = {
-                "deleted": False,
-                "lastModified": f"{int(datetime.now().timestamp())}000",
-                "metadatamodified": False,
-                "modified": False,
-                "parent": "",
-                "pinned": False,
-                "synced": False,
-                "type": "DocumentType",
-                "version": 1,
-                "visibleName": os.path.splitext(os.path.basename(file_path))[0],
-            }
-            with open(os.path.join(tmpdir, f"{uuid_value}.metadata"), "w", encoding="utf-8") as f:
-                json.dump(metadata, f, indent=4, ensure_ascii=False)
-
-            content: Dict[str, object]
-            if extension == "pdf":
-                content = {
-                    "extraMetadata": {},
-                    "fileType": "pdf",
-                    "fontName": "",
-                    "lastOpenedPage": 0,
-                    "lineHeight": -1,
-                    "margins": 100,
-                    "pageCount": self.pdf_page_count(file_path),
-                    "textScale": 1,
-                    "transform": {
-                        "m11": 1,
-                        "m12": 1,
-                        "m13": 1,
-                        "m21": 1,
-                        "m22": 1,
-                        "m23": 1,
-                        "m31": 1,
-                        "m32": 1,
-                        "m33": 1,
-                    },
-                }
-                with open(os.path.join(tmpdir, f"{uuid_value}.content"), "w", encoding="utf-8") as f:
-                    json.dump(content, f, indent=4)
-                os.makedirs(os.path.join(tmpdir, f"{uuid_value}.cache"), exist_ok=True)
-                os.makedirs(os.path.join(tmpdir, f"{uuid_value}.highlights"), exist_ok=True)
-                os.makedirs(os.path.join(tmpdir, f"{uuid_value}.thumbnails"), exist_ok=True)
-            else:
-                content = {"fileType": "epub"}
-                with open(os.path.join(tmpdir, f"{uuid_value}.content"), "w", encoding="utf-8") as f:
-                    json.dump(content, f, indent=4)
-
-            remote_dirs = set()
-            files_to_upload: List[Tuple[str, str, int]] = []
-            for root, _dirs, files in os.walk(tmpdir):
-                rel_dir = os.path.relpath(root, tmpdir)
-                if rel_dir == ".":
-                    remote_dir = self.document_root
-                else:
-                    remote_dir = posixpath.join(
-                        self.document_root,
-                        rel_dir.replace(os.sep, "/"),
-                    )
-                    remote_dirs.add(remote_dir)
-                for name in files:
-                    local_path = os.path.join(root, name)
-                    remote_path = posixpath.join(remote_dir, name)
-                    file_size = os.path.getsize(local_path)
-                    files_to_upload.append((local_path, remote_path, file_size))
-
-            return _PreparedDocumentUpload(
-                identifier=uuid_value,
-                tmpdir=tmpdir,
-                remote_dirs=sorted(remote_dirs, key=lambda value: value.count("/")),
-                files=files_to_upload,
-            )
-        except Exception:
-            shutil.rmtree(tmpdir, ignore_errors=True)
-            raise
-
-    def _ensure_device_space(self, total_size: int) -> None:
-        if total_size <= 0:
-            return
-        available = self._device_available_bytes()
-        if available < total_size:
-            needed_mb = total_size / (1024 * 1024)
-            available_mb = available / (1024 * 1024)
-            raise RuntimeError(
-                f"设备剩余空间不足：需要约 {needed_mb:.1f} MB，可用约 {available_mb:.1f} MB"
-            )
-
-    def _device_available_bytes(self) -> int:
-        output = self.ssh_client.exec_checked(f"df -Pk {shlex.quote(self.document_root)}")
-        for line in reversed(output.splitlines()):
-            parts = line.split()
-            if len(parts) >= 4 and parts[3].isdigit():
-                return int(parts[3]) * 1024
-        numeric_tokens = [token for token in output.split() if token.isdigit()]
-        if numeric_tokens:
-            return int(numeric_tokens[-1]) * 1024
-        raise RuntimeError("无法读取设备剩余空间")
-
-    def _upload_packages(
-        self,
-        packages: List[_PreparedDocumentUpload],
-        started_identifiers: List[str],
-        progress_callback: Optional[Callable[[int, int], None]],
-    ) -> None:
-        total_size = sum(package.total_size for package in packages)
-        total_for_progress = total_size if total_size > 0 else 1
-        uploaded = 0
-        if progress_callback:
-            progress_callback(0, total_for_progress)
-
-        with self.ssh_client.sftp_session() as sftp:
-            for package in packages:
-                started_identifiers.append(package.identifier)
-                for remote_dir in package.remote_dirs:
-                    try:
-                        sftp.stat(remote_dir)
-                    except IOError:
-                        sftp.mkdir(remote_dir)
-
-                for local_path, remote_path, size in package.files:
-                    offset = uploaded
-
-                    def _put_callback(transferred, _total, offset=offset, size=size):
-                        if progress_callback:
-                            progress_callback(
-                                offset + min(transferred, size), total_for_progress
-                            )
-
-                    sftp.put(local_path, remote_path, callback=_put_callback)
-                    uploaded += size
-                    if progress_callback:
-                        progress_callback(uploaded, total_for_progress)
-
-        if progress_callback:
-            progress_callback(total_for_progress, total_for_progress)
-
-    def _cleanup_remote_uploads(self, identifiers: List[str]) -> None:
-        for identifier in identifiers:
-            try:
-                self.ssh_client.exec_checked(
-                    f"rm -rf {shlex.quote(posixpath.join(self.document_root, identifier))} "
-                    f"{shlex.quote(posixpath.join(self.document_root, identifier))}.*"
-                )
-            except Exception:
-                logging.exception("Failed to clean partial document upload %s", identifier)
 
 
 def _safe_extract_archive(archive_path: Path, target_dir: Path) -> None:
@@ -257,6 +49,7 @@ def _safe_extract_archive(archive_path: Path, target_dir: Path) -> None:
 class DocumentsTab(QtWidgets.QWidget):
     summary_changed = QtCore.pyqtSignal(dict)
     status_message = QtCore.pyqtSignal(str, str, int)
+    disconnect_requested = QtCore.pyqtSignal()
 
     def __init__(self, ssh_client: SSHClientWrapper, parent=None):
         super().__init__(parent)
@@ -270,12 +63,23 @@ class DocumentsTab(QtWidgets.QWidget):
         self._progress_label_base: str = ""
         self._connected = False
         self._connection_generation = 0
+        self._upload_active = False
         self._thumbnail_cleanup_running = False
 
         # --- Toolbar ---
         self.refresh_button = QtWidgets.QPushButton("刷新列表")
         self.upload_button = QtWidgets.QPushButton("上传文档")
         self.upload_button.setProperty("btnRole", "primary")
+        self.native_transfer_button = QtWidgets.QToolButton()
+        self.native_transfer_button.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DriveNetIcon))
+        self.native_transfer_button.setToolTip("原生传输服务")
+        self.native_transfer_button.setAccessibleName("原生传输服务")
+        self.native_transfer_button.setFixedSize(36, 36)
+        self.native_transfer_button.setPopupMode(QtWidgets.QToolButton.InstantPopup)
+        native_menu = QtWidgets.QMenu(self.native_transfer_button)
+        native_menu.addAction("初始化自动传输…", self._initialize_native_transfer)
+        native_menu.addAction("移除传输组件…", self._remove_native_transfer)
+        self.native_transfer_button.setMenu(native_menu)
         self.cleanup_thumbnails_button = QtWidgets.QPushButton("清理缩略图")
         self.cleanup_thumbnails_button.setToolTip(
             "扫描已不存在文档留下的封面缩略图，确认后再删除"
@@ -326,6 +130,7 @@ class DocumentsTab(QtWidgets.QWidget):
         top_layout = QtWidgets.QHBoxLayout()
         top_layout.addWidget(self.refresh_button)
         top_layout.addWidget(self.upload_button)
+        top_layout.addWidget(self.native_transfer_button)
         top_layout.addWidget(self.cleanup_thumbnails_button)
         top_layout.addWidget(self.delete_button)
         top_layout.addWidget(self.export_button)
@@ -453,6 +258,10 @@ class DocumentsTab(QtWidgets.QWidget):
             self._connection_generation += 1
         self._connected = connected
         if not connected:
+            self._upload_active = False
+            for button in (self.upload_button, self.native_transfer_button):
+                if hasattr(button, "_rmtool_background_task"):
+                    del button._rmtool_background_task
             self._close_progress_dialog()
             self.documents = []
             self._documents_by_id.clear()
@@ -463,7 +272,9 @@ class DocumentsTab(QtWidgets.QWidget):
             self._update_results_summary()
             self.summary_changed.emit(self._build_summary())
         self.refresh_button.setEnabled(connected)
-        self.upload_button.setEnabled(connected)
+        native_busy = hasattr(self.native_transfer_button, "_rmtool_background_task")
+        self.upload_button.setEnabled(connected and not self._upload_active and not native_busy)
+        self.native_transfer_button.setEnabled(connected and not self._upload_active and not native_busy)
         self._update_action_state()
         self._update_empty_state()
 
@@ -765,189 +576,162 @@ class DocumentsTab(QtWidgets.QWidget):
         self.thread_pool.start(worker)
 
     # -- Upload ----------------------------------------------------------------
+    @require_connection
     def upload_document(self):
+        if self._upload_active or hasattr(self.native_transfer_button, "_rmtool_background_task"):
+            return
+        generation = self._connection_generation
+        with self.ssh_client._state_lock:
+            client = self.ssh_client._client
         file_paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
-            self,
-            "选择要上传的文档",
-            "",
-            "文档文件 (*.pdf *.epub)",
+            self, "选择要上传的文档", "", "文档文件 (*.pdf *.epub)",
         )
         if not file_paths:
             return
 
-        count = len(file_paths)
-        worker = _rmtool.Worker(self._transfer_documents_batch, file_paths)
-        worker.kwargs["progress_callback"] = worker.signals.progress.emit
+        def is_current():
+            with self.ssh_client._state_lock:
+                return (generation == self._connection_generation
+                        and client is self.ssh_client._client)
 
-        def on_finished(_result):
+        if not is_current():
+            return
+        service = NativeDocumentImporter(self.ssh_client, _rmtool.DOCUMENT_ROOT, client)
+        worker = _rmtool.Worker(service.transfer_batch, file_paths)
+        # Normalize before crossing Qt's signed-32-bit progress signal.
+        emit_progress = worker.signals.progress.emit
+        worker.kwargs["progress_callback"] = lambda sent, total: emit_progress(
+            sent * 1000 // max(1, total), 1000
+        )
+        worker.kwargs["status_callback"] = worker.signals.status.emit
+
+        def on_progress(current, total):
             if sip.isdeleted(self):
-                # Worker outlived the tab; nothing safe left to update.
                 return
-            self._on_upload_finished(count)
+            if is_current():
+                self._update_progress_dialog(current, total)
 
-        def on_error(exc: Exception):
+        def on_status(text):
             if sip.isdeleted(self):
-                # Worker outlived the tab; only log, touching widgets would
-                # raise RuntimeError (and abort the process on macOS).
+                return
+            if is_current() and self._active_progress:
+                self._progress_label_base = text
+                self._active_progress.setLabelText(text)
+                if text.startswith("等待设备"):
+                    self._active_progress.setRange(0, 0)
+
+        def on_finished(count):
+            if sip.isdeleted(self):
+                return
+            if is_current():
+                self._upload_active = False
+                self.upload_button.setEnabled(self._connected)
+                self.native_transfer_button.setEnabled(self._connected)
+                self._on_upload_finished(count)
+
+        def on_error(exc):
+            if sip.isdeleted(self):
                 logging.error("Document upload failed after tab close: %s", exc)
                 return
-            self._close_progress_dialog()
-            self._on_error(exc)
+            if is_current():
+                self._upload_active = False
+                self.upload_button.setEnabled(self._connected)
+                self.native_transfer_button.setEnabled(self._connected)
+                self._close_progress_dialog()
+                self._on_error(exc)
+                self.refresh()
 
-        worker.signals.progress.connect(self._update_progress_dialog)
+        worker.signals.progress.connect(on_progress)
+        worker.signals.status.connect(on_status)
         worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
-        self._show_progress_dialog(
-            "上传进度",
-            f"正在上传 {count} 个文档…" if count > 1 else "正在上传文档…",
-        )
+        self._upload_active = True
+        self.upload_button.setEnabled(False)
+        self.native_transfer_button.setEnabled(False)
+        self._show_progress_dialog("导入文档", "正在检查设备原生导入服务…")
         self.thread_pool.start(worker)
 
     def _on_upload_finished(self, count: int) -> None:
         self._close_progress_dialog()
-        self.status_message.emit("success", f"已上传 {count} 个文档。", 3500)
-        if self._confirm_restart_after_upload(count):
-            self._start_xochitl_restart_after_upload()
-            return
-        self.status_message.emit(
-            "warning",
-            "已跳过重启；设备端可能需要重启 xochitl 后才会显示新文档。",
-            5000,
-        )
+        self.status_message.emit("success", f"设备已接收 {count} 个文档，无需重启；转换由系统完成。", 5000)
         self.refresh()
 
-    def _confirm_restart_after_upload(self, count: int) -> bool:
-        dialog = self._make_restart_confirmation_dialog(count)
-        return dialog.exec_() == QtWidgets.QDialog.Accepted
+    @require_connection
+    def _initialize_native_transfer(self):
+        if self._upload_active or hasattr(self.native_transfer_button, "_rmtool_background_task"):
+            return
+        generation = self._connection_generation
+        with self.ssh_client._state_lock:
+            client = self.ssh_client._client
+        if not ask_confirmation(self, _rmtool.APP_NAME,
+                "将安装或更新用于自动启停原生导入服务的控制组件，保留书籍和其他插件。"
+                "首次加载或更新后需要手动重启设备一次；之后上传不需要重启。是否继续？",
+                confirm_text="初始化", cancel_text="取消"):
+            return
+        if generation != self._connection_generation:
+            return
 
-    def _make_restart_confirmation_dialog(self, count: int) -> QtWidgets.QDialog:
-        dialog = QtWidgets.QDialog(self)
-        dialog.setObjectName("restartConfirmDialog")
-        dialog.setWindowTitle("重启文档服务")
-        dialog.setModal(True)
-        dialog.setFixedWidth(500)
-        dialog.setWindowFlags(
-            (dialog.windowFlags() | QtCore.Qt.FramelessWindowHint)
-            & ~QtCore.Qt.WindowContextHelpButtonHint
-        )
-        dialog.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
+        def initialize(ssh):
+            if ssh.ensure_client() is not client:
+                raise RuntimeError("设备连接已变化，未初始化传输组件。")
+            return native_control.initialize(ssh, str(_rmtool.app_state_dir()))
 
-        root_layout = QtWidgets.QVBoxLayout(dialog)
-        root_layout.setContentsMargins(18, 18, 18, 18)
+        run_in_background(self, initialize, self.ssh_client,
+            on_success=self._native_transfer_initialized,
+            error_prefix="原生传输初始化失败", log_message="Native import initialization failed",
+            disable=(self.native_transfer_button, self.upload_button))
 
-        surface = QtWidgets.QFrame()
-        surface.setObjectName("restartConfirmSurface")
-        surface.setAttribute(QtCore.Qt.WA_StyledBackground, True)
-        surface_layout = QtWidgets.QVBoxLayout(surface)
-        surface_layout.setContentsMargins(24, 24, 24, 22)
-        surface_layout.setSpacing(18)
-        root_layout.addWidget(surface)
+    def _native_transfer_initialized(self, status):
+        if sip.isdeleted(self):
+            return
+        if status.state is native_control.NativeImportState.ENABLED:
+            show_info(self, _rmtool.APP_NAME, "自动传输组件已就绪，可直接上传文档。")
+            return
+        if status.state is not native_control.NativeImportState.ENABLE_PENDING_REBOOT:
+            show_error(self, _rmtool.APP_NAME, status.detail or "原生传输组件状态未确认，请导出诊断日志。")
+            return
+        self.ssh_client.close()
+        self.set_connection_state(False)
+        self.disconnect_requested.emit()
+        show_info(self, _rmtool.APP_NAME,
+            "原生传输组件已部署，SSH 已关闭。请保存文档并手动重启设备一次，"
+            "解锁后重新连接 rmtool 上传；不用手动开启 USB 网页界面。")
 
-        header_layout = QtWidgets.QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(14)
+    @require_connection
+    def _remove_native_transfer(self):
+        if self._upload_active or hasattr(self.native_transfer_button, "_rmtool_background_task"):
+            return
+        generation = self._connection_generation
+        with self.ssh_client._state_lock:
+            client = self.ssh_client._client
+        if not ask_confirmation(self, _rmtool.APP_NAME,
+                "只移除原生传输控制组件，不删除书籍、扫码传输或其他插件。"
+                "完成后请手动重启设备；仍可手动开启系统 USB 网页界面进行原生上传。是否继续？",
+                confirm_text="移除", cancel_text="取消", danger=True):
+            return
+        if generation != self._connection_generation:
+            return
 
-        badge = QtWidgets.QLabel("↻")
-        badge.setObjectName("restartConfirmBadge")
-        badge.setFixedSize(46, 46)
-        badge.setAlignment(QtCore.Qt.AlignCenter)
-        header_layout.addWidget(badge, 0, QtCore.Qt.AlignTop)
+        def remove(ssh):
+            if ssh.ensure_client() is not client:
+                raise RuntimeError("设备连接已变化，未移除传输组件。")
+            return native_control.uninstall(ssh, native_control._trusted_catalog())
 
-        title_stack = QtWidgets.QVBoxLayout()
-        title_stack.setContentsMargins(0, 0, 0, 0)
-        title_stack.setSpacing(5)
+        run_in_background(self, remove, self.ssh_client,
+            on_success=self._native_transfer_removed,
+            error_prefix="移除原生传输组件失败", log_message="Native import removal failed",
+            disable=(self.native_transfer_button, self.upload_button))
 
-        title = QtWidgets.QLabel("让新文档在设备上显示？")
-        title.setObjectName("restartConfirmTitle")
-        title.setWordWrap(True)
-        title_stack.addWidget(title)
-
-        subtitle = QtWidgets.QLabel(f"已上传 {count} 个文档")
-        subtitle.setObjectName("restartConfirmSubtitle")
-        title_stack.addWidget(subtitle)
-        header_layout.addLayout(title_stack, 1)
-        surface_layout.addLayout(header_layout)
-
-        body = QtWidgets.QLabel(
-            "需要重启 reMarkable 的文档服务 xochitl，设备端文档列表才会立即刷新。"
-            "这个操作通常只需要几秒。"
-        )
-        body.setObjectName("restartConfirmBody")
-        body.setWordWrap(True)
-        surface_layout.addWidget(body)
-
-        note = QtWidgets.QFrame()
-        note.setObjectName("restartConfirmNote")
-        note.setAttribute(QtCore.Qt.WA_StyledBackground, True)
-        note_layout = QtWidgets.QHBoxLayout(note)
-        note_layout.setContentsMargins(14, 12, 14, 12)
-        note_layout.setSpacing(10)
-        note_text = QtWidgets.QLabel("稍后再说也可以；只是新上传的文档可能不会马上出现在设备端。")
-        note_text.setObjectName("restartConfirmNoteText")
-        note_text.setWordWrap(True)
-        note_layout.addWidget(note_text)
-        surface_layout.addWidget(note)
-
-        button_row = QtWidgets.QHBoxLayout()
-        button_row.setContentsMargins(0, 2, 0, 0)
-        button_row.setSpacing(10)
-        button_row.addStretch()
-
-        later_button = QtWidgets.QPushButton("稍后再说")
-        later_button.setObjectName("restartConfirmSecondary")
-        later_button.clicked.connect(dialog.reject)
-
-        restart_button = QtWidgets.QPushButton("现在重启")
-        restart_button.setObjectName("restartConfirmPrimary")
-        restart_button.setProperty("btnRole", "primary")
-        restart_button.setDefault(True)
-        restart_button.clicked.connect(dialog.accept)
-
-        button_row.addWidget(later_button)
-        button_row.addWidget(restart_button)
-        surface_layout.addLayout(button_row)
-
-        return dialog
-
-    def _start_xochitl_restart_after_upload(self) -> None:
-        worker = _rmtool.Worker(self._restart_xochitl)
-
-        def on_finished(_result):
-            if sip.isdeleted(self):
-                # Worker outlived the tab; nothing safe left to update.
-                return
-            self._close_progress_dialog()
-            self.status_message.emit("success", "xochitl 已重启，正在刷新列表。", 3500)
-            self.refresh()
-
-        def on_error(exc: Exception):
-            if sip.isdeleted(self):
-                # Worker outlived the tab; only log, touching widgets would
-                # raise RuntimeError (and abort the process on macOS).
-                logging.error("xochitl restart failed after tab close: %s", exc)
-                return
-            self._close_progress_dialog()
-            self._on_error(exc)
-
-        worker.signals.finished.connect(on_finished)
-        worker.signals.error.connect(on_error)
-        self._show_progress_dialog("重启文档服务", "正在重启 xochitl…")
-        self.thread_pool.start(worker)
-
-    def _restart_xochitl(self) -> None:
-        self.ssh_client.exec_checked("systemctl restart xochitl")
-
-    def _transfer_documents_batch(
-        self,
-        file_paths: List[str],
-        progress_callback: Optional[Callable[[int, int], None]] = None,
-    ):
-        service = _DocumentTransferService(
-            self.ssh_client,
-            _rmtool.DOCUMENT_ROOT,
-            _rmtool.pdf_page_count,
-        )
-        service.transfer_batch(file_paths, progress_callback=progress_callback)
+    def _native_transfer_removed(self, status):
+        if sip.isdeleted(self):
+            return
+        if status.detail:
+            show_info(self, _rmtool.APP_NAME, status.detail)
+            return
+        self.ssh_client.close()
+        self.set_connection_state(False)
+        self.disconnect_requested.emit()
+        show_info(self, _rmtool.APP_NAME, "原生传输组件已移除，SSH 已关闭；请手动重启设备。书籍及其他插件已保留。")
 
     # -- Delete ----------------------------------------------------------------
     @require_connection
@@ -1292,16 +1076,6 @@ class DocumentsTab(QtWidgets.QWidget):
         self._set_preview_placeholder("暂无可用预览")
         self.status_message.emit("warning", "文档预览加载失败，可继续查看元数据。", 3000)
 
-    # -- Document transfer -----------------------------------------------------
-    def _transfer_document(
-        self, file_path: str, progress_callback: Optional[Callable[[int, int], None]] = None
-    ):
-        service = _DocumentTransferService(
-            self.ssh_client,
-            _rmtool.DOCUMENT_ROOT,
-            _rmtool.pdf_page_count,
-        )
-        service.transfer_one(file_path, progress_callback=progress_callback)
 
     def _build_summary(self) -> Dict[str, object]:
         total = len(self.documents)

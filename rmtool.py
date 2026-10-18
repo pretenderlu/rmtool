@@ -29,7 +29,7 @@ from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets, sip
 
 
 APP_NAME = "reMarkable 管理工具"
-APP_VERSION = "1.17.3"
+APP_VERSION = "1.18.0"
 CONFIG_FILE = "devices.json"
 GITHUB_REPO_URL = "https://github.com/pretenderlu/rmtool"
 GITHUB_RELEASES_URL = f"{GITHUB_REPO_URL}/releases/latest"
@@ -537,6 +537,7 @@ class WorkerSignals(QtCore.QObject):
     finished = QtCore.pyqtSignal(object)
     error = QtCore.pyqtSignal(Exception)
     progress = QtCore.pyqtSignal(int, int)
+    status = QtCore.pyqtSignal(str)
 
 
 class Worker(QtCore.QRunnable):
@@ -884,6 +885,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.connection_widget.log_button.clicked.connect(self._toggle_log_panel)
         self.connection_widget.status_message.connect(self._show_status_message)
         self.documents_tab.status_message.connect(self._show_status_message)
+        self.documents_tab.disconnect_requested.connect(self.connection_widget._disconnect)
         self.screen_preview_tab.status_message.connect(self._show_status_message)
         self.documents_tab.summary_changed.connect(self.dashboard_tab.update_documents)
         self.koreader_tab.status_message.connect(self._show_status_message)

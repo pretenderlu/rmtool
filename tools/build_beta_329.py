@@ -1,4 +1,4 @@
-"""Build offline-verified 3.29.0.152 candidates from exact official firmware."""
+"""Build offline-verified 3.29 candidates from exact official firmware."""
 from __future__ import annotations
 
 import argparse
@@ -23,6 +23,12 @@ TARGETS = {
     'tatsu': ('aarch64', '241e33ac800d79d837b3467033a7e68f7667e949f93396999a80027369c483a3', '1bf16b6e7d5355e48479fa832871e98834307da652a06245b5fb86d0bbd7a26c'),
     'rm1': ('armv7l', '8ea9c8cf6b203e7feca3c30bbf854d16688006103ee035ae20c418c47761af34', '2eb775c3ced943c20ccf6271bb107e745db10aece2dc21e0e4bd8450d98fd23c'),
     'rm2': ('armv7l', 'fb1b115bf2fc38794663bbdc750b531582d94f176109de2a13bbdf7c313ce19c', '50a5ed69ab9c60d9f3b1d04b19311562194f6cfee769b17a6ea069d255e47760'),
+}
+TARGETS_BY_RELEASE = {
+    RELEASE: TARGETS,
+    '3.29.0.153': {
+        'chiappa': ('aarch64', '0b58feec10c046ed8d1d093316bfbfa4f4549511b3a9458cba29570fd8f81094', '0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba'),
+    },
 }
 FEATURES = ('tap-page-turn', 'native-chinese', 'pinyin-input', 'reading-enhancements', 'note-enhancements')
 HASHTAB = 'exthome/qt-resource-rebuilder/hashtab'
@@ -135,10 +141,11 @@ def abi_check(root, architecture, work):
     return result
 
 
-def highlight_abi_check(path, platform):
+def highlight_abi_check(path, platform, release=RELEASE):
     from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
     from elftools.elf.elffile import ELFFile
-    if platform not in ('chiappa', 'ferrari') or digest(path.read_bytes()) != TARGETS[platform][2]:
+    target = TARGETS_BY_RELEASE.get(release, {}).get(platform)
+    if platform not in ('chiappa', 'ferrari') or target is None or digest(path.read_bytes()) != target[2]:
         raise RuntimeError('Unverified highlighter firmware identity')
     source = (ROOT / 'reading-enhancements/native/highlight_snap_329.h').read_text()
     pattern_text = source.split('TARGET_PATTERN[] = {', 1)[1].split('};', 1)[0]
@@ -170,7 +177,7 @@ def highlight_abi_check(path, platform):
     # glyph stride 0x38, range stride 0x20, start/end indices +0/+4.
     if digest('\n'.join(normalized).encode()) != 'eca4c7bf1f4fa94f45e72847f5bcb581addd14d02a45eb1c72b56164c0db9fa7':
         raise RuntimeError('Highlighter expansion layout changed')
-    return dict(address=hex(address), xochitl_sha256=TARGETS[platform][2],
+    return dict(address=hex(address), xochitl_sha256=target[2],
                 instructions=[[hex(i.address), i.mnemonic, i.op_str] for i in instructions])
 
 
@@ -193,6 +200,7 @@ def validate_tap_navigation(qrex, gestures):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--release', choices=TARGETS_BY_RELEASE, default=RELEASE)
     parser.add_argument('--firmware-cache', type=Path, required=True)
     parser.add_argument('--resources', type=Path, required=True)
     parser.add_argument('--qt-bin', type=Path, required=True)
@@ -202,9 +210,11 @@ def main():
     parser.add_argument('--zig', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
     args = parser.parse_args()
+    release = args.release
+    targets = TARGETS_BY_RELEASE[release]
     sys.path.insert(0, str(args.python_libs))
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    arm_translator = build_arm_translator(args.zig, args.output_dir)
+    arm_translator = build_arm_translator(args.zig, args.output_dir) if any(t[0] == 'armv7l' for t in targets.values()) else None
     highlight = args.output_dir / 'rmtool-highlight-snap-3.29.so'
     run([sys.executable, ROOT / 'reading-enhancements/native/build_highlight_snap.py',
          '--zig', args.zig, '--beta-329', '--output', highlight])
@@ -212,10 +222,10 @@ def main():
     records = {feature: [] for feature in FEATURES}
     report = {}
     carriers = []
-    for platform, (architecture, swu_hash, xochitl_hash) in TARGETS.items():
+    for platform, (architecture, swu_hash, xochitl_hash) in targets.items():
         cache = args.firmware_cache / platform
         root = cache / 'extracted/selected-rootfs'
-        swu = cache / f'remarkable-production-image-{RELEASE}-{platform}-public.swu'
+        swu = cache / f'remarkable-production-image-{release}-{platform}-public.swu'
         if digest(swu.read_bytes()) != swu_hash or digest((root / 'usr/bin/xochitl').read_bytes()) != xochitl_hash or (root / 'etc/version').read_text().strip() != FIRMWARE:
             raise RuntimeError(f'Firmware identity mismatch: {platform}')
         resource = args.resources / platform
@@ -226,7 +236,7 @@ def main():
         work.mkdir(exist_ok=True)
         report[platform] = dict(identity=identity, abi=abi_check(root, architecture, work))
         if platform in ('chiappa', 'ferrari'):
-            report[platform]['highlight_abi'] = highlight_abi_check(root / 'usr/bin/xochitl', platform)
+            report[platform]['highlight_abi'] = highlight_abi_check(root / 'usr/bin/xochitl', platform, release)
         static_ts = work / 'static-qml.ts'
         run([args.qt_bin / 'lupdate.exe', resource / 'qrex-out', '-no-obsolete', '-locations', 'none', '-ts', static_ts])
         payloads = {}
@@ -260,20 +270,20 @@ def main():
                 temp = Path(temporary)
                 if feature == 'reading-enhancements':
                     builder = load(ROOT / feature / 'build_assets.py')
-                    qmd_source = builder._source_for_target(qmd_source, FIRMWARE, RELEASE,
+                    qmd_source = builder._source_for_target(qmd_source, FIRMWARE, release,
                                                            platform, architecture, xochitl_hash, temp / 'src')
                     files['extensions.d/rmtool-highlight-snap.so'] = (highlight.read_bytes(), 0o644)
                 elif feature == 'tap-page-turn':
                     builder = load(ROOT / 'reading-enhancements/build_assets.py')
-                    text = builder._tap_source_for_release(qmd_source.read_text(encoding='utf-8'), RELEASE)
+                    text = builder._tap_source_for_release(qmd_source.read_text(encoding='utf-8'), release)
                     qmd_source = temp / 'tap-page-turn-3.29.qmd'
                     qmd_source.write_text(text, encoding='utf-8', newline='\n')
                 if feature in ('reading-enhancements', 'note-enhancements'):
                     builder = load(ROOT / feature / 'build_assets.py')
                     compiled = builder._compile_and_validate(
                         qmd_tool=args.qmd_tool, qmldiff=args.qmldiff, source=qmd_source,
-                        target=dict(identity, id=platform + '-' + RELEASE, platform=platform,
-                                    release_version=RELEASE), work=temp / 'validate')
+                        target=dict(identity, id=platform + '-' + release, platform=platform,
+                                    release_version=release), work=temp / 'validate')
                 else:
                     compiled = run([args.qmd_tool, 'hash', '-hashtab', resource / 'hashtab', qmd_source])
                 files[qmd_path] = (compiled, 0o644)
@@ -283,35 +293,38 @@ def main():
                     old_qm = temp / 'previous.qm'
                     old_qm.write_bytes(files['native-chinese/reMarkable_zh_CN.qm'][0])
                     merged = temp / 'merged.ts'
+                    supplements = [ROOT / 'translations/reMarkable_zh_CN_3_29_0_152_supplement.ts']
+                    if release == '3.29.0.153':
+                        supplements.append(ROOT / 'translations/reMarkable_zh_CN_3_29_0_153_supplement.ts')
                     run([args.qt_bin / 'lconvert.exe', '-sort-contexts', '-locations', 'none', old_qm,
-                         ROOT / 'translations/reMarkable_zh_CN_3_29_0_152_supplement.ts', '-o', merged])
+                         *supplements, '-o', merged])
                     stock = root / 'usr/share/remarkable/xochitl/translations'
                     report[platform]['stock_and_qml_keys'] = validate_catalog([stock / f'reMarkable_{locale}.qm' for locale in ('en', 'fr', 'de', 'es')], merged, args.qt_bin, temp, static_ts)
-                    qm = work / f'reMarkable_zh_CN-{RELEASE}-{platform}.qm'
+                    qm = work / f'reMarkable_zh_CN-{release}-{platform}.qm'
                     run([args.qt_bin / 'lrelease.exe', '-nounfinished', merged, '-qm', qm])
                     first = qm.read_bytes()
                     run([args.qt_bin / 'lrelease.exe', '-nounfinished', merged, '-qm', temp / 'repeat.qm'])
                     if first != (temp / 'repeat.qm').read_bytes():
                         raise RuntimeError('Non-deterministic Chinese catalog')
                     files['native-chinese/reMarkable_zh_CN.qm'] = (first, 0o644)
-                    carriers.append(dict(platform=platform, release_version=RELEASE, channel='beta',
+                    carriers.append(dict(platform=platform, release_version=release, channel='beta',
                                          asset=qm.name, size=len(first), sha256=digest(first), xochitl_sha256=xochitl_hash,
                                          stock_french_sha256=digest((stock / 'reMarkable_fr.qm').read_bytes())))
             payloads[feature] = files
             module = __import__('_' + feature.replace('-', '_'))
-            entry = dict(firmware=FIRMWARE, release_version=RELEASE, channel='beta', platform=platform,
+            entry = dict(firmware=FIRMWARE, release_version=release, channel='beta', platform=platform,
                          architecture=architecture, xochitl_sha256=xochitl_hash)
             if feature == 'tap-page-turn':
-                asset = f'rmtool-{feature}-{platform}-{FIRMWARE}-{RELEASE}.tar.gz'
+                asset = f'rmtool-{feature}-{platform}-{FIRMWARE}-{release}.tar.gz'
             else:
                 entry.update(offline_verified=True, device_verified=False)
                 if feature in ('reading-enhancements', 'note-enhancements'):
-                    asset = module._expected_asset_name(platform, FIRMWARE, RELEASE)
+                    asset = module._expected_asset_name(platform, FIRMWARE, release)
                     entry['package_revision'] = module.PACKAGE_REVISION
                 elif feature == 'native-chinese':
-                    asset = f'rmtool-{feature}-{platform}-{FIRMWARE}-{RELEASE}' + ('-runtime-catalog' if architecture == 'armv7l' else '') + '.tar.gz'
+                    asset = f'rmtool-{feature}-{platform}-{FIRMWARE}-{release}' + ('-runtime-catalog' if architecture == 'armv7l' else '') + '.tar.gz'
                 else:
-                    asset = f'rmtool-{feature}-{platform}-{FIRMWARE}-{RELEASE}.tar.gz'
+                    asset = f'rmtool-{feature}-{platform}-{FIRMWARE}-{release}.tar.gz'
                 origins = (module.COS_URL, module.GITHUB_URL) if feature in ('native-chinese', 'pinyin-input') else module.REMOTE_BASE_URLS
                 entry['urls'] = [f'{origin}/{asset}' for origin in origins]
             archive = base_builder.pack(files)

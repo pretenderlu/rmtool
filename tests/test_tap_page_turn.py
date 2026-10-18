@@ -117,7 +117,7 @@ class TapPageTurnTests(unittest.TestCase):
 
     def test_repository_manifest_is_valid(self):
         parsed = tap.parse_manifest(Path("tap-page-turn/manifest.json").read_bytes())
-        self.assertEqual(len(parsed), 27)
+        self.assertEqual(len(parsed), 28)
         self.assertEqual(
             {
                 (item.platform, item.firmware, item.release_version)
@@ -148,6 +148,7 @@ class TapPageTurnTests(unittest.TestCase):
                 ("rm2", "20260827113527", "3.28.0.172"),
                 ("ferrari", "20261009073202", "3.29.0.152"),
                 ("chiappa", "20261009073202", "3.29.0.152"),
+                ("chiappa", "20261009073202", "3.29.0.153"),
                 ("tatsu", "20261009073202", "3.29.0.152"),
                 ("rm1", "20261009073202", "3.29.0.152"),
                 ("rm2", "20261009073202", "3.29.0.152"),

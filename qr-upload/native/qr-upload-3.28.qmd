@@ -1,9 +1,19 @@
-; Experimental settings entry, replay-gated to the Move 3.28.0.172 canary.
+; Settings entry, replay-gated to exact supported Move firmware resources.
+AFFECT /qml/device/view/main/MainView.qml
+    IMPORT cn.rmtool.QrUpload 1.0
+    TRAVERSE Background#root
+        LOCATE BEFORE ALL
+        INSERT {
+            ImportControl { settings: Settings }
+        }
+    END TRAVERSE
+END AFFECT
+
 AFFECT /qml/device/view/settings/Settings.qml
     IMPORT cn.rmtool.QrUpload 1.0
 
     TRAVERSE ?#settingsSidebar > ColumnLayout#settingsColumn
-        LOCATE AFTER ALL
+        LOCATE AFTER Item
         INSERT {
             ArkControls.SidebarItem {
                 id: rmtoolQrSidebarItem

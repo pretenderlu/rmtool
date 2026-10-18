@@ -1,9 +1,11 @@
-# QR document upload (unreleased)
+# QR document upload
 
 The source includes rmtool-managed installation for **Paper Pro Move
-3.28.0.172 only**. Phone uploads and the device page passed manual-deployment
-tests; the managed installation and post-reboot workflow still need acceptance.
-The feature assets have not been published.
+3.28.0.172 and 3.29.0.153**. Phone uploads and the device page passed .172
+manual-deployment tests. The .153 controller passed USB/Wi-Fi desktop native
+imports and restoration checks; .153 phone reception and complete managed
+installation/post-reboot acceptance remain separate hardware tests.
+Available from rmtool v1.18.0.
 
 The final experience is tablet-hosted: start reception on the tablet, scan its
 QR code from a phone on the same Wi-Fi, upload PDF/EPUB to the native library,
@@ -13,7 +15,7 @@ a computer, a USB cable, an SSH session, AppLoad or a cloud account.
 ## Current boundary
 
 This directory implements the independent receiver, phone page and an experimental
-Move .172 settings entry under `native/`. Page/QR/phone import has passed on that
+Move settings entry under `native/`. Page/QR/phone import has passed on .172 on that
 device, including 17.9 MB and 45.9 MB EPUBs that the user confirmed open normally.
 `_qr_upload.py` uses rmtool's existing verified shared-Xovi transactions for
 installation, detection, disabling and removal. Open **Device tools > QR
@@ -65,9 +67,14 @@ displayed by the CLI; the experimental native entry owns its separate session.
 ## Managed native entry
 
 `native/build.py` requires explicit Qt host tools, Zig, qmd-tool, qmldiff, the
-exact Move .172 extracted resource tree and the AArch64 receiver. It verifies
+exact Move .172 or .153 extracted resource tree and the AArch64 receiver. It verifies
 the hashtable, pins the receiver SHA-256 into the Qt bridge, and replays the QMD.
 All binaries/generated moc files stay in build/temporary directories.
+
+`build_assets.py --release 3.29.0.153` packages only that target and preserves
+the existing .172 package. The managed receiver verifies the internal build and
+stock xochitl hash before preparing the local importer: .152 and .153 share a
+build number but are not interchangeable. See [Move .153 checks](../docs/firmware-3.29.0.153-move.md).
 
 The narrow `QrUpload` QML type exposes only `start()` and `stop()`. It reads a
 single active private wlan0 IPv4, starts the verified foreground child without
@@ -77,6 +84,8 @@ The receiver's optional `--parent-pid` invalidates it if the owning UI process
 exits. Page hide/destruction and power-button handlers request stop; validate
 these on hardware before relying on automatic lock/suspend behavior.
 
+The native entry sits above reading/note enhancements, after the stock sidebar
+spacer, regardless of which peer plugins are installed or their loading order.
 The native page uses the firmware's import icon and shows the current filename,
 bytes actually saved, percentage (when size is known), validation, native import,
 acceptance and errors. Progress is atomically published in the private session
@@ -94,8 +103,9 @@ tokens. Validation failures show the specific format/limit reason on both phone
 and device, and do not submit the file to the native importer.
 
 The managed bridge requests `--activate-native`. On the exact verified build,
-the receiver prepares only the device-local `10.11.99.1/27` address on `usb1` if
-absent; conflicting IPv4 configuration is refused. A private readiness marker
+the receiver prepares only the device-local `10.11.99.1/29` address on `usb1` if
+absent. Existing stock `/29` and earlier canary `/27` addresses are reused without
+replacement; other IPv4 configurations are refused. A private readiness marker
 then lets the bridge temporarily enable `Settings.webInterfaceEnabled`. No
 cable, SSH session or desktop process is required for reception. The original
 setting is preserved; an owned restore marker survives a UI crash and is
@@ -103,6 +113,19 @@ recovered when the page is reopened. A leftover marker blocks removal until
 recovery. Only an address created by this session is removed, and only while no
 USB cable is connected. Normal stop closes the listener and restores the setting.
 Reboot persistence and crash/lock recovery still require hardware acceptance.
+
+The updated component also exposes a root-only Unix control socket for desktop
+native import, initialized from MainView rather than the QR settings page. The
+verified helper acquires an exclusive session, prepares the local address, then
+requests the live Settings property change. Desktop uploads keep the helper
+alive over their captured SSH connection; EOF, cancellation or 15 seconds without
+a heartbeat releases the session. Completion waits for settings and address
+restoration, and does not report success when restoration is unconfirmed.
+Originally enabled native service is reused without changing its setting. QR
+reception and desktop-controlled activation do not take over each other's active
+session. This automatic path currently has the same exact Move .172/.153 scope;
+it is not a generic firmware activation method. Loading a new component requires
+one manual restart after installation; uploads themselves do not restart anything.
 
 After building the receiver and bridge, `build_assets.py --receiver ...
 --native-dir ... --carrier ... --output-dir ...` creates a deterministic verified

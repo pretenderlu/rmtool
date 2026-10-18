@@ -629,6 +629,18 @@ def _trusted_shared_context(identity: DeviceIdentity):
     except ImportError:
         pass
     try:
+        import _native_import_control as native_import
+
+        peer = native_import.select_package(native_import._trusted_catalog(), identity)
+        if peer is not None:
+            peer_runtime, peer_feature = native_import._shared_specs(peer)
+            if runtime is not None and peer_runtime != runtime:
+                raise RuntimeError("原生传输与共享 Xovi 的内置运行资源不一致。")
+            runtime = runtime or peer_runtime
+            trusted[peer_feature.feature_id] = peer_feature
+    except ImportError:
+        pass
+    try:
         import _appload as appload
 
         peer_runtime, peer_features = appload.trusted_specs(identity)

@@ -26,6 +26,7 @@ class Beta329Tests(unittest.TestCase):
                 for release in ('3.27.3.0', '3.28.0.172'):
                     self.assertEqual(reading_builder._tap_source_for_release(source, release), source)
                 adapted = reading_builder._tap_source_for_release(source, builder.RELEASE)
+                self.assertEqual(reading_builder._tap_source_for_release(source, '3.29.0.153'), adapted)
                 with tempfile.TemporaryDirectory() as temporary:
                     if feature == 'reading-enhancements':
                         generated = reading_builder._source_for_target(
@@ -94,14 +95,19 @@ class Beta329Tests(unittest.TestCase):
             self.skipTest('Firmware analysis dependencies are not cached')
         sys.path.insert(0, str(libraries))
         try:
-            for platform, address in [('chiappa', '0xcadd70'), ('ferrari', '0xcc8db0')]:
-                path = Path('E:/remarkable/firmware-cache/official-beta') / builder.RELEASE / platform / 'extracted/selected-rootfs/usr/bin/xochitl'
+            for release, platform, address in [(builder.RELEASE, 'chiappa', '0xcadd70'),
+                                               (builder.RELEASE, 'ferrari', '0xcc8db0'),
+                                               ('3.29.0.153', 'chiappa', '0xcaddb0')]:
+                path = Path('E:/remarkable/firmware-cache/official-beta') / release / platform / 'extracted/selected-rootfs/usr/bin/xochitl'
                 if not path.is_file():
                     self.skipTest('Exact beta xochitl is not cached')
-                self.assertEqual(builder.highlight_abi_check(path, platform)['address'], address)
+                self.assertEqual(builder.highlight_abi_check(path, platform, release)['address'], address)
                 other = 'ferrari' if platform == 'chiappa' else 'chiappa'
                 with self.assertRaisesRegex(RuntimeError, 'identity'):
-                    builder.highlight_abi_check(path, other)
+                    builder.highlight_abi_check(path, other, release)
+                if release == '3.29.0.153':
+                    with self.assertRaisesRegex(RuntimeError, 'identity'):
+                        builder.highlight_abi_check(path, platform, builder.RELEASE)
         finally:
             sys.path.remove(str(libraries))
 
@@ -150,11 +156,32 @@ class Beta329Tests(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         self.assertEqual(module._variant(builder.RELEASE), '3.29')
+        self.assertEqual(module._variant('3.29.0.153'), '3.29')
         self.assertEqual(len(module._qmd_bytes()['3.29']), 2035)
         for package in native._trusted_catalog():
-            if package.release_version == builder.RELEASE:
+            if package.release_version in builder.TARGETS_BY_RELEASE:
                 data = module._catalog_bytes(package, module._translation_records())
                 self.assertEqual(builder.digest(data), package.file(native.CATALOG_PATH).sha256)
+
+    def test_153_keeps_same_build_but_exact_new_binary_and_catalog(self):
+        targets = builder.TARGETS_BY_RELEASE['3.29.0.153']
+        self.assertEqual(set(targets), {'chiappa'})
+        catalog = native._trusted_catalog()
+        previous = next(p for p in catalog if p.platform == 'chiappa' and p.release_version == builder.RELEASE)
+        package = next(p for p in catalog if p.release_version == '3.29.0.153')
+        self.assertEqual(previous.firmware, package.firmware)
+        self.assertNotEqual(previous.xochitl_sha256, package.xochitl_sha256)
+        self.assertEqual(package.xochitl_sha256, targets['chiappa'][2])
+        identity = native.tap.DeviceIdentity(package.firmware, package.platform, package.architecture, package.xochitl_sha256)
+        carrier = native._bundled_french_slot_package(identity)
+        self.assertEqual(carrier.release_version, '3.29.0.153')
+        self.assertEqual(carrier.localized_qm_sha256, package.file(native.CATALOG_PATH).sha256)
+        self.assertFalse(package.device_verified)
+        beta_reading = reading.select_package(reading._trusted_catalog(), identity)
+        _, feature = reading._shared_specs(beta_reading)
+        self.assertEqual(reading._known_shared_predecessor_specs(beta_reading, feature), ())
+        self.assertTrue(reading._highlight_snap_supported(package.firmware, package.release_version,
+                                                        package.platform, package.architecture, package.xochitl_sha256))
 
     def validate_translation(self, source, translation, *, comment='', numerus=False):
         with tempfile.TemporaryDirectory() as temporary:

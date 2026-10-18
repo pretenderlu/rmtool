@@ -1,4 +1,4 @@
-"""Build and replay-check the isolated Move .172 QR settings canary."""
+"""Build and replay-check the QR settings bridge against exact Move resources."""
 
 import argparse
 import hashlib
@@ -27,8 +27,11 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     hashtab = args.target / "hashtab"
-    if hashlib.sha256(hashtab.read_bytes()).hexdigest() != "d947afca520b16a06efc0e5462d9c4db68928f2b4591ac67d59bc2e1f519c27d":
-        raise RuntimeError("This UI canary is pinned to Move 3.28.0.172")
+    if hashlib.sha256(hashtab.read_bytes()).hexdigest() not in {
+        "d947afca520b16a06efc0e5462d9c4db68928f2b4591ac67d59bc2e1f519c27d",  # Move 3.28.0.172
+        "dcc74e46b6b306ffe5df1d7c6c6929bfa353e4fcc6c909de36d17bfe8d24ac0c",  # Move 3.29.0.153
+    }:
+        raise RuntimeError("QR settings require verified Move firmware resources")
     receiver = args.receiver.read_bytes()
     if receiver[:4] != b"\x7fELF" or struct.unpack_from("<H", receiver, 18)[0] != 183:
         raise RuntimeError("An AArch64 receiver is required")
@@ -38,23 +41,28 @@ def main():
     with tempfile.TemporaryDirectory() as temporary:
         work = Path(temporary)
         run([args.qt_host / "bin/moc.exe", here / "QrUpload.h", "-o", work / "moc_QrUpload.cpp"])
+        run([args.qt_host / "bin/moc.exe", here / "ImportControl.h", "-o", work / "moc_ImportControl.cpp"])
         include = args.qt_host / "include"
         bridge = args.output / "rmtool-qr-upload.so"
         run([args.zig, "c++", "-target", "aarch64-linux-gnu.2.17", "-std=c++17", "-shared", "-fPIC",
              "-O2", "-Wl,--allow-shlib-undefined", f'-DRMTOOL_QR_RECEIVER_SHA256="{digest}"',
-             "-I", include, "-I", include / "QtCore", "-I", include / "QtQml", "-I", work,
-             here / "main.cpp", "-o", bridge])
+             f"-ffile-prefix-map={work}=qr-upload-generated", f"-fmacro-prefix-map={work}=qr-upload-generated",
+             "-I", include, "-I", include / "QtCore", "-I", include / "QtQml", "-I", include / "QtNetwork", "-I", work,
+             here / "main.cpp", here / "ImportControl.cpp", "-o", bridge])
         compiled = run([args.qmd_tool, "hash", "-hashtab", hashtab, here / "qr-upload-3.28.qmd"])
         qmd = args.output / "rmtool-qr-upload.qmd"
         qmd.write_bytes(compiled)
         (work / "hashtabs").mkdir()
         (work / "qmds").mkdir()
-        shutil.copy2(hashtab, work / "hashtabs/hashtab-move-172")
+        shutil.copy2(hashtab, work / "hashtabs/hashtab-move")
         shutil.copy2(qmd, work / "qmds/rmtool-qr-upload.qmd")
         if b"ALL OK" not in run([args.qmd_tool, "check", "-hashtabs", work / "hashtabs", "-qmd", work / "qmds"]):
             raise RuntimeError("Incomplete QMD validation")
         run([args.qmldiff, "apply-diffs", "--hashtab", hashtab, "-c", args.target / "qrex-out", work / "replay", qmd])
         settings = (work / "replay/qml/device/view/settings/Settings.qml").read_text(encoding="utf-8")
+        main_view = (work / "replay/qml/device/view/main/MainView.qml").read_text(encoding="utf-8")
+        if "ImportControl" not in main_view or "settings: Settings" not in main_view:
+            raise RuntimeError("Desktop native import control is missing from the main view")
         for required in ("import cn.rmtool.QrUpload 1.0", "QRCodeProvider", "rmtoolQrTransferPage", "rmtoolQrBridge.stop()"):
             if required not in settings:
                 raise RuntimeError(f"Missing replay marker: {required}")

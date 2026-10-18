@@ -1,4 +1,5 @@
 #include "QrUpload.h"
+#include "ImportControl.h"
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -113,6 +114,11 @@ bool QrUpload::enableImportPreference()
 void QrUpload::start()
 {
     if (busy()) return;
+    if (ImportControl::desktopActive()) {
+        m_status = QStringLiteral("电脑正在传输文档，请稍后开启接收");
+        emit changed();
+        return;
+    }
     const auto address = wifiAddress();
     if (address.isEmpty()) {
         m_status = QStringLiteral("请先连接 Wi-Fi");
@@ -281,6 +287,7 @@ void QrUpload::readSession()
 extern "C" void _xovi_construct()
 {
     qmlRegisterType<QrUpload>("cn.rmtool.QrUpload", 1, 0, "QrUpload");
+    qmlRegisterType<ImportControl>("cn.rmtool.QrUpload", 1, 0, "ImportControl");
 }
 
 extern "C" char _xovi_shouldLoad()

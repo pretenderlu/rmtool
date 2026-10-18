@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -26,9 +25,19 @@ func main() {
 	state := flag.String("state-dir", "/run/rmtool-qr-upload", "new private directory for session.json; existing directory is refused")
 	parent := flag.Int("parent-pid", 0, "optional owning UI process; stop when it exits")
 	activate := flag.Bool("activate-native", false, "temporarily prepare the verified device-local importer address")
+	desktop := flag.Bool("desktop-native-lease", false, "hold an exclusive native import session for rmtool")
 	flag.Parse()
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer cancel()
+	if *desktop {
+		if *listen != "" || *activate || *parent != 0 {
+			log.Fatal("desktop lease cannot start a phone receiver")
+		}
+		if err := runDesktopNative(ctx); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if *parent != 0 {
 		if *parent <= 1 || os.Getppid() != *parent {
 			log.Fatal("owning UI process does not match")
@@ -275,15 +284,4 @@ func (c *limitedConn) Close() error {
 	err := c.Conn.Close()
 	c.once.Do(c.release)
 	return err
-}
-
-func privateDirectory(name string) error {
-	info, err := os.Lstat(name)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0022 != 0 {
-		return fmt.Errorf("unsafe writable or non-directory parent: %s", name)
-	}
-	return ownedDirectory(info)
 }

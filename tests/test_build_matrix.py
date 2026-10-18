@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 import tools.validate_build_matrix as matrix
 import _rmkit_cn as fonts
 import _tap_page_turn as tap
+import _native_import_control as native_import
 
 
 class BuildMatrixTests(unittest.TestCase):
@@ -30,6 +31,14 @@ class BuildMatrixTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "identity disagrees"):
                     matrix._validate_cross_feature_support()
 
+    def test_native_beta_requires_all_five_even_without_other_plugin_packages(self):
+        document = matrix._manifest("native-import")
+        document["packages"] = [p for p in document["packages"]
+                                if (p["platform"], p["release_version"]) != ("rm1", "3.29.0.153")]
+        with patch.object(matrix, "_manifest", return_value=document), patch.object(native_import, "parse_manifest"):
+            with self.assertRaisesRegex(RuntimeError, "coverage mismatch"):
+                matrix._validate_feature_matrix("native-import")
+
     def test_stale_arm_translator_is_rejected_for_stable_and_beta(self):
         import _native_chinese as native
 
@@ -47,7 +56,9 @@ class BuildMatrixTests(unittest.TestCase):
         for feature, name in matrix.FEATURE_MODULES.items():
             module = importlib.import_module(name)
             catalog = module._trusted_catalog()
-            for package in tap._trusted_catalog():
+            known_targets = {(p.platform, p.release_version): p
+                             for p in (*tap._trusted_catalog(), *native_import._trusted_catalog())}
+            for package in known_targets.values():
                 identity = tap.DeviceIdentity(
                     package.firmware, package.platform, package.architecture, package.xochitl_sha256
                 )
@@ -70,7 +81,7 @@ class BuildMatrixTests(unittest.TestCase):
             ), patch.object(fonts, "_epub_font_slots", return_value=()) as read_slots:
                 status = fonts.get_epub_font_slot_status(ssh)
                 expected = package.platform in matrix.COLOR_PLATFORMS and (
-                    package.release_version.startswith("3.28.") or package.release_version == "3.29.0.152"
+                    package.release_version.startswith("3.28.") or package.release_version in ("3.29.0.152", "3.29.0.153")
                 )
                 self.assertEqual(status.supported, expected)
                 self.assertEqual(read_slots.called, expected)

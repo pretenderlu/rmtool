@@ -11,6 +11,11 @@ import _xovi_standalone as shared
 
 
 class QrUploadTests(unittest.TestCase):
+    def test_native_builder_normalizes_generated_source_paths(self):
+        builder = (Path(__file__).resolve().parents[1] / "qr-upload/native/build.py").read_text()
+        self.assertIn("-ffile-prefix-map={work}=qr-upload-generated", builder)
+        self.assertIn("-fmacro-prefix-map={work}=qr-upload-generated", builder)
+
     def setUp(self):
         self.catalog = qr._trusted_catalog()
         self.package = self.catalog[0]
@@ -19,7 +24,7 @@ class QrUploadTests(unittest.TestCase):
         self.runtime, self.trusted, self.legacies, self.feature = qr._context(self.identity, p)
 
     def test_manifest_and_shared_peers_are_exact(self):
-        self.assertEqual(len(self.catalog), 1)
+        self.assertEqual(len(self.catalog), 2)
         self.assertEqual(self.package.platform, "chiappa")
         self.assertEqual(self.package.release_version, "3.28.0.172")
         self.assertFalse(self.package.device_verified)
@@ -34,6 +39,19 @@ class QrUploadTests(unittest.TestCase):
                          replace(self.identity, firmware="20261009073202"),
                          replace(self.identity, xochitl_sha256="0"*64)):
             self.assertIsNone(qr.select_package(self.catalog, identity))
+
+    def test_beta_153_is_exact_and_preserves_152_peers(self):
+        beta = next(p for p in self.catalog if p.release_version == "3.29.0.153")
+        identity = tap.DeviceIdentity(beta.firmware, beta.platform, beta.architecture, beta.xochitl_sha256)
+        self.assertEqual(qr.select_package(self.catalog, identity), beta)
+        self.assertFalse(beta.device_verified)
+        runtime, trusted, _, _ = qr._context(identity, beta)
+        self.assertTrue({"native-chinese", "pinyin-input", "reading-enhancements", "note-enhancements", "qr-upload"} <= trusted.keys())
+        shared.assert_feature_layout(runtime, trusted.values())
+        previous = next(p for p in tap._trusted_catalog() if p.platform == "chiappa" and p.release_version == "3.29.0.152")
+        self.assertEqual(previous.firmware, beta.firmware)
+        self.assertNotEqual(previous.xochitl_sha256, beta.xochitl_sha256)
+        self.assertIsNone(qr.select_package(self.catalog, replace(identity, xochitl_sha256=previous.xochitl_sha256)))
 
     def test_manifest_rejects_scope_file_and_url_changes(self):
         original = json.loads(qr.BUNDLED_MANIFEST.read_bytes())
@@ -145,6 +163,27 @@ class QrUploadTests(unittest.TestCase):
                 report = migration.inspect_residue(Mock())
             self.assertTrue(report.migratable)
             self.assertEqual(report.features[0].target_available, available)
+
+    def test_migration_to_153_uses_exact_peers_and_skips_unsupported_launcher(self):
+        import _residue_migration as migration
+        import _reading_enhancements as reading
+        target = next(p for p in self.catalog if p.release_version == "3.29.0.153")
+        identity = tap.DeviceIdentity(target.firmware, target.platform, target.architecture, target.xochitl_sha256)
+        for release in ("3.28.0.172", "3.29.0.152"):
+            source = next(p for p in reading._trusted_catalog() if p.platform == "chiappa" and p.release_version == release)
+            old = tap.DeviceIdentity(source.firmware, source.platform, source.architecture, source.xochitl_sha256)
+            _, trusted, _ = tap._trusted_shared_context(old)
+            ids = {"native-chinese", "pinyin-input", "reading-enhancements", "note-enhancements"}
+            if release == "3.28.0.172":
+                ids.update(("qr-upload", "weread-launcher"))
+            states = {name: shared.SharedFeatureState(trusted[name], True, "old") for name in ids}
+            with (patch.object(tap, "get_device_identity", return_value=identity),
+                  patch.object(shared, "has_shared_artifacts", return_value=True),
+                  patch.object(shared, "read_shared_identity", return_value=(old.firmware, old.platform, old.architecture, old.xochitl_sha256)),
+                  patch.object(shared, "inspect_shared_firmware_residue", return_value=shared.SharedInspection(states, False, True))):
+                report = migration.inspect_residue(Mock())
+            self.assertTrue(report.migratable, report)
+            self.assertEqual({f.feature_id for f in report.features if f.target_available}, ids - {"weread-launcher"})
 
     def test_desktop_section_exposes_lifecycle_and_restart_confirmation(self):
         from rmtool import QtCore, QtWidgets

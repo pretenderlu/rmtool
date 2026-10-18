@@ -924,52 +924,6 @@ QSplitter#mainSplitter::handle:hover {
     font-weight: 600;
 }
 
-/* ===== Restart confirmation dialog ===== */
-#restartConfirmDialog {
-    background: transparent;
-}
-#restartConfirmSurface {
-    background: {dialog_bg};
-    border: 1px solid {border_dialog};
-    border-radius: {radius_panel};
-}
-#restartConfirmBadge {
-    background: {badge_bg};
-    color: {badge_text};
-    border: 1px solid {badge_border};
-    border-radius: 23px;
-    font-size: {font_lg};
-    font-weight: 700;
-}
-#restartConfirmTitle {
-    color: {text_primary};
-    font-size: {font_lg};
-    font-weight: 700;
-}
-#restartConfirmSubtitle {
-    color: {text_subtitle};
-    font-size: {font_sm};
-    font-weight: 600;
-}
-#restartConfirmBody {
-    color: {text_secondary};
-    font-size: {font_base};
-}
-#restartConfirmNote {
-    background: {note_bg};
-    border: 1px solid {note_border};
-    border-radius: {radius_inner};
-}
-#restartConfirmNoteText {
-    color: {note_text};
-    font-size: {font_sm};
-}
-#restartConfirmPrimary,
-#restartConfirmSecondary {
-    min-width: 108px;
-    min-height: 38px;
-    padding: 0 18px;
-}
 """
 
 

@@ -22,6 +22,7 @@ FEATURE_MODULES = {
     "note-enhancements": "_note_enhancements",
     "weread-launcher": "_weread_launcher",
     "qr-upload": "_qr_upload",
+    "native-import": "_native_import_control",
 }
 FIRMWARE_RE = re.compile(r"^[0-9]{14}$")
 COLOR_PLATFORMS = frozenset(("ferrari", "chiappa"))
@@ -35,8 +36,8 @@ COLOR_RELEASES = frozenset((
 # from both code and its manifest must not silently narrow a published feature.
 COLOR_TARGETS = {(platform, release) for platform in COLOR_PLATFORMS for release in COLOR_RELEASES}
 MONO_TARGETS = {(platform, release) for platform in MONO_PLATFORMS for release in ("3.27.3.0", "3.28.0.172")}
-BETA_329_TARGETS = {(platform, "3.29.0.152") for platform in COLOR_PLATFORMS | MONO_PLATFORMS}
-BETA_329_COLOR_TARGETS = {(platform, "3.29.0.152") for platform in COLOR_PLATFORMS}
+BETA_329_TARGETS = {(platform, "3.29.0.152") for platform in COLOR_PLATFORMS | MONO_PLATFORMS} | {("chiappa", "3.29.0.153")}
+BETA_329_COLOR_TARGETS = {(platform, "3.29.0.152") for platform in COLOR_PLATFORMS} | {("chiappa", "3.29.0.153")}
 EXPECTED_COVERAGE = {
     "tap-page-turn": COLOR_TARGETS | MONO_TARGETS | BETA_329_TARGETS,
     "fast-mono-reading": COLOR_TARGETS,
@@ -45,7 +46,9 @@ EXPECTED_COVERAGE = {
     "reading-enhancements": COLOR_TARGETS | BETA_329_COLOR_TARGETS,
     "note-enhancements": COLOR_TARGETS | BETA_329_COLOR_TARGETS,
     "weread-launcher": {(platform, "3.28.0.172") for platform in COLOR_PLATFORMS},
-    "qr-upload": {("chiappa", "3.28.0.172")},
+    "qr-upload": {("chiappa", "3.28.0.172"), ("chiappa", "3.29.0.153")},
+    "native-import": {(platform, release) for platform in COLOR_PLATFORMS | MONO_PLATFORMS
+                      for release in ("3.28.0.172", "3.29.0.153")},
 }
 
 # These are the official 3.28.0.172 identities extracted from the five cached
@@ -115,6 +118,16 @@ OFFICIAL_329 = {
         "xochitl_sha256": "50a5ed69ab9c60d9f3b1d04b19311562194f6cfee769b17a6ea069d255e47760",
         "stock_french_sha256": "25661b271e867a60327c97ff6518097b50b14c9e8a64b179d6d401f4799c6f1c",
         "localized_qm": ("reMarkable_zh_CN-3.29.0.152-rm2.qm", 214592, "f545de827901f7fc0fa91c31a33392429aea3ec79d4c644ae546856fa6e5d6e6"),
+    },
+}
+
+
+OFFICIAL_329_153 = {
+    "chiappa": {
+        "architecture": "aarch64",
+        "xochitl_sha256": "0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba",
+        "stock_french_sha256": "5f0fbd874230e2e7256f682656b6d3b7e854c2513e44258a4143b365d9c42997",
+        "localized_qm": ("reMarkable_zh_CN-3.29.0.153-chiappa.qm", 210177, "f90054fc45147901e26f3260feb1e729985f435396586f3ab05c02736aacbf60"),
     },
 }
 
@@ -200,12 +213,16 @@ def _validate_cross_feature_support() -> None:
         for feature, module in FEATURE_MODULES.items()
     }
     baselines = {
-        (package.platform, package.release_version): package
+        (package.platform, package.release_version): (tap._shared_specs(package)[0], package)
         for package in catalogs["tap-page-turn"]
     }
+    native_import = importlib.import_module(FEATURE_MODULES["native-import"])
+    for package in catalogs["native-import"]:
+        baselines.setdefault((package.platform, package.release_version),
+                             (native_import._shared_specs(package)[0], package))
     for feature, catalog in catalogs.items():
         for package in catalog:
-            baseline = baselines[(package.platform, package.release_version)]
+            baseline_runtime, baseline = baselines[(package.platform, package.release_version)]
             fields = ("firmware", "architecture", "xochitl_sha256", "channel")
             if any(getattr(package, field) != getattr(baseline, field) for field in fields):
                 raise RuntimeError(
@@ -213,11 +230,11 @@ def _validate_cross_feature_support() -> None:
                     f"{package.platform} {package.release_version}"
                 )
             runtime, _feature = importlib.import_module(FEATURE_MODULES[feature])._shared_specs(package)
-            if runtime != tap._shared_specs(baseline)[0]:
+            if runtime != baseline_runtime:
                 raise RuntimeError(f"{feature} shared runtime mismatch: {package.package_id}")
 
     app = weread.trusted_package()
-    for package in baselines.values():
+    for _runtime, package in baselines.values():
         identity = tap.DeviceIdentity(
             package.firmware, package.platform, package.architecture, package.xochitl_sha256
         )
@@ -296,14 +313,15 @@ def validate() -> None:
     _validate_cross_feature_support()
     _validate_localization("20260827113527", "3.28.0.172", OFFICIAL_172)
     _validate_localization("20261009073202", "3.29.0.152", OFFICIAL_329)
+    _validate_localization("20261009073202", "3.29.0.153", OFFICIAL_329_153)
 
 
 def main() -> int:
     validate()
     print(
-        f"PASS: 27 device/firmware targets, {len(FEATURE_MODULES)} plugin matrices, shared runtimes, "
+        f"PASS: 32 device/firmware targets, {len(FEATURE_MODULES)} plugin matrices, shared runtimes, "
         "AppLoad/KOReader and WeRead boundaries, five preview profiles, and "
-        "ten official 3.28.0.172 / 3.29.0.152 localization carriers."
+        "eleven official 3.28.0.172 / 3.29.0.152 / 3.29.0.153 localization carriers."
     )
     return 0
 

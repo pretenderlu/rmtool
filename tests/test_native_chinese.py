@@ -30,7 +30,7 @@ class NativeChineseTests(unittest.TestCase):
 
     def test_manifest_is_complete_dual_source_three_file_feature(self):
         packages = native.parse_manifest(native.BUNDLED_MANIFEST.read_bytes())
-        self.assertEqual(len(packages), 24)
+        self.assertEqual(len(packages), 25)
         self.assertEqual(
             {
                 (item.platform, item.release_version)
@@ -58,6 +58,7 @@ class NativeChineseTests(unittest.TestCase):
                 ("rm2", "3.28.0.172"),
                 ("ferrari", "3.29.0.152"),
                 ("chiappa", "3.29.0.152"),
+                ("chiappa", "3.29.0.153"),
                 ("tatsu", "3.29.0.152"),
                 ("rm1", "3.29.0.152"),
                 ("rm2", "3.29.0.152"),

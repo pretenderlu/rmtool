@@ -363,7 +363,16 @@ def shell(*args):
 # No sourced files: native conf.d has side effects (including counter resets).
 GUARD_PROBE = r'''set -eu
 if [ -d /sys/devices/platform/lpgpr ]; then
-    test "$(cat /sys/devices/platform/lpgpr/swu_status)" = 0
+    swu_status=$(cat /sys/devices/platform/lpgpr/swu_status)
+    case "$swu_status" in
+        0) ;;
+        1)
+            printf '%s\n' '设备存在尚未完成的系统更新，已暂停插件和文件操作。请在设备设置中检查更新状态；若提示重启，请保存文档并按设备提示完成更新，再重新连接 rmtool。' >&2
+            exit 1 ;;
+        *)
+            printf '%s\n' '设备系统更新状态异常，请导出诊断日志；不要强制安装插件或清除更新标记。' >&2
+            exit 1 ;;
+    esac
     test "$(cat /sys/devices/platform/lpgpr/swu_applied)" = 0
     test "$(cat /sys/devices/platform/lpgpr/swu_recovery)" = 0
     test "$(rootdev --active)" = "$(rootdev --next-boot)"

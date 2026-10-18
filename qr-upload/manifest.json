@@ -12,8 +12,8 @@
       "device_verified": false,
       "package_revision": 1,
       "asset": "rmtool-qr-upload-chiappa-20260827113527-3.28.0.172.tar.gz",
-      "sha256": "e0abdb9331b159a412c1c5c275296dbad2387eb206129daa908ef51455a95cfb",
-      "size": 7244793,
+      "sha256": "054be5bd63d55623eade191e31deab27ed8c3ff7b57e1009a7e7d9b36696988d",
+      "size": 7321022,
       "urls": [
         "https://github.com/pretenderlu/rmtool/releases/download/qr-upload-assets/rmtool-qr-upload-chiappa-20260827113527-3.28.0.172.tar.gz",
         "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/qr-upload/rmtool-qr-upload-chiappa-20260827113527-3.28.0.172.tar.gz"
@@ -28,8 +28,8 @@
         {
           "path": "extensions.d/rmtool-qr-upload.so",
           "mode": 420,
-          "size": 2129544,
-          "sha256": "610aad3ece264a2bef217a3cec3e052017e44beea57776361345be6b25b5c66d"
+          "size": 2356624,
+          "sha256": "5c4857a2de9924dee5dadfd31d79c5036a19763c4e55f3100e1e85c4b443c2b5"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
@@ -40,14 +40,76 @@
         {
           "path": "exthome/qt-resource-rebuilder/qr-upload.qmd",
           "mode": 420,
-          "size": 12033,
-          "sha256": "7bc3c759debf7909876771d464e332371f064e7e743113d13926b509b9aac8a3"
+          "size": 12316,
+          "sha256": "dcd987967d637ad7d9da3a65e662d752109ab20937ea299d4e5990e3c5754199"
         },
         {
           "path": "helpers/rmtool-qr-upload",
           "mode": 493,
           "size": 7078048,
-          "sha256": "51cfaa94e0043b05354e455691034c55f22f4a61062e6785c0580b50b10829db"
+          "sha256": "d2adaf246aea623aec359081e9f760a219b30cfab111bc32482903e4370e1619"
+        },
+        {
+          "path": "qmd-tool",
+          "mode": 493,
+          "size": 1966264,
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
+        },
+        {
+          "path": "xovi.so",
+          "mode": 420,
+          "size": 103008,
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
+        }
+      ]
+    },
+    {
+      "firmware": "20261009073202",
+      "platform": "chiappa",
+      "architecture": "aarch64",
+      "xochitl_sha256": "0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba",
+      "release_version": "3.29.0.153",
+      "channel": "beta",
+      "offline_verified": true,
+      "device_verified": false,
+      "package_revision": 1,
+      "asset": "rmtool-qr-upload-chiappa-20261009073202-3.29.0.153.tar.gz",
+      "sha256": "d6677e101861b27ab73541aefc81d550578d6b256ec58b1170cee5fd53a1a148",
+      "size": 7318135,
+      "urls": [
+        "https://github.com/pretenderlu/rmtool/releases/download/qr-upload-assets/rmtool-qr-upload-chiappa-20261009073202-3.29.0.153.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/qr-upload/rmtool-qr-upload-chiappa-20261009073202-3.29.0.153.tar.gz"
+      ],
+      "files": [
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
+          "size": 9496456,
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
+        },
+        {
+          "path": "extensions.d/rmtool-qr-upload.so",
+          "mode": 420,
+          "size": 2356624,
+          "sha256": "5c4857a2de9924dee5dadfd31d79c5036a19763c4e55f3100e1e85c4b443c2b5"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
+          "size": 613236,
+          "sha256": "dcc74e46b6b306ffe5df1d7c6c6929bfa353e4fcc6c909de36d17bfe8d24ac0c"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/qr-upload.qmd",
+          "mode": 420,
+          "size": 12316,
+          "sha256": "dcd987967d637ad7d9da3a65e662d752109ab20937ea299d4e5990e3c5754199"
+        },
+        {
+          "path": "helpers/rmtool-qr-upload",
+          "mode": 493,
+          "size": 7078048,
+          "sha256": "d2adaf246aea623aec359081e9f760a219b30cfab111bc32482903e4370e1619"
         },
         {
           "path": "qmd-tool",

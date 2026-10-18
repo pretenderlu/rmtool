@@ -363,7 +363,9 @@ class RecoveryUiTests(unittest.TestCase):
             with self.subTest(method=method):
                 self.section._busy = False
                 self.section._apply_status(report())
-                self.section._report = SimpleNamespace(migratable=True, features=(SimpleNamespace(label="pinyin", enabled=True),))
+                self.section._report = SimpleNamespace(migratable=True, features=(
+                    _residue_migration.ResidueFeatureReport("pinyin-input", "pinyin", True, True),
+                ))
                 self.section._report_session = self.section._session_token()
                 with mock.patch.object(toolbox_common, "ask_confirmation", return_value=True):
                     getattr(self.section, method)()
@@ -375,7 +377,9 @@ class RecoveryUiTests(unittest.TestCase):
             for queued in (False, True):
                 with self.subTest(method=method, queued=queued):
                     self.pool.reset_mock()
-                    self.section._report = SimpleNamespace(migratable=True, features=(SimpleNamespace(label="pinyin", enabled=True),))
+                    self.section._report = SimpleNamespace(migratable=True, features=(
+                        _residue_migration.ResidueFeatureReport("pinyin-input", "pinyin", True, True),
+                    ))
                     self.section._report_session = self.section._session_token()
                     confirm = (lambda *a, **k: True) if queued else (lambda *a, **k: (self.reconnect() or True))
                     with mock.patch.object(toolbox_common, "ask_confirmation", side_effect=confirm):
@@ -418,7 +422,9 @@ class RecoveryUiTests(unittest.TestCase):
         self.assertEqual(self.section._report_session, self.section._session_token())
 
     def test_failed_migration_redetection_does_not_reenable_cached_actions(self):
-        self.section._report = SimpleNamespace(migratable=True, features=(SimpleNamespace(label="pinyin", enabled=True),))
+        self.section._report = SimpleNamespace(migratable=True, features=(
+            _residue_migration.ResidueFeatureReport("pinyin-input", "pinyin", True, True),
+        ))
         self.section._report_session = self.section._session_token()
         self.section._detect()
         worker = self.pool.start.call_args.args[0]
@@ -432,7 +438,9 @@ class RecoveryUiTests(unittest.TestCase):
     def test_migration_actions_reject_report_from_replaced_transport_before_signal(self):
         for method in ("_migrate", "_cleanup_residue"):
             with self.subTest(method=method):
-                self.section._report = SimpleNamespace(migratable=True, features=(SimpleNamespace(label="pinyin", enabled=True),))
+                self.section._report = SimpleNamespace(migratable=True, features=(
+                    _residue_migration.ResidueFeatureReport("pinyin-input", "pinyin", True, True),
+                ))
                 self.section._report_session = self.section._session_token()
                 self.ssh._client = mock.Mock()
                 with mock.patch.object(toolbox_common, "ask_confirmation") as confirm:
@@ -443,7 +451,9 @@ class RecoveryUiTests(unittest.TestCase):
     def test_migration_actions_reject_report_changed_during_confirmation(self):
         for method in ("_migrate", "_cleanup_residue"):
             with self.subTest(method=method):
-                self.section._report = SimpleNamespace(migratable=True, features=(SimpleNamespace(label="pinyin", enabled=True),))
+                self.section._report = SimpleNamespace(migratable=True, features=(
+                    _residue_migration.ResidueFeatureReport("pinyin-input", "pinyin", True, True),
+                ))
                 self.section._report_session = self.section._session_token()
 
                 def replace_report(*args, **kwargs):
@@ -462,7 +472,9 @@ class RecoveryUiTests(unittest.TestCase):
         ):
             with self.subTest(method=method):
                 self.section._busy = False
-                self.section._report = SimpleNamespace(migratable=True, features=(SimpleNamespace(label="pinyin", enabled=True),))
+                self.section._report = SimpleNamespace(migratable=True, features=(
+                    _residue_migration.ResidueFeatureReport("pinyin-input", "pinyin", True, True),
+                ))
                 self.section._report_session = self.section._session_token()
                 with mock.patch.object(toolbox_common, "ask_confirmation", return_value=True), \
                         mock.patch.object(module, backend, return_value="result") as operation, \

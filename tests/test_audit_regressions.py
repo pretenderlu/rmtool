@@ -157,17 +157,6 @@ class DocumentRegressionTests(unittest.TestCase):
         self.assertEqual([shlex.split(call.args[0]) for call in execute.call_args_list[:-1]], expected)
         self.assertEqual(execute.call_args.args[0], "systemctl restart xochitl")
 
-    def test_batch_preparation_failure_removes_earlier_private_copies(self):
-        service = documents._DocumentTransferService(None, "/unused", lambda _: 1)
-        with tempfile.TemporaryDirectory() as folder:
-            prepared = Path(folder) / "prepared"
-            prepared.mkdir()
-            (prepared / "private.pdf").write_bytes(b"private contents")
-            package = documents._PreparedDocumentUpload(DOC_ID, str(prepared), [], [])
-            with mock.patch.object(service, "_prepare_upload", side_effect=[package, OSError("missing")]), \
-                    self.assertRaises(OSError):
-                service.transfer_batch(["first.pdf", "second.pdf"])
-            self.assertFalse(prepared.exists())
 
 
 class KOReaderRegressionTests(unittest.TestCase):

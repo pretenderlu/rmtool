@@ -444,9 +444,9 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
         and MATRIX_CONFIG.exists(),
         "full offline reading-enhancements matrix is not configured",
     )
-    def test_matrix_is_exactly_eighteen_targets(self):
+    def test_matrix_is_exactly_nineteen_targets(self):
         targets = _targets()
-        self.assertEqual(len(targets), 18)
+        self.assertEqual(len(targets), 19)
         identities = {
             (target["platform"], target["firmware"], target["xochitl_sha256"])
             for target in targets
@@ -469,7 +469,7 @@ class ReadingEnhancementsQmdTests(unittest.TestCase):
     def test_compiles_checks_replays_and_asserts_all_targets(self):
         builder = _load_builder()
         targets = _targets()
-        self.assertEqual(len(targets), 18)
+        self.assertEqual(len(targets), 19)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             for target in targets:

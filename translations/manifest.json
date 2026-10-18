@@ -249,6 +249,16 @@
           "sha256": "f545de827901f7fc0fa91c31a33392429aea3ec79d4c644ae546856fa6e5d6e6",
           "xochitl_sha256": "50a5ed69ab9c60d9f3b1d04b19311562194f6cfee769b17a6ea069d255e47760",
           "stock_french_sha256": "25661b271e867a60327c97ff6518097b50b14c9e8a64b179d6d401f4799c6f1c"
+        },
+        {
+          "platform": "chiappa",
+          "release_version": "3.29.0.153",
+          "channel": "beta",
+          "asset": "reMarkable_zh_CN-3.29.0.153-chiappa.qm",
+          "size": 210177,
+          "sha256": "f90054fc45147901e26f3260feb1e729985f435396586f3ab05c02736aacbf60",
+          "xochitl_sha256": "0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba",
+          "stock_french_sha256": "5f0fbd874230e2e7256f682656b6d3b7e854c2513e44258a4143b365d9c42997"
         }
       ]
     }

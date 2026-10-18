@@ -300,7 +300,7 @@ class PublishResourcesTests(unittest.TestCase):
                 and "github.com/pretenderlu/rmtool/releases/tag/" in line
                 and "myqcloud.com" in line
             ]
-            self.assertEqual(len(resource_rows), 5, filename)
+            self.assertEqual(len(resource_rows), 7, filename)
             for row in resource_rows:
                 self.assertLess(row.index("github.com"), row.index("myqcloud.com"))
             self.assertTrue(
@@ -478,6 +478,7 @@ class PublishResourcesTests(unittest.TestCase):
                 "note-enhancements",
                 "weread-launcher",
                 "qr-upload",
+                "native-import",
             ),
         )
         reading = publisher.RESOURCES["reading-enhancements"]

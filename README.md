@@ -13,9 +13,9 @@
 rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Paper Pure、reMarkable 1 和 reMarkable 2，提供多设备连接、仪表盘、壁纸、文档、KOReader 书库管理、字体、时间、设备控制、原生界面中文、离线拼音输入，以及彩色设备按固件精确匹配的阅读增强和笔记增强，Paper Pure、reMarkable 1 和
 reMarkable 2 的经典离线验证点击翻页插件，以及一键只读诊断日志导出。设备操作不依赖 reMarkable 云服务；发布包内置这些固件功能的基础可信清单，可离线识别支持情况并复用已验证缓存。固件专用载荷不会打包进应用，仍需联网下载或使用已有的有效缓存。
 
-当前发布版为 [v1.17.3](https://github.com/pretenderlu/rmtool/releases/tag/v1.17.3)。本版修复 RM1/RM2 部分固件容量检测失败导致插件安装或修复受阻的问题，并修正字体诊断误报，详见[更新日志](docs/releases/v1.17.3.md)。各插件的设备、固件覆盖和验证情况见下方支持表。
+当前发布版为 [v1.18.0](https://github.com/pretenderlu/rmtool/releases/tag/v1.18.0)。新增扫码传书，文档中心改用设备原生导入，并增加 Move 3.29.0.153 插件适配，详见[更新日志](docs/releases/v1.18.0.md)。各功能的设备、固件覆盖和验证情况见下方支持表。
 
-主分支另含未发布的[扫码传输测试功能](qr-upload/README.md)：仅适配 Paper Pro Move 3.28.0.172，同一可信 Wi-Fi 下由手机直传 PDF/EPUB，单文件最多 200 MB。设备页面和上传已实测，rmtool 安装及重启后的完整流程仍待验证；不计入下方已发布支持表。
+[扫码传输](qr-upload/README.md)适配 Paper Pro Move 3.28.0.172 和 3.29.0.153，同一可信 Wi-Fi 下由手机直传 PDF/EPUB，单文件最多 200 MB，安装后不需要电脑在线。使用不加密的局域网 HTTP，仅适合可信网络。.172 手机上传与 .153 USB/Wi-Fi 桌面原生导入已实测；新增独立组件及各设备的完整安装、重启流程仍需分别实机验收，详见[兼容性核对表](docs/device-firmware-support.md)。
 
 > [!WARNING]
 > rmtool 会直接修改设备文件。请先同步或备份重要内容，并确认自己能够承担开发者模式、root SSH 和第三方修改带来的数据与保修风险。本项目不是 reMarkable 官方软件。
@@ -80,6 +80,8 @@ rmtool 管理的固件专用资源均使用两个固定来源。客户端默认�
 | 拼音输入法 | [`pinyin-input-assets`](https://github.com/pretenderlu/rmtool/releases/tag/pinyin-input-assets) | [`pinyin-input/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input/) |
 | 阅读增强 | [`reading-enhancements-assets`](https://github.com/pretenderlu/rmtool/releases/tag/reading-enhancements-assets) | [`reading-enhancements/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/) |
 | 笔记增强 | [`note-enhancements-assets`](https://github.com/pretenderlu/rmtool/releases/tag/note-enhancements-assets) | [`note-enhancements/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/) |
+| 扫码传输 | [`qr-upload-assets`](https://github.com/pretenderlu/rmtool/releases/tag/qr-upload-assets) | [`qr-upload/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/qr-upload/) |
+| 原生文档传输 | [`native-import-assets`](https://github.com/pretenderlu/rmtool/releases/tag/native-import-assets) | [`native-import/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/) |
 
 ## 连接设备
 
@@ -128,10 +130,13 @@ rmtool 按运行平台将状态保存在以下目录：
 
 本版支持 **3.29.0.152 测试版**的五设备资源。Paper Pro 的阅读增强点击翻页已通过本地实机复测；其余设备与功能的离线验证和实机验证分别记录，详见[适配与测试说明](docs/firmware-3.29.0.152.md)。
 
+**3.29.0.153 测试版**新增 Move 的汉化、拼音、阅读增强（含 EPUB 字体菜单和中文精确选取）、笔记增强及扫码传输精确包。五款设备均提供 .153 原生文档传输组件；Paper Pro、Pure、RM1、RM2 的 .153 暂不提供其他插件，不沿用 .152 包。
+
 | 设备 | 已适配正式版 | 已适配测试版 |
 | --- | --- | --- |
-| Paper Pro、Paper Pro Move | 3.27.1.0、3.27.3.0、3.28.0.172 | 3.28.0.162、.163、.164、.166、.169；3.29.0.152 |
-| Paper Pure、reMarkable 1、reMarkable 2 | 3.27.3.0、3.28.0.172 | 3.29.0.152（待实机） |
+| Paper Pro | 3.27.1.0、3.27.3.0、3.28.0.172 | 3.28.0.162、.163、.164、.166、.169；3.29.0.152；.153 仅原生文档传输 |
+| Paper Pro Move | 3.27.1.0、3.27.3.0、3.28.0.172 | 3.28.0.162、.163、.164、.166、.169；3.29.0.152、.153 |
+| Paper Pure、reMarkable 1、reMarkable 2 | 3.27.3.0、3.28.0.172 | 3.29.0.152（待实机）；.153 仅原生文档传输 |
 
 ### 3.28.0.172 正式版功能对照
 
@@ -147,6 +152,8 @@ rmtool 按运行平台将状态保存在以下目录：
 | 自定义 EPUB 字体菜单 | 支持 | 支持 | 暂未适配 | 暂未适配 | 暂未适配 |
 | 微信读书在线安装与启动入口 | 支持 | 支持 | 暂未适配 | 暂未适配 | 暂未适配 |
 | AppLoad / KOReader 安装 | 未开放 | 未开放 | 未开放 | 未开放 | 未开放 |
+| 扫码传输 | 暂未适配 | 支持 | 暂未适配 | 暂未适配 | 暂未适配 |
+| 原生文档传输自动准备组件 | 支持（待实机） | 支持 | 支持（待实机） | 支持（待实机） | 支持（待实机） |
 | 固件下载、安装与 A/B 切换 | 支持 | 支持 | 未开放 | 未开放 | 未开放 |
 | 屏幕预览、文档、壁纸、系统字体、诊断 | 能力检测 | 能力检测 | 能力检测 | 能力检测 | 能力检测 |
 
@@ -159,8 +166,9 @@ rmtool 按运行平台将状态保存在以下目录：
 ## 当前功能
 
 - **连接与仪表盘**：管理多个 USB/Wi-Fi 设备配置，校验 SSH 主机指纹；原生 Qt 仪表盘显示连接状态、设备信息、PDF/EPUB/笔记数量和下一步建议。
+- **扫码传输**：在 Move 的设备设置中开启接收，手机连接同一可信 Wi-Fi 后扫码上传 PDF/EPUB，设备显示文件名和进度。单文件最多 200 MB，更大的文件建议通过 USB 连接使用文档中心上传。安装、停用或卸载后按提示手动重启；卸载入口不删除已导入书籍。
 - **壁纸管理**：读取设备现有启动、休眠、轮播和关机壁纸预览；当前界面只按所选设备的原生分辨率生成竖屏壁纸，支持留白、裁剪和拉伸，裁剪时可调整水平/垂直偏移；还可把选中的文档缩略图配合可选文案，在电脑本地排版为封面墙壁纸，不会把文档数据发送到云端。休眠壁纸可选择保存在用户分区，避免占用根分区空间。
-- **文档中心**：搜索和查看文档元数据、缩略图；批量上传 PDF/EPUB、检查剩余空间、批量删除；将单个文档中 `.rm` 或 `.note` 内可解析的手写笔迹导出为白底 PDF，不合并原 PDF/EPUB 页面。
+- **文档中心**：搜索和查看文档元数据、缩略图；批量上传 PDF/EPUB、检查剩余空间、批量删除。通过所选设备的 SSH 连接调用系统原生导入，由系统生成 UUID、文档信息并转换 EPUB，无需上传后重启。五款设备的 3.28.0.172 正式版和 3.29.0.153 测试版均提供独立的[原生传输控制组件](native-import/README.md)，不依赖安装扫码传输，也不代表其他插件已支持相同固件。首次在文档中心的“原生传输服务”菜单初始化组件并手动重启一次，之后 USB、Wi-Fi 上传均自动准备导入服务、完成后恢复原设置；已有可用扫码控制组件时直接复用。十个目标已通过离线适配检查，独立组件仍需分别实机验收；其他固件可手动开启原生 USB 网页界面。桌面上传不受扫码传输的 200 MB 限制，仍会检查文档区空间。将单个文档中 `.rm` 或 `.note` 内可解析的手写笔迹导出为白底 PDF，不合并原 PDF/EPUB 页面。
 - **固件管理**：目前支持 Paper Pro 与 Paper Pro Move，可读取 A/B 分区和版本状态，获取官方固件列表，将校验通过的官方固件下载并安装至备用分区，或切换至已检查的备用分区；新固件启动后，可在存在精确匹配资源时按更新前的插件列表修复 rmtool 插件。安装、切换或插件修复完成后，请按界面提示重启设备。
 - **AppLoad 与 KOReader**：在精确支持的正式版固件上，不经过 Vellum，直接从各自官方 GitHub Release 安装 AppLoad 和 KOReader。rmtool 会固定校验文件名、大小和 SHA-256，也支持导入用户自行下载的同一官方 ZIP，且不会自动重启设备。检测到旧 Vellum/AppLoad KOReader 目录时，会先完整备份，再把设置、历史、统计、截图等白名单用户数据迁移到全新的官方程序中，不会把未知旧程序文件混入新版本。当前 rmtool 固定使用 AppLoad v0.5.3，仅开放所列 3.27 正式版；3.28 测试版和正式版均未开放安装，新版上游需单独验证后接入。安装后可继续在书库管理器中搜索目录、传输书籍、新建文件夹和删除项目，所有操作均限制在检测到的书库根目录内。
 - **微信读书**：Paper Pro 与 Paper Pro Move 的 3.28 系列固件可直接从[腾讯微信读书官方 CDN](https://cdn.weread.qq.com/app/remarkable/remarkable-weread-v1.0.0-universal-release.zip)在线安装或修复 RemarkableWeRead v1.0.0；设备启动入口目前仅适配两款设备的 3.28.0.172。官方 43 MB ZIP 不会打进 rmtool，也不会镜像到 rmtool 的 GitHub Release 或腾讯云 COS；rmtool 会先校验外层官方 ZIP，只提取指定的内层安装包并再次校验，然后传输到设备执行未经修改的上游安装脚本。重装会保留登录、下载和阅读数据。启动入口提供普通、彩色快刷与黑白快刷，后两种模式支持独立的定期完整刷新设置；入口安装后需手动重启设备。rmtool 仅为 3.28 系列固件提供此项支持；3.27 及更早固件请参考微信读书官方提供的安装说明。
@@ -283,7 +291,7 @@ Paper Pure、reMarkable 1 和 reMarkable 2 不在统一阅读增强包的覆盖�
 
 1. 连接后先在仪表盘确认当前设备和连接方式。
 2. 壁纸页先“重新扫描”，选择设备实际存在的目标，再预览并上传。
-3. 文档上传完成后，可按提示立即重启 xochitl；跳过时，新文档可能暂时不显示。
+3. 本版为五款设备的 3.28.0.172 / 3.29.0.153 提供独立原生传输组件。在文档中心的“原生传输服务”菜单初始化并手动重启一次后，即可通过 USB 或 Wi-Fi 直接上传，由 rmtool 自动准备服务并恢复设置。其他固件可先连接 USB，在「设置 > 存储」开启 USB 网页界面。系统确认接收后无需重启，EPUB 转换可能仍需等待。批量中断时保留已导入文件，结果未确认的文件应先检查资料库，不要直接重传。
 4. 删除文档不可撤销；导出 PDF 只对包含 `.rm` 或 `.note` 笔迹数据的单个文档可用，结果不包含原 PDF/EPUB 底图或非笔迹内容。
 5. 字体和汉化属于设备级修改，完成后按提示重启设备。
 6. 安装、迁移、修复或停用阅读增强或笔记增强后，等待 rmtool 关闭 SSH，再从设备菜单重启；不要把部署和远程立即重启 xochitl 放在同一个操作中。
@@ -293,7 +301,7 @@ Paper Pure、reMarkable 1 和 reMarkable 2 不在统一阅读增强包的覆盖�
 - **连接失败**：检查 USB 网络是否出现、地址是否为 `10.11.99.1`、root 密码是否为当前值，以及设备是否已允许 SSH。Wi-Fi 连接还需先通过 USB 开启 Wi-Fi SSH。
 - **SSH 指纹变化**：系统更新、设备重置或地址被另一台设备复用都可能触发提示。先核对设备身份，不要在原因不明时直接重新信任。
 - **壁纸目标不可用**：不同固件拥有的壁纸文件不同。点击“重新扫描”，改选有预览且未标记“当前设备不存在”的目标。
-- **上传文档后设备端没显示**：回到文档中心重启 xochitl，或手动重启设备。
+- **文档无法导入或暂时没显示**：自动准备需要适配且已加载的传输组件；提示未就绪时先更新组件并手动重启一次，或手动开启 USB 网页界面。接收后等待系统转换并刷新资料库。中断或设置恢复未确认时先检查设备状态和文件，避免重复上传。
 - **“导出为 PDF”不可用**：只能单选包含 `.rm` 或 `.note` 笔迹资源的文档；该功能只渲染可解析笔迹，不会合并原 PDF/EPUB 页面、键入文本或其他非笔迹内容。
 - **汉化按钮不可用**：先点击“检测状态”。rmtool 可依次使用 GitHub、腾讯云 COS、已验证缓存或内置基础清单，但内部固件版本与设备原始 `reMarkable_fr.qm` 的 SHA-256 必须命中同一清单项。完全离线安装时，还需要已有通过校验的包缓存，或从本地导入匹配的汉化包。
 - **无法安装阅读增强**：先点击“检测状态”。设备型号、固件、架构和原始 xochitl 哈希必须精确命中上表中的一项；被修改的载荷或混合 Xovi 布局会阻止部署。若检测到 Vellum，请先让 rmtool 只卸载其已验证的历史功能包，再按官方说明卸载 Vellum，重新检测后安装。
@@ -352,7 +360,7 @@ Windows x64 本地构建运行：
 .\publish-cos.ps1
 ```
 
-命令会将七个固定 Release 下载到临时目录，复用 Actions 的清单与载荷校验规则，只上传发生变化的载荷，在全部载荷成功后统一写入清单，最后从 COS 公网地址逐字节回读验证。无论成功或失败，临时目录都会自动清理。
+命令会将所有固定资源 Release 下载到临时目录，复用 Actions 的清单与载荷校验规则，只上传发生变化的载荷，在全部载荷成功后统一写入清单，最后从 COS 公网地址逐字节回读验证。无论成功或失败，临时目录都会自动清理。
 
 ## 贡献、许可与致谢
 

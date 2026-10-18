@@ -363,12 +363,6 @@ class FakeTransferSSHClient:
         return True
 
 
-class FakeTransferDocumentsWidget:
-    def __init__(self, ssh_client):
-        self.ssh_client = ssh_client
-
-    def _transfer_document(self, file_path, progress_callback=None):
-        return rmtool.DocumentsTab._transfer_document(self, file_path, progress_callback)
 
 
 class FakePreviewlessSFTP:
@@ -2383,10 +2377,46 @@ class WallpaperUiTests(unittest.TestCase):
                 section._run_in_session, section._session_token(),
                 _residue_migration.migrate, client, Path("state")
             )
-            worker.signals.finished.connect.call_args.args[0](None)
+            worker.signals.finished.connect.call_args.args[0](self._migration_report())
 
         self.assertIn("手动重启", section.status_label.text())
         self.assertIn("重启", show_info.call_args.args[2])
+
+    def test_legacy_migration_dialogs_distinguish_skipped_entries(self):
+        for keep_peers in (True, False):
+            with self.subTest(keep_peers=keep_peers):
+                client = FakeConnectionClient(connected=True)
+                section = _tab_toolbox.LegacyPluginMigrationSection(client)
+                self.addCleanup(section.deleteLater)
+                base = self._migration_report()
+                skipped = _residue_migration.ResidueFeatureReport(
+                    "weread-launcher", "微信读书启动器", True, False,
+                )
+                report = replace(base, features=(base.features if keep_peers else ()) + (skipped,))
+                section._report = report
+                section._report_session = section._session_token()
+                section._on_connection_changed(True)
+                worker = mock.Mock()
+                with (
+                    mock.patch.object(_toolbox_common, "ask_confirmation", return_value=True) as ask,
+                    mock.patch.object(rmtool, "Worker", return_value=worker),
+                    mock.patch.object(section.thread_pool, "start"),
+                    mock.patch.object(_toolbox_common, "show_info") as info,
+                ):
+                    section.migrate_button.click()
+                    confirmation = ask.call_args.args[2]
+                    self.assertIn("将跳过不兼容入口（微信读书启动器）", confirmation)
+                    if keep_peers:
+                        self.assertIn("兼容的已启用功能（点击翻页、拼音输入）", confirmation)
+                    else:
+                        self.assertIn("当前没有可迁移的已启用功能", confirmation)
+                    worker.signals.finished.connect.call_args.args[0](report)
+                message = info.call_args.args[2]
+                self.assertEqual(section.status_label.text(), message)
+                self.assertIn("已跳过不兼容入口（微信读书启动器）", message)
+                self.assertIn("App 和数据已保留", message)
+                self.assertIn("手动重启", message)
+                self.assertNotIn("全部已启用插件", message)
 
     @staticmethod
     def reading_enhancements_packages():
@@ -6453,76 +6483,86 @@ class DocumentWorkspaceUiTests(unittest.TestCase):
         self.assertEqual(widget.preview_image.text(), "暂无可用预览")
         self.assertIn(("warning", "文档预览加载失败，可继续查看元数据。", 3000), messages)
 
-    def test_upload_finished_asks_before_restarting_xochitl(self):
-        widget = self._make_widget()
 
-        with mock.patch.object(widget, "_confirm_restart_after_upload", return_value=True) as confirm, mock.patch.object(
-            widget, "_start_xochitl_restart_after_upload"
-        ) as restart, mock.patch.object(widget, "refresh") as refresh:
+    def test_native_upload_completion_refreshes_without_restart(self):
+        widget = self._make_widget()
+        messages = []
+        widget.status_message.connect(lambda *args: messages.append(args))
+        with mock.patch.object(widget, "refresh") as refresh:
             widget._on_upload_finished(2)
-
-        confirm.assert_called_once_with(2)
-        restart.assert_called_once_with()
-        refresh.assert_not_called()
-
-    def test_upload_finished_skips_restart_when_user_declines(self):
-        widget = self._make_widget()
-
-        with mock.patch.object(widget, "_confirm_restart_after_upload", return_value=False), mock.patch.object(
-            widget, "_start_xochitl_restart_after_upload"
-        ) as restart, mock.patch.object(widget, "refresh") as refresh:
-            widget._on_upload_finished(1)
-
-        restart.assert_not_called()
         refresh.assert_called_once_with()
+        self.assertEqual(widget.ssh_client.exec_calls, [])
+        self.assertIn("设备已接收 2", messages[-1][1])
+        self.assertIn("无需重启", messages[-1][1])
 
-    def test_restart_confirmation_uses_custom_dialog_and_requires_acceptance(self):
+    def test_native_upload_binds_worker_and_ignores_stale_signals(self):
         widget = self._make_widget()
-        fake_dialog = mock.Mock()
-        fake_dialog.exec_.return_value = QtWidgets.QDialog.Accepted
+        widget.set_connection_state(True)
+        with mock.patch.object(widget.thread_pool, "start") as start, mock.patch.object(
+            QtWidgets.QFileDialog, "getOpenFileNames", return_value=(["book.pdf"], "")
+        ):
+            widget.upload_document()
+            worker = start.call_args.args[0]
+            old_client = widget.ssh_client._client
+            self.assertIs(worker.fn.__self__.client, old_client)
+            self.assertFalse(widget.upload_button.isEnabled())
+            widget.upload_document()
+            start.assert_called_once()
+            worker.kwargs["progress_callback"](3_000_000_000, 4_000_000_000)
+            QtWidgets.QApplication.processEvents()
+            self.assertEqual(widget._active_progress.value(), 750)
+            worker.signals.status.emit("等待设备确认导入")
+            QtWidgets.QApplication.processEvents()
+            self.assertEqual(widget._active_progress.maximum(), 0)
 
-        with mock.patch.object(widget, "_make_restart_confirmation_dialog", return_value=fake_dialog) as make_dialog, mock.patch.object(
-            QtWidgets.QMessageBox, "question"
-        ) as question:
-            self.assertTrue(widget._confirm_restart_after_upload(3))
+            widget.set_connection_state(False)
+            widget.ssh_client._client = object()
+            widget.set_connection_state(True)
+            widget._show_progress_dialog("new", "new device")
+            with mock.patch.object(widget, "_on_upload_finished") as finished, mock.patch.object(
+                widget, "_on_error"
+            ) as error:
+                worker.signals.progress.emit(1, 1)
+                worker.signals.status.emit("old status")
+                worker.signals.finished.emit(1)
+                worker.signals.error.emit(RuntimeError("old error"))
+                QtWidgets.QApplication.processEvents()
+                finished.assert_not_called()
+                error.assert_not_called()
+                self.assertEqual(widget._active_progress.labelText(), "new device")
+        widget._close_progress_dialog()
 
-        make_dialog.assert_called_once_with(3)
-        question.assert_not_called()
-
-    def test_restart_confirmation_dialog_uses_app_styled_controls(self):
+    def test_native_upload_reconnect_during_file_dialog_does_not_start(self):
         widget = self._make_widget()
 
-        dialog = widget._make_restart_confirmation_dialog(3)
+        def select(*_args):
+            widget.set_connection_state(False)
+            widget.ssh_client._client = object()
+            widget.set_connection_state(True)
+            return ["book.pdf"], ""
 
-        self.assertEqual(dialog.objectName(), "restartConfirmDialog")
-        self.assertIsNotNone(dialog.findChild(QtWidgets.QFrame, "restartConfirmSurface"))
-        self.assertIsNotNone(dialog.findChild(QtWidgets.QFrame, "restartConfirmNote"))
-        title = dialog.findChild(QtWidgets.QLabel, "restartConfirmTitle")
-        subtitle = dialog.findChild(QtWidgets.QLabel, "restartConfirmSubtitle")
-        primary = dialog.findChild(QtWidgets.QPushButton, "restartConfirmPrimary")
-        secondary = dialog.findChild(QtWidgets.QPushButton, "restartConfirmSecondary")
-        self.assertIn("文档", title.text())
-        self.assertIn("3", subtitle.text())
-        self.assertEqual(primary.text(), "现在重启")
-        self.assertTrue(primary.isDefault())
-        self.assertEqual(secondary.text(), "稍后再说")
+        with mock.patch.object(QtWidgets.QFileDialog, "getOpenFileNames", side_effect=select), \
+                mock.patch.object(widget.thread_pool, "start") as start:
+            widget.upload_document()
+        start.assert_not_called()
 
-    def test_restart_confirmation_text_uses_readable_scale(self):
-        def font_size(stylesheet, selector):
-            match = re.search(
-                rf"{re.escape(selector)}\s*\{{[^}}]*font-size:\s*(\d+)px;",
-                stylesheet,
-                re.DOTALL,
-            )
-            self.assertIsNotNone(match, selector)
-            return int(match.group(1))
+    def test_native_upload_error_restores_controls_and_refreshes_partial_batch(self):
+        widget = self._make_widget()
+        widget.set_connection_state(True)
+        with mock.patch.object(widget.thread_pool, "start") as start, mock.patch.object(
+            QtWidgets.QFileDialog, "getOpenFileNames", return_value=(["book.pdf"], "")
+        ), mock.patch.object(widget, "_on_error") as error, mock.patch.object(widget, "refresh") as refresh:
+            widget.upload_document()
+            exc = RuntimeError("partial batch")
+            start.call_args.args[0].signals.error.emit(exc)
+            QtWidgets.QApplication.processEvents()
+        error.assert_called_once_with(exc)
+        refresh.assert_called_once_with()
+        self.assertTrue(widget.upload_button.isEnabled())
+        self.assertFalse(widget._upload_active)
+        self.assertIsNone(widget._active_progress)
 
-        for stylesheet in (rmtool._DARK_STYLESHEET, rmtool._LIGHT_STYLESHEET):
-            self.assertEqual(font_size(stylesheet, "#restartConfirmSubtitle"), _tokens.FONT_SM)
-            self.assertEqual(font_size(stylesheet, "#restartConfirmBody"), _tokens.FONT_BASE)
-            self.assertEqual(font_size(stylesheet, "#restartConfirmNoteText"), _tokens.FONT_SM)
-
-    def test_shared_dialog_text_uses_restart_dialog_readable_scale(self):
+    def test_shared_dialog_text_uses_readable_scale(self):
         def font_size(stylesheet, selector):
             match = re.search(
                 rf"{re.escape(selector)}\s*\{{[^}}]*font-size:\s*(\d+)px;",
@@ -6601,127 +6641,6 @@ class DocumentTransferTests(unittest.TestCase):
             self.assertEqual((local_root / "page-1.rm").read_bytes(), b"page one")
             self.assertEqual((local_root / "nested" / "page-2.rm").read_bytes(), b"page two")
 
-    def test_pdf_upload_uses_real_page_count_without_restarting_xochitl(self):
-        ssh_client = FakeTransferSSHClient()
-        widget = FakeTransferDocumentsWidget(ssh_client)
-
-        with tempfile.TemporaryDirectory() as temp_root:
-            pdf_path = Path(temp_root) / "two-pages.pdf"
-            pdf_path.write_bytes(TWO_PAGE_PDF)
-
-            with mock.patch.object(
-                rmtool.uuid,
-                "uuid4",
-                return_value="11111111-1111-1111-1111-111111111111",
-            ):
-                rmtool.DocumentsTab._transfer_document(widget, str(pdf_path))
-
-        content_path = next(
-            path for path in ssh_client.sftp.uploaded_files if path.endswith(".content")
-        )
-        content = json.loads(ssh_client.sftp.uploaded_files[content_path].decode("utf-8"))
-
-        self.assertEqual(content["pageCount"], 2)
-        self.assertEqual(ssh_client.restart_calls, [])
-
-    def test_batch_upload_transfers_all_files_without_restarting_xochitl(self):
-        ssh_client = FakeTransferSSHClient()
-        widget = FakeTransferDocumentsWidget(ssh_client)
-
-        with tempfile.TemporaryDirectory() as temp_root:
-            first_path = Path(temp_root) / "first.pdf"
-            second_path = Path(temp_root) / "second.pdf"
-            first_path.write_bytes(TWO_PAGE_PDF)
-            second_path.write_bytes(TWO_PAGE_PDF)
-
-            with mock.patch.object(
-                rmtool.uuid,
-                "uuid4",
-                side_effect=[
-                    "11111111-1111-1111-1111-111111111111",
-                    "22222222-2222-2222-2222-222222222222",
-                ],
-            ):
-                rmtool.DocumentsTab._transfer_documents_batch(
-                    widget, [str(first_path), str(second_path)]
-                )
-
-        self.assertEqual(ssh_client.restart_calls, [])
-        self.assertTrue(
-            any(path.endswith("11111111-1111-1111-1111-111111111111.pdf") for path in ssh_client.sftp.uploaded_files)
-        )
-        self.assertTrue(
-            any(path.endswith("22222222-2222-2222-2222-222222222222.pdf") for path in ssh_client.sftp.uploaded_files)
-        )
-
-    def test_batch_upload_reports_aggregate_byte_progress(self):
-        ssh_client = FakeTransferSSHClient()
-        widget = FakeTransferDocumentsWidget(ssh_client)
-        progress = []
-
-        with tempfile.TemporaryDirectory() as temp_root:
-            first_path = Path(temp_root) / "first.pdf"
-            second_path = Path(temp_root) / "second.epub"
-            first_path.write_bytes(TWO_PAGE_PDF)
-            second_path.write_bytes(b"fake epub bytes")
-
-            with mock.patch.object(
-                rmtool.uuid,
-                "uuid4",
-                side_effect=[
-                    "11111111-1111-1111-1111-111111111111",
-                    "22222222-2222-2222-2222-222222222222",
-                ],
-            ):
-                rmtool.DocumentsTab._transfer_documents_batch(
-                    widget,
-                    [str(first_path), str(second_path)],
-                    progress_callback=lambda current, total: progress.append((current, total)),
-                )
-
-        self.assertGreater(progress[-1][1], 2)
-        self.assertEqual(progress[-1][0], progress[-1][1])
-        self.assertEqual(progress[-1][1], max(total for _current, total in progress))
-        self.assertTrue(all(0 <= current <= total for current, total in progress))
-
-    def test_upload_checks_device_space_before_transfer(self):
-        ssh_client = FakeTransferSSHClient(available_kb=0)
-        widget = FakeTransferDocumentsWidget(ssh_client)
-
-        with tempfile.TemporaryDirectory() as temp_root:
-            pdf_path = Path(temp_root) / "too-large.pdf"
-            pdf_path.write_bytes(TWO_PAGE_PDF)
-
-            with self.assertRaisesRegex(RuntimeError, "空间不足"):
-                rmtool.DocumentsTab._transfer_document(widget, str(pdf_path))
-
-        self.assertEqual(ssh_client.sftp.uploaded_files, {})
-        self.assertEqual(ssh_client.restart_calls, [])
-
-    def test_failed_upload_cleans_remote_partial_document_without_restart(self):
-        ssh_client = FakeTransferSSHClient(fail_on_put=2)
-        widget = FakeTransferDocumentsWidget(ssh_client)
-
-        with tempfile.TemporaryDirectory() as temp_root:
-            pdf_path = Path(temp_root) / "partial.pdf"
-            pdf_path.write_bytes(TWO_PAGE_PDF)
-
-            with mock.patch.object(
-                rmtool.uuid,
-                "uuid4",
-                return_value="11111111-1111-1111-1111-111111111111",
-            ):
-                with self.assertRaises(IOError):
-                    rmtool.DocumentsTab._transfer_document(widget, str(pdf_path))
-
-        self.assertEqual(ssh_client.restart_calls, [])
-        self.assertTrue(
-            any(
-                command.startswith("rm -rf ")
-                and "11111111-1111-1111-1111-111111111111" in command
-                for command in ssh_client.cleanup_calls
-            )
-        )
 
     def test_export_downloads_note_archive_and_renders_all_pages(self):
         identifier = "note-doc"

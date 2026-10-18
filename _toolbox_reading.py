@@ -152,13 +152,13 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         description=(
             "为 PDF 和 EPUB 阅读提供点击翻页、快刷模式和翻页清残影；"
             "每本书可独立选择普通、彩色快刷或黑白快刷。"
-            "Paper Pro 与 Paper Pro Move 3.28.0.172、3.29.0.152 另提供中文划词精确选取。"
+            "Paper Pro 与 Paper Pro Move 3.28.0.172、3.29.0.152，以及 Move 3.29.0.153 另提供中文划词精确选取。"
             "日常开关由设备的“设置 > 阅读增强”页面控制。"
         ),
         explanation=(
             "阅读增强只作用于 PDF 和 EPUB 阅读页，包含点击翻页、快刷模式和"
             "翻页清残影。全局设置只负责授权快刷，每本书可独立选择普通、"
-            "彩色快刷或黑白快刷；精确匹配的 Paper Pro 与 Paper Pro Move 3.28.0.172、3.29.0.152 "
+            "彩色快刷或黑白快刷；精确匹配的 Paper Pro 与 Paper Pro Move 3.28.0.172、3.29.0.152，以及 Move 3.29.0.153 "
             "另提供中文划词精确选取。"
             "安装或迁移完成后请手动重启设备，再到“设置 > 阅读增强”开启需要的开关。"
         ),
@@ -595,7 +595,7 @@ class QrUploadSection(ReadingEnhancementsSection):
             installer=_install_qr_upload, cleaner=_qr_upload.cleanup_legacy,
             feature_name="扫码传输",
             description="同一可信 Wi-Fi 下接收手机发送的 PDF / EPUB，单个文件最多 200 MB。"
-                "传输未加密，更大文件推荐使用 USB。首版仅适配 Paper Pro Move 3.28.0.172。",
+                "传输未加密，更大文件推荐使用 USB。支持 Paper Pro Move 3.28.0.172 和 3.29.0.153。",
             explanation="安装后手动重启设备，在“设置 > 扫码传输”开启接收。手机与设备须连接同一可信 Wi-Fi；"
                 "接收时不需要电脑、rmtool 或 USB 连接。停止接收或退出页面后链接失效。"
                 "停用、更新或卸载前，请先在设备上停止接收并退出；已导入的书籍不会被删除。")

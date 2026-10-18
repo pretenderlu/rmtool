@@ -14,6 +14,7 @@ on:
       - note-enhancements/manifest.json
       - weread-launcher/manifest.json
       - qr-upload/manifest.json
+      - native-import/manifest.json
       - tools/publish_resources.py
       - .github/workflows/sync-feature-assets.yml
 
@@ -48,7 +49,8 @@ jobs:
             "reading-enhancements:reading-enhancements-assets" \
             "note-enhancements:note-enhancements-assets" \
             "weread-launcher:weread-launcher-assets" \
-            "qr-upload:qr-upload-assets"
+            "qr-upload:qr-upload-assets" \
+            "native-import:native-import-assets"
           do
             name="${item%%:*}"
             tag="${item#*:}"
@@ -69,4 +71,5 @@ jobs:
             --resource reading-enhancements \
             --resource note-enhancements \
             --resource weread-launcher \
-            --resource qr-upload
+            --resource qr-upload \
+            --resource native-import

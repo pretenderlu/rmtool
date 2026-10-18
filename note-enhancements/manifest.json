@@ -1224,6 +1224,74 @@
           "mode": 420
         }
       ]
+    },
+    {
+      "firmware": "20261009073202",
+      "release_version": "3.29.0.153",
+      "channel": "beta",
+      "platform": "chiappa",
+      "architecture": "aarch64",
+      "xochitl_sha256": "0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba",
+      "offline_verified": true,
+      "device_verified": false,
+      "package_revision": 12,
+      "urls": [
+        "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets/rmtool-note-enhancements-chiappa-20261009073202-3.29.0.153.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/rmtool-note-enhancements-chiappa-20261009073202-3.29.0.153.tar.gz"
+      ],
+      "asset": "rmtool-note-enhancements-chiappa-20261009073202-3.29.0.153.tar.gz",
+      "size": 3854133,
+      "sha256": "2de75cef1c828f7e0bd9bc0bc76fc6df425914efd43595eed2d7fa8fa0984482",
+      "files": [
+        {
+          "path": "LICENSE.qmd-tool",
+          "size": 35149,
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420
+        },
+        {
+          "path": "LICENSE.rm-xovi-extensions",
+          "size": 35823,
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420
+        },
+        {
+          "path": "LICENSE.xovi",
+          "size": 7819,
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420
+        },
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "size": 9496456,
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "size": 613236,
+          "sha256": "dcc74e46b6b306ffe5df1d7c6c6929bfa353e4fcc6c909de36d17bfe8d24ac0c",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/note-enhancements.qmd",
+          "size": 41576,
+          "sha256": "42b83a4c23bc944596a85477ea03ba5892e59c32275c0bcf238c5ee500be5a39",
+          "mode": 420
+        },
+        {
+          "path": "qmd-tool",
+          "size": 1966264,
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493
+        },
+        {
+          "path": "xovi.so",
+          "size": 103008,
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420
+        }
+      ]
     }
   ]
 }

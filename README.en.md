@@ -14,9 +14,9 @@ rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, a
 classic offline-verified tap-to-turn plugin for Paper Pure, reMarkable 1,
 and reMarkable 2, plus a one-click read-only diagnostic bundle for support. Device operations do not depend on reMarkable cloud services. Release builds include baseline trusted manifests for these firmware-specific features, enabling offline support discovery and verified cache reuse. Payloads are not bundled and still require a network download or an existing validated cache.
 
-The current release is [v1.17.3](https://github.com/pretenderlu/rmtool/releases/tag/v1.17.3). It fixes capacity-detection failures blocking plugin installation or repair on some RM1/RM2 firmware versions and corrects false font diagnostic errors. See the [release notes](docs/releases/v1.17.3.md) and the device, firmware and verification matrix below.
+The current release is [v1.18.0](https://github.com/pretenderlu/rmtool/releases/tag/v1.18.0). It adds QR book transfer, system-native document imports and Move 3.29.0.153 plugin packages. See the [release notes](docs/releases/v1.18.0.md) and the device, firmware and verification matrix below.
 
-The main branch also includes an unreleased [QR transfer test feature](qr-upload/README.md) for Paper Pro Move 3.28.0.172 only: phone-to-tablet PDF/EPUB uploads over trusted Wi-Fi, up to 200 MB per file. The device page and uploads passed hardware tests; managed installation and the post-reboot workflow still await acceptance. This is not included in the released support matrix below.
+[QR transfer](qr-upload/README.md) supports Paper Pro Move 3.28.0.172 and 3.29.0.153: phone-to-tablet PDF/EPUB uploads over trusted Wi-Fi, up to 200 MB per file, without a computer after installation. It uses unencrypted local HTTP and requires a trusted network. Phone uploads on .172 and USB/Wi-Fi desktop native imports on .153 passed hardware tests; the new independent component and complete installation/reboot workflows still need individual hardware acceptance. See the [compatibility notes](docs/device-firmware-support.md).
 
 > [!WARNING]
 > rmtool directly modifies files on the device. Sync or back up important content first, and make sure you accept the data and warranty risks associated with Developer Mode, root SSH, and third-party modifications. This project is not official reMarkable software.
@@ -81,6 +81,8 @@ All firmware-specific resources managed by rmtool use two fixed sources. The cli
 | Pinyin input | [`pinyin-input-assets`](https://github.com/pretenderlu/rmtool/releases/tag/pinyin-input-assets) | [`pinyin-input/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/pinyin-input/) |
 | Reading enhancements | [`reading-enhancements-assets`](https://github.com/pretenderlu/rmtool/releases/tag/reading-enhancements-assets) | [`reading-enhancements/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/reading-enhancements/) |
 | Note enhancements | [`note-enhancements-assets`](https://github.com/pretenderlu/rmtool/releases/tag/note-enhancements-assets) | [`note-enhancements/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/) |
+| QR transfer | [`qr-upload-assets`](https://github.com/pretenderlu/rmtool/releases/tag/qr-upload-assets) | [`qr-upload/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/qr-upload/) |
+| Native document transfer | [`native-import-assets`](https://github.com/pretenderlu/rmtool/releases/tag/native-import-assets) | [`native-import/`](https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/) |
 
 ## Connecting a device
 
@@ -133,10 +135,13 @@ Paper Pro reading-enhancement tap navigation passed local hardware retesting;
 other device and feature verification is recorded separately in the
 [adaptation and test notes](docs/firmware-3.29.0.152.md).
 
+**3.29.0.153 beta** adds exact Move localization, Pinyin, reading enhancements (including EPUB fonts and precise Chinese selection), note enhancements and QR transfer packages. All five models have .153 native-transfer control packages. Paper Pro, Pure, RM1 and RM2 have no other .153 plugin ports; .152 packages are not reused.
+
 | Devices | Supported stable firmware | Supported beta firmware |
 | --- | --- | --- |
-| Paper Pro, Paper Pro Move | 3.27.1.0, 3.27.3.0, 3.28.0.172 | 3.28.0.162, .163, .164, .166, .169; 3.29.0.152 |
-| Paper Pure, reMarkable 1, reMarkable 2 | 3.27.3.0, 3.28.0.172 | 3.29.0.152 (offline only) |
+| Paper Pro | 3.27.1.0, 3.27.3.0, 3.28.0.172 | 3.28.0.162, .163, .164, .166, .169; 3.29.0.152; .153 native transfer only |
+| Paper Pro Move | 3.27.1.0, 3.27.3.0, 3.28.0.172 | 3.28.0.162, .163, .164, .166, .169; 3.29.0.152, .153 |
+| Paper Pure, reMarkable 1, reMarkable 2 | 3.27.3.0, 3.28.0.172 | 3.29.0.152 (offline only); .153 native transfer only |
 
 ### Stable 3.28.0.172 Feature Matrix
 
@@ -152,6 +157,8 @@ Supported means an rmtool implementation exists, not that all five devices have 
 | Custom EPUB font menu | Supported | Supported | Not ported | Not ported | Not ported |
 | WeRead online installation and launcher | Supported | Supported | Not ported | Not ported | Not ported |
 | AppLoad / KOReader installation | Not enabled | Not enabled | Not enabled | Not enabled | Not enabled |
+| QR transfer | Not ported | Supported | Not ported | Not ported | Not ported |
+| Automatic native-transfer component | Supported (offline) | Supported | Supported (offline) | Supported (offline) | Supported (offline) |
 | Firmware download, installation and A/B switching | Supported | Supported | Not enabled | Not enabled | Not enabled |
 | Screen preview, documents, wallpapers, system fonts, diagnostics | Runtime checks | Runtime checks | Runtime checks | Runtime checks | Runtime checks |
 
@@ -163,9 +170,11 @@ Supported means an rmtool implementation exists, not that all five devices have 
 
 ## Features
 
+- **QR transfer**: Start reception in Move Settings and scan the QR code from a phone on the same trusted Wi-Fi to upload PDF/EPUB files, with filename and progress on the tablet. The per-file limit is 200 MB; use USB document-center uploads for larger files. Reboot manually after installing, disabling or removing the entry. Removal preserves imported books.
+
 - **Connections and dashboard**: Manage multiple USB/Wi-Fi device profiles and verify SSH host fingerprints. The native Qt dashboard shows connection status, device details, PDF/EPUB/notebook counts, and suggested next steps.
 - **Wallpaper management**: Read and preview the device's current startup, suspend, carousel, and shutdown wallpapers. The current UI produces portrait wallpapers at the selected device's native resolution, with fit, crop, and stretch modes plus horizontal and vertical crop offsets. The cover-wall generator arranges selected document thumbnails with optional text into a local poster wallpaper; no document data is sent to a cloud service. Sleep wallpapers can be stored on the user partition instead of consuming root-partition space.
-- **Document center**: Search and inspect document metadata and thumbnails; batch-upload PDF/EPUB files, check free space, and batch-delete documents. Export parseable handwriting from `.rm` or `.note` data in one document to a white-background PDF without merging the original PDF/EPUB pages.
+- **Document center**: Search and inspect document metadata and thumbnails; batch-upload PDF/EPUB files, check free space, and batch-delete documents. Uploads call the system-native importer through the selected device's SSH connection; the tablet generates UUIDs and document metadata and converts EPUBs without a post-upload restart. An independent [native-transfer control component](native-import/README.md) supports stable 3.28.0.172 and beta 3.29.0.153 on all five models without requiring QR transfer or implying support for other plugins. Initialize it once from the document center's native-transfer service menu and reboot manually; subsequent USB and Wi-Fi uploads prepare the importer automatically and restore the original setting afterward. An existing verified QR controller can also be reused. All ten targets passed offline checks, but the independent component still needs individual hardware acceptance; other firmware can use the manually enabled native USB web interface. Desktop uploads do not inherit the QR receiver's 200 MB limit, but library space is still checked. Export parseable handwriting from `.rm` or `.note` data in one document to a white-background PDF without merging the original PDF/EPUB pages.
 - **Firmware management**: Currently supports Paper Pro and Paper Pro Move. It can read A/B partition roles and versions, retrieve the official firmware inventory, download and install a verified official image to the standby partition, or switch to an inspected standby partition. After the new firmware boots, rmtool can restore the previous rmtool plugin set when exact packages are available. Follow the in-app restart prompt after installation, switching, or plugin restoration.
 - **AppLoad and KOReader**: On exact supported production firmware, install AppLoad and KOReader directly from their official GitHub Releases without Vellum. rmtool verifies the pinned filename, size, and SHA-256, accepts the same official ZIP files for offline import, and never restarts the device automatically. A previous Vellum/AppLoad KOReader directory is fully backed up before rmtool migrates its settings, history, statistics, screenshots, and other allowlisted user data into a clean official install; unrecognized program files are not mixed into the new version. rmtool currently pins AppLoad v0.5.3 and enables installation only on the listed 3.27 stable builds; both stable and beta 3.28 remain disabled until a newer upstream integration is separately validated. The existing KOReader library manager can then search folders, transfer books, create folders, and delete entries without leaving the detected library root.
 - **WeRead**: Paper Pro and Paper Pro Move on the 3.28 firmware series can install or repair RemarkableWeRead v1.0.0 directly from [Tencent WeRead's official CDN](https://cdn.weread.qq.com/app/remarkable/remarkable-weread-v1.0.0-universal-release.zip); the rmtool device launcher is currently available only on 3.28.0.172 for those two models. The official 43 MB ZIP is neither bundled in rmtool nor mirrored to rmtool GitHub Releases or Tencent COS. rmtool verifies the outer official ZIP, extracts only the expected inner installer archive, verifies it again, and transfers it to the device to run the unchanged upstream installer. Reinstallation preserves login, downloads, and reading data. The launcher offers normal, fast-color, and fast-monochrome modes; each accelerated mode has its own periodic full-refresh setting and launcher changes require a manual device restart. rmtool provides this integration only for 3.28 firmware; for 3.27 and earlier releases, follow the installation instructions provided by WeRead.
@@ -295,7 +304,7 @@ All removable rmtool plugins now distinguish **Disable** from **Uninstall**. Dis
 
 1. After connecting, confirm the current device and connection method on the dashboard.
 2. On the wallpaper page, run "Rescan" first, choose a target that actually exists on the device, then preview and upload.
-3. After uploading documents, you can restart xochitl immediately when prompted. If you skip it, new documents may not appear yet.
+3. This release provides an independent native-transfer component for all five models on 3.28.0.172 / 3.29.0.153. Initialize it from the document center's native-transfer service menu and manually reboot once; subsequent USB or Wi-Fi uploads prepare the importer and restore its original setting automatically. On other firmware, connect USB and enable the USB web interface under Settings > Storage first. No restart is needed after native acceptance, although EPUB conversion can take longer. Interrupted batches preserve accepted files; check the library before retrying files whose outcome was not confirmed.
 4. Document deletion cannot be undone. PDF export only works for one document containing `.rm` or `.note` handwriting data, and the result excludes the original PDF/EPUB background and non-handwriting content.
 5. Font and localization changes are device-level modifications. Restart the device when prompted after they finish.
 6. After installing, migrating, repairing, or disabling reading or note enhancements, wait for rmtool to close SSH, then restart from the device menu. Do not combine deployment with an immediate remote xochitl restart.
@@ -305,7 +314,7 @@ All removable rmtool plugins now distinguish **Disable** from **Uninstall**. Dis
 - **Connection fails**: Check that the USB network interface appears, the address is `10.11.99.1`, the root password is current, and SSH is allowed on the device. Wi-Fi connections also require Wi-Fi SSH to be enabled over USB first.
 - **SSH fingerprint changed**: A system update, device reset, or reuse of the same address by another device can trigger this warning. Verify the device identity before trusting the new fingerprint.
 - **Wallpaper target unavailable**: Different firmware versions provide different wallpaper files. Click "Rescan" and choose a target that has a preview and is not marked as missing from the current device.
-- **Uploaded document does not appear on the device**: Return to the document center and restart xochitl, or restart the device manually.
+- **Document cannot be imported or has not appeared yet**: Automatic preparation requires a supported, loaded transfer component; update it and manually restart once if prompted, or enable the native USB web interface manually. Allow native conversion to finish and refresh the library. After an interruption or unconfirmed settings restoration, check the device and document before retrying.
 - **"Export to PDF" is unavailable**: Select exactly one document containing `.rm` or `.note` handwriting resources. Export renders only parseable handwriting and does not merge original PDF/EPUB pages, typed text, or other non-handwriting content.
 - **Localization buttons are disabled**: Click "Check Status" first. rmtool can use GitHub, Tencent COS, a validated cache, or its bundled baseline catalog, but the internal firmware version plus the SHA-256 of the original `reMarkable_fr.qm` must match the same manifest entry. Installing without network access also requires a validated cached package or a matching package imported from disk.
 - **Reading enhancements cannot be installed**: Click "Check Status" first. The model, firmware, architecture, and stock xochitl hash must match one exact row above. Modified or mixed Xovi layouts are blocked. If Vellum is detected, first let rmtool remove only its verified historical feature packages, then follow the official Vellum uninstall instructions and detect again.
@@ -364,7 +373,7 @@ Fixed resource Releases are validated by GitHub Actions but are published to the
 .\publish-cos.ps1
 ```
 
-The command downloads all seven fixed Releases into a temporary directory, applies the same strict manifest and payload checks used by Actions, uploads only changed payloads, publishes every manifest last, and verifies every object through the public COS endpoint. The temporary directory is removed even when publishing fails.
+The command downloads all fixed resource Releases into a temporary directory, applies the same strict manifest and payload checks used by Actions, uploads only changed payloads, publishes every manifest last, and verifies every object through the public COS endpoint. The temporary directory is removed even when publishing fails.
 
 ## Contributing, license, and credits
 

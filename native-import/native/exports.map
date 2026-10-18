@@ -1,0 +1,5 @@
+{
+    global: _xovi_construct; _xovi_shouldLoad; EXTENSIONVERSION;
+            LINKTABLENAMES; LINKTABLEVALUES;
+    local: *;
+};

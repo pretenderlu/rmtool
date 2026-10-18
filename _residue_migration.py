@@ -18,6 +18,7 @@ import _reading_enhancements as reading
 import _tap_page_turn as tap
 import _weread_launcher as weread
 import _qr_upload as qr
+import _native_import_control as native_import
 import _xovi_standalone
 
 
@@ -30,13 +31,10 @@ FEATURE_LABELS = {
     "note-enhancements": "笔记增强",
     "weread-launcher": "微信读书启动器",
     "qr-upload": "扫码传输",
+    "native-import": "原生文档传输",
     "appload": "AppLoad",
     "koreader": "KOReader",
 }
-
-OPTIONAL_EXTERNAL_FEATURES = frozenset(
-    {appload.FEATURE_ID, appload.KOREADER_FEATURE_ID, qr.FEATURE_ID}
-)
 
 
 @dataclass(frozen=True)
@@ -70,6 +68,7 @@ def _providers() -> Dict[str, object]:
         "note-enhancements": note,
         "weread-launcher": weread,
         "qr-upload": qr,
+        "native-import": native_import,
     }
 
 
@@ -204,7 +203,7 @@ def inspect_residue(ssh_client) -> ResidueReport | None:
         if (
             state.enabled
             and not target_available
-            and feature_id not in OPTIONAL_EXTERNAL_FEATURES
+            and feature_id not in _xovi_standalone.OPTIONAL_MIGRATION_FEATURE_IDS
         ):
             blockers.append(
                 f"{label}处于启用状态，但当前固件没有可迁移的精确包；请先停用该功能"
@@ -217,7 +216,7 @@ def inspect_residue(ssh_client) -> ResidueReport | None:
         for item in features
         if item.enabled
         and not item.target_available
-        and item.feature_id in OPTIONAL_EXTERNAL_FEATURES
+        and item.feature_id in _xovi_standalone.OPTIONAL_MIGRATION_FEATURE_IDS
     ]
     if blockers:
         detail = "残留已验证，但存在阻断项，暂不能一键迁移。"
@@ -265,12 +264,11 @@ def migrate(ssh_client, state_dir: str) -> ResidueReport:
         for item in report.features
         if item.enabled and item.target_available
     ]
-    skipped_external = any(
-        item.enabled
-        and not item.target_available
-        and item.feature_id in OPTIONAL_EXTERNAL_FEATURES
+    skipped_ids = {
+        item.feature_id
         for item in report.features
-    )
+        if item.enabled and not item.target_available
+    }
     with tempfile.TemporaryDirectory() as temporary:
         roots: Dict[str, Path] = {}
         for feature_id in enabled_ids:
@@ -311,6 +309,7 @@ def migrate(ssh_client, state_dir: str) -> ResidueReport:
             {feature_id: new_trusted[feature_id] for feature_id in enabled_ids},
             roots,
             (),
+            skipped_feature_ids=skipped_ids,
             tolerate_legacy_templates=report.legacy_templates,
             trusted_alternatives=tap._trusted_alternatives_for_identity(
                 old_trusted,
@@ -322,7 +321,7 @@ def migrate(ssh_client, state_dir: str) -> ResidueReport:
                 ),
             ),
         )
-        if skipped_external:
+        if skipped_ids.intersection((appload.FEATURE_ID, appload.KOREADER_FEATURE_ID)):
             appload.remove_shim_links(ssh_client, report.new_identity)
     return report
 

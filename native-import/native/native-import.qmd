@@ -1,0 +1,7 @@
+AFFECT /qml/device/view/main/MainView.qml
+    IMPORT cn.rmtool.NativeImport 1.0
+    TRAVERSE Background#root
+        LOCATE BEFORE ALL
+        INSERT { NativeImportControl { settings: Settings } }
+    END TRAVERSE
+END AFFECT

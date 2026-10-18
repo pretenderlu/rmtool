@@ -2832,6 +2832,7 @@ def _enable_shared_locked(
         "note-enhancements",
         "weread-launcher",
         "qr-upload",
+        "native-import",
     }:
         raise RuntimeError("共享 Xovi 包含不受支持的功能。")
     assert_feature_layout(runtime, trusted.values())
@@ -3175,7 +3176,13 @@ MIGRATABLE_FEATURE_IDS = frozenset(
         "note-enhancements",
         "weread-launcher",
         "qr-upload",
+        "native-import",
     }
+)
+
+# These entries can be omitted without deleting their external application data.
+OPTIONAL_MIGRATION_FEATURE_IDS = frozenset(
+    {"appload", "koreader", "weread-launcher", "qr-upload", "native-import"}
 )
 
 
@@ -3188,6 +3195,7 @@ def migrate_shared(
     extracted_roots: Mapping[str, str | Path],
     legacy_specs: Iterable[LegacyStandaloneSpec] = (),
     *,
+    skipped_feature_ids: Iterable[str] = (),
     tolerate_legacy_templates: bool = False,
     trusted_alternatives: Optional[Mapping[str, Iterable[SharedFeatureSpec]]] = None,
 ) -> SharedInspection:
@@ -3195,14 +3203,22 @@ def migrate_shared(
 
     The residue must verify against the old identity's trusted specs and must
     not be loaded into the running xochitl. Every enabled feature must
-    provide an exact new-identity package; the whole shared tree is then
-    rebuilt from those packages in one staged transaction that preserves each
-    feature's enabled state. With tolerate_legacy_templates the residue may
+    provide an exact new-identity package unless the caller explicitly skips
+    an optional entry. Skipped payloads still undergo full residue verification.
+    The whole shared tree is then rebuilt from those packages in one staged
+    transaction that preserves each retained feature's enabled state.
+    With tolerate_legacy_templates the residue may
     carry an unreleased launcher/drop-in generation (see
     inspect_shared_firmware_residue); the rebuilt tree always uses the
     current templates.
     """
     with _operation_lock(ssh_client):
+        skipped_ids = frozenset(skipped_feature_ids)
+        if (
+            not skipped_ids <= OPTIONAL_MIGRATION_FEATURE_IDS
+            or skipped_ids.intersection(new_features)
+        ):
+            raise RuntimeError("仅可跳过未列入迁移目标的可选入口。")
         if not set(new_features) <= MIGRATABLE_FEATURE_IDS:
             raise RuntimeError("共享 Xovi 包含暂不支持迁移的功能。")
         target_trusted = dict(new_features)
@@ -3236,7 +3252,7 @@ def migrate_shared(
         )
         missing = [
             feature_id for feature_id in enabled_ids
-            if feature_id not in target_trusted
+            if feature_id not in target_trusted and feature_id not in skipped_ids
         ]
         if missing:
             raise RuntimeError(
@@ -3244,6 +3260,7 @@ def migrate_shared(
                 + "、".join(missing)
                 + "。请先停用对应功能后重试。"
             )
+        enabled_ids = [fid for fid in enabled_ids if fid not in skipped_ids]
         roots = {feature_id: Path(root) for feature_id, root in extracted_roots.items()}
         if set(roots) != set(enabled_ids):
             raise RuntimeError("迁移功能与已验证解包目录不一致。")
@@ -3251,8 +3268,8 @@ def migrate_shared(
         states = {}
         for feature_id, state in residue.states.items():
             if feature_id not in target_trusted:
-                # Marker-only disabled residue for a feature without a new
-                # package has no files on disk; dropping it is lossless.
+                # Omit verified optional entries and disabled marker-only
+                # residue; external apps and their data stay outside this tree.
                 continue
             states[feature_id] = SharedFeatureState(
                 target_trusted[feature_id],

@@ -30,6 +30,8 @@ MAX_UNPACKED_BYTES = tap.MAX_UNPACKED_BYTES
 ALLOWED_TARGETS = {
     ("chiappa", "20260827113527", "aarch64", "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"):
         ("3.28.0.172", "stable", True, False),
+    ("chiappa", "20261009073202", "aarch64", "0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba"):
+        ("3.29.0.153", "beta", True, False),
 }
 
 
@@ -193,9 +195,10 @@ def _inspect(ssh, identity, runtime, trusted, *, check_lower=False):
 
 
 def _assert_stopped(ssh):
-    for path in ("/run/rmtool-qr-upload-ui", "/home/root/.rmtool-qr-upload-web-state"):
+    for path in ("/run/rmtool-qr-upload-ui", "/home/root/.rmtool-qr-upload-web-state",
+                 "/run/rmtool-native-import-control/active", "/home/root/.rmtool-native-import-web-state"):
         if shared._remote_entry_exists(ssh, path):
-            raise RuntimeError("请先在设备的扫码传输页面停止接收并退出，再重试；异常退出后请重新打开该页面恢复设置。")
+            raise RuntimeError("请先停止接收和电脑文件上传后再重试；异常退出后请重新打开扫码传输页面或重启设备恢复设置。")
 
 
 def get_status(ssh_client, catalog):
@@ -204,7 +207,7 @@ def get_status(ssh_client, catalog):
     package = select_package(catalog, identity)
     if package is None:
         return QrUploadStatus(QrUploadState.INCOMPATIBLE, identity,
-            detail="当前仅提供 Paper Pro Move 3.28.0.172 的扫码传输测试包。")
+            detail="当前扫码传输仅支持 Paper Pro Move 3.28.0.172 和 3.29.0.153。")
     try:
         runtime, trusted, _legacies, feature = _context(identity, package)
         if not shared.has_shared_artifacts(ssh_client):

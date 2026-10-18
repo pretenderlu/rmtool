@@ -164,6 +164,13 @@ RESOURCES = {
             (f"{COS_PUBLIC_BASE_URL}/qr-upload",
              "https://github.com/pretenderlu/rmtool/releases/download/qr-upload-assets"),
         ),
+        Resource(
+            "native-import", "native-import-assets", ROOT / "native-import" / "manifest.json",
+            "native-import", "rmtool-native-import-",
+            frozenset({"offline_verified", "device_verified", "package_revision", "urls"}),
+            (f"{COS_PUBLIC_BASE_URL}/native-import",
+             "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets"),
+        ),
     )
 }
 
@@ -386,6 +393,7 @@ def _validate_feature(resource: Resource, release_dir: Path) -> Bundle:
             "note-enhancements",
             "weread-launcher",
             "qr-upload",
+            "native-import",
         } and (
             type(package.get("package_revision")) is not int
             or package["package_revision"] <= 0

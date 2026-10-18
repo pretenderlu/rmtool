@@ -85,6 +85,7 @@ jobs:
             --add-data "$root/weread-app/manifest.json:weread-app" \
             --add-data "$root/weread-launcher/manifest.json:weread-launcher" \
             --add-data "$root/qr-upload/manifest.json:qr-upload" \
+            --add-data "$root/native-import/manifest.json:native-import" \
             --distpath dist \
             --workpath build/macos \
             --specpath build \

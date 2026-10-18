@@ -21,8 +21,9 @@ def main():
     parser.add_argument("--native-dir", type=Path, required=True)
     parser.add_argument("--carrier", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--release", choices=[value[0] for value in qr.ALLOWED_TARGETS.values()], default="3.28.0.172")
     args = parser.parse_args()
-    identity, verification = next(iter(qr.ALLOWED_TARGETS.items()))
+    identity, verification = next((key, value) for key, value in qr.ALLOWED_TARGETS.items() if value[0] == args.release)
     platform, firmware, architecture, stock = identity
     carrier = reading.select_package(reading._trusted_catalog(), tap.DeviceIdentity(firmware, platform, architecture, stock))
     receiver = args.receiver.read_bytes()
@@ -53,12 +54,19 @@ def main():
         package_revision=qr.PACKAGE_REVISION, asset=asset, sha256=hashlib.sha256(archive).hexdigest(),
         size=len(archive), urls=[f"{base}/{asset}" for base in qr.REMOTE_BASE_URLS],
         files=[dict(path=p, mode=m, size=len(d), sha256=hashlib.sha256(d).hexdigest()) for p,(d,m) in sorted(files.items())])
-    manifest = (json.dumps(dict(schema_version=1, packages=[entry]), indent=2) + "\n").encode()
+    document = json.loads(qr.BUNDLED_MANIFEST.read_bytes())
+    for index, previous in enumerate(document["packages"]):
+        if previous["asset"] == asset:
+            document["packages"][index] = entry
+            break
+    else:
+        document["packages"].append(entry)
+    manifest = (json.dumps(document, indent=2) + "\n").encode()
     qr.parse_manifest(manifest, require_local_match=False)
     packages.write_atomic(args.output_dir / asset, archive)
     packages.write_atomic(qr.BUNDLED_MANIFEST, manifest)
     qr._trusted_catalog.cache_clear()
-    package = qr.parse_manifest(manifest)[0]
+    package = qr.select_package(qr.parse_manifest(manifest), tap.DeviceIdentity(firmware, platform, architecture, stock))
     qr.load_local_package(package, args.output_dir / asset, str(ROOT / ".rmtool"))
     print(f"Built and cached {asset}: {len(archive)} bytes; not published or deployed")
 

@@ -1402,7 +1402,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         unknown = tap.DeviceIdentity("20990101000000", "ferrari", "aarch64", "f" * 64)
 
         with patch.object(tap, "get_device_identity", return_value=unknown), self.assertRaisesRegex(
-            RuntimeError, "EPUB 字体菜单仅支持 Paper Pro / Move 已适配的 3.28 和 3.29.0.152 固件"
+            RuntimeError, "EPUB 字体菜单仅支持 Paper Pro / Move 已精确适配的 3.28 和 3.29 固件"
         ):
             _rmkit_cn.set_epub_font_slot(ssh, font_dir, "reader.ttf")
 

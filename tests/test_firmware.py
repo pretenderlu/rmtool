@@ -374,6 +374,56 @@ class SafetyTests(unittest.TestCase):
         for word in ("battery", "engine", "machine", "pgrep"):
             self.assertNotIn(word, f.GUARD_PROBE)
 
+    def test_guard_reports_native_update_without_relaxing_checks(self):
+        shell_path = shutil.which("sh")
+        if shell_path is None:
+            self.skipTest("POSIX sh is unavailable")
+        cases = [
+            ({}, True, ""),
+            ({"swu_status": "1"}, False, "尚未完成的系统更新"),
+            ({"swu_status": "7"}, False, "系统更新状态异常"),
+            ({"swu_status": ""}, False, "系统更新状态异常"),
+            ({"swu_status": None}, False, ""),
+            ({"swu_applied": "1"}, False, ""),
+            ({"swu_recovery": "1"}, False, ""),
+        ]
+        for changes, allowed, detail in cases:
+            with self.subTest(changes=changes), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                values = dict(swu_status="0", swu_applied="0", swu_recovery="0")
+                values.update(changes)
+                for key, value in values.items():
+                    if value is not None:
+                        (root / key).write_text(value, encoding="ascii")
+                script = '''rootdev() {
+                    case "$1" in
+                        --inactive) echo /dev/mmcblk0p3 ;;
+                        *) echo /dev/mmcblk0p2 ;;
+                    esac
+                }
+                fuser() { return 1; }
+                ''' + f.GUARD_PROBE.replace("/sys/devices/platform/lpgpr", '"$1"')
+                script += '\nprintf "allowed\\n"\n'
+                result = subprocess.run((shell_path, "-c", script, "guard-test", str(root)),
+                                        capture_output=True, text=True, encoding="utf-8", check=False)
+                self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                self.assertEqual(result.stdout.strip(), "allowed" if allowed else "")
+                if detail:
+                    self.assertIn(detail, result.stderr)
+                for key, value in values.items():
+                    if value is not None:
+                        self.assertEqual((root / key).read_text(), value)
+                if changes == {"swu_status": "1"}:
+                    ssh = f.FirmwareSSHClientWrapper()
+                    with mock.patch.object(ssh, "ensure_client", return_value=object()), \
+                            mock.patch.object(f, "query_transaction", return_value=("completed", "")), \
+                            mock.patch.object(ssh, "exec_checked", side_effect=RuntimeError(result.stderr)):
+                        ssh._before_connected()
+                        self.assertIn("尚未完成的系统更新", ssh.firmware_guard_reason)
+                        with self.assertRaisesRegex(RuntimeError, "尚未完成的系统更新"):
+                            with ssh.operation_session():
+                                self.fail("Pending native update must block plugin work")
+
     def test_guard_rejects_commands_and_sftp_during_transaction(self):
         ssh = f.FirmwareSSHClientWrapper()
         ssh.firmware_guard_reason = "running"

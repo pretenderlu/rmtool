@@ -2288,11 +2288,11 @@ def get_epub_font_slot_status(ssh_client) -> EpubFontSlotStatus:
         )
     if package is None or not (
         package.release_version.startswith("3.28.")
-        or package.release_version == "3.29.0.152"
+        or package.release_version in ("3.29.0.152", "3.29.0.153")
     ):
         return EpubFontSlotStatus(
             "unsupported",
-            "EPUB 字体菜单仅支持 Paper Pro / Move 已适配的 3.28 和 3.29.0.152 固件；"
+            "EPUB 字体菜单仅支持 Paper Pro / Move 已精确适配的 3.28 和 3.29 固件；"
             "当前设备仍可上传字体和设置系统字体。",
         )
     try:

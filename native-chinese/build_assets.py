@@ -42,6 +42,7 @@ QMD_VARIANTS = {
     ),
 }
 CATALOG_PATHS = {
+    ("chiappa", "3.29.0.153"): REPO_ROOT / "translations/reMarkable_zh_CN-3.29.0.153-chiappa.qm",
     **{(platform, "3.29.0.152"): REPO_ROOT / f"translations/reMarkable_zh_CN-3.29.0.152-{platform}.qm"
        for platform in ("ferrari", "chiappa", "tatsu", "rm1", "rm2")},
     ("ferrari", "3.28.0.172"): REPO_ROOT / "translations/reMarkable_zh_CN-3.28.0.166-ferrari.qm",
@@ -97,7 +98,7 @@ def sha256(data: bytes) -> str:
 def _variant(package: tap.TapPageTurnPackage | str) -> str:
     release_version = package if isinstance(package, str) else package.release_version
     platform = None if isinstance(package, str) else package.platform
-    if release_version == "3.29.0.152":
+    if release_version in ("3.29.0.152", "3.29.0.153"):
         return "3.29"
     if release_version == "3.28.0.166" or (
         release_version == "3.28.0.172"

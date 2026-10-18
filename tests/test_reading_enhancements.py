@@ -48,10 +48,10 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
     def _state(self, spec, enabled=True, token=None):
         return shared.SharedFeatureState(spec, enabled, token or self.process)
 
-    def test_manifest_is_exact_eighteen_target_matrix(self):
+    def test_manifest_is_exact_nineteen_target_matrix(self):
         self.assertEqual(
             len(self.catalog),
-            18,
+            19,
         )
         self.assertEqual(
             {
@@ -62,11 +62,11 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         )
         self.assertEqual(
             len({item.asset for item in self.catalog}),
-            18,
+            19,
         )
         self.assertEqual(
             len({(item.release_version, item.platform) for item in self.catalog}),
-            18,
+            19,
         )
         self.assertTrue(
             all(item.package_revision == reading.PACKAGE_REVISION for item in self.catalog)
@@ -159,7 +159,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         ]
         self.assertEqual(
             sorted((item.platform, item.release_version) for item in carrying),
-            [("chiappa", "3.28.0.172"), ("chiappa", "3.29.0.152"),
+            [("chiappa", "3.28.0.172"), ("chiappa", "3.29.0.152"), ("chiappa", "3.29.0.153"),
              ("ferrari", "3.28.0.172"), ("ferrari", "3.29.0.152")],
         )
         extension = (
@@ -167,7 +167,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
             / "reading-enhancements/native/rmtool-highlight-snap.so"
         ).read_bytes()
         for package in carrying:
-            if package.release_version == "3.29.0.152":
+            if package.release_version in ("3.29.0.152", "3.29.0.153"):
                 payload = (Path(__file__).resolve().parents[1] /
                            "reading-enhancements/native/rmtool-highlight-snap-3.29.so").read_bytes()
             else:
@@ -223,7 +223,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
             predecessor = reading._known_published_revision_feature(
                 package, current, 11
             )
-            if package.release_version == "3.29.0.152":
+            if package.release_version in ("3.29.0.152", "3.29.0.153"):
                 self.assertIsNone(predecessor)
                 continue
             self.assertIsNotNone(predecessor, package.asset)
@@ -472,7 +472,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                         "package-revision-1",
                     ),
                 )
-            elif package.release_version == "3.29.0.152":
+            elif package.release_version in ("3.29.0.152", "3.29.0.153"):
                 self.assertEqual(reasons, ())
             elif package.release_version == "3.28.0.172":
                 self.assertEqual(
