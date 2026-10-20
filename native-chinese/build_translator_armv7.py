@@ -13,12 +13,17 @@ def build_arm_translator(zig, work):
     with tempfile.TemporaryDirectory() as temporary:
         source = Path(temporary)
         # ARM Qt uses int for qsizetype; retain the published AArch64 source ABI.
-        for name in ("hook.c", "xovi.c", "xovi.h", "test_hook.c"):
+        for name in ("hook.c", "xovi.c", "xovi.h", "test_hook.c", "test_metadata.c"):
             text = (root / "xovi-src" / name).read_text()
             text = text.replace("_ZN7QStringC1EPK5QCharx", "_ZN7QStringC1EPK5QChari")
             text = text.replace("typedef long long i64;", "")
             text = re.sub(r"\bi64\b", "int", text)
             (source / name).write_text(text)
+        metadata_test = source / ("test_metadata.exe" if os.name == "nt" else "test_metadata")
+        subprocess.run([
+            str(zig), "cc", "-std=c11", str(source / "test_metadata.c"), "-o", str(metadata_test),
+        ], check=True, timeout=180)
+        subprocess.run([str(metadata_test)], check=True, timeout=30)
         executable = source / ("test_hook.exe" if os.name == "nt" else "test_hook")
         subprocess.run([
             str(zig), "cc", "-std=c11", "-DRMTOOL_RUNTIME_CATALOG",

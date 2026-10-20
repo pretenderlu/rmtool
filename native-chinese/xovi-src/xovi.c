@@ -69,13 +69,20 @@ __attribute__((section(".xovi"))) const void *LINKTABLEVALUES[] = { (void *) 9, 
 __attribute__((section(".xovi"))) const struct XoViEnvironment *Environment = 0;
 __attribute__((section(".xovi"))) int EXTENSIONVERSION = 512;
 
-__attribute__((section(".xovi_info"))) const char __XOVIMETADATANAMES[] = "";
+__attribute__((section(".xovi_info"))) const char __XOVIMETADATANAMES[] = "$argsize\0";
 
 // Raw Metadata Entries
+const struct XoviMetadataEntry __XME0 = {
+    .name = &__XOVIMETADATANAMES[0],
+    .type = 1,
+    .value = {
+        .i = 6
+    }
+};
 
 
 // Metadata Chains
-
+const struct XoviMetadataEntry *__XMJ__XME0[] = { &__XME0, (struct XoviMetadataEntry *) 0 };
 
 // Main metadata list
 __attribute__((section(".xovi"))) const struct XoviMetadataEntry **METADATAVALUES[] = {
@@ -88,7 +95,7 @@ __attribute__((section(".xovi"))) const struct XoviMetadataEntry **METADATAVALUE
     (const struct XoviMetadataEntry **) 0,
     (const struct XoviMetadataEntry **) 0,
     (const struct XoviMetadataEntry **) 0,
-    (const struct XoviMetadataEntry **) 0, (const struct XoviMetadataEntry **) 1
+    (const struct XoviMetadataEntry **) &__XMJ__XME0, (const struct XoviMetadataEntry **) 1
 };
 
 // Resources
@@ -96,6 +103,7 @@ __attribute__((section(".xovi"))) const struct XoviMetadataEntry **METADATAVALUE
 
 // Dependency constructor
 void _xovi_depconstruct() {
+
 }
 
 #ifdef __cplusplus

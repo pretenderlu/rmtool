@@ -43,14 +43,15 @@ class BuildMatrixTests(unittest.TestCase):
         import _native_chinese as native
 
         for release in ("3.28.0.172", "3.29.0.152"):
-            document = matrix._manifest("native-chinese")
-            package = next(p for p in document["packages"]
-                           if p["platform"] == "rm2" and p["release_version"] == release)
-            extension = next(f for f in package["files"] if f["path"] == native.EXTENSION_PATH)
-            extension["size"], extension["sha256"] = native.ARM_TRANSLATOR_RUNTIME_PREDECESSOR
-            with self.subTest(release=release), patch.object(matrix, "_manifest", return_value=document):
-                with self.assertRaisesRegex(RuntimeError, "ARM Qt ABI mismatch"):
-                    matrix._validate_feature_matrix("native-chinese")
+            for predecessor in (native.ARM_TRANSLATOR_RUNTIME_PREDECESSOR, native.ARM_TRANSLATOR_STACK_PREDECESSOR):
+                document = matrix._manifest("native-chinese")
+                package = next(p for p in document["packages"]
+                               if p["platform"] == "rm2" and p["release_version"] == release)
+                extension = next(f for f in package["files"] if f["path"] == native.EXTENSION_PATH)
+                extension["size"], extension["sha256"] = predecessor
+                with self.subTest(release=release, predecessor=predecessor), patch.object(matrix, "_manifest", return_value=document):
+                    with self.assertRaisesRegex(RuntimeError, "ARM Qt ABI mismatch"):
+                        matrix._validate_feature_matrix("native-chinese")
 
     def test_plugin_selectors_cover_every_known_target_and_reject_unknown_hashes(self):
         for feature, name in matrix.FEATURE_MODULES.items():

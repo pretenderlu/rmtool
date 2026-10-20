@@ -322,7 +322,7 @@ def main():
                     asset = module._expected_asset_name(platform, FIRMWARE, release)
                     entry['package_revision'] = module.PACKAGE_REVISION
                 elif feature == 'native-chinese':
-                    asset = f'rmtool-{feature}-{platform}-{FIRMWARE}-{release}' + ('-runtime-catalog' if architecture == 'armv7l' else '') + '.tar.gz'
+                    asset = module.EXPECTED_ASSETS[(FIRMWARE, platform, architecture, xochitl_hash)]
                 else:
                     asset = f'rmtool-{feature}-{platform}-{FIRMWARE}-{release}.tar.gz'
                 origins = (module.COS_URL, module.GITHUB_URL) if feature in ('native-chinese', 'pinyin-input') else module.REMOTE_BASE_URLS

@@ -187,11 +187,18 @@ class NativeChineseTests(unittest.TestCase):
                 continue
             predecessors = native._known_shared_predecessor_specs(other)
             if other.platform in native.ARM_CATALOG_PREDECESSORS and other.release_version == "3.28.0.172":
-                self.assertEqual(len(predecessors), 2)
+                self.assertEqual(len(predecessors), 3)
                 self.assertEqual(predecessors[0].reason, "qt_string_abi")
                 self.assertEqual(predecessors[0].archive_sha256, native.ARM_RUNTIME_CATALOG_PREDECESSORS[other.platform])
                 self.assertEqual(predecessors[1].reason, "catalog_runtime_path")
                 self.assertEqual(predecessors[1].archive_sha256, native.ARM_CATALOG_PREDECESSORS[other.platform])
+                self.assertEqual(predecessors[2].reason, "arm_calling_convention")
+                continue
+            if other.architecture == "armv7l":
+                self.assertEqual(len(predecessors), 1)
+                self.assertEqual(predecessors[0].reason, "arm_calling_convention")
+                identity = (other.firmware, other.platform, other.architecture, other.xochitl_sha256)
+                self.assertEqual(predecessors[0].archive_sha256, native.ARM_STACK_PREDECESSORS[identity])
                 continue
             expected = native.CATALOG_LABEL_PREDECESSORS.get(
                 (other.firmware, other.platform, other.architecture, other.xochitl_sha256)

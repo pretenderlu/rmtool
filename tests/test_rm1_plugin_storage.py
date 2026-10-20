@@ -1,5 +1,7 @@
 import hashlib
+import importlib.util
 import json
+import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -64,6 +66,7 @@ class RM1PluginStorageTests(unittest.TestCase):
         self.assertNotIn("/home/root/.local/share/rmtool/native-chinese/".encode("utf-16le"), binary)
         self.assertIn(b"I_ZN7QStringC1EPK5QChari\0", binary)
         self.assertNotIn(b"_ZN7QStringC1EPK5QCharx", binary)
+        self.assertIn(b"$argsize\0", binary)
         old = native._known_shared_predecessor_specs(self.package)[1]
         contexts = recovery._trusted_cleanup_contexts(native._package_identity(self.package))
         self.assertTrue(any(runtime == self.runtime and trusted.get(native.FEATURE_ID) == old.feature
@@ -79,6 +82,16 @@ class RM1PluginStorageTests(unittest.TestCase):
             shared._assert_home_catalog(runtime, {
                 fid: replace(state, enabled=False) for fid, state in result.states.items()})
 
+    @unittest.skipUnless(Path("E:/remarkable/tools/zig-0.16.0/zig.exe").is_file(), "Zig compiler is not configured")
+    def test_arm_translator_build_checks_metadata_and_reproduces_binary(self):
+        root = Path(native.__file__).parent / "native-chinese"
+        spec = importlib.util.spec_from_file_location("native_translator_builder", root / "build_translator_armv7.py")
+        builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(builder)
+        with tempfile.TemporaryDirectory() as temporary:
+            payload = builder.build_arm_translator(Path("E:/remarkable/tools/zig-0.16.0/zig.exe"), Path(temporary))
+        self.assertEqual(payload, (root / "native-chinese-translator-armv7-qt32.so").read_bytes())
+
     def test_home_payload_tampering_and_mixed_layouts_still_refuse(self):
         ssh, _, runtime, trusted, _ = self.device(layout=self.home, modified_path="xovi.so")
         with self.assertRaises(RuntimeError):
@@ -89,15 +102,15 @@ class RM1PluginStorageTests(unittest.TestCase):
             shared.inspect_shared(ssh, runtime, trusted)
         ssh.transfer_file.assert_not_called()
 
-    def test_stable_arm_predecessors_are_repairable_and_preserve_pinyin(self):
+    def test_arm_predecessors_are_repairable_and_preserve_pinyin(self):
         import _rmkit_cn as fonts
 
         for package in native._trusted_catalog():
-            if package.platform not in {"rm1", "rm2"} or package.release_version != "3.28.0.172":
+            if package.architecture != "armv7l":
                 continue
             identity = native._package_identity(package)
             runtime, trusted, _ = native._trusted_shared_context(identity)
-            self.assertIn("-qt32-runtime-catalog", package.asset)
+            self.assertIn("-runtime-catalog-arm-stack", package.asset)
             for predecessor in native._known_shared_predecessor_specs(package):
                 for schema in (1, 2):
                     with self.subTest(platform=package.platform, reason=predecessor.reason, schema=schema):
@@ -120,14 +133,54 @@ class RM1PluginStorageTests(unittest.TestCase):
                         self.assertIn("可直接修复更新", status.detail)
                         ssh.transfer_file.assert_not_called()
 
-    def test_stable_arm_tampered_predecessor_is_not_repair_trusted(self):
-        predecessor = native._known_shared_predecessor_specs(self.package)[0]
-        ssh, _, runtime, trusted, _ = self.device(
-            feature_overrides={native.FEATURE_ID: predecessor.feature},
-            modified_path=native.EXTENSION_PATH)
-        with self.assertRaises(RuntimeError):
-            native._inspect_shared_revision(ssh, runtime, trusted, self.package)
-        ssh.transfer_file.assert_not_called()
+    def test_arm_tampered_predecessor_is_not_repair_trusted(self):
+        for package in native._trusted_catalog():
+            if package.architecture != "armv7l":
+                continue
+            predecessor = native._known_shared_predecessor_specs(package)[-1]
+            with self.subTest(platform=package.platform, release=package.release_version):
+                ssh, _, runtime, trusted, _ = fixtures.SharedXoviTests().shared_residue_ssh(
+                    package, None, feature_ids=(native.FEATURE_ID,),
+                    feature_overrides={native.FEATURE_ID: predecessor.feature},
+                    modified_path=native.EXTENSION_PATH, layout=shared.preferred_layout(native._shared_specs(package)[0]))
+                with self.assertRaises(RuntimeError):
+                    native._inspect_shared_revision(ssh, runtime, trusted, package)
+                ssh.transfer_file.assert_not_called()
+
+    def test_arm_crashed_predecessor_rebuilds_payload_and_preserves_protection_during_inspection(self):
+        for package in native._trusted_catalog():
+            if package.architecture != "armv7l":
+                continue
+            runtime, current = native._shared_specs(package)
+            old = native._known_shared_predecessor_specs(package)[-1]
+            layout = shared.preferred_layout(runtime)
+            for schema in (1, 2):
+                with self.subTest(platform=package.platform, release=package.release_version, schema=schema), patch.object(
+                    recovery_fixtures, "BASE", layout.remote_base
+                ):
+                    device = recovery_fixtures.Device(package=package)
+                    device.layout = layout
+                    device.entries.clear()
+                    device.mountinfo = "1 0 8:1 / / rw - ext4 /dev/root rw\n2 1 8:7 / /home rw - ext4 /dev/home rw\n"
+                    if package.platform == "rm2":
+                        device.mountinfo += "3 1 8:2 / /data rw - ext4 /dev/data rw\n"
+                    states = {native.FEATURE_ID: shared.SharedFeatureState(old.feature, True, recovery_fixtures.TOKEN)}
+                    device.install(states, schema_version=schema)
+                    pending = layout.remote_base + "/startup.pending"
+                    device.add(pending, mode=0o100600)
+                    with patch.object(tap, "get_device_identity", return_value=device.identity), patch.object(
+                        recovery, "_lower_dropin_snapshot", return_value=None
+                    ), patch.object(
+                        native._rmkit_cn, "get_localization_status",
+                        return_value=Mock(state=native._rmkit_cn.LocalizationState.NOT_INSTALLED)
+                    ):
+                        report, plan = recovery._inspect(device)
+                    self.assertTrue(report.can_repair, report.detail)
+                    self.assertFalse(plan.controls_only)
+                    self.assertEqual(plan.targets[native.FEATURE_ID], current)
+                    self.assertEqual(plan.states[native.FEATURE_ID].spec, old.feature)
+                    self.assertIn(pending, device.entries)
+                    self.assertFalse(any(event.startswith(("mkdir", "rm ", "/bin/sh", "mount ")) for event in device.events))
 
     def test_rm1_capacity_uses_home_but_requires_small_root_headroom(self):
         for home_kib, root_kib, error in ((100000, 2048, None), (0, 2048, "/home"),

@@ -146,12 +146,19 @@ EXPECTED_ASSETS = {
     identity: (
         f"rmtool-native-chinese-{identity[1]}-{identity[0]}-{policy[0]}"
         + ("-qt32" if identity[2] == "armv7l" and policy[0] == "3.28.0.172" else "")
-        + ("-runtime-catalog" if identity[2] == "armv7l" else "") + ".tar.gz"
+        + ("-runtime-catalog-arm-stack" if identity[2] == "armv7l" else "") + ".tar.gz"
     )
     for identity, policy in ALLOWED_TARGETS.items()
 }
 MAX_PACKAGE_BYTES = 32 * 1024 * 1024
-ARM_TRANSLATOR = (3756, "494931a218d2296a34275020a658130c617cefc97aee6015494b8e64365f9323")
+ARM_TRANSLATOR = (4008, "5b7f36dba332a474bea58ea4a8a44061452a17183ada30c736d1f6c410337b78")
+ARM_TRANSLATOR_STACK_PREDECESSOR = (3756, "494931a218d2296a34275020a658130c617cefc97aee6015494b8e64365f9323")
+ARM_STACK_PREDECESSORS = {
+    ("20260827113527", "rm1", "armv7l", "1f4fbb6e14650704b5b036e482da9948e73553178f6116ad464ab072f7b90117"): "42a7dc9e56d4be399012fa296c65876c1871a7088606b520ea18762d3dbc6dfa",
+    ("20260827113527", "rm2", "armv7l", "071d85beef3ef2d4cc0e11002140b27b82a2cc04a2ed740a5669f591069b77df"): "d3babaa309995e95d5d5aa4f60d1183a384691782e1e7e2f5206d2a74c9971a6",
+    ("20261009073202", "rm1", "armv7l", "2eb775c3ced943c20ccf6271bb107e745db10aece2dc21e0e4bd8450d98fd23c"): "9a5df32354f72a44d81e279b18143a7593e1d305ac196c6c256fea069b4f8bb4",
+    ("20261009073202", "rm2", "armv7l", "50a5ed69ab9c60d9f3b1d04b19311562194f6cfee769b17a6ea069d255e47760"): "2bb1ddb8b3bc38c5ff5c29d101f069ecbb19c89c84040f7c5bf7245da996cc38",
+}
 ARM_TRANSLATOR_RUNTIME_PREDECESSOR = (3756, "7627c21c45726113f706e748a52cd516c751c5f92c7ccf9422b9af6641eea427")
 ARM_RUNTIME_CATALOG_PREDECESSORS = {
     "rm1": "08857a11b6895e3bf5ceab2054a9c2f77e2102b8e8cd7b759c6e5920415de645",
@@ -426,19 +433,25 @@ def _known_shared_predecessor_specs(
         package.xochitl_sha256,
     )
     _runtime, current = _shared_specs(package)
-    if package.firmware == "20260827113527" and package.platform in ARM_CATALOG_PREDECESSORS:
+    if identity in ARM_STACK_PREDECESSORS:
+        predecessors = []
+        if package.release_version == "3.28.0.172":
+            predecessors.extend((
+                ("qt_string_abi", ARM_RUNTIME_CATALOG_PREDECESSORS[package.platform], ARM_TRANSLATOR_RUNTIME_PREDECESSOR),
+                ("catalog_runtime_path", ARM_CATALOG_PREDECESSORS[package.platform], ARM_TRANSLATOR_PREDECESSOR),
+            ))
+        predecessors.append((
+            "arm_calling_convention", ARM_STACK_PREDECESSORS[identity], ARM_TRANSLATOR_STACK_PREDECESSOR,
+        ))
         return tuple(
             _SharedPredecessor(
-                reason, archives[package.platform],
+                reason, archive_sha256,
                 replace(current, extra_files=tuple(
                     replace(item, sha256=digest, size=size) if item.runtime_path == EXTENSION_PATH else item
                     for item in current.extra_files
                 )),
             )
-            for reason, archives, (size, digest) in (
-                ("qt_string_abi", ARM_RUNTIME_CATALOG_PREDECESSORS, ARM_TRANSLATOR_RUNTIME_PREDECESSOR),
-                ("catalog_runtime_path", ARM_CATALOG_PREDECESSORS, ARM_TRANSLATOR_PREDECESSOR),
-            )
+            for reason, archive_sha256, (size, digest) in predecessors
         )
     catalog_predecessor = CATALOG_LABEL_PREDECESSORS.get(identity)
     if catalog_predecessor is not None:
@@ -697,6 +710,9 @@ def get_status(
             )
         if FEATURE_ID in revisions:
             detail = (
+                "汉化扩展需要修复启动兼容性，可直接修复更新"
+                if revisions[FEATURE_ID] == "arm_calling_convention"
+                else
                 "汉化扩展需要修复中文加载接口，可直接修复更新"
                 if revisions[FEATURE_ID] == "qt_string_abi"
                 else
