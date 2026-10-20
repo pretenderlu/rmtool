@@ -1,6 +1,6 @@
 # Device, Firmware and Feature Support
 
-Updated on 2026-10-18 for v1.18.0. This describes **rmtool's installation gates**,
+Updated on 2026-10-20 for v1.18.1. This describes **rmtool's installation gates**,
 not everything an upstream application might run on. A package requires the
 exact platform, architecture, internal build and stock xochitl SHA-256.
 3.29.0.152 resources are included in v1.16.16. All five platforms passed offline
@@ -77,6 +77,11 @@ does not apply to a monochrome screen.
 - The former French-slot path is frozen and is not exposed as a new toolbox
   installation. Its 3.27.3 legacy resources do not provide the independent
   native-Chinese plugin on Pure/RM1/RM2. .172 carrier records are recovery guards.
+- v1.18.1 updates native-Chinese startup compatibility for RM1/RM2 on stable
+  3.28.0.172 and beta 3.29.0.152. The rebuilt ARM extension and old-package repair
+  paths passed local checks; the reported RM1 startup crash still awaits a
+  device backtrace or hardware retest. Keep existing startup protection until
+  the diagnostic follow-up in [Issue 20](https://github.com/pretenderlu/rmtool/issues/20).
 
 ## Other Tools
 
