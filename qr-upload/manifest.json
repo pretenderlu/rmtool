@@ -124,6 +124,254 @@
           "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
+    },
+    {
+      "firmware": "20261009073202",
+      "platform": "ferrari",
+      "architecture": "aarch64",
+      "xochitl_sha256": "9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4",
+      "release_version": "3.29.0.153",
+      "channel": "beta",
+      "offline_verified": true,
+      "device_verified": false,
+      "package_revision": 1,
+      "asset": "rmtool-qr-upload-ferrari-20261009073202-3.29.0.153.tar.gz",
+      "sha256": "b57a087499915d58af2ddac5352c36e33d1d47d9faf7df61e8788ea4a5743408",
+      "size": 7323521,
+      "urls": [
+        "https://github.com/pretenderlu/rmtool/releases/download/qr-upload-assets/rmtool-qr-upload-ferrari-20261009073202-3.29.0.153.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/qr-upload/rmtool-qr-upload-ferrari-20261009073202-3.29.0.153.tar.gz"
+      ],
+      "files": [
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
+          "size": 9496456,
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
+        },
+        {
+          "path": "extensions.d/rmtool-qr-upload.so",
+          "mode": 420,
+          "size": 2360776,
+          "sha256": "c2d9ef657a1cd67514307cc01a5af780581d3e97e8040e9248722f2bc2d96fba"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
+          "size": 618516,
+          "sha256": "42a1d65d2ca973ad9f45ecdf45d2cdd0773801b18a5cf849513c041c9ddd2c2a"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/qr-upload.qmd",
+          "mode": 420,
+          "size": 12316,
+          "sha256": "dcd987967d637ad7d9da3a65e662d752109ab20937ea299d4e5990e3c5754199"
+        },
+        {
+          "path": "helpers/rmtool-qr-upload",
+          "mode": 493,
+          "size": 7078048,
+          "sha256": "d2adaf246aea623aec359081e9f760a219b30cfab111bc32482903e4370e1619"
+        },
+        {
+          "path": "qmd-tool",
+          "mode": 493,
+          "size": 1966264,
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
+        },
+        {
+          "path": "xovi.so",
+          "mode": 420,
+          "size": 103008,
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
+        }
+      ]
+    },
+    {
+      "firmware": "20261009073202",
+      "platform": "tatsu",
+      "architecture": "aarch64",
+      "xochitl_sha256": "3735105b7e6b8a1d8ea42c9eabe6079c0bd1c99a546ab1a9fc7870263909ce39",
+      "release_version": "3.29.0.153",
+      "channel": "beta",
+      "offline_verified": true,
+      "device_verified": false,
+      "package_revision": 1,
+      "asset": "rmtool-qr-upload-tatsu-20261009073202-3.29.0.153.tar.gz",
+      "sha256": "144e50dfcfeca6c021a10db9fda91c51a77befee97a706cfed70b2156d868ed7",
+      "size": 7317717,
+      "urls": [
+        "https://github.com/pretenderlu/rmtool/releases/download/qr-upload-assets/rmtool-qr-upload-tatsu-20261009073202-3.29.0.153.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/qr-upload/rmtool-qr-upload-tatsu-20261009073202-3.29.0.153.tar.gz"
+      ],
+      "files": [
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
+          "size": 9496456,
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
+        },
+        {
+          "path": "extensions.d/rmtool-qr-upload.so",
+          "mode": 420,
+          "size": 2360776,
+          "sha256": "c2d9ef657a1cd67514307cc01a5af780581d3e97e8040e9248722f2bc2d96fba"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
+          "size": 608542,
+          "sha256": "dc217eb13f15099073b3efae5bc3cb14b2f48a72c02cf35a9fe4e636e9e5fce8"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/qr-upload.qmd",
+          "mode": 420,
+          "size": 12316,
+          "sha256": "dcd987967d637ad7d9da3a65e662d752109ab20937ea299d4e5990e3c5754199"
+        },
+        {
+          "path": "helpers/rmtool-qr-upload",
+          "mode": 493,
+          "size": 7078048,
+          "sha256": "d2adaf246aea623aec359081e9f760a219b30cfab111bc32482903e4370e1619"
+        },
+        {
+          "path": "qmd-tool",
+          "mode": 493,
+          "size": 1966264,
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
+        },
+        {
+          "path": "xovi.so",
+          "mode": 420,
+          "size": 103008,
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
+        }
+      ]
+    },
+    {
+      "firmware": "20261009073202",
+      "platform": "rm1",
+      "architecture": "armv7l",
+      "xochitl_sha256": "0c68cf7b049fb87929b5978494a1205bc558f239f77758821c67524133a3f54b",
+      "release_version": "3.29.0.153",
+      "channel": "beta",
+      "offline_verified": true,
+      "device_verified": false,
+      "package_revision": 1,
+      "asset": "rmtool-qr-upload-rm1-20261009073202-3.29.0.153.tar.gz",
+      "sha256": "f56562fd3070e008a16047ded0742254c72244fd556e97efcd4856a32fb0d09b",
+      "size": 7741715,
+      "urls": [
+        "https://github.com/pretenderlu/rmtool/releases/download/qr-upload-assets/rmtool-qr-upload-rm1-20261009073202-3.29.0.153.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/qr-upload/rmtool-qr-upload-rm1-20261009073202-3.29.0.153.tar.gz"
+      ],
+      "files": [
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
+          "size": 8539328,
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa"
+        },
+        {
+          "path": "extensions.d/rmtool-qr-upload.so",
+          "mode": 420,
+          "size": 2825844,
+          "sha256": "9cf1c093eb4237db2e7e1f76d883c82d777ec5b627194b5f5500b2de1971db2d"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
+          "size": 595628,
+          "sha256": "efee6bcdee1866d350c380c860ab17e3b110994d2ada0d02fff004f08715b589"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/qr-upload.qmd",
+          "mode": 420,
+          "size": 12316,
+          "sha256": "dcd987967d637ad7d9da3a65e662d752109ab20937ea299d4e5990e3c5754199"
+        },
+        {
+          "path": "helpers/rmtool-qr-upload",
+          "mode": 493,
+          "size": 7536800,
+          "sha256": "3a531544d0f5409a1c8f097c2898b1c1f72cae817e8a6e99c652cec4492bd21d"
+        },
+        {
+          "path": "qmd-tool",
+          "mode": 493,
+          "size": 2031800,
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312"
+        },
+        {
+          "path": "xovi.so",
+          "mode": 420,
+          "size": 123620,
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14"
+        }
+      ]
+    },
+    {
+      "firmware": "20261009073202",
+      "platform": "rm2",
+      "architecture": "armv7l",
+      "xochitl_sha256": "53547bc30584b9057d5b05ada6c5fb2df3561c3a097c1c2b1aae527d5ddd2e26",
+      "release_version": "3.29.0.153",
+      "channel": "beta",
+      "offline_verified": true,
+      "device_verified": false,
+      "package_revision": 1,
+      "asset": "rmtool-qr-upload-rm2-20261009073202-3.29.0.153.tar.gz",
+      "sha256": "da101bc54f485906152d514e189889b92914ff02541c590a1a06d559ba5042a4",
+      "size": 7750012,
+      "urls": [
+        "https://github.com/pretenderlu/rmtool/releases/download/qr-upload-assets/rmtool-qr-upload-rm2-20261009073202-3.29.0.153.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/qr-upload/rmtool-qr-upload-rm2-20261009073202-3.29.0.153.tar.gz"
+      ],
+      "files": [
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
+          "size": 8539328,
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa"
+        },
+        {
+          "path": "extensions.d/rmtool-qr-upload.so",
+          "mode": 420,
+          "size": 2825844,
+          "sha256": "9cf1c093eb4237db2e7e1f76d883c82d777ec5b627194b5f5500b2de1971db2d"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
+          "size": 611074,
+          "sha256": "84d31a7c7b63d27f0e37cd9b2a5f26fdd1f0278e0bbf3a12a211d48d267ed276"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/qr-upload.qmd",
+          "mode": 420,
+          "size": 12336,
+          "sha256": "dc5655a1081372d529b8ee8f6cf2df8a38e0b9499632b79c2f4512cae52ceb9d"
+        },
+        {
+          "path": "helpers/rmtool-qr-upload",
+          "mode": 493,
+          "size": 7536800,
+          "sha256": "3a531544d0f5409a1c8f097c2898b1c1f72cae817e8a6e99c652cec4492bd21d"
+        },
+        {
+          "path": "qmd-tool",
+          "mode": 493,
+          "size": 2031800,
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312"
+        },
+        {
+          "path": "xovi.so",
+          "mode": 420,
+          "size": 123620,
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14"
+        }
+      ]
     }
   ]
 }

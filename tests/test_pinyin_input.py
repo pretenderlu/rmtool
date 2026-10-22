@@ -35,7 +35,7 @@ class PinyinInputTests(unittest.TestCase):
             (item.firmware, item.platform, item.architecture, item.xochitl_sha256)
             for item in packages
         }
-        self.assertEqual(len(packages), 25)
+        self.assertEqual(len(packages), 29)
         self.assertEqual(
             {(item.platform, item.release_version) for item in packages},
             {
@@ -47,7 +47,7 @@ class PinyinInputTests(unittest.TestCase):
                for release in ("3.28.0.166", "3.28.0.169", "3.28.0.172")}
             | {(platform, "3.28.0.172") for platform in ("tatsu", "rm1", "rm2")}
             | {(platform, "3.29.0.152") for platform in ("ferrari", "chiappa", "tatsu", "rm1", "rm2")}
-            | {("chiappa", "3.29.0.153")},
+            | {(platform, "3.29.0.153") for platform in ("ferrari", "chiappa", "tatsu", "rm1", "rm2")},
         )
         self.assertEqual(
             identities,

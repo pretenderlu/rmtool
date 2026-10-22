@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 import _native_chinese as native
 import _reading_enhancements as reading
@@ -97,11 +98,14 @@ class Beta329Tests(unittest.TestCase):
         try:
             for release, platform, address in [(builder.RELEASE, 'chiappa', '0xcadd70'),
                                                (builder.RELEASE, 'ferrari', '0xcc8db0'),
-                                               ('3.29.0.153', 'chiappa', '0xcaddb0')]:
+                                               ('3.29.0.153', 'chiappa', '0xcaddb0'),
+                                               ('3.29.0.153', 'ferrari', '0xcc8db0')]:
                 path = Path('E:/remarkable/firmware-cache/official-beta') / release / platform / 'extracted/selected-rootfs/usr/bin/xochitl'
                 if not path.is_file():
                     self.skipTest('Exact beta xochitl is not cached')
-                self.assertEqual(builder.highlight_abi_check(path, platform, release)['address'], address)
+                result = builder.highlight_abi_check(path, platform, release)
+                self.assertEqual(result['address'], address)
+                self.assertEqual(result['xochitl_sha256'], builder.digest(path.read_bytes()))
                 other = 'ferrari' if platform == 'chiappa' else 'chiappa'
                 with self.assertRaisesRegex(RuntimeError, 'identity'):
                     builder.highlight_abi_check(path, other, release)
@@ -138,7 +142,7 @@ class Beta329Tests(unittest.TestCase):
 
     def test_beta_home_layout_is_rm1_only(self):
         for package in native._trusted_catalog():
-            if package.release_version != builder.RELEASE:
+            if package.release_version not in builder.TARGETS_BY_RELEASE:
                 continue
             runtime, _ = native._shared_specs(package)
             layout = shared.preferred_layout(runtime)
@@ -165,23 +169,51 @@ class Beta329Tests(unittest.TestCase):
 
     def test_153_keeps_same_build_but_exact_new_binary_and_catalog(self):
         targets = builder.TARGETS_BY_RELEASE['3.29.0.153']
-        self.assertEqual(set(targets), {'chiappa'})
+        self.assertEqual(set(targets), {'ferrari', 'chiappa', 'tatsu', 'rm1', 'rm2'})
         catalog = native._trusted_catalog()
-        previous = next(p for p in catalog if p.platform == 'chiappa' and p.release_version == builder.RELEASE)
-        package = next(p for p in catalog if p.release_version == '3.29.0.153')
-        self.assertEqual(previous.firmware, package.firmware)
-        self.assertNotEqual(previous.xochitl_sha256, package.xochitl_sha256)
-        self.assertEqual(package.xochitl_sha256, targets['chiappa'][2])
-        identity = native.tap.DeviceIdentity(package.firmware, package.platform, package.architecture, package.xochitl_sha256)
-        carrier = native._bundled_french_slot_package(identity)
-        self.assertEqual(carrier.release_version, '3.29.0.153')
-        self.assertEqual(carrier.localized_qm_sha256, package.file(native.CATALOG_PATH).sha256)
-        self.assertFalse(package.device_verified)
-        beta_reading = reading.select_package(reading._trusted_catalog(), identity)
-        _, feature = reading._shared_specs(beta_reading)
-        self.assertEqual(reading._known_shared_predecessor_specs(beta_reading, feature), ())
-        self.assertTrue(reading._highlight_snap_supported(package.firmware, package.release_version,
-                                                        package.platform, package.architecture, package.xochitl_sha256))
+        for platform, target in targets.items():
+            with self.subTest(platform=platform):
+                previous = next(p for p in catalog if p.platform == platform and p.release_version == builder.RELEASE)
+                package = next(p for p in catalog if p.platform == platform and p.release_version == '3.29.0.153')
+                self.assertEqual(previous.firmware, package.firmware)
+                self.assertNotEqual(previous.xochitl_sha256, package.xochitl_sha256)
+                self.assertEqual(package.xochitl_sha256, target[2])
+                identity = native.tap.DeviceIdentity(package.firmware, package.platform, package.architecture, package.xochitl_sha256)
+                carrier = native._bundled_french_slot_package(identity)
+                self.assertEqual(carrier.release_version, '3.29.0.153')
+                self.assertEqual(carrier.localized_qm_sha256, package.file(native.CATALOG_PATH).sha256)
+                self.assertFalse(package.device_verified)
+                beta_reading = reading.select_package(reading._trusted_catalog(), identity)
+                color = platform in ('ferrari', 'chiappa')
+                self.assertEqual(beta_reading is not None, color)
+                self.assertEqual(reading._highlight_snap_supported(package.firmware, package.release_version,
+                                 platform, package.architecture, package.xochitl_sha256), color)
+                if color:
+                    _, feature = reading._shared_specs(beta_reading)
+                    self.assertEqual(reading._known_shared_predecessor_specs(beta_reading, feature), ())
+
+    def test_all_five_can_migrate_core_features_to_exact_153(self):
+        import _residue_migration as migration
+        tap = native.tap
+        for platform in builder.TARGETS_BY_RELEASE['3.29.0.153']:
+            target = next(p for p in native._trusted_catalog()
+                          if p.platform == platform and p.release_version == '3.29.0.153')
+            current = tap.DeviceIdentity(target.firmware, platform, target.architecture, target.xochitl_sha256)
+            for release in ('3.28.0.172', '3.29.0.152'):
+                source = next(p for p in native._trusted_catalog() if p.platform == platform and p.release_version == release)
+                old = tap.DeviceIdentity(source.firmware, platform, source.architecture, source.xochitl_sha256)
+                _, trusted, _ = tap._trusted_shared_context(old)
+                features = {'native-chinese', 'pinyin-input'}
+                features.update({'reading-enhancements', 'note-enhancements'} if platform in ('ferrari', 'chiappa') else {'tap-page-turn'})
+                states = {name: shared.SharedFeatureState(trusted[name], True, 'old') for name in features}
+                with (self.subTest(platform=platform, release=release),
+                      patch.object(tap, 'get_device_identity', return_value=current),
+                      patch.object(shared, 'has_shared_artifacts', return_value=True),
+                      patch.object(shared, 'read_shared_identity', return_value=(old.firmware, old.platform, old.architecture, old.xochitl_sha256)),
+                      patch.object(shared, 'inspect_shared_firmware_residue', return_value=shared.SharedInspection(states, False, True))):
+                    report = migration.inspect_residue(Mock())
+                    self.assertTrue(report.migratable, report)
+                    self.assertEqual({f.feature_id for f in report.features if f.target_available}, features)
 
     def validate_translation(self, source, translation, *, comment='', numerus=False):
         with tempfile.TemporaryDirectory() as temporary:

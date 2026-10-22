@@ -10,6 +10,7 @@ from pathlib import Path
 
 import _package_download
 import _plugin_packages as packages
+import _rmkit_cn
 import _tap_page_turn as tap
 import _xovi_standalone as shared
 
@@ -28,6 +29,14 @@ REQUIRED_PATHS = {*shared._COMMON_ARCHIVE_PATHS, QMD_PAYLOAD_PATH, BRIDGE_PAYLOA
 MAX_PACKAGE_BYTES = tap.MAX_PACKAGE_BYTES
 MAX_UNPACKED_BYTES = tap.MAX_UNPACKED_BYTES
 ALLOWED_TARGETS = {
+    ("ferrari", "20261009073202", "aarch64", "9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4"):
+        ("3.29.0.153", "beta", True, False),
+    ("tatsu", "20261009073202", "aarch64", "3735105b7e6b8a1d8ea42c9eabe6079c0bd1c99a546ab1a9fc7870263909ce39"):
+        ("3.29.0.153", "beta", True, False),
+    ("rm1", "20261009073202", "armv7l", "0c68cf7b049fb87929b5978494a1205bc558f239f77758821c67524133a3f54b"):
+        ("3.29.0.153", "beta", True, False),
+    ("rm2", "20261009073202", "armv7l", "53547bc30584b9057d5b05ada6c5fb2df3561c3a097c1c2b1aae527d5ddd2e26"):
+        ("3.29.0.153", "beta", True, False),
     ("chiappa", "20260827113527", "aarch64", "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"):
         ("3.28.0.172", "stable", True, False),
     ("chiappa", "20261009073202", "aarch64", "0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba"):
@@ -207,7 +216,7 @@ def get_status(ssh_client, catalog):
     package = select_package(catalog, identity)
     if package is None:
         return QrUploadStatus(QrUploadState.INCOMPATIBLE, identity,
-            detail="当前扫码传输仅支持 Paper Pro Move 3.28.0.172 和 3.29.0.153。")
+            detail="扫码传输支持五款设备的 3.29.0.153，以及 Paper Pro Move 3.28.0.172。")
     try:
         runtime, trusted, _legacies, feature = _context(identity, package)
         if not shared.has_shared_artifacts(ssh_client):
@@ -240,6 +249,13 @@ def install(ssh_client, package, archive_path):
     if tap._vellum_runtime_present(ssh_client):
         raise RuntimeError(tap._vellum_conflict_detail(ssh_client))
     tap._preflight_device(ssh_client)
+    if not _rmkit_cn.has_localization_cjk_font(ssh_client):
+        raise RuntimeError(
+            "扫码传输页面需要简体中文字体，设备当前没有可用字体，未安装插件。"
+            "请先通过“原生简体中文”准备中文字体（RM1 / RM2 可使用内置兜底字体），"
+            "或在“字体管理”中设置支持中文的系统字体，再重试。"
+            "不使用密码锁屏时可选择仅保存在 home，不占用 data 字体空间。"
+        )
     runtime, trusted, legacies, feature = _context(identity, package)
     if any(shared.validate_legacy(ssh_client, item) for item in legacies):
         raise RuntimeError("请先通过设备维护完成旧插件迁移。")

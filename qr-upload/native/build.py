@@ -1,12 +1,21 @@
-"""Build and replay-check the QR settings bridge against exact Move resources."""
+"""Build and replay-check the QR settings bridge against exact firmware resources."""
 
 import argparse
 import hashlib
+import json
 import shutil
 import struct
 import subprocess
 import tempfile
 from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+import _native_import_control as control
+import _qr_upload as qr
+import _tap_page_turn as tap
 
 
 def run(command):
@@ -27,14 +36,19 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     hashtab = args.target / "hashtab"
-    if hashlib.sha256(hashtab.read_bytes()).hexdigest() not in {
-        "d947afca520b16a06efc0e5462d9c4db68928f2b4591ac67d59bc2e1f519c27d",  # Move 3.28.0.172
-        "dcc74e46b6b306ffe5df1d7c6c6929bfa353e4fcc6c909de36d17bfe8d24ac0c",  # Move 3.29.0.153
-    }:
-        raise RuntimeError("QR settings require verified Move firmware resources")
+    record = json.loads((args.target / "identity.json").read_text(encoding="utf-8"))
+    identity = tap.DeviceIdentity(*(record[k] for k in ("firmware", "platform", "architecture", "xochitl_sha256")))
+    key = (identity.platform, identity.firmware, identity.architecture, identity.xochitl_sha256)
+    carrier = control.select_package(control._trusted_catalog(), identity)
+    if (key not in qr.ALLOWED_TARGETS or carrier is None
+            or hashlib.sha256(hashtab.read_bytes()).hexdigest() != carrier.file("exthome/qt-resource-rebuilder/hashtab").sha256):
+        raise RuntimeError("QR settings require exact verified firmware resources")
+    target = "aarch64-linux-gnu.2.17" if identity.architecture == "aarch64" else "arm-linux-gnueabihf.2.4"
+    machine = 183 if identity.architecture == "aarch64" else 40
     receiver = args.receiver.read_bytes()
-    if receiver[:4] != b"\x7fELF" or struct.unpack_from("<H", receiver, 18)[0] != 183:
-        raise RuntimeError("An AArch64 receiver is required")
+    elf_header = b"\x7fELF" + bytes((2 if identity.architecture == "aarch64" else 1, 1))
+    if len(receiver) < 20 or receiver[:6] != elf_header or struct.unpack_from("<H", receiver, 18)[0] != machine:
+        raise RuntimeError("Receiver architecture differs from the target")
     here = Path(__file__).resolve().parent
     args.output.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256(receiver).hexdigest()
@@ -44,7 +58,7 @@ def main():
         run([args.qt_host / "bin/moc.exe", here / "ImportControl.h", "-o", work / "moc_ImportControl.cpp"])
         include = args.qt_host / "include"
         bridge = args.output / "rmtool-qr-upload.so"
-        run([args.zig, "c++", "-target", "aarch64-linux-gnu.2.17", "-std=c++17", "-shared", "-fPIC",
+        run([args.zig, "c++", "-target", target, "-std=c++17", "-shared", "-fPIC",
              "-O2", "-Wl,--allow-shlib-undefined", f'-DRMTOOL_QR_RECEIVER_SHA256="{digest}"',
              f"-ffile-prefix-map={work}=qr-upload-generated", f"-fmacro-prefix-map={work}=qr-upload-generated",
              "-I", include, "-I", include / "QtCore", "-I", include / "QtQml", "-I", include / "QtNetwork", "-I", work,

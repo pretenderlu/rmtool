@@ -137,6 +137,9 @@ class RM1PluginStorageTests(unittest.TestCase):
         for package in native._trusted_catalog():
             if package.architecture != "armv7l":
                 continue
+            if package.release_version == "3.29.0.153":
+                self.assertEqual(native._known_shared_predecessor_specs(package), ())
+                continue
             predecessor = native._known_shared_predecessor_specs(package)[-1]
             with self.subTest(platform=package.platform, release=package.release_version):
                 ssh, _, runtime, trusted, _ = fixtures.SharedXoviTests().shared_residue_ssh(
@@ -150,6 +153,9 @@ class RM1PluginStorageTests(unittest.TestCase):
     def test_arm_crashed_predecessor_rebuilds_payload_and_preserves_protection_during_inspection(self):
         for package in native._trusted_catalog():
             if package.architecture != "armv7l":
+                continue
+            if package.release_version == "3.29.0.153":
+                self.assertEqual(native._known_shared_predecessor_specs(package), ())
                 continue
             runtime, current = native._shared_specs(package)
             old = native._known_shared_predecessor_specs(package)[-1]

@@ -67,6 +67,10 @@ SUPPORTED_IDENTITY = tap.DeviceIdentity(
     "8726b4fce55a9154a5014956e5204401ce881d752c1ff3813adb622a68aac2f9",
 )
 ALLOWED_TARGETS = {
+    ("20261009073202", "ferrari", "aarch64", "9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4"): ("3.29.0.153", "beta", True, False),
+    ("20261009073202", "tatsu", "aarch64", "3735105b7e6b8a1d8ea42c9eabe6079c0bd1c99a546ab1a9fc7870263909ce39"): ("3.29.0.153", "beta", True, False),
+    ("20261009073202", "rm1", "armv7l", "0c68cf7b049fb87929b5978494a1205bc558f239f77758821c67524133a3f54b"): ("3.29.0.153", "beta", True, False),
+    ("20261009073202", "rm2", "armv7l", "53547bc30584b9057d5b05ada6c5fb2df3561c3a097c1c2b1aae527d5ddd2e26"): ("3.29.0.153", "beta", True, False),
     ("20261009073202", "chiappa", "aarch64", "0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba"): ("3.29.0.153", "beta", True, False),
     ("20261009073202", "ferrari", "aarch64", "7aa5d67da6850d7021ade5a2232edeb5f34550236eca6f7a102f37f962dd4bd2"): ("3.29.0.152", "beta", True, False),
     ("20261009073202", "chiappa", "aarch64", "09ba8581a50d96c19b360606ee0288b8863faec620036c8eda3b2a0b5cc2d2e2"): ("3.29.0.152", "beta", True, False),
@@ -268,7 +272,7 @@ def parse_manifest(data: bytes) -> tuple[PinyinInputPackage, ...]:
         or len({item.asset for item in packages}) != len(packages)
         or identities != set(ALLOWED_TARGETS)
     ):
-        raise RuntimeError("拼音输入法清单必须完整且唯一地包含 11 个精确目标。")
+        raise RuntimeError("拼音输入法清单必须完整且唯一地包含本地精确信任目标。")
     return tuple(packages)
 
 

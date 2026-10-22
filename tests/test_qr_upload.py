@@ -24,7 +24,7 @@ class QrUploadTests(unittest.TestCase):
         self.runtime, self.trusted, self.legacies, self.feature = qr._context(self.identity, p)
 
     def test_manifest_and_shared_peers_are_exact(self):
-        self.assertEqual(len(self.catalog), 2)
+        self.assertEqual(len(self.catalog), 6)
         self.assertEqual(self.package.platform, "chiappa")
         self.assertEqual(self.package.release_version, "3.28.0.172")
         self.assertFalse(self.package.device_verified)
@@ -52,6 +52,21 @@ class QrUploadTests(unittest.TestCase):
         self.assertEqual(previous.firmware, beta.firmware)
         self.assertNotEqual(previous.xochitl_sha256, beta.xochitl_sha256)
         self.assertIsNone(qr.select_package(self.catalog, replace(identity, xochitl_sha256=previous.xochitl_sha256)))
+
+    def test_beta_153_runtime_matches_each_device_and_rejects_152(self):
+        beta = [p for p in self.catalog if p.release_version == "3.29.0.153"]
+        self.assertEqual({p.platform for p in beta}, {"ferrari", "chiappa", "tatsu", "rm1", "rm2"})
+        for package in beta:
+            with self.subTest(platform=package.platform):
+                identity = tap.DeviceIdentity(package.firmware, package.platform, package.architecture, package.xochitl_sha256)
+                runtime, trusted, _, _ = qr._context(identity, package)
+                self.assertEqual(qr.select_package(self.catalog, identity), package)
+                shared.assert_feature_layout(runtime, trusted.values())
+                self.assertTrue({"native-chinese", "pinyin-input", "qr-upload", "native-import"} <= trusted.keys())
+                self.assertEqual(shared.preferred_layout(runtime).remote_base.startswith("/home/"), package.platform == "rm1")
+                previous = next(p for p in tap._trusted_catalog()
+                                if p.platform == package.platform and p.release_version == "3.29.0.152")
+                self.assertIsNone(qr.select_package(self.catalog, replace(identity, xochitl_sha256=previous.xochitl_sha256)))
 
     def test_manifest_rejects_scope_file_and_url_changes(self):
         original = json.loads(qr.BUNDLED_MANIFEST.read_bytes())
@@ -106,6 +121,7 @@ class QrUploadTests(unittest.TestCase):
         ssh = Mock()
         with (patch.object(tap, "get_device_identity", return_value=self.identity),
               patch.object(qr, "_assert_stopped"), patch.object(tap, "_preflight_device"),
+              patch.object(qr._rmkit_cn, "has_localization_cjk_font", return_value=True),
               patch.object(tap, "_vellum_runtime_present", return_value=False),
               patch.object(shared, "validate_legacy", return_value=False),
               patch.object(shared, "has_shared_artifacts", return_value=False),
@@ -120,6 +136,23 @@ class QrUploadTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "bad archive"):
                 qr.install(ssh, self.package, "bundle")
             deploy.assert_not_called()
+
+    def test_install_requires_chinese_font_without_changing_font_settings(self):
+        for package in self.catalog:
+            with self.subTest(platform=package.platform, release=package.release_version):
+                identity = tap.DeviceIdentity(package.firmware, package.platform, package.architecture, package.xochitl_sha256)
+                ssh = Mock()
+                with (patch.object(tap, "get_device_identity", return_value=identity),
+                      patch.object(qr, "_assert_stopped"), patch.object(tap, "_preflight_device"),
+                      patch.object(tap, "_vellum_runtime_present", return_value=False),
+                      patch.object(qr._rmkit_cn, "has_localization_cjk_font", return_value=False),
+                      patch.object(qr._rmkit_cn, "install_bundled_fallback_font") as font_install,
+                      patch.object(shared, "enable_shared") as deploy):
+                    with self.assertRaisesRegex(RuntimeError, "home"):
+                        qr.install(ssh, package, "unused")
+                    deploy.assert_not_called()
+                    font_install.assert_not_called()
+                    ssh.exec_checked.assert_not_called()
 
     def test_disable_and_uninstall_only_target_qr_and_preserve_books(self):
         ssh = Mock()

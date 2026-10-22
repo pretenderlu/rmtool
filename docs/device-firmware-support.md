@@ -1,6 +1,7 @@
 # Device, Firmware and Feature Support
 
-Updated on 2026-10-20 for v1.18.1. This describes **rmtool's installation gates**,
+Updated on 2026-10-22 for the working tree after v1.18.1; the additional .153
+ports are not yet published. This describes **rmtool's installation gates**,
 not everything an upstream application might run on. A package requires the
 exact platform, architecture, internal build and stock xochitl SHA-256.
 3.29.0.152 resources are included in v1.16.16. All five platforms passed offline
@@ -20,11 +21,11 @@ Other device and feature hardware checks remain separately recorded.
 | 3.28.0.169 | 20260806095513 | ferrari, chiappa | beta |
 | 3.28.0.172 | 20260827113527 | ferrari, chiappa, tatsu, rm1, rm2 | stable |
 | 3.29.0.152 | 20261009073202 | ferrari, chiappa, tatsu, rm1, rm2 | beta |
-| 3.29.0.153 | 20261009073202 | ferrari, chiappa, tatsu, rm1, rm2 | beta; native-transfer coverage below |
+| 3.29.0.153 | 20261009073202 | ferrari, chiappa, tatsu, rm1, rm2 | beta; offline coverage below |
 
 Paper Pro = ferrari; Move = chiappa; Paper Pure = tatsu. RM1/RM2 use armv7l;
 the other three use aarch64. Internal builds are not unique firmware identities:
-.163/.164 and .166/.169 must still be distinguished by the exact binary hash.
+.163/.164, .166/.169 and .152/.153 must still be distinguished by the exact binary hash.
 Unlisted device/release combinations are not inferred from a neighboring model.
 
 The [official public inventory](https://remarkable-software.s3.us-east-2.amazonaws.com/?list-type=2)
@@ -47,8 +48,8 @@ does not apply to a monochrome screen.
 | Pure, RM1, RM2 | 3.28.0.172 | Yes | Yes | Yes | No | N/A | No | No | No | No | No |
 | Paper Pro, Move | 3.29.0.152 beta (offline) | Yes | Yes | In reading | Yes | Yes | Yes | Yes | No | No | No |
 | Pure, RM1, RM2 | 3.29.0.152 beta (offline) | Yes | Yes | Yes | No | N/A | No | No | No | No | No |
-| Move | 3.29.0.153 beta (offline) | Yes | Yes | In reading | Yes | Yes | Yes | Yes | No | No | No |
-| Paper Pro, Pure, RM1, RM2 | 3.29.0.153 beta | No | No | No | No | N/A on monochrome | No | No | No | No | No |
+| Paper Pro, Move | 3.29.0.153 beta (offline) | Yes | Yes | In reading | Yes | Yes | Yes | Yes | No | No | No |
+| Pure, RM1, RM2 | 3.29.0.153 beta (offline) | Yes | Yes | Yes | No | N/A | No | No | No | No | No |
 
 - The standalone tap/fast-mono packages remain trusted for migration. On color
   devices their normal UI entry is consolidated into reading enhancements;
@@ -56,14 +57,14 @@ does not apply to a monochrome screen.
 - Reading enhancements includes the native table-of-contents shortcut, per-book
   refresh preferences and forced refresh. Its color/mono refresh modes are
   restricted to color-device PDF/EPUB reading. The Chinese highlighting hook
-  exists for Paper Pro/Move 3.28.0.172 and 3.29.0.152, plus Move 3.29.0.153
+  exists for Paper Pro/Move 3.28.0.172, 3.29.0.152 and 3.29.0.153
   (beta hook packages are offline verified).
   Reading-specific features on Pure/RM1/RM2
   are missing ports, not intrinsically impossible on those screens.
 - Note enhancements specifically delays color settlement after pen lift or
   until a page change. Do not advertise it on monochrome devices.
 - EPUB menu injection depends on the reading package and a listed 3.28 build or
-  exact 3.29.0.152, plus Move 3.29.0.153. It is separate
+  exact 3.29.0.152 or 3.29.0.153 on Paper Pro/Move. It is separate
   from generic font upload/system-font selection; those remain available on all
   five devices subject to file, glyph, storage and mount checks.
 - The WeRead App installer accepts the 3.28 series on Paper Pro/Move. Only .172
@@ -94,17 +95,17 @@ system; rmtool does not fall back to direct library writes or restart the reader
 Automatic preparation has independent exact-target packages for **RM1, RM2,
 Paper Pure, Paper Pro and Move on stable 3.28.0.172 and beta 3.29.0.153**.
 The control component can be initialized/removed from the document center;
-its first load needs one manual reboot. QR reception is not a prerequisite and
-its separate Move-only support is unchanged. An authenticated, already loaded
+its first load needs one manual reboot. QR reception is not a prerequisite.
+An authenticated, already loaded
 QR control component remains usable. Existing enabled native services are left
 unchanged; temporary activation restores the original setting and only removes
 addresses owned by that session.
 
 All ten packages passed exact stock ABI and peer-QMD replay checks. The current
 Move .153 QR-based control path has hardware evidence; the new independent
-component on each device/firmware still requires hardware acceptance. This
-does not expand localization, QR or other plugin support on the four additional
-.153 targets. Existing incompatible plugin residue remains guarded. See
+component on each device/firmware still requires hardware acceptance. Core and
+QR .153 ports are now separately verified as described in the plugin matrix and
+[five-device report](firmware-3.29.0.153.md). Existing incompatible plugin residue remains guarded. See
 [build and test details](../native-import/README.md). Do not infer automatic
 activation support on other builds from the shared public version number.
 
@@ -113,7 +114,7 @@ activation support on other builds from the shared public version number.
 | SSH, documents, wallpapers, time, diagnostics | Runtime checks | Runtime checks | Runtime checks |
 | Font upload and system-font selection | Runtime checks | Runtime checks | Runtime checks; small /data |
 | Screen preview | DRM mapping probe | DRM mapping probe | Legacy framebuffer probe |
-| Phone QR reception | Move .172 / .153 only | Not ported | Not ported |
+| Phone QR reception | Both .153; Move .172 | .153 (offline) | .153 (offline) |
 | Firmware catalog / download in the UI | Available | Not exposed | Not exposed |
 | Firmware write / A-B switching | Validated new A-B layout only | Not enabled | Not enabled |
 

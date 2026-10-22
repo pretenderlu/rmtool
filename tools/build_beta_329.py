@@ -27,7 +27,11 @@ TARGETS = {
 TARGETS_BY_RELEASE = {
     RELEASE: TARGETS,
     '3.29.0.153': {
+        'ferrari': ('aarch64', '0e06792ca56cd4580ff5fcd7243f7f0d2146e4cb2eb415df159ed60af859f8e0', '9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4'),
         'chiappa': ('aarch64', '0b58feec10c046ed8d1d093316bfbfa4f4549511b3a9458cba29570fd8f81094', '0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba'),
+        'tatsu': ('aarch64', '71a4e3f8ae318ab222a84ae19c96909f9706257e9d8588967fc5bb509805a6b9', '3735105b7e6b8a1d8ea42c9eabe6079c0bd1c99a546ab1a9fc7870263909ce39'),
+        'rm1': ('armv7l', '03120a45a41c036dc5b70c5d4a30fe24a5a86b2b0d18d24f3c6d0b90b3635133', '0c68cf7b049fb87929b5978494a1205bc558f239f77758821c67524133a3f54b'),
+        'rm2': ('armv7l', '8aa42801358df4cf72f0aaadd4d19dbffac84ae5e70f332e452241e37cf23782', '53547bc30584b9057d5b05ada6c5fb2df3561c3a097c1c2b1aae527d5ddd2e26'),
     },
 }
 FEATURES = ('tap-page-turn', 'native-chinese', 'pinyin-input', 'reading-enhancements', 'note-enhancements')
@@ -169,8 +173,8 @@ def highlight_abi_check(path, platform, release=RELEASE):
         if ins.mnemonic == 'bl':
             normalized.append('bl')
         elif ins.mnemonic == 'b' or ins.mnemonic.startswith('b.') or ins.mnemonic in ('cbz', 'cbnz', 'tbz', 'tbnz'):
-            prefix, _, target = ins.op_str.rpartition('#')
-            normalized.append(ins.mnemonic + ' ' + prefix + '#' + hex(int(target, 16)-address))
+            prefix, _, branch_target = ins.op_str.rpartition('#')
+            normalized.append(ins.mnemonic + ' ' + prefix + '#' + hex(int(branch_target, 16)-address))
         else:
             normalized.append(ins.mnemonic + ' ' + ins.op_str)
     # Full reviewed expansion loop: wrapper +0, glyphs +8, UTF-16 +0x30,
@@ -242,14 +246,9 @@ def main():
         payloads = {}
         available = FEATURES if platform in ('ferrari', 'chiappa') else FEATURES[:3]
         for feature in available:
-            if feature == 'reading-enhancements':
-                # Bootstrap while the unpublished beta's payload whitelist changes.
-                catalog = json.loads((ROOT / feature / 'manifest.json').read_text(encoding='utf-8'))
-                catalog['packages'] = [p for p in catalog['packages'] if p['release_version'] == '3.28.0.172']
-                import _reading_enhancements as reading
-                packages = reading.parse_manifest(json.dumps(catalog).encode(), require_local_match=False)
-            else:
-                packages = base_builder._catalog(feature)
+            # New targets are not registered yet; verify predecessor archives below.
+            catalog = json.loads((ROOT / feature / 'manifest.json').read_text(encoding='utf-8'))
+            packages = [base_builder._package(p) for p in catalog['packages']]
             previous = [p for p in packages if p.platform == platform and p.release_version == '3.28.0.172']
             if len(previous) != 1:
                 raise RuntimeError(f'Missing unique predecessor: {feature}/{platform}')

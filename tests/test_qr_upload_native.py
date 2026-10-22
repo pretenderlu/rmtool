@@ -1,14 +1,42 @@
-"""Source contracts for the isolated Move QR UI; hardware acceptance is separate."""
+"""QR bridge trust boundaries; hardware acceptance is separate."""
 
+import hashlib
+import importlib.util
+import json
+import os
 import re
+import struct
+import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1] / "qr-upload"
 
 
 class QrUploadNativeTests(unittest.TestCase):
+    def test_receiver_builder_resolves_relative_output_before_changing_cwd(self):
+        spec = importlib.util.spec_from_file_location("qr_receiver_builder", ROOT / "build.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory(dir=ROOT.parent / "build") as temporary:
+            output = Path(temporary) / "receiver"
+            def run(command, **kwargs):
+                if "build" in command:
+                    path = Path(command[command.index("-o") + 1])
+                    self.assertTrue(path.is_absolute())
+                    self.assertEqual(path.parent, output)
+                    data = bytearray(20)
+                    data[:4], data[5] = b"\x7fELF", 1
+                    struct.pack_into("<H", data, 18, 40 if kwargs['env']['GOARCH'] == 'arm' else 183)
+                    path.write_bytes(data)
+            argv = ["build.py", "--go", "go", "--output", os.path.relpath(output)]
+            with patch("sys.argv", argv), patch.object(module.subprocess, "run", side_effect=run), patch("builtins.print"):
+                module.main()
+            self.assertEqual(len(list(output.iterdir())), 2)
+
     def test_bridge_exposes_only_start_and_stop(self):
         header = (ROOT / "native/QrUpload.h").read_text(encoding="utf-8")
         self.assertEqual(re.findall(r"Q_INVOKABLE void (\w+)\((.*?)\);", header),
@@ -48,14 +76,60 @@ class QrUploadNativeTests(unittest.TestCase):
         self.assertNotIn("Settings.webInterfaceEnabled =", qmd)
         self.assertNotIn("executeCommand", qmd)
 
-    def test_canary_build_is_exact_target_and_keeps_artifacts_out_of_source(self):
+    def test_build_keeps_artifacts_out_of_source(self):
         build = (ROOT / "native/build.py").read_text(encoding="utf-8")
-        self.assertIn("d947afca520b16a06efc0e5462d9c4db68928f2b4591ac67d59bc2e1f519c27d", build)
         self.assertIn('"apply-diffs"', build)
         self.assertIn('"ALL OK"', build)
         self.assertIn("TemporaryDirectory", build)
         self.assertFalse((ROOT / "native/moc_QrUpload.cpp").exists())
         self.assertFalse((ROOT / "native/rmtool-qr-upload.so").exists())
+
+    def test_builder_rejects_wrong_identity_resources_and_receiver_before_compiling(self):
+        import _native_import_control as control
+        spec = importlib.util.spec_from_file_location("qr_native_builder", ROOT / "native/build.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for platform in ("ferrari", "rm1"):
+            package = next(p for p in control._trusted_catalog()
+                           if p.platform == platform and p.release_version == "3.29.0.153")
+            record = {key: getattr(package, key) for key in ("firmware", "platform", "architecture", "xochitl_sha256")}
+            elf = bytearray(20)
+            elf[:6] = b"\x7fELF" + bytes((1 if platform == "rm1" else 2, 1))
+            struct.pack_into("<H", elf, 18, 40 if platform == "rm1" else 183)
+            fake_carrier = SimpleNamespace(file=lambda path: SimpleNamespace(sha256=hashlib.sha256(b"exact").hexdigest()))
+            for case in ("valid", "identity", "resources", "architecture", "class", "endian", "truncated"):
+                with self.subTest(platform=platform, case=case), tempfile.TemporaryDirectory() as temporary:
+                    work = Path(temporary)
+                    current = dict(record)
+                    if case == "identity":
+                        current["xochitl_sha256"] = "0" * 64
+                    (work / "identity.json").write_text(json.dumps(current))
+                    (work / "hashtab").write_bytes(b"wrong" if case == "resources" else b"exact")
+                    data = bytearray(elf)
+                    if case == "architecture":
+                        struct.pack_into("<H", data, 18, 183 if platform == "rm1" else 40)
+                    if case in ("class", "endian"):
+                        data[4 if case == "class" else 5] = 0
+                    (work / "receiver").write_bytes(b"\x7fELF" if case == "truncated" else data)
+                    argv = ["build.py", "--target", str(work), "--receiver", str(work / "receiver"),
+                            "--output", str(work / "output"), "--qt-host", str(work), "--zig", "zig",
+                            "--qmd-tool", "qmd-tool", "--qmldiff", "qmldiff"]
+                    message = "compiler boundary" if case == "valid" else "exact verified|architecture"
+                    with (patch("sys.argv", argv), patch.object(module.control, "select_package", return_value=fake_carrier),
+                          patch.object(module, "run", side_effect=RuntimeError("compiler boundary")) as compile_step):
+                        with self.assertRaisesRegex(RuntimeError, message):
+                            module.main()
+                        self.assertEqual(compile_step.call_count, 1 if case == "valid" else 0)
+
+    def test_packager_rejects_unported_device_release_before_reading_files(self):
+        spec = importlib.util.spec_from_file_location("qr_asset_builder", ROOT / "build_assets.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        argv = ["build_assets.py", "--platform", "rm1", "--release", "3.28.0.172", "--receiver", "missing",
+                "--native-dir", "missing", "--carrier", "missing", "--output-dir", "missing"]
+        with patch("sys.argv", argv), patch("sys.stderr"), self.assertRaises(SystemExit) as error:
+            module.main()
+        self.assertEqual(error.exception.code, 2)
 
     def test_device_transfer_progress_is_bounded_plain_text(self):
         qmd = (ROOT / "native/qr-upload-3.28.qmd").read_text(encoding="utf-8")
@@ -77,7 +151,10 @@ class QrUploadNativeTests(unittest.TestCase):
         source = (ROOT / "native/main.cpp").read_text(encoding="utf-8")
         qmd = (ROOT / "native/qr-upload-3.28.qmd").read_text(encoding="utf-8")
         self.assertIn("settings: Settings", qmd)
-        self.assertIn('"/data/rmtool/xovi-standalone/helpers/rmtool-qr-upload"', source)
+        self.assertIn('qgetenv("XOVI_ROOT")', source)
+        self.assertIn('root != QStringLiteral("/data/rmtool/xovi-standalone")', source)
+        self.assertIn('root != QStringLiteral("/home/root/.local/share/rmtool/xovi-standalone")', source)
+        self.assertIn('QStringLiteral("/helpers/rmtool-qr-upload")', source)
         self.assertIn('QStringLiteral("--activate-native")', source)
         self.assertIn("QSaveFile", source)
         self.assertIn("file.setDirectWriteFallback(false)", source)

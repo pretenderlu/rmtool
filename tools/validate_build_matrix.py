@@ -36,8 +36,10 @@ COLOR_RELEASES = frozenset((
 # from both code and its manifest must not silently narrow a published feature.
 COLOR_TARGETS = {(platform, release) for platform in COLOR_PLATFORMS for release in COLOR_RELEASES}
 MONO_TARGETS = {(platform, release) for platform in MONO_PLATFORMS for release in ("3.27.3.0", "3.28.0.172")}
-BETA_329_TARGETS = {(platform, "3.29.0.152") for platform in COLOR_PLATFORMS | MONO_PLATFORMS} | {("chiappa", "3.29.0.153")}
-BETA_329_COLOR_TARGETS = {(platform, "3.29.0.152") for platform in COLOR_PLATFORMS} | {("chiappa", "3.29.0.153")}
+BETA_329_TARGETS = {(platform, release) for platform in COLOR_PLATFORMS | MONO_PLATFORMS
+                    for release in ("3.29.0.152", "3.29.0.153")}
+BETA_329_COLOR_TARGETS = {(platform, release) for platform in COLOR_PLATFORMS
+                          for release in ("3.29.0.152", "3.29.0.153")}
 EXPECTED_COVERAGE = {
     "tap-page-turn": COLOR_TARGETS | MONO_TARGETS | BETA_329_TARGETS,
     "fast-mono-reading": COLOR_TARGETS,
@@ -46,7 +48,8 @@ EXPECTED_COVERAGE = {
     "reading-enhancements": COLOR_TARGETS | BETA_329_COLOR_TARGETS,
     "note-enhancements": COLOR_TARGETS | BETA_329_COLOR_TARGETS,
     "weread-launcher": {(platform, "3.28.0.172") for platform in COLOR_PLATFORMS},
-    "qr-upload": {("chiappa", "3.28.0.172"), ("chiappa", "3.29.0.153")},
+    "qr-upload": {("chiappa", "3.28.0.172")} | {
+        (platform, "3.29.0.153") for platform in COLOR_PLATFORMS | MONO_PLATFORMS},
     "native-import": {(platform, release) for platform in COLOR_PLATFORMS | MONO_PLATFORMS
                       for release in ("3.28.0.172", "3.29.0.153")},
 }
@@ -123,11 +126,35 @@ OFFICIAL_329 = {
 
 
 OFFICIAL_329_153 = {
+    "ferrari": {
+        "architecture": "aarch64",
+        "xochitl_sha256": "9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4",
+        "stock_french_sha256": "b6bf5938346c16efebc96ec37ddcc1c5d93eec6260293ccb119640caa59d0811",
+        "localized_qm": ("reMarkable_zh_CN-3.29.0.153-ferrari.qm", 214403, "5f428e69d5718ac9ef4aa9ee5c05ad7c07d2157f7f2c1e4dab4f6cbcac2d81df"),
+    },
     "chiappa": {
         "architecture": "aarch64",
         "xochitl_sha256": "0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba",
         "stock_french_sha256": "5f0fbd874230e2e7256f682656b6d3b7e854c2513e44258a4143b365d9c42997",
         "localized_qm": ("reMarkable_zh_CN-3.29.0.153-chiappa.qm", 210177, "f90054fc45147901e26f3260feb1e729985f435396586f3ab05c02736aacbf60"),
+    },
+    "tatsu": {
+        "architecture": "aarch64",
+        "xochitl_sha256": "3735105b7e6b8a1d8ea42c9eabe6079c0bd1c99a546ab1a9fc7870263909ce39",
+        "stock_french_sha256": "238c7365f0335ff8cf63aab5f6af8d7194bc3f1395b50e01f3613431c31866dd",
+        "localized_qm": ("reMarkable_zh_CN-3.29.0.153-tatsu.qm", 210177, "f90054fc45147901e26f3260feb1e729985f435396586f3ab05c02736aacbf60"),
+    },
+    "rm1": {
+        "architecture": "armv7l",
+        "xochitl_sha256": "0c68cf7b049fb87929b5978494a1205bc558f239f77758821c67524133a3f54b",
+        "stock_french_sha256": "6acffe4c354cc9ade40d7ecb78e89306fc0b26582af83b31fbf5f21bd36e745d",
+        "localized_qm": ("reMarkable_zh_CN-3.29.0.153-rm1.qm", 223398, "0897282056ec44dd45bfa95da54d5d168379e9863274cc4cbcf021a54c18c18c"),
+    },
+    "rm2": {
+        "architecture": "armv7l",
+        "xochitl_sha256": "53547bc30584b9057d5b05ada6c5fb2df3561c3a097c1c2b1aae527d5ddd2e26",
+        "stock_french_sha256": "a7a096cd6b3ba3fc248a4926c2277ab7f0ba2bab38b25615e84f6051f49575ea",
+        "localized_qm": ("reMarkable_zh_CN-3.29.0.153-rm2.qm", 223398, "0897282056ec44dd45bfa95da54d5d168379e9863274cc4cbcf021a54c18c18c"),
     },
 }
 
@@ -321,7 +348,7 @@ def main() -> int:
     print(
         f"PASS: 32 device/firmware targets, {len(FEATURE_MODULES)} plugin matrices, shared runtimes, "
         "AppLoad/KOReader and WeRead boundaries, five preview profiles, and "
-        "eleven official 3.28.0.172 / 3.29.0.152 / 3.29.0.153 localization carriers."
+        "fifteen official 3.28.0.172 / 3.29.0.152 / 3.29.0.153 localization carriers."
     )
     return 0
 

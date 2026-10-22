@@ -1525,6 +1525,250 @@
           "mode": 420
         }
       ]
+    },
+    {
+      "firmware": "20261009073202",
+      "release_version": "3.29.0.153",
+      "channel": "beta",
+      "platform": "ferrari",
+      "architecture": "aarch64",
+      "xochitl_sha256": "9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4",
+      "offline_verified": true,
+      "device_verified": false,
+      "urls": [
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-ferrari-20261009073202-3.29.0.153.tar.gz",
+        "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-ferrari-20261009073202-3.29.0.153.tar.gz"
+      ],
+      "asset": "rmtool-native-chinese-ferrari-20261009073202-3.29.0.153.tar.gz",
+      "size": 3896931,
+      "sha256": "9fec5ae09d24c8998ffef8591fdbab75298aa52f106f78871dc014f1e9bc867c",
+      "files": [
+        {
+          "path": "extensions.d/native-chinese-translator.so",
+          "size": 3976,
+          "sha256": "4408c4ecf1e2774cbbc10374aae544e3d600525663eba8893cdceb83374b8734",
+          "mode": 420
+        },
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "size": 9496456,
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "size": 618516,
+          "sha256": "42a1d65d2ca973ad9f45ecdf45d2cdd0773801b18a5cf849513c041c9ddd2c2a",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/native-chinese.qmd",
+          "size": 2035,
+          "sha256": "71b4b40163cdffb8f0e31e0ac8d9e1a40fc62984c928af56024c0251f8979f63",
+          "mode": 420
+        },
+        {
+          "path": "native-chinese/reMarkable_zh_CN.qm",
+          "size": 214403,
+          "sha256": "5f428e69d5718ac9ef4aa9ee5c05ad7c07d2157f7f2c1e4dab4f6cbcac2d81df",
+          "mode": 420
+        },
+        {
+          "path": "qmd-tool",
+          "size": 1966264,
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493
+        },
+        {
+          "path": "xovi.so",
+          "size": 103008,
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420
+        }
+      ]
+    },
+    {
+      "firmware": "20261009073202",
+      "release_version": "3.29.0.153",
+      "channel": "beta",
+      "platform": "tatsu",
+      "architecture": "aarch64",
+      "xochitl_sha256": "3735105b7e6b8a1d8ea42c9eabe6079c0bd1c99a546ab1a9fc7870263909ce39",
+      "offline_verified": true,
+      "device_verified": false,
+      "urls": [
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-tatsu-20261009073202-3.29.0.153.tar.gz",
+        "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-tatsu-20261009073202-3.29.0.153.tar.gz"
+      ],
+      "asset": "rmtool-native-chinese-tatsu-20261009073202-3.29.0.153.tar.gz",
+      "size": 3889403,
+      "sha256": "bf03c480f1365b4ba37744d63ea21cd635474399602a73f9c5efbb75a193ad99",
+      "files": [
+        {
+          "path": "extensions.d/native-chinese-translator.so",
+          "size": 3976,
+          "sha256": "4408c4ecf1e2774cbbc10374aae544e3d600525663eba8893cdceb83374b8734",
+          "mode": 420
+        },
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "size": 9496456,
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "size": 608542,
+          "sha256": "dc217eb13f15099073b3efae5bc3cb14b2f48a72c02cf35a9fe4e636e9e5fce8",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/native-chinese.qmd",
+          "size": 2035,
+          "sha256": "71b4b40163cdffb8f0e31e0ac8d9e1a40fc62984c928af56024c0251f8979f63",
+          "mode": 420
+        },
+        {
+          "path": "native-chinese/reMarkable_zh_CN.qm",
+          "size": 210177,
+          "sha256": "f90054fc45147901e26f3260feb1e729985f435396586f3ab05c02736aacbf60",
+          "mode": 420
+        },
+        {
+          "path": "qmd-tool",
+          "size": 1966264,
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493
+        },
+        {
+          "path": "xovi.so",
+          "size": 103008,
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420
+        }
+      ]
+    },
+    {
+      "firmware": "20261009073202",
+      "release_version": "3.29.0.153",
+      "channel": "beta",
+      "platform": "rm1",
+      "architecture": "armv7l",
+      "xochitl_sha256": "0c68cf7b049fb87929b5978494a1205bc558f239f77758821c67524133a3f54b",
+      "offline_verified": true,
+      "device_verified": false,
+      "urls": [
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-rm1-20261009073202-3.29.0.153-runtime-catalog-arm-stack.tar.gz",
+        "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-rm1-20261009073202-3.29.0.153-runtime-catalog-arm-stack.tar.gz"
+      ],
+      "asset": "rmtool-native-chinese-rm1-20261009073202-3.29.0.153-runtime-catalog-arm-stack.tar.gz",
+      "size": 3878463,
+      "sha256": "6855e34aee04033cd63a653e5e0fb6d7a01815c5a958398228cef9e4ae8e1deb",
+      "files": [
+        {
+          "path": "extensions.d/native-chinese-translator.so",
+          "size": 4008,
+          "sha256": "5b7f36dba332a474bea58ea4a8a44061452a17183ada30c736d1f6c410337b78",
+          "mode": 420
+        },
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "size": 8539328,
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "size": 595628,
+          "sha256": "efee6bcdee1866d350c380c860ab17e3b110994d2ada0d02fff004f08715b589",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/native-chinese.qmd",
+          "size": 2035,
+          "sha256": "71b4b40163cdffb8f0e31e0ac8d9e1a40fc62984c928af56024c0251f8979f63",
+          "mode": 420
+        },
+        {
+          "path": "native-chinese/reMarkable_zh_CN.qm",
+          "size": 223398,
+          "sha256": "0897282056ec44dd45bfa95da54d5d168379e9863274cc4cbcf021a54c18c18c",
+          "mode": 420
+        },
+        {
+          "path": "qmd-tool",
+          "size": 2031800,
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312",
+          "mode": 493
+        },
+        {
+          "path": "xovi.so",
+          "size": 123620,
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14",
+          "mode": 420
+        }
+      ]
+    },
+    {
+      "firmware": "20261009073202",
+      "release_version": "3.29.0.153",
+      "channel": "beta",
+      "platform": "rm2",
+      "architecture": "armv7l",
+      "xochitl_sha256": "53547bc30584b9057d5b05ada6c5fb2df3561c3a097c1c2b1aae527d5ddd2e26",
+      "offline_verified": true,
+      "device_verified": false,
+      "urls": [
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-rm2-20261009073202-3.29.0.153-runtime-catalog-arm-stack.tar.gz",
+        "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-rm2-20261009073202-3.29.0.153-runtime-catalog-arm-stack.tar.gz"
+      ],
+      "asset": "rmtool-native-chinese-rm2-20261009073202-3.29.0.153-runtime-catalog-arm-stack.tar.gz",
+      "size": 3886212,
+      "sha256": "1913887e1a932ea22131fe0816ff2db6dae86ba9662e57c1727f236cfd63f26a",
+      "files": [
+        {
+          "path": "extensions.d/native-chinese-translator.so",
+          "size": 4008,
+          "sha256": "5b7f36dba332a474bea58ea4a8a44061452a17183ada30c736d1f6c410337b78",
+          "mode": 420
+        },
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "size": 8539328,
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "size": 611074,
+          "sha256": "84d31a7c7b63d27f0e37cd9b2a5f26fdd1f0278e0bbf3a12a211d48d267ed276",
+          "mode": 420
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/native-chinese.qmd",
+          "size": 2035,
+          "sha256": "71b4b40163cdffb8f0e31e0ac8d9e1a40fc62984c928af56024c0251f8979f63",
+          "mode": 420
+        },
+        {
+          "path": "native-chinese/reMarkable_zh_CN.qm",
+          "size": 223398,
+          "sha256": "0897282056ec44dd45bfa95da54d5d168379e9863274cc4cbcf021a54c18c18c",
+          "mode": 420
+        },
+        {
+          "path": "qmd-tool",
+          "size": 2031800,
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312",
+          "mode": 493
+        },
+        {
+          "path": "xovi.so",
+          "size": 123620,
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14",
+          "mode": 420
+        }
+      ]
     }
   ]
 }

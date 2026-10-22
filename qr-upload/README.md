@@ -1,11 +1,12 @@
 # QR document upload
 
-The source includes rmtool-managed installation for **Paper Pro Move
-3.28.0.172 and 3.29.0.153**. Phone uploads and the device page passed .172
+The source includes rmtool-managed installation for **all five models on
+3.29.0.153 and Paper Pro Move on 3.28.0.172**. Phone uploads and the device page passed Move .172
 manual-deployment tests. The .153 controller passed USB/Wi-Fi desktop native
 imports and restoration checks; .153 phone reception and complete managed
 installation/post-reboot acceptance remain separate hardware tests.
-Available from rmtool v1.18.0.
+Move support is available from rmtool v1.18.0. The four additional .153 ports
+are offline-verified in the working tree, not yet published or hardware-accepted.
 
 The final experience is tablet-hosted: start reception on the tablet, scan its
 QR code from a phone on the same Wi-Fi, upload PDF/EPUB to the native library,
@@ -14,8 +15,8 @@ a computer, a USB cable, an SSH session, AppLoad or a cloud account.
 
 ## Current boundary
 
-This directory implements the independent receiver, phone page and an experimental
-Move settings entry under `native/`. Page/QR/phone import has passed on .172 on that
+This directory implements the independent receiver, phone page and a device
+settings entry under `native/`. Page/QR/phone import has passed on Move .172 on that
 device, including 17.9 MB and 45.9 MB EPUBs that the user confirmed open normally.
 `_qr_upload.py` uses rmtool's existing verified shared-Xovi transactions for
 installation, detection, disabling and removal. Open **Device tools > QR
@@ -23,6 +24,12 @@ transfer** in rmtool, install the exact package, then manually restart the table
 Open **Settings > 扫码传输** on the tablet to start reception. There is no
 always-listening boot service. Disabling/removing the entry preserves imported
 books and all other verified plugins. Stop reception before changing plugins.
+
+The device page requires a working Simplified Chinese font fallback. Stock RM1
+and RM2 .153 images do not contain one. Installation checks font coverage first;
+use Native Chinese's bundled fallback or Font management to prepare it, then
+retry. QR installation never replaces the system font or changes lock-screen
+font storage. Without password-lock support, the font can remain in home.
 
 The receiver refuses to start if the native import endpoint is unreachable. It
 does not silently fall back to SFTP, restart xochitl,
@@ -67,14 +74,23 @@ displayed by the CLI; the experimental native entry owns its separate session.
 ## Managed native entry
 
 `native/build.py` requires explicit Qt host tools, Zig, qmd-tool, qmldiff, the
-exact Move .172 or .153 extracted resource tree and the AArch64 receiver. It verifies
-the hashtable, pins the receiver SHA-256 into the Qt bridge, and replays the QMD.
+exact supported extracted resource tree (`identity.json`, `hashtab`, `qrex-out`)
+and the matching ARMv7 or AArch64 receiver. It verifies the full identity against
+the native-import carrier, checks the hashtable and receiver architecture,
+pins the receiver SHA-256 into the Qt bridge, and replays the QMD.
 All binaries/generated moc files stay in build/temporary directories.
 
-`build_assets.py --release 3.29.0.153` packages only that target and preserves
-the existing .172 package. The managed receiver verifies the internal build and
+`build_assets.py --platform <codename> --release 3.29.0.153` packages only that
+target using its verified native-import archive as `--carrier`. Use
+`--candidate-only` while adding targets; validate all candidates before registering
+the complete manifest. Preserve existing published packages. The managed receiver verifies the internal build and
 stock xochitl hash before preparing the local importer: .152 and .153 share a
-build number but are not interchangeable. See [Move .153 checks](../docs/firmware-3.29.0.153-move.md).
+build number but are not interchangeable. See [five-device checks](../docs/firmware-3.29.0.153.md).
+
+New bridges resolve the receiver below the validated `XOVI_ROOT`: RM1 uses
+`/home/root/.local/share/rmtool/xovi-standalone`; other targets use
+`/data/rmtool/xovi-standalone`. Any other root is rejected. Receiver ownership,
+permissions, file type and pinned digest remain mandatory.
 
 The narrow `QrUpload` QML type exposes only `start()` and `stop()`. It reads a
 single active private wlan0 IPv4, starts the verified foreground child without

@@ -36,7 +36,7 @@ class NativeControlTests(unittest.TestCase):
             self.assertIsNone(control.select_package(self.catalog, replace(identity, xochitl_sha256="0" * 64)))
             self.assertEqual({f.path for f in p.files}, control.REQUIRED_PATHS)
 
-    def test_beta_native_only_targets_do_not_widen_other_plugin_gates(self):
+    def test_beta_controller_shares_exact_peers_with_device_specific_gates(self):
         import _native_chinese as chinese
         import _pinyin_input as pinyin
         import _reading_enhancements as reading
@@ -49,16 +49,19 @@ class NativeControlTests(unittest.TestCase):
                             if item.platform == p.platform and item.release_version == "3.29.0.152")
             self.assertEqual(identity.firmware, previous.firmware)
             self.assertIsNone(control.select_package(self.catalog, replace(identity, xochitl_sha256=previous.xochitl_sha256)))
-            if p.platform == "chiappa":
-                continue
             with self.subTest(platform=p.platform):
                 runtime, trusted, legacies, _ = control._context(identity, p)
-                self.assertEqual(set(trusted), {control.FEATURE_ID})
-                self.assertEqual(legacies, ())
+                expected = {control.FEATURE_ID, "qr-upload", "native-chinese", "pinyin-input", "tap-page-turn"}
+                if p.platform in ("ferrari", "chiappa"):
+                    expected.update(("reading-enhancements", "note-enhancements"))
+                self.assertEqual(set(trusted), expected)
+                self.assertEqual([legacy.feature.feature_id for legacy in legacies], ["tap-page-turn"])
+                self.assertTrue(all(legacy.runtime == runtime for legacy in legacies))
                 self.assertEqual(shared.preferred_layout(runtime), shared.LEGACY_SHARED_LAYOUT
                                  if p.platform == "rm1" else shared.SHARED_LAYOUT)
                 for module in (tap, chinese, pinyin, reading, note, qr):
-                    self.assertIsNone(module.select_package(module._trusted_catalog(), identity))
+                    supported = module not in (reading, note) or p.platform in ("ferrari", "chiappa")
+                    self.assertEqual(module.select_package(module._trusted_catalog(), identity) is not None, supported)
                 with (patch.object(tap, "get_device_identity", return_value=identity),
                       patch.object(shared, "has_shared_artifacts", return_value=False)):
                     self.assertEqual(control.get_status(Mock(), self.catalog).state, control.NativeImportState.NOT_INSTALLED)

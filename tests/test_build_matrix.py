@@ -39,10 +39,25 @@ class BuildMatrixTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "coverage mismatch"):
                 matrix._validate_feature_matrix("native-import")
 
+    def test_153_cannot_silently_drop_a_supported_device_from_any_feature(self):
+        for feature, targets in matrix.EXPECTED_COVERAGE.items():
+            module = importlib.import_module(matrix.FEATURE_MODULES[feature])
+            for platform, release in sorted(targets):
+                if release != "3.29.0.153":
+                    continue
+                document = matrix._manifest(feature)
+                document["packages"] = [p for p in document["packages"]
+                                        if (p["platform"], p["release_version"]) != (platform, release)]
+                with (self.subTest(feature=feature, platform=platform),
+                      patch.object(matrix, "_manifest", return_value=document),
+                      patch.object(module, "parse_manifest", return_value=())):
+                    with self.assertRaisesRegex(RuntimeError, "coverage mismatch"):
+                        matrix._validate_feature_matrix(feature)
+
     def test_stale_arm_translator_is_rejected_for_stable_and_beta(self):
         import _native_chinese as native
 
-        for release in ("3.28.0.172", "3.29.0.152"):
+        for release in ("3.28.0.172", "3.29.0.152", "3.29.0.153"):
             for predecessor in (native.ARM_TRANSLATOR_RUNTIME_PREDECESSOR, native.ARM_TRANSLATOR_STACK_PREDECESSOR):
                 document = matrix._manifest("native-chinese")
                 package = next(p for p in document["packages"]

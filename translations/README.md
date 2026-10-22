@@ -10,6 +10,13 @@ stock catalog union and 32 from embedded QML. The five separate catalog records
 and French-carrier guards use build `20261009073202`; this does not revive the
 frozen French-slot installer. See [the offline report](../docs/firmware-3.29.0.152.md).
 
+Beta `3.29.0.153` now has separate exact records for all five models and compiled
+`reMarkable_zh_CN-3.29.0.153-{platform}.qm` catalogs. Its internal build is also
+`20261009073202`, but neither stock binary nor catalog identity may be inferred
+from `.152`. All five stock-catalog unions and QML translation keys passed the
+offline checks; new ports await publication and hardware acceptance. See the
+[five-device report](../docs/firmware-3.29.0.153.md).
+
 This directory contains the editable Qt Linguist source, the compiled catalog,
 and the cloud release manifest:
 

@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--go", default=shutil.which("go"))
     parser.add_argument("--output", type=Path, default=Path(__file__).resolve().parents[1] / "build" / "qr-upload")
     args = parser.parse_args()
+    args.output = args.output.resolve()
     if not args.go:
         parser.error("Go is required; pass --go with its executable path")
     source = Path(__file__).resolve().parent

@@ -48,10 +48,10 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
     def _state(self, spec, enabled=True, token=None):
         return shared.SharedFeatureState(spec, enabled, token or self.process)
 
-    def test_manifest_is_exact_nineteen_target_matrix(self):
+    def test_manifest_is_exact_twenty_target_matrix(self):
         self.assertEqual(
             len(self.catalog),
-            19,
+            20,
         )
         self.assertEqual(
             {
@@ -62,11 +62,11 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         )
         self.assertEqual(
             len({item.asset for item in self.catalog}),
-            19,
+            20,
         )
         self.assertEqual(
             len({(item.release_version, item.platform) for item in self.catalog}),
-            19,
+            20,
         )
         self.assertTrue(
             all(item.package_revision == reading.PACKAGE_REVISION for item in self.catalog)
@@ -160,7 +160,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         self.assertEqual(
             sorted((item.platform, item.release_version) for item in carrying),
             [("chiappa", "3.28.0.172"), ("chiappa", "3.29.0.152"), ("chiappa", "3.29.0.153"),
-             ("ferrari", "3.28.0.172"), ("ferrari", "3.29.0.152")],
+             ("ferrari", "3.28.0.172"), ("ferrari", "3.29.0.152"), ("ferrari", "3.29.0.153")],
         )
         extension = (
             Path(__file__).resolve().parents[1]

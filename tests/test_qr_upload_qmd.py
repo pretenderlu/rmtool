@@ -26,7 +26,7 @@ class QrSidebarTests(unittest.TestCase):
         targets = json.loads(os.environ["RMTOOL_QR_RESOURCE_TARGETS"])
         tool = os.environ["RMTOOL_QMLDIFF"]
         for package in qr._trusted_catalog():
-            with self.subTest(release=package.release_version), tempfile.TemporaryDirectory() as temporary:
+            with self.subTest(platform=package.platform, release=package.release_version), tempfile.TemporaryDirectory() as temporary:
                 work = Path(temporary)
                 qmds = {}
                 for feature, expected_id in (
@@ -36,7 +36,10 @@ class QrSidebarTests(unittest.TestCase):
                     ("native-chinese", None), ("pinyin-input", None),
                 ):
                     manifest = json.loads((ROOT / feature / "manifest.json").read_text())
-                    entry = next(p for p in manifest["packages"] if p["xochitl_sha256"] == package.xochitl_sha256)
+                    entry = next((p for p in manifest["packages"] if p["xochitl_sha256"] == package.xochitl_sha256), None)
+                    if entry is None and feature in ("reading-enhancements", "note-enhancements"):
+                        continue
+                    self.assertIsNotNone(entry, feature)
                     archive = ROOT / ".rmtool/cache" / feature / package.firmware / entry["asset"]
                     with tarfile.open(archive) as bundle:
                         member = next(m for m in bundle.getmembers() if m.name.endswith(f"/{feature}.qmd"))
@@ -46,9 +49,10 @@ class QrSidebarTests(unittest.TestCase):
                 groups = [("qr-upload",), ("qr-upload", "reading-enhancements"),
                           ("qr-upload", "note-enhancements"),
                           ("qr-upload", "reading-enhancements", "note-enhancements")]
-                orders = [order for group in groups for order in itertools.permutations(group)]
+                orders = [order for group in groups if set(group) <= qmds.keys()
+                          for order in itertools.permutations(group)]
                 orders.extend((tuple(qmds), tuple(reversed(qmds))))
-                resource = Path(targets[package.release_version])
+                resource = Path(targets[f"{package.platform}/{package.release_version}"])
                 for index, order in enumerate(orders):
                     with self.subTest(order=order):
                         output = work / f"replay-{index}"

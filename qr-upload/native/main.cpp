@@ -25,7 +25,13 @@
 #endif
 
 namespace {
-constexpr auto kReceiver = "/data/rmtool/xovi-standalone/helpers/rmtool-qr-upload";
+QString receiverPath()
+{
+    const QString root = QString::fromUtf8(qgetenv("XOVI_ROOT"));
+    if (root != QStringLiteral("/data/rmtool/xovi-standalone")
+        && root != QStringLiteral("/home/root/.local/share/rmtool/xovi-standalone")) return {};
+    return root + QStringLiteral("/helpers/rmtool-qr-upload");
+}
 constexpr auto kPreference = "/home/root/.rmtool-qr-upload-web-state";
 constexpr auto kRestoreDisabled = "rmtool-qr-upload:restore-web-disabled:v1\n";
 constexpr auto kStateDir = "/run/rmtool-qr-upload-ui";
@@ -54,7 +60,7 @@ QString wifiAddress()
 
 bool trustedReceiver()
 {
-    QFileInfo info(QString::fromLatin1(kReceiver));
+    QFileInfo info(receiverPath());
     if (!info.isFile() || info.isSymLink() || info.ownerId() != 0 || !info.isExecutable()
         || (info.permissions() & (QFile::WriteGroup | QFile::WriteOther))
         || info.size() > 10 * 1024 * 1024) return false;
@@ -179,7 +185,7 @@ void QrUpload::start()
         process->deleteLater();
         emit changed();
     });
-    process->start(QString::fromLatin1(kReceiver),
+    process->start(receiverPath(),
         {QStringLiteral("--listen"), address + QStringLiteral(":8765"),
          QStringLiteral("--state-dir"), QString::fromLatin1(kStateDir),
          QStringLiteral("--activate-native"),

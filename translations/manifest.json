@@ -259,6 +259,46 @@
           "sha256": "f90054fc45147901e26f3260feb1e729985f435396586f3ab05c02736aacbf60",
           "xochitl_sha256": "0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba",
           "stock_french_sha256": "5f0fbd874230e2e7256f682656b6d3b7e854c2513e44258a4143b365d9c42997"
+        },
+        {
+          "platform": "ferrari",
+          "release_version": "3.29.0.153",
+          "channel": "beta",
+          "asset": "reMarkable_zh_CN-3.29.0.153-ferrari.qm",
+          "size": 214403,
+          "sha256": "5f428e69d5718ac9ef4aa9ee5c05ad7c07d2157f7f2c1e4dab4f6cbcac2d81df",
+          "xochitl_sha256": "9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4",
+          "stock_french_sha256": "b6bf5938346c16efebc96ec37ddcc1c5d93eec6260293ccb119640caa59d0811"
+        },
+        {
+          "platform": "tatsu",
+          "release_version": "3.29.0.153",
+          "channel": "beta",
+          "asset": "reMarkable_zh_CN-3.29.0.153-tatsu.qm",
+          "size": 210177,
+          "sha256": "f90054fc45147901e26f3260feb1e729985f435396586f3ab05c02736aacbf60",
+          "xochitl_sha256": "3735105b7e6b8a1d8ea42c9eabe6079c0bd1c99a546ab1a9fc7870263909ce39",
+          "stock_french_sha256": "238c7365f0335ff8cf63aab5f6af8d7194bc3f1395b50e01f3613431c31866dd"
+        },
+        {
+          "platform": "rm1",
+          "release_version": "3.29.0.153",
+          "channel": "beta",
+          "asset": "reMarkable_zh_CN-3.29.0.153-rm1.qm",
+          "size": 223398,
+          "sha256": "0897282056ec44dd45bfa95da54d5d168379e9863274cc4cbcf021a54c18c18c",
+          "xochitl_sha256": "0c68cf7b049fb87929b5978494a1205bc558f239f77758821c67524133a3f54b",
+          "stock_french_sha256": "6acffe4c354cc9ade40d7ecb78e89306fc0b26582af83b31fbf5f21bd36e745d"
+        },
+        {
+          "platform": "rm2",
+          "release_version": "3.29.0.153",
+          "channel": "beta",
+          "asset": "reMarkable_zh_CN-3.29.0.153-rm2.qm",
+          "size": 223398,
+          "sha256": "0897282056ec44dd45bfa95da54d5d168379e9863274cc4cbcf021a54c18c18c",
+          "xochitl_sha256": "53547bc30584b9057d5b05ada6c5fb2df3561c3a097c1c2b1aae527d5ddd2e26",
+          "stock_french_sha256": "a7a096cd6b3ba3fc248a4926c2277ab7f0ba2bab38b25615e84f6051f49575ea"
         }
       ]
     }
