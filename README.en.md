@@ -14,9 +14,9 @@ rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, a
 classic offline-verified tap-to-turn plugin for Paper Pure, reMarkable 1,
 and reMarkable 2, plus a one-click read-only diagnostic bundle for support. Device operations do not depend on reMarkable cloud services. Release builds include baseline trusted manifests for these firmware-specific features, enabling offline support discovery and verified cache reuse. Payloads are not bundled and still require a network download or an existing validated cache.
 
-The current release is [v1.18.1](https://github.com/pretenderlu/rmtool/releases/tag/v1.18.1). It fixes native-Chinese extension startup compatibility on RM1/RM2 and supports repair updates from installed older packages. See the [release notes](docs/releases/v1.18.1.md) and the device, firmware and verification matrix below.
+The current release is [v1.18.2](https://github.com/pretenderlu/rmtool/releases/tag/v1.18.2). It completes five-device coverage for beta firmware 3.29.0.153 and expands QR book transfer support. See the [release notes](docs/releases/v1.18.2.md) and the device, firmware and verification matrix below.
 
-[QR transfer](qr-upload/README.md) supports all five models on 3.29.0.153 and Paper Pro Move on 3.28.0.172: phone-to-tablet PDF/EPUB uploads over trusted Wi-Fi, up to 200 MB per file, without a computer after installation. It uses unencrypted local HTTP and requires a trusted network. Move phone uploads on .172 and USB/Wi-Fi desktop native imports on .153 passed hardware tests; new ports are offline-verified and still need individual installation/reboot acceptance. See the [compatibility notes](docs/device-firmware-support.md).
+[QR transfer](qr-upload/README.md) supports all five models on 3.29.0.153 and Paper Pro Move on 3.28.0.172; other firmware is not supported. It provides phone-to-tablet PDF/EPUB uploads over trusted Wi-Fi, up to 200 MB per file, without a computer after installation. It uses unencrypted local HTTP and requires a trusted network. Move phone uploads on .172 and USB/Wi-Fi desktop native imports on .153 passed hardware tests. The user confirmed Paper Pro .153 plugin migration and installation; phone uploads on newly supported models still need individual hardware tests. See the [compatibility notes](docs/device-firmware-support.md).
 
 > [!WARNING]
 > rmtool directly modifies files on the device. Sync or back up important content first, and make sure you accept the data and warranty risks associated with Developer Mode, root SSH, and third-party modifications. This project is not official reMarkable software.
@@ -135,7 +135,7 @@ Paper Pro reading-enhancement tap navigation passed local hardware retesting;
 other device and feature verification is recorded separately in the
 [adaptation and test notes](docs/firmware-3.29.0.152.md).
 
-**3.29.0.153 beta**: the working tree now includes exact localization, Pinyin, tap navigation, QR transfer and native-transfer packages for all five models. Paper Pro and Move also support reading enhancements (including EPUB fonts and precise Chinese selection) and note enhancements. New ports are offline-verified, not yet published or hardware-accepted; .152 packages are not reused. See the [five-device report](docs/firmware-3.29.0.153.md).
+**3.29.0.153 beta**: v1.18.2 includes exact localization, Pinyin, tap navigation, QR transfer and native-transfer packages for all five models. Paper Pro and Move also support reading enhancements (including EPUB fonts and precise Chinese selection) and note enhancements. New ports are offline-verified, and the user confirmed Paper Pro plugin migration and installation; other models and individual features still require hardware testing. The .152 packages are not reused. See the [five-device report](docs/firmware-3.29.0.153.md).
 
 | Devices | Supported stable firmware | Supported beta firmware |
 | --- | --- | --- |

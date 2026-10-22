@@ -1,12 +1,14 @@
 # Device, Firmware and Feature Support
 
-Updated on 2026-10-22 for the working tree after v1.18.1; the additional .153
-ports are not yet published. This describes **rmtool's installation gates**,
+Updated on 2026-10-22 for v1.18.2, including the additional .153 ports.
+This describes **rmtool's installation gates**,
 not everything an upstream application might run on. A package requires the
 exact platform, architecture, internal build and stock xochitl SHA-256.
 3.29.0.152 resources are included in v1.16.16. All five platforms passed offline
 checks; Paper Pro reading-enhancement tap navigation passed hardware retesting.
 Other device and feature hardware checks remain separately recorded.
+The user confirmed Paper Pro .153 plugin migration and installation before
+v1.18.2 publication. This is not confirmation of phone uploads on every model.
 
 ## Known Firmware
 

@@ -6,7 +6,9 @@ manual-deployment tests. The .153 controller passed USB/Wi-Fi desktop native
 imports and restoration checks; .153 phone reception and complete managed
 installation/post-reboot acceptance remain separate hardware tests.
 Move support is available from rmtool v1.18.0. The four additional .153 ports
-are offline-verified in the working tree, not yet published or hardware-accepted.
+are included in v1.18.2 and passed offline verification. The user confirmed
+Paper Pro .153 plugin migration and installation; phone uploads on the new
+models remain a separate hardware acceptance step. Other firmware is unsupported.
 
 The final experience is tablet-hosted: start reception on the tablet, scan its
 QR code from a phone on the same Wi-Fi, upload PDF/EPUB to the native library,

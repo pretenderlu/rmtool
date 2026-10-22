@@ -1,7 +1,8 @@
 # 3.29.0.153 Five-Device Adaptation
 
-Local verification on 2026-10-22, after v1.18.1. New ports are not yet published
-or hardware-accepted. The existing Move package records remain unchanged.
+Local verification on 2026-10-22, included in v1.18.2. The user subsequently
+confirmed Paper Pro plugin migration and installation. Other feature/model
+hardware checks remain separate. Existing Move package records remain unchanged.
 
 ## Scope
 
@@ -73,7 +74,7 @@ Local artifacts: `build/beta-3.29.0.153-all/validation.json`,
 `build/beta-3.29.0.153-all-repeat/`, `build/qr-153-all/validation.json` and
 `build/beta-153-full-tests-final.log`. Verified archives are also in the normal
 `.rmtool/cache/<feature>/20261009073202/` folders, ready for local rmtool testing.
-No application installer or public release was created by this adaptation.
+The adaptation is shipped with application release v1.18.2.
 
 ## Reproduction and Hardware Gate
 
@@ -90,8 +91,10 @@ and the optional QMD suites with `RMTOOL_QMD_TOOL`, `RMTOOL_QMLDIFF`,
 `RMTOOL_NATIVE_IMPORT_RESOURCE_TARGETS`. The two resource maps use
 `<platform>/<release>` keys so one device cannot substitute for another.
 
-This session did not install plugins or restart the connected Paper Pro. Next,
-restart the local rmtool application, migrate through its normal maintenance
-flow, then manually reboot when prompted. Verify startup, Chinese text/Pinyin,
-PDF/EPUB tap navigation and highlighting, notebook settings, QR reception and
-native import/restoration. Offline checks do not replace this hardware gate.
+The adaptation session did not install plugins or restart the connected Paper
+Pro. Before publication, the user tested and confirmed plugin migration and
+installation through rmtool on Paper Pro. This does not establish phone-upload
+acceptance on the newly supported models. Continue feature-specific tests of
+Chinese text/Pinyin, PDF/EPUB navigation and highlighting, notebook settings,
+QR reception and native import/restoration on each model. Offline checks do not
+replace this hardware gate.
