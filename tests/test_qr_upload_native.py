@@ -21,7 +21,7 @@ class QrUploadNativeTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("qr_receiver_builder", ROOT / "build.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        with tempfile.TemporaryDirectory(dir=ROOT.parent / "build") as temporary:
+        with tempfile.TemporaryDirectory(dir=ROOT.parent) as temporary:
             output = Path(temporary) / "receiver"
             def run(command, **kwargs):
                 if "build" in command:
