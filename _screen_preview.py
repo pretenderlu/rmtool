@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+import re
 import tempfile
 import uuid
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from PIL import Image
 MAX_RAW_BYTES = 32 * 1024 * 1024
 MAX_PNG_BYTES = 32 * 1024 * 1024
 LEGACY_FRAME_OFFSET = 2_629_632 + 8
+LEGACY_READ_BLOCK = 4096
 
 
 @dataclass(frozen=True)
@@ -166,8 +168,14 @@ done
 basehex=$(grep -A1 '/dev/fb0' /proc/$pid/maps | tail -n 1 | cut -d- -f1)
 case "$basehex" in ""|*[!0-9a-fA-F]*) exit 51;; esac
 ptr=$((0x$basehex+{LEGACY_FRAME_OFFSET})); target={target}
-dd if=/proc/$pid/mem of={remote_path} iflag=skip_bytes,count_bytes skip=$ptr count=$target 2>/dev/null
-[ "$(wc -c < {remote_path})" -eq "$target" ] || exit 52
+start=$(awk '{{print $22}}' /proc/$pid/stat)
+[ -n "$start" ] || exit 53
+prefix=$((ptr % {LEGACY_READ_BLOCK}))
+blocks=$(((prefix+target+{LEGACY_READ_BLOCK}-1)/{LEGACY_READ_BLOCK}))
+dd if=/proc/$pid/mem of={remote_path} bs={LEGACY_READ_BLOCK} skip=$((ptr/{LEGACY_READ_BLOCK})) count=$blocks
+[ "$(wc -c < {remote_path})" -eq "$((blocks*{LEGACY_READ_BLOCK}))" ] || exit 52
+[ "$(awk '{{print $22}}' /proc/$pid/stat)" = "$start" ] || exit 54
+printf 'rmtool-frame-offset=%s\\n' "$prefix"
 """
 
 
@@ -222,13 +230,23 @@ def capture(ssh_client) -> PreviewFrame:
             else _legacy_capture_command(profile, remote_path)
         )
         try:
-            _stdout, stderr, code = ssh_client.exec_command(command, timeout=30)
+            stdout, stderr, code = ssh_client.exec_command(command, timeout=30)
             if code != 0:
                 raise RuntimeError(
                     "读取设备当前画面失败："
                     + (stderr.strip() or f"exit code {code}")
                 )
             raw = _read_remote_bytes(ssh_client, remote_path, MAX_RAW_BYTES)
+            if profile.mapping == "legacy":
+                match = re.fullmatch(r"rmtool-frame-offset=([0-9]+)\s*", stdout)
+                if match is None or int(match[1]) >= LEGACY_READ_BLOCK:
+                    raise RuntimeError("设备返回的屏幕缓冲偏移无效。")
+                prefix = int(match[1])
+                size = profile.buffer_width * profile.buffer_height * profile.bytes_per_pixel
+                padded = ((prefix + size + LEGACY_READ_BLOCK - 1) // LEGACY_READ_BLOCK) * LEGACY_READ_BLOCK
+                if len(raw) != padded:
+                    raise RuntimeError("设备返回的屏幕缓冲大小不正确。")
+                raw = raw[prefix:prefix + size]
             png = _encode_png(profile, raw)
             width, height = validate_png(png)
             return PreviewFrame(png, width, height)

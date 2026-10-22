@@ -203,6 +203,15 @@ class UserFont:
 
 
 @dataclass(frozen=True)
+class FontRecoveryStatus:
+    state: str = "none"
+    detail: str = ""
+    directories: tuple[str, ...] = ()
+    fingerprint: str = ""
+    mounts: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class EpubFontSlot:
     number: int
     target_path: str = ""
@@ -917,6 +926,148 @@ def _system_font_snapshot(ssh_client) -> dict[str, Optional[bytes]]:
     }
 
 
+def get_font_recovery_status(ssh_client) -> FontRecoveryStatus:
+    """Inspect retained font transactions without using their contents as code."""
+    pattern = re.compile(r"\.font-(root-backup|data-swap)-([0-9a-f]{12}(?:-rollback)*)")
+    try:
+        records = []
+        directories = []
+        tokens = set()
+        total_bytes = 0
+        with ssh_client.sftp_session() as sftp:
+            for path in ("/home", "/home/root", "/home/root/.local",
+                         "/home/root/.local/share", "/home/root/.local/share/rmtool", BACKUP_DIR):
+                try:
+                    entry = sftp.lstat(path)
+                except FileNotFoundError:
+                    return FontRecoveryStatus()
+                if (not stat.S_ISDIR(entry.st_mode) or entry.st_uid != 0
+                        or entry.st_gid != 0 or entry.st_mode & 0o022):
+                    raise RuntimeError(f"字体恢复目录不可信：{path}")
+            entries = sftp.listdir_attr(BACKUP_DIR)
+            for entry in entries:
+                name = entry.filename
+                if not name.startswith((".font-root-backup-", ".font-data-swap-")):
+                    continue
+                match = pattern.fullmatch(name)
+                if match is None or len(directories) >= 16:
+                    raise RuntimeError("字体恢复记录名称无效或数量过多。")
+                path = posixpath.join(BACKUP_DIR, name)
+                if (not stat.S_ISDIR(entry.st_mode) or entry.st_uid != 0
+                        or entry.st_gid != 0 or entry.st_mode & 0o022):
+                    raise RuntimeError(f"字体恢复目录不可信：{path}")
+                allowed = (
+                    {f"{view}-{i}" for view in ("upper", "lower")
+                     for i in range(len(SYSTEM_FONT_ROOT_PATHS))}
+                    if match[1] == "root-backup"
+                    else {"file-0", "file-1"}
+                )
+                files = sftp.listdir_attr(path)
+                if len(files) > len(allowed):
+                    raise RuntimeError(f"字体恢复目录包含未知文件：{path}")
+                signatures = []
+                for item in files:
+                    full_path = posixpath.join(path, item.filename)
+                    if (item.filename not in allowed or not stat.S_ISREG(item.st_mode)
+                            or item.st_uid != 0 or item.st_gid != 0 or item.st_mode & 0o022
+                            or not 0 <= item.st_size <= 64 * 1024 * 1024):
+                        raise RuntimeError(f"字体恢复文件不可信：{full_path}")
+                    total_bytes += item.st_size
+                    if total_bytes > 128 * 1024 * 1024:
+                        raise RuntimeError("字体恢复记录超过安全读取上限。")
+                    digest = hashlib.sha256()
+                    size = 0
+                    with sftp.open(full_path, "rb") as remote:
+                        while chunk := remote.read(65536):
+                            size += len(chunk)
+                            if size > item.st_size:
+                                raise RuntimeError(f"字体恢复文件在检测时发生变化：{full_path}")
+                            digest.update(chunk)
+                    if size != item.st_size:
+                        raise RuntimeError(f"字体恢复文件在检测时发生变化：{full_path}")
+                    signatures.append((item.filename, item.st_mode, item.st_uid,
+                                       item.st_gid, size, digest.hexdigest()))
+                directories.append(path)
+                records.append((path, entry.st_mode, tuple(sorted(signatures))))
+                if match[1] == "root-backup":
+                    tokens.add(match[2])
+        if not directories:
+            return FontRecoveryStatus()
+        lines = ssh_client.exec_checked("cat /proc/self/mountinfo").splitlines()
+        parsed = [line.split() for line in lines]
+        root = [parts for parts in parsed if len(parts) >= 10 and parts[4] == "/"]
+        if len(root) != 1:
+            raise RuntimeError("无法确认字体恢复所需的根分区挂载。")
+        mounts = []
+        for line, parts in zip(lines, parsed):
+            if len(parts) < 10:
+                raise RuntimeError("设备返回的挂载信息不完整。")
+            target = parts[4]
+            if not target.startswith("/tmp/rmtool-font-rootfs-"):
+                continue
+            token = target.removeprefix("/tmp/rmtool-font-rootfs-")
+            if (token not in tokens or parts[2:4] != root[0][2:4]
+                    or parts[parts.index("-") + 1:] != root[0][root[0].index("-") + 1:]):
+                raise RuntimeError(f"字体临时挂载归属不明：{target}；请先保存文档并手动重启设备。")
+            mounts.append(line)
+        if len(mounts) > 8:
+            raise RuntimeError("字体临时挂载数量异常，请先保存文档并手动重启设备。")
+        fingerprint = hashlib.sha256(json.dumps(sorted(records)).encode()).hexdigest()
+        return FontRecoveryStatus(
+            "ready", "检测到上次未完成的字体事务，请选择字体并点击“修复字体设置”。",
+            tuple(sorted(directories)), fingerprint, tuple(sorted(mounts)),
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        return FontRecoveryStatus("blocked", f"字体恢复已暂停：{exc}")
+
+
+def repair_user_font(
+    ssh_client, remote_dir: str, filename: str, lock_screen_support: bool,
+    expected: FontRecoveryStatus,
+) -> UserFont:
+    """Reapply the current choice, then archive verified prior recovery evidence."""
+    with ssh_client.operation_session():
+        current = get_font_recovery_status(ssh_client)
+        if expected.state != "ready" or current != expected:
+            raise RuntimeError("字体恢复状态已变化，请刷新后重试。")
+        remaining = set(current.mounts)
+        while remaining:
+            mount = sorted(remaining)[-1]
+            target = mount.split()[4]
+            # Detach only the owned view; remounting can change the live root.
+            try:
+                ssh_client.exec_checked(f"umount {shlex.quote(target)}")
+            except (OSError, RuntimeError) as exc:
+                raise RuntimeError(
+                    "无法解除旧字体临时挂载，恢复备份已保留。"
+                    f"请保存文档并手动重启设备，再重新修复字体设置：{exc}"
+                ) from exc
+            current = get_font_recovery_status(ssh_client)
+            after = set(current.mounts)
+            if (current.state != "ready" or current.fingerprint != expected.fingerprint
+                    or not after < remaining or len(after) != len(remaining) - 1):
+                raise RuntimeError("字体恢复挂载状态发生变化，已停止；请刷新后重试。")
+            remaining = after
+        font = set_active_user_font(ssh_client, remote_dir, filename, lock_screen_support)
+        current = get_font_recovery_status(ssh_client)
+        if (current.state != "ready" or current.fingerprint != expected.fingerprint
+                or current.mounts):
+            raise RuntimeError("字体已重新应用，但恢复记录发生变化，旧备份已保留，请刷新检查。")
+        try:
+            with ssh_client.sftp_session() as sftp:
+                for source in expected.directories:
+                    name = posixpath.basename(source).removeprefix(".font-")
+                    destination = f"{BACKUP_DIR}/.font-recovered-{name}-{os.urandom(6).hex()}"
+                    sftp.rename(source, destination)
+                    logging.info("Archived font recovery evidence at %s", destination)
+        except OSError as exc:
+            raise RuntimeError(f"字体已重新应用，但旧备份归档未完成，已保留恢复文件：{exc}") from exc
+        final = get_font_recovery_status(ssh_client)
+        if final.state != "none":
+            raise RuntimeError("字体已重新应用，但仍检测到恢复记录，请刷新检查；备份未删除。")
+        return font
+
+
 def _data_free_bytes(ssh_client) -> int:
     partition, available = storage.system_free_bytes(ssh_client)
     return _DataFreeBytes(available, legacy_storage=partition == "/")
@@ -1000,6 +1151,8 @@ def _root_font_transaction_script(
 ) -> str:
     if set(staged_files) != set(SYSTEM_FONT_ROOT_PATHS):
         raise ValueError("root font transaction must cover every managed root path")
+    if not re.fullmatch(r"[0-9a-f]{12}(?:-rollback)*", token):
+        raise ValueError("invalid root font transaction token")
     mount_dir = f"/tmp/rmtool-font-rootfs-{token}"
     backup_dir = f"{BACKUP_DIR}/.font-root-backup-{token}"
 
@@ -1020,12 +1173,13 @@ def _root_font_transaction_script(
         lines = []
         for index, path in enumerate(SYSTEM_FONT_ROOT_PATHS):
             target = f'"{prefix}{path}"'
+            temporary = f"{target}.rmtool-{token}.tmp"
             backup = f'"$BACKUP_DIR/{suffix}-{index}"'
             lines.append(
                 f"if [ -f {backup} ]; then mkdir -p \"$(dirname {target})\" && "
-                f"cp -p {backup} {target}.tmp && mv -f {target}.tmp {target} && "
+                f"cp -p {backup} {temporary} && mv -f {temporary} {target} && "
                 f"cmp -s {backup} {target} || ROLLBACK_OK=0; "
-                f"else rm -f {target} && [ ! -e {target} ] && [ ! -L {target} ] "
+                f"else rm -f {target} {temporary} && [ ! -e {target} ] && [ ! -L {target} ] "
                 f"|| ROLLBACK_OK=0; fi"
             )
         return "\n".join(lines)
@@ -1034,6 +1188,7 @@ def _root_font_transaction_script(
         lines = []
         for path in SYSTEM_FONT_ROOT_PATHS:
             target = f'"{prefix}{path}"'
+            temporary = f"{target}.rmtool-{token}.tmp"
             staged_record = staged_files[path]
             if staged_record is None:
                 lines.append(
@@ -1044,9 +1199,9 @@ def _root_font_transaction_script(
             source = shlex.quote(staged)
             lines.append(
                 f"mkdir -p \"$(dirname {target})\"\n"
-                f"cp {source} {target}.tmp\n"
-                f"chmod 0644 {target}.tmp\n"
-                f"mv -f {target}.tmp {target}\n"
+                f"cp {source} {temporary}\n"
+                f"chmod 0644 {temporary}\n"
+                f"mv -f {temporary} {target}\n"
                 f"[ \"$(sha256sum {target} | awk '{{print $1}}')\" = {digest} ]"
             )
         return "\n".join(lines)
@@ -1066,37 +1221,64 @@ set -eu
 MOUNT_DIR={shlex.quote(mount_dir)}
 BACKUP_DIR={shlex.quote(backup_dir)}
 MOUNTED=0
+MOUNT_CREATED=0
 ROOT_RW=0
+ROOT_WAS_RW=0
+ROOT_FOUND=0
+BACKUP_CREATED=0
 SNAPSHOTTED=0
 COMMITTED=0
 ROLLBACK_OK=1
+umask 077
+
+while read -r _source mountpoint _type options _rest; do
+    if [ "$mountpoint" = / ]; then
+        ROOT_FOUND=1
+        case ",$options," in *,rw,*) ROOT_WAS_RW=1 ;; esac
+        break
+    fi
+done < /proc/mounts
+[ "$ROOT_FOUND" -eq 1 ] || {{ echo "rmtool font: cannot determine root mount mode" >&2; exit 1; }}
 
 root_ro() {{
     [ "$ROOT_RW" -eq 1 ] || return 0
-    sync
+    sync || return 1
     mount -o remount,ro / || return 1
     ROOT_RW=0
 }}
 
 root_rw() {{
-    mount -o remount,rw /
+    [ "$ROOT_WAS_RW" -eq 0 ] || return 0
+    mount -o remount,rw / || return 1
     ROOT_RW=1
 }}
 
 lower_ro() {{
     [ "$MOUNTED" -eq 1 ] || return 0
-    sync
-    mount -o remount,ro "$MOUNT_DIR" || return 1
-    umount "$MOUNT_DIR" || return 1
-    MOUNTED=0
-    rmdir "$MOUNT_DIR"
+    released=1
+    sync || released=0
+    if [ "$ROOT_WAS_RW" -eq 0 ]; then
+        if mount -o remount,ro "$MOUNT_DIR"; then ROOT_RW=0; else released=0; fi
+    fi
+    if umount "$MOUNT_DIR"; then
+        MOUNTED=0
+        if rmdir "$MOUNT_DIR"; then MOUNT_CREATED=0; else released=0; fi
+    else
+        released=0
+    fi
+    [ "$released" -eq 1 ]
 }}
 
 lower_rw() {{
-    mkdir -p "$MOUNT_DIR"
-    mount --bind / "$MOUNT_DIR"
+    [ ! -e "$MOUNT_DIR" ] && [ ! -L "$MOUNT_DIR" ] || return 1
+    mkdir -m 0700 "$MOUNT_DIR" || return 1
+    MOUNT_CREATED=1
+    mount --bind / "$MOUNT_DIR" || return 1
     MOUNTED=1
-    mount -o remount,rw "$MOUNT_DIR"
+    if [ "$ROOT_WAS_RW" -eq 0 ]; then
+        mount -o remount,rw "$MOUNT_DIR" || return 1
+        ROOT_RW=1
+    fi
 }}
 
 rollback() {{
@@ -1106,13 +1288,13 @@ rollback() {{
     if [ "$COMMITTED" -eq 0 ] && [ "$SNAPSHOTTED" -eq 1 ]; then
         if [ "$MOUNTED" -eq 1 ]; then lower_ro 2>/dev/null || ROLLBACK_OK=0; fi
         if [ "$ROOT_RW" -eq 1 ]; then root_ro 2>/dev/null || ROLLBACK_OK=0; fi
-        if root_rw 2>/dev/null; then
+        if [ "$MOUNTED" -eq 0 ] && root_rw 2>/dev/null; then
             {restore_lines('', 'upper')}
             root_ro 2>/dev/null || ROLLBACK_OK=0
         else
             ROLLBACK_OK=0
         fi
-        if lower_rw 2>/dev/null; then
+        if [ "$MOUNTED" -eq 0 ] && lower_rw 2>/dev/null; then
             {restore_lines('$MOUNT_DIR', 'lower')}
             lower_ro 2>/dev/null || ROLLBACK_OK=0
         else
@@ -1122,13 +1304,21 @@ rollback() {{
     fi
     if [ "$ROOT_RW" -eq 1 ]; then root_ro 2>/dev/null || ROLLBACK_OK=0; fi
     if [ "$MOUNTED" -eq 1 ]; then lower_ro 2>/dev/null || ROLLBACK_OK=0; fi
-    if [ "$ROLLBACK_OK" -eq 1 ]; then rm -rf "$BACKUP_DIR"; else echo "rmtool font rollback incomplete; recovery kept at $BACKUP_DIR" >&2; fi
+    if [ "$MOUNTED" -eq 0 ] && [ "$MOUNT_CREATED" -eq 1 ]; then
+        rmdir "$MOUNT_DIR" 2>/dev/null || true
+    fi
+    if [ "$ROLLBACK_OK" -eq 1 ] && [ "$BACKUP_CREATED" -eq 1 ]; then
+        rm -rf "$BACKUP_DIR"
+    elif [ "$BACKUP_CREATED" -eq 1 ]; then
+        echo "rmtool font rollback incomplete; recovery kept at $BACKUP_DIR" >&2
+    fi
     exit "$rc"
 }}
 trap rollback EXIT INT TERM
 
-rm -rf "$BACKUP_DIR"
-mkdir -p "$BACKUP_DIR"
+[ ! -e "$BACKUP_DIR" ] && [ ! -L "$BACKUP_DIR" ]
+mkdir -m 0700 "$BACKUP_DIR"
+BACKUP_CREATED=1
 {backup_lines('', 'upper')}
 lower_rw
 {backup_lines('$MOUNT_DIR', 'lower')}
@@ -1146,7 +1336,9 @@ fc-cache -f -v {shlex.quote(SYSTEM_FONT_DIR)} {shlex.quote(LEGACY_SYSTEM_FONT_DI
 sync
 
 COMMITTED=1
-rm -rf "$BACKUP_DIR"
+if ! rm -rf "$BACKUP_DIR"; then
+    echo "rmtool font committed; backup retained at $BACKUP_DIR" >&2
+fi
 trap - EXIT INT TERM
 """
 
@@ -1383,7 +1575,9 @@ def _install_system_font_mirror(
         rollback_failed = False
         if mirror_mutated:
             try:
-                _restore_system_font_mirror(ssh_client, plan.previous_files, token)
+                _restore_system_font_mirror(
+                    ssh_client, plan.previous_files, f"{token}-rollback"
+                )
             except Exception as rollback_exc:
                 rollback_failed = True
                 rollback_errors.append(f"锁屏字体镜像恢复失败：{rollback_exc}")

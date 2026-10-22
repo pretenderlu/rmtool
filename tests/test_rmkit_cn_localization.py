@@ -2381,7 +2381,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             _rmkit_cn.SYSTEM_FONTCONFIG_FILE: ("/data/staged-config", "0" * 64),
         }
         script = _rmkit_cn._root_font_transaction_script(
-            "token", root_files, target
+            "e6e1f43c837d", root_files, target
         )
 
         for pattern in _rmkit_cn.FONT_OVERRIDE_MATCH_PATTERNS:
@@ -2391,9 +2391,9 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertIn('mount -o remount,rw "$MOUNT_DIR"', script)
         self.assertIn("mount -o remount,ro / || return 1", script)
         self.assertIn(
-            'mount -o remount,ro "$MOUNT_DIR" || return 1', script
+            'if mount -o remount,ro "$MOUNT_DIR"; then ROOT_RW=0; else released=0; fi', script
         )
-        self.assertIn('umount "$MOUNT_DIR" || return 1', script)
+        self.assertIn('if umount "$MOUNT_DIR"; then', script)
 
     def test_restore_keeps_previous_data_font_if_root_restore_fails(self):
         target = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
@@ -2408,6 +2408,20 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         ), self.assertRaisesRegex(RuntimeError, "root restore failed"):
             _rmkit_cn._restore_system_font_mirror(ssh, previous, "token")
 
+        self.assertEqual(ssh.files[target], b"previous font")
+
+    def test_failed_mirror_install_uses_new_root_rollback_transaction(self):
+        target = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        ssh = FakeSSH({target: b"previous font"})
+        plan = _rmkit_cn._prepare_system_font_mirror(ssh, b"replacement font", ".ttf")
+        with patch.object(
+            _rmkit_cn, "_apply_persistent_root_font_state",
+            side_effect=[RuntimeError("mount point is busy"), None],
+        ) as apply, patch.object(_rmkit_cn.os, "urandom", return_value=b"\xab" * 6):
+            with self.assertRaisesRegex(RuntimeError, "mount point is busy"):
+                _rmkit_cn._install_system_font_mirror(ssh, plan, "Replacement")
+        self.assertEqual(apply.call_args_list[0].args[2], "ab" * 6)
+        self.assertEqual(apply.call_args_list[1].args[2], "ab" * 6 + "-rollback")
         self.assertEqual(ssh.files[target], b"previous font")
 
     def test_set_active_user_font_switches_ttf_to_otf_without_stale_copy(self):

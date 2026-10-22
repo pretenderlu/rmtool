@@ -28,6 +28,7 @@ class FontTab(QtWidgets.QWidget):
         self._font_progress: Optional[QtWidgets.QProgressDialog] = None
         self._fonts: tuple[_rmkit_cn.UserFont, ...] = ()
         self._font_verification: Optional[_rmkit_cn.FontMirrorVerification] = None
+        self._font_recovery = _rmkit_cn.FontRecoveryStatus()
         self._epub_font_status: Optional[_rmkit_cn.EpubFontSlotStatus] = None
         self._legacy_font_migration: Optional[
             _rmkit_cn.LegacySystemFontMigration
@@ -326,6 +327,7 @@ class FontTab(QtWidgets.QWidget):
             self._font_verification = None
             self._epub_font_status = None
             self._legacy_font_migration = None
+            self._font_recovery = _rmkit_cn.FontRecoveryStatus()
             self.font_table.setRowCount(0)
             self.manager_status_label.setText("设备未连接。")
         else:
@@ -366,7 +368,8 @@ class FontTab(QtWidgets.QWidget):
             None,
         )
         self.set_active_button.setText(
-            "重新应用系统字体" if selected and selected.active else "设为系统字体"
+            "修复字体设置" if self._font_recovery.state == "ready"
+            else "重新应用系统字体" if selected and selected.active else "设为系统字体"
         )
         if selected_slot is not None:
             epub_action = "从 EPUB 字体菜单移除"
@@ -381,7 +384,7 @@ class FontTab(QtWidgets.QWidget):
             connected and bool(self._selected_font_path)
         )
         self.set_active_button.setEnabled(
-            connected and selected is not None
+            connected and selected is not None and self._font_recovery.state != "blocked"
         )
         self.epub_font_button.setEnabled(
             connected
@@ -400,6 +403,7 @@ class FontTab(QtWidgets.QWidget):
         )
         self.migrate_font_button.setEnabled(
             connected
+            and self._font_recovery.state == "none"
             and self._legacy_font_migration is not None
             and self._legacy_font_migration.migratable
         )
@@ -527,6 +531,7 @@ class FontTab(QtWidgets.QWidget):
                 verification=inventory[1],
                 migration=inventory[2],
                 epub_status=inventory[3],
+                recovery=inventory[4],
                 select_remote_path=select_remote_path,
                 select_filename=select_filename,
                 success=success,
@@ -569,6 +574,7 @@ class FontTab(QtWidgets.QWidget):
                 ssh_client, migration_dir
             ),
             epub_status,
+            _rmkit_cn.get_font_recovery_status(ssh_client),
         )
 
     def _apply_font_inventory(
@@ -578,6 +584,7 @@ class FontTab(QtWidgets.QWidget):
         verification: Optional[_rmkit_cn.FontMirrorVerification] = None,
         migration: Optional[_rmkit_cn.LegacySystemFontMigration] = None,
         epub_status: Optional[_rmkit_cn.EpubFontSlotStatus] = None,
+        recovery: Optional[_rmkit_cn.FontRecoveryStatus] = None,
         select_remote_path: str = "",
         select_filename: str = "",
         success: str = "",
@@ -593,6 +600,7 @@ class FontTab(QtWidgets.QWidget):
         self._font_verification = verification
         self._legacy_font_migration = migration
         self._epub_font_status = epub_status
+        self._font_recovery = recovery or _rmkit_cn.FontRecoveryStatus()
         self.font_table.setRowCount(len(self._fonts))
         selected_row = -1
         for row, font in enumerate(self._fonts):
@@ -650,7 +658,9 @@ class FontTab(QtWidgets.QWidget):
         self.manager_status_label.setText(
             f"已读取 {len(self._fonts)} 个用户字体；当前系统字体：{active}"
             f"{legacy_note}{verification_note}{legacy_space_note}"
-            f"{migration_note}{epub_note}。"
+            f"{migration_note}{epub_note}"
+            + (f"；{self._font_recovery.detail}" if self._font_recovery.detail else "")
+            + "。"
         )
         tooltip = "\n".join(
             detail
@@ -661,6 +671,7 @@ class FontTab(QtWidgets.QWidget):
                 and self._legacy_font_migration.state != "none"
                 else "",
                 self._epub_font_status.detail if self._epub_font_status else "",
+                self._font_recovery.detail,
             )
             if detail
         )
@@ -719,6 +730,7 @@ class FontTab(QtWidgets.QWidget):
                     verification=inventory[1],
                     migration=inventory[2],
                     epub_status=inventory[3],
+                    recovery=inventory[4],
                 )
             except Exception:
                 # Never let an apply failure stall the serial coordinator.
@@ -801,10 +813,16 @@ class FontTab(QtWidgets.QWidget):
         if not selected:
             return
         reapply = selected.active
-        action = "重新应用系统字体" if reapply else "设为系统字体"
+        repairing = self._font_recovery.state == "ready"
+        if self._font_recovery.state == "blocked":
+            _ui.show_warning(self, _rmtool.APP_NAME, self._font_recovery.detail)
+            return
+        action = "修复字体设置" if repairing else "重新应用系统字体" if reapply else "设为系统字体"
         lock_screen_support = self._lock_screen_font_support()
         message = (
-            f"重新应用 {selected.filename} 作为系统界面字体，并修复 /data 中供锁屏使用的当前字体副本。"
+            f"使用 {selected.filename} 修复上次未完成的字体设置，旧恢复备份将保留归档。"
+            if repairing
+            else f"重新应用 {selected.filename} 作为系统界面字体，并修复 /data 中供锁屏使用的当前字体副本。"
             if reapply and lock_screen_support
             else f"重新应用 {selected.filename} 作为系统界面字体，仅保存在 /home。"
             if reapply
@@ -837,16 +855,20 @@ class FontTab(QtWidgets.QWidget):
         ):
             return
         self._start_font_worker(
-            _rmkit_cn.set_active_user_font,
+            _rmkit_cn.repair_user_font if repairing else _rmkit_cn.set_active_user_font,
             self.ssh_client,
             posixpath.dirname(selected.remote_path),
             selected.filename,
             lock_screen_support,
+            *([self._font_recovery] if repairing else []),
             pending="正在设置并验证系统字体…",
             on_success=lambda font: self._refresh_fonts(
                 select_remote_path=font.remote_path,
                 select_filename=font.filename,
-                success="系统字体配置已更新。请在准备好后点击“重启生效”。",
+                success=(
+                    "字体状态已修复，旧恢复备份已保留归档。请在准备好后点击“重启生效”。"
+                    if repairing else "系统字体配置已更新。请在准备好后点击“重启生效”。"
+                ),
             ),
             error_prefix="设置系统字体失败",
         )

@@ -366,6 +366,7 @@ class FontsRefreshQuietTests(unittest.TestCase):
                 ),
                 _rmkit_cn.LegacySystemFontMigration("none", "无需迁移"),
                 _rmkit_cn.EpubFontSlotStatus("unsupported", "不支持"),
+                _rmkit_cn.FontRecoveryStatus(),
             )
         )
 

@@ -4296,14 +4296,17 @@ class FontUiTests(unittest.TestCase):
             _rmkit_cn, "get_legacy_system_font_migration", return_value=migration
         ) as get_migration, mock.patch.object(
             _rmkit_cn, "get_epub_font_slot_status", return_value=epub_status
-        ) as get_epub_status:
+        ) as get_epub_status, mock.patch.object(
+            _rmkit_cn, "get_font_recovery_status", return_value=_rmkit_cn.FontRecoveryStatus()
+        ):
             inventory = _tab_toolbox.FontTab._load_font_inventory(
                 client, rmtool.DEFAULT_FONT_DIR
             )
 
         self.assertEqual(
             inventory,
-            ((repository_font, legacy_font), verification, migration, epub_status),
+            ((repository_font, legacy_font), verification, migration, epub_status,
+             _rmkit_cn.FontRecoveryStatus()),
         )
         self.assertEqual(
             list_user_fonts.call_args_list,
@@ -4383,6 +4386,67 @@ class FontUiTests(unittest.TestCase):
         widget._apply_font_inventory(())
         self.assertFalse(widget.migrate_font_button.isEnabled())
         self.assertNotIn("内容不一致", widget.manager_status_label.text())
+
+    def test_pending_font_recovery_uses_selected_font_and_storage_choice(self):
+        for lock_screen in (False, True):
+            with self.subTest(lock_screen=lock_screen):
+                client = FakeConnectionClient(connected=True)
+                widget = rmtool.FontTab(client, rmtool._default_config())
+                self.addCleanup(widget.deleteLater)
+                font = _rmkit_cn.UserFont(
+                    "chosen.ttf", "Chosen", f"{rmtool.DEFAULT_FONT_DIR}chosen.ttf", True
+                )
+                status = _rmkit_cn.FontRecoveryStatus("ready", "检测到上次未完成的字体事务")
+                widget._apply_font_inventory((font,), select_filename=font.filename, recovery=status)
+                self.assertEqual(widget.set_active_button.text(), "修复字体设置")
+                self.assertTrue(widget.set_active_button.isEnabled())
+                self.assertIn(status.detail, widget.manager_status_label.text())
+                with mock.patch.object(
+                    _toolbox_common, "ask_confirmation", return_value=True
+                ) as confirm, mock.patch.object(
+                    widget, "_lock_screen_font_support", return_value=lock_screen
+                ), mock.patch.object(widget, "_start_font_worker") as start:
+                    widget.set_active_button.click()
+                self.assertEqual(start.call_args.args, (
+                    _rmkit_cn.repair_user_font, client,
+                    posixpath.dirname(font.remote_path), font.filename, lock_screen, status,
+                ))
+                self.assertIn("旧恢复备份将保留归档", confirm.call_args.args[2])
+                self.assertIn("手动重启", confirm.call_args.args[2])
+                self.assertIn(
+                    "保留 /data 字体副本" if lock_screen else "不会写入 /data 字体副本",
+                    confirm.call_args.args[2],
+                )
+
+    def test_blocked_font_recovery_disables_system_font_changes(self):
+        widget = rmtool.FontTab(FakeConnectionClient(connected=True), rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        font = _rmkit_cn.UserFont("chosen.ttf", "Chosen", "/home/fonts/chosen.ttf", False)
+        widget._apply_font_inventory(
+            (font,), select_filename=font.filename,
+            recovery=_rmkit_cn.FontRecoveryStatus("blocked", "恢复记录不可信"),
+            migration=_rmkit_cn.LegacySystemFontMigration(
+                "ready", "旧字体可迁移", "old.ttf", "/usr/share/fonts/old.ttf"
+            ),
+        )
+        self.assertFalse(widget.set_active_button.isEnabled())
+        self.assertFalse(widget.migrate_font_button.isEnabled())
+        with mock.patch.object(_toolbox_common, "show_warning") as warn, mock.patch.object(
+            widget, "_start_font_worker"
+        ) as start:
+            widget._set_selected_active()
+        self.assertIn("恢复记录不可信", warn.call_args.args[2])
+        start.assert_not_called()
+
+    def test_disconnect_clears_font_recovery_state(self):
+        client = FakeConnectionClient(connected=True)
+        widget = rmtool.FontTab(client, rmtool._default_config())
+        self.addCleanup(widget.deleteLater)
+        widget._apply_font_inventory((), recovery=_rmkit_cn.FontRecoveryStatus("ready", "待修复"))
+        client._connected = False
+        widget._on_connection_changed(False)
+        self.assertEqual(widget._font_recovery, _rmkit_cn.FontRecoveryStatus())
+        self.assertFalse(widget.set_active_button.isEnabled())
 
     def test_legacy_font_migration_uses_one_confirmation_and_one_worker(self):
         client = FakeConnectionClient(connected=True)
@@ -4844,6 +4908,7 @@ class FontUiTests(unittest.TestCase):
                 _rmkit_cn.FontMirrorVerification("unverified", "未实机验证", "测试"),
                 _rmkit_cn.LegacySystemFontMigration("none", "无需迁移"),
                 _rmkit_cn.EpubFontSlotStatus("unsupported", "不支持"),
+                _rmkit_cn.FontRecoveryStatus(),
             )
         )
 
@@ -4879,6 +4944,7 @@ class FontUiTests(unittest.TestCase):
                 _rmkit_cn.FontMirrorVerification("unverified", "未实机验证", "测试"),
                 _rmkit_cn.LegacySystemFontMigration("none", "无需迁移"),
                 _rmkit_cn.EpubFontSlotStatus("unsupported", "不支持"),
+                _rmkit_cn.FontRecoveryStatus(),
             )
         )
 
