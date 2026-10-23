@@ -52,7 +52,7 @@ class FontRootTransactionTests(unittest.TestCase):
             "/tmp/rmtool-font-rootfs-" + self.TOKEN, "./mount/"
         ).replace("/proc/mounts", "./proc-mounts").replace(
             "$MOUNT_DIRupper", "${MOUNT_DIR}upper"
-        )
+        ).replace("fc-cache ", "fc_cache ")
         self.assertNotRegex(script, r"\b(reboot|shutdown)\b|systemctl")
         self.assertNotIn("/proc/", script)
         (self.root / "proc-mounts").write_text(f"root / ext4 {mode},relatime 0 0\n")
@@ -103,7 +103,7 @@ cp() {
     command cp "$@"
 }
 sync() { :; }
-fc-cache() { inject cache; }
+fc_cache() { inject cache; }
 mount() {
     printf 'mount %s\n' "$*" >> events
     if [ "$1" = --bind ]; then
