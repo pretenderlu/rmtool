@@ -51,6 +51,7 @@ class RecoveryReport:
     features: tuple[str, ...] = ()
     issues: tuple[str, ...] = ()
     backup_path: str = ""
+    operation_locked: bool = False
 
     @property
     def can_repair(self) -> bool:
@@ -1111,6 +1112,14 @@ def _inspect(ssh_client):
 def inspect_recovery(ssh_client) -> RecoveryReport:
     """Inspect without uploads, temporary mounts, executing old tools, or writes."""
     try:
+        if shared._remote_entry_exists(ssh_client, shared._OPERATION_LOCK):
+            return RecoveryReport(
+                RecoveryState.BLOCKED,
+                "检测到插件事务锁，无法确认其他电脑是否仍在操作。"
+                "请先停止所有安装、保存文档，再使用“重启设备恢复中断操作”；"
+                "重连后重新检测恢复状态。不会直接删除事务锁或恢复备份。",
+                operation_locked=True,
+            )
         report, plan = _inspect(ssh_client)
         if plan is not None:
             _check_capacity(ssh_client, plan)

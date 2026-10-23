@@ -6,7 +6,6 @@ from typing import Dict, Optional
 
 from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
-import _package_download
 import _rmkit_cn
 import _native_chinese
 import _pinyin_input
@@ -272,38 +271,12 @@ class RmkitCnSection(QtWidgets.QWidget):
         success: str = "",
         error_hint: str = "若设备界面无响应，请手动重启设备。",
     ):
-        if self._busy:
-            return
-        self._set_busy(True, pending)
-        worker = _rmtool.Worker(fn, *args)
+        return _ui.start_plugin_worker(
+            self, fn, *args, pending=pending, success=success, error_hint=error_hint,
+        )
 
-        def on_finished(status: _rmkit_cn.LocalizationStatus):
-            if sip.isdeleted(self):
-                # Worker outlived the tab; nothing safe left to update.
-                return
-            self._set_busy(False)
-            self._apply_status(status)
-            if success:
-                _ui.show_info(self, _rmtool.APP_NAME, success)
-
-        def on_error(exc: Exception):
-            if sip.isdeleted(self):
-                # Worker outlived the tab; only log, touching widgets would
-                # raise RuntimeError (and abort the process on macOS).
-                logging.error("Original UI localization failed after tab close: %s", exc)
-                return
-            self._set_busy(False)
-            self.status_label.setText("操作失败，请查看提示后重试")
-            logging.error("Original UI localization failed: %s", exc)
-            _ui.show_error(
-                self,
-                _rmtool.APP_NAME,
-                f"操作失败：{exc}\n{error_hint}",
-            )
-
-        worker.signals.finished.connect(on_finished)
-        worker.signals.error.connect(on_error)
-        self.thread_pool.start(worker)
+    def _update_buttons(self):
+        self._set_busy(self._busy)
 
     def _start_package_worker(
         self,
@@ -732,61 +705,11 @@ class NativeChineseSection(QtWidgets.QWidget):
         on_done=None,
         show_errors: bool = True,
     ):
-        if self._busy:
-            if on_done is not None:
-                on_done()
-            return
-        self._set_busy(True, pending)
-        worker = _rmtool.Worker(fn, *args)
-
-        def on_finished(status: _native_chinese.NativeChineseStatus):
-            if sip.isdeleted(self):
-                if close_connection:
-                    self.ssh_client.close()
-                return
-            self._set_busy(False)
-            self._apply_status(status)
-            if close_connection:
-                self.ssh_client.close()
-            if success:
-                _ui.show_info(self, _rmtool.APP_NAME, success)
-            if on_done is not None:
-                on_done()
-
-        def on_error(exc: Exception):
-            if sip.isdeleted(self):
-                if close_connection:
-                    self.ssh_client.close()
-                logging.error("Native Chinese operation failed after tab close: %s", exc)
-                return
-            if isinstance(exc, _package_download.PackageDownloadError):
-                # Download failed before any device change; keep the session.
-                self._set_busy(False, "资源包下载失败，可手动加载后重试")
-                logging.error("Native Chinese package download failed: %s", exc)
-                if show_errors:
-                    _ui._show_package_download_error(self, exc, retry=self._enable)
-                if on_done is not None:
-                    on_done()
-                return
-            if close_connection:
-                self.ssh_client.close()
-            self._set_busy(False)
-            self._status = None
-            self._update_buttons()
-            self.status_label.setText("操作失败，未自动重启设备；请重新连接并检测状态")
-            logging.error("Native Chinese operation failed: %s", exc)
-            if show_errors:
-                _ui.show_error(
-                    self,
-                    _rmtool.APP_NAME,
-                    f"操作失败：{exc}\n设备不会被自动重启。",
-                )
-            if on_done is not None:
-                on_done()
-
-        worker.signals.finished.connect(on_finished)
-        worker.signals.error.connect(on_error)
-        self.thread_pool.start(worker)
+        return _ui.start_plugin_worker(
+            self, fn, *args, pending=pending, success=success,
+            close_connection=close_connection, on_done=on_done,
+            show_errors=show_errors, retry=self._enable,
+        )
 
     @require_connection
     def _detect_status(self):
@@ -1169,65 +1092,11 @@ class PinyinInputSection(QtWidgets.QWidget):
         on_done=None,
         show_errors: bool = True,
     ):
-        if self._busy:
-            if on_done is not None:
-                on_done()
-            return
-        self._busy = True
-        self.status_label.setText(pending)
-        self._update_buttons()
-        worker = _rmtool.Worker(fn, *args)
-
-        def on_finished(status: _pinyin_input.PinyinInputStatus):
-            if sip.isdeleted(self):
-                if close_connection:
-                    self.ssh_client.close()
-                return
-            self._busy = False
-            self._apply_status(status)
-            if close_connection:
-                self.ssh_client.close()
-            if success:
-                _ui.show_info(self, _rmtool.APP_NAME, success)
-            if on_done is not None:
-                on_done()
-
-        def on_error(exc: Exception):
-            if sip.isdeleted(self):
-                if close_connection:
-                    self.ssh_client.close()
-                logging.error("Pinyin input operation failed after tab close: %s", exc)
-                return
-            if isinstance(exc, _package_download.PackageDownloadError):
-                # Download failed before any device change; keep the session.
-                self._busy = False
-                self.status_label.setText("资源包下载失败，可手动加载后重试")
-                self._update_buttons()
-                logging.error("Pinyin input package download failed: %s", exc)
-                if show_errors:
-                    _ui._show_package_download_error(self, exc, retry=self._enable)
-                if on_done is not None:
-                    on_done()
-                return
-            if close_connection:
-                self.ssh_client.close()
-            self._busy = False
-            self._status = None
-            self.status_label.setText("操作失败，设备不会被自动重启；请检查日志后重试")
-            self._update_buttons()
-            logging.error("Pinyin input operation failed: %s", exc)
-            if show_errors:
-                _ui.show_error(
-                    self,
-                    _rmtool.APP_NAME,
-                    f"操作失败：{exc}\n设备不会被自动重启。",
-                )
-            if on_done is not None:
-                on_done()
-
-        worker.signals.finished.connect(on_finished)
-        worker.signals.error.connect(on_error)
-        self.thread_pool.start(worker)
+        return _ui.start_plugin_worker(
+            self, fn, *args, pending=pending, success=success,
+            close_connection=close_connection, on_done=on_done,
+            show_errors=show_errors, retry=self._enable,
+        )
 
     @require_connection
     def _detect_status(self):

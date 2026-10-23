@@ -10,6 +10,7 @@ import _legacy_vellum
 import _plugin_recovery
 import _residue_migration
 import _xovi_standalone
+import _firmware
 from _ssh import SSHClientWrapper, require_connection
 # Dialog helpers are looked up on _toolbox_common at call time so a single
 # patch point covers every toolbox section.
@@ -64,6 +65,9 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         self.cleanup_incomplete_button = QtWidgets.QPushButton("清理不完整状态")
         self.cleanup_incomplete_button.setProperty("btnRole", "danger")
         self.cleanup_incomplete_button.clicked.connect(self._cleanup_incomplete)
+        self.restart_recovery_button = QtWidgets.QPushButton("重启设备恢复中断操作")
+        self.restart_recovery_button.clicked.connect(self._restart_interrupted)
+        self.restart_recovery_button.hide()
         self.migrate_button = QtWidgets.QPushButton("迁移到当前固件")
         self.migrate_button.clicked.connect(self._migrate)
         self.cleanup_residue_button = QtWidgets.QPushButton("清理固件残留")
@@ -98,6 +102,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         recovery_row.addWidget(self.cleanup_incomplete_button)
         recovery_row.addStretch(1)
         layout.addLayout(recovery_row)
+        layout.addWidget(self.restart_recovery_button, alignment=QtCore.Qt.AlignLeft)
         detect_row = QtWidgets.QHBoxLayout()
         detect_row.setSpacing(_rmtool.SUBSECTION_GAP)
         detect_row.addWidget(self.detect_button)
@@ -133,8 +138,12 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                 "设备已连接，尚未检测恢复或迁移状态" if connected else "设备未连接"
             )
         active = connected and not self._busy
+        locked = getattr(self._recovery_report, "operation_locked", False)
+        self.restart_recovery_button.setVisible(locked)
+        self.restart_recovery_button.setEnabled(active and not _ui.plugin_operation_busy(self.ssh_client))
         self.detect_button.setEnabled(active)
         self.recovery_detect_button.setEnabled(active)
+        active = active and not locked
         self.repair_button.setEnabled(
             active and self._recovery_report is not None
             and self._recovery_report.can_repair
@@ -170,12 +179,53 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         with self.ssh_client.operation_session():
             if not self._session_current(session):
                 raise RuntimeError("设备连接已变化，请重新检测后操作")
-            return fn(*args)
+            if _ui.plugin_operation_busy(self.ssh_client):
+                raise RuntimeError("另一个插件操作正在进行，请等待完成后再试。")
+            task = object()
+            self.ssh_client._toolbox_task = task
+            self.ssh_client._toolbox_task_client = getattr(self.ssh_client, "_client", None)
+            try:
+                return fn(*args)
+            finally:
+                if vars(self.ssh_client).get("_toolbox_task") is task:
+                    del self.ssh_client._toolbox_task
+                    vars(self.ssh_client).pop("_toolbox_task_client", None)
 
     def _close_session(self, session):
         with getattr(self.ssh_client, "_state_lock", nullcontext()):
-            if self._session_current(session):
+            if self._session_current(session) and not _ui.plugin_operation_busy(self.ssh_client):
                 self.ssh_client.close()
+
+    @require_connection
+    def _restart_interrupted(self):
+        report = self._recovery_report
+        session = self._recovery_session
+        if (_ui.plugin_operation_busy(self.ssh_client)
+                or not getattr(report, "operation_locked", False)
+                or session is None or not self._session_current(session)):
+            return
+        if not _ui.ask_confirmation(
+            self, _rmtool.APP_NAME,
+            "请保存并退出文档，确认所有电脑上的插件安装、迁移和固件操作都已停止。"
+            "将完整重启设备，清除临时事务锁；不会删除插件、书籍、设置或恢复备份。"
+            "重启后请重新连接，再检测恢复状态并逐项修复。是否继续？",
+            confirm_text="确认重启", cancel_text="取消",
+        ):
+            return
+        if (sip.isdeleted(self) or not self._session_current(session)
+                or report is not self._recovery_report
+                or _ui.plugin_operation_busy(self.ssh_client)):
+            return
+
+        def restart():
+            _firmware.reboot_for_plugin_recovery(self.ssh_client)
+            return report
+
+        self._start_worker(
+            restart, pending="正在核对更新状态并请求重启…", session=session,
+            close_on_success=True,
+            success="已请求重启设备。请等待启动完成后重新连接，再检测恢复状态。",
+        )
 
     def _apply_status(self, report, incomplete_report=None):
         self._recovery_report = report
@@ -194,7 +244,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                 "无法安全自动修复，请导出诊断日志交由维护者核对；不要手动跳过校验"
             ),
         }
-        lines = [labels[report.state]]
+        lines = ["插件操作已阻止：检测到事务锁" if getattr(report, "operation_locked", False) else labels[report.state]]
         if report.detail:
             lines.append(report.detail)
         if report.features:
@@ -218,7 +268,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         self, fn, *args, pending: str, on_done=None, show_errors=True,
         session=None, repairing=False, close_on_success=False, success="",
     ):
-        if self._busy or not self.ssh_client.is_connected():
+        if self._busy or _ui.plugin_operation_busy(self.ssh_client) or not self.ssh_client.is_connected():
             if on_done is not None:
                 on_done()
             return
@@ -234,10 +284,21 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         self._busy = True
         self._on_connection_changed(True)
         self.status_label.setText(pending)
+        task = object()
+        self.ssh_client._toolbox_task = task
+        self.ssh_client._toolbox_task_client = getattr(self.ssh_client, "_client", None)
+
+        def release():
+            if vars(self.ssh_client).get("_toolbox_task") is task:
+                del self.ssh_client._toolbox_task
+                vars(self.ssh_client).pop("_toolbox_task_client", None)
 
         def execute():
             # Check identity after acquiring the transport lock, including queued work.
-            return self._run_in_session(session, fn, *args)
+            with self.ssh_client.operation_session():
+                if not self._session_current(session):
+                    raise RuntimeError("设备连接已变化，请重新检测后操作")
+                return fn(*args)
 
         worker = _rmtool.Worker(execute)
         completed = False
@@ -248,6 +309,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                 return
             completed = True
             try:
+                release()
                 if sip.isdeleted(self) or not self._session_current(session):
                     return
                 self._busy = False
@@ -317,6 +379,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                     if show_errors:
                         _ui.show_error(self, _rmtool.APP_NAME, message)
             finally:
+                release()
                 if on_done is not None:
                     on_done()
 
@@ -331,7 +394,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         def inspect():
             report = _plugin_recovery.inspect_recovery(self.ssh_client)
             incomplete = None
-            if not getattr(report, "can_repair", False):
+            if not getattr(report, "can_repair", False) and not getattr(report, "operation_locked", False):
                 incomplete = _plugin_recovery.inspect_incomplete(self.ssh_client)
             return report, incomplete
 

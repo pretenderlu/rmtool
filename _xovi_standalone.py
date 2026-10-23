@@ -1094,24 +1094,26 @@ def read_shared_identity(ssh_client) -> tuple[str, str, str, str]:
 
 @contextmanager
 def _operation_lock(ssh_client):
-    ssh_client.exec_checked(
-        f"mkdir {shlex.quote(_OPERATION_LOCK)} 2>/dev/null || "
-        "{ echo 'another rmtool Xovi operation is active' >&2; exit 1; }"
-    )
-    failed = False
-    try:
-        yield
-    except BaseException:
-        failed = True
-        raise
-    finally:
+    session = getattr(ssh_client, "operation_session", nullcontext)
+    with session():
+        ssh_client.exec_checked(
+            f"mkdir {shlex.quote(_OPERATION_LOCK)} 2>/dev/null || "
+            "{ echo 'another rmtool Xovi operation is active' >&2; exit 1; }"
+        )
+        failed = False
         try:
-            ssh_client.exec_checked(f"rmdir {shlex.quote(_OPERATION_LOCK)}")
-        except Exception:
-            if failed:
-                logging.exception("Could not release shared Xovi operation lock")
-            else:
-                raise
+            yield
+        except BaseException:
+            failed = True
+            raise
+        finally:
+            try:
+                ssh_client.exec_checked(f"rmdir {shlex.quote(_OPERATION_LOCK)}")
+            except Exception:
+                if failed:
+                    logging.exception("Could not release shared Xovi operation lock")
+                else:
+                    raise
 
 
 def _assert_managed_dropins(

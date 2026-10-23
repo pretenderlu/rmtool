@@ -6,7 +6,7 @@ import unittest
 from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import _native_chinese as native
 import _note_enhancements as note
@@ -900,7 +900,7 @@ class NativeChineseTests(unittest.TestCase):
             "_disable_shared_locked",
             side_effect=lambda *_args: events.append(("disable", b"")),
         ), patch.object(native, "get_status") as get_status:
-            native.disable(Mock(), (package,))
+            native.disable(MagicMock(), (package,))
 
         self.assertEqual([name for name, _data in events], ["config", "sync", "disable"])
         self.assertIn(b"language=en", events[0][1])

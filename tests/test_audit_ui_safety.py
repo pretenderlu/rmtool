@@ -3,7 +3,6 @@
 import os
 import threading
 import unittest
-from contextlib import ExitStack
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -13,6 +12,7 @@ from PyQt5 import QtWidgets
 import rmtool
 import _tab_documents
 import _tab_toolbox
+import _toolbox_common as common
 from _ssh import SSHClientWrapper
 
 
@@ -218,8 +218,10 @@ class UiSafetyTests(unittest.TestCase):
         info.assert_not_called()
 
     def make_toolbox(self):
-        with mock.patch.object(_tab_toolbox.ToolboxTab, "_probe_device_identity"):
-            tab = _tab_toolbox.ToolboxTab(self.ssh, {})
+        probe = mock.patch.object(_tab_toolbox.ToolboxTab, "_probe_device_identity")
+        probe.start()
+        self.addCleanup(probe.stop)
+        tab = _tab_toolbox.ToolboxTab(self.ssh, {})
         self.addCleanup(tab.deleteLater)
         patch = mock.patch.object(tab, "_tap_entry_hidden", return_value=False)
         patch.start()
@@ -259,25 +261,87 @@ class UiSafetyTests(unittest.TestCase):
             with self.subTest(section=type(busy_section).__name__):
                 self.pool.reset_mock()
                 busy_section._start_worker(lambda: None, pending="installing")
+                worker = self.pool.start.call_args.args[0]
                 toolbox._detect_all_statuses()
-                completed = 1
-                with ExitStack() as patches:
-                    for section in toolbox._detectable_sections:
-                        patches.enter_context(mock.patch.object(section, "_apply_status"))
-                        if hasattr(section, "_apply_app_status"):
-                            patches.enter_context(
-                                mock.patch.object(section, "_apply_app_status")
-                            )
-                    while toolbox._detect_all_busy:
-                        self.assertLess(completed, len(toolbox._detectable_sections))
-                        worker = self.pool.start.call_args.args[0]
-                        worker.signals.finished.emit((mock.Mock(), mock.Mock()))
-                        completed += 1
-                self.assertEqual(self.pool.start.call_count, len(toolbox._detectable_sections))
+                self.assertFalse(toolbox._detect_all_busy)
+                self.assertEqual(self.pool.start.call_count, 1)
                 self.assertTrue(busy_section._busy)
                 self.assertEqual(busy_section.status_label.text(), "installing")
                 self.assertTrue(toolbox.detect_all_button.isEnabled())
-                busy_section._busy = False
+                with mock.patch.object(busy_section, "_apply_status"):
+                    worker.signals.finished.emit(None)
+                self.assertFalse(common.plugin_operation_busy(self.ssh))
+
+    def test_different_plugins_share_connection_reservation_until_completion(self):
+        toolbox = self.make_toolbox()
+        first, second = toolbox._detectable_sections[:2]
+        done = mock.Mock()
+        first._start_worker(lambda: None, pending="installing", show_errors=False)
+        worker = self.pool.start.call_args.args[0]
+        second._start_worker(lambda: None, pending="peer", on_done=done, show_errors=False)
+        self.assertEqual(self.pool.start.call_count, 1)
+        done.assert_called_once_with()
+        worker.signals.error.emit(RuntimeError("preflight rejected"))
+        self.assertTrue(self.ssh.is_connected())
+        self.assertFalse(common.plugin_operation_busy(self.ssh))
+        second._start_worker(lambda: None, pending="retry", show_errors=False)
+        self.assertEqual(self.pool.start.call_count, 2)
+        self.pool.start.call_args.args[0].signals.error.emit(RuntimeError("finish"))
+
+    def test_failed_plugin_does_not_close_connection_and_done_is_once(self):
+        section = self.make_toolbox()._detectable_sections[0]
+        done = mock.Mock()
+        section._start_worker(lambda: None, pending="install", close_connection=True,
+                              on_done=done, show_errors=False)
+        worker = self.pool.start.call_args.args[0]
+        with mock.patch.object(self.ssh, "close") as close:
+            worker.signals.error.emit(RuntimeError("preflight"))
+            worker.signals.error.emit(RuntimeError("duplicate"))
+            worker.signals.finished.emit(None)
+        close.assert_not_called()
+        done.assert_called_once_with()
+        self.assertFalse(common.plugin_operation_busy(self.ssh))
+
+    def test_queued_plugin_rejects_new_client_and_stale_callback_preserves_it(self):
+        section = self.make_toolbox()._detectable_sections[0]
+        operation = mock.Mock()
+        done = mock.Mock()
+        section._start_worker(operation, pending="install", close_connection=True,
+                              on_done=done, show_errors=False)
+        worker = self.pool.start.call_args.args[0]
+        self.reconnect()
+        with self.assertRaisesRegex(RuntimeError, "连接已变化"):
+            worker.fn()
+        operation.assert_not_called()
+        replacement_task = object()
+        self.ssh._toolbox_task = replacement_task
+        with mock.patch.object(self.ssh, "close") as close, mock.patch.object(section, "_apply_status") as apply:
+            worker.signals.finished.emit(None)
+        close.assert_not_called()
+        apply.assert_not_called()
+        self.assertIs(self.ssh._toolbox_task, replacement_task)
+        done.assert_called_once_with()
+        del self.ssh._toolbox_task
+
+    def test_plugin_reservation_released_after_tab_deletion_or_queue_failure(self):
+        from PyQt5 import sip
+
+        for deleted in (False, True):
+            with self.subTest(deleted=deleted):
+                section = _tab_toolbox.ReadingEnhancementsSection(self.ssh)
+                section.thread_pool = self.pool
+                self.addCleanup(lambda section=section: None if sip.isdeleted(section) else section.deleteLater())
+                done = mock.Mock()
+                if not deleted:
+                    self.pool.start.side_effect = RuntimeError("queue unavailable")
+                section._start_worker(lambda: None, pending="install", on_done=done, show_errors=False)
+                if deleted:
+                    worker = self.pool.start.call_args.args[0]
+                    sip.delete(section)
+                    worker.signals.error.emit(RuntimeError("interrupted"))
+                done.assert_called_once_with()
+                self.assertFalse(common.plugin_operation_busy(self.ssh))
+                self.pool.start.side_effect = None
 
     def test_legacy_localization_package_and_status_workers_share_busy_guard(self):
         section = _tab_toolbox.RmkitCnSection(self.ssh)
@@ -290,6 +354,19 @@ class UiSafetyTests(unittest.TestCase):
         )
         self.pool.start.assert_not_called()
         self.assertTrue(section._busy)
+
+    def test_font_action_during_plugin_work_refuses_without_exception_or_modal(self):
+        font = _tab_toolbox.FontTab(self.ssh, rmtool._default_config())
+        font.thread_pool = self.pool
+        self.addCleanup(font.deleteLater)
+        self.ssh._toolbox_task = object()
+        with mock.patch.object(QtWidgets, "QProgressDialog") as progress:
+            font._start_font_worker(lambda: None, pending="font", on_success=mock.Mock(), error_prefix="font")
+        self.pool.start.assert_not_called()
+        progress.assert_not_called()
+        self.assertFalse(font._busy)
+        self.assertIn("另一个插件操作", font.manager_status_label.text())
+        del self.ssh._toolbox_task
 
 
 if __name__ == "__main__":

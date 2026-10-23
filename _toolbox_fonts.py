@@ -425,6 +425,9 @@ class FontTab(QtWidgets.QWidget):
     ):
         if self._busy:
             raise RuntimeError("已有字体操作正在进行。")
+        if _ui.plugin_operation_busy(self.ssh_client):
+            self.manager_status_label.setText("另一个插件操作正在进行，请等待完成后再管理字体。")
+            return
         self._worker_generation += 1
         worker_generation = self._worker_generation
         connection_generation = self._connection_generation
@@ -436,7 +439,15 @@ class FontTab(QtWidgets.QWidget):
         progress.setMinimumDuration(0)
         progress.show()
         self._font_progress = progress
-        worker = _rmtool.Worker(fn, *args)
+        client = getattr(self.ssh_client, "_client", None)
+
+        def execute():
+            with self.ssh_client.operation_session():
+                if client is not getattr(self.ssh_client, "_client", None):
+                    raise RuntimeError("设备连接已变化，请重新检测后操作。")
+                return fn(*args)
+
+        worker = _rmtool.Worker(execute)
 
         def finish_stale_worker():
             pending_refresh = self._pending_refresh

@@ -225,6 +225,15 @@ class RecoveryInspectionTests(unittest.TestCase):
         self.device.entries.clear()
         self.assertEqual(self.inspect().state, recovery.RecoveryState.NOT_NEEDED)
 
+    def test_interrupted_lock_is_read_only_and_offers_restart_not_deletion(self):
+        self.device.add(shared._OPERATION_LOCK, mode=stat.S_IFDIR | 0o700)
+        result = self.inspect()
+        self.assertTrue(result.operation_locked)
+        self.assertFalse(result.can_repair)
+        self.assertEqual(result.state, recovery.RecoveryState.BLOCKED)
+        self.assertIn("重启设备恢复中断操作", result.detail)
+        self.assertIn(shared._OPERATION_LOCK, self.device.entries)
+
     def test_loaded_runtime_pending_is_observation_not_failed_startup(self):
         self.device.add(BASE + "/startup.pending", mode=0o100600)
         self.device.maps = "a-b r-xp 0 0:0 0 " + BASE + "/xovi.so"

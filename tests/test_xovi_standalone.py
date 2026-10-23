@@ -3,6 +3,7 @@ import io
 import json
 import posixpath
 import tempfile
+import threading
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -19,6 +20,7 @@ import _weread_launcher as weread
 import _qr_upload as qr
 import _native_import_control as native_import
 import _xovi_standalone as shared
+from _ssh import SSHClientWrapper
 
 
 class SharedXoviTests(unittest.TestCase):
@@ -219,7 +221,7 @@ class SharedXoviTests(unittest.TestCase):
                 present.update(item.remote_path for item in state.spec.sidecars)
         if startup_pending:
             present.add(f"{base}/startup.pending")
-        ssh = Mock()
+        ssh = MagicMock()
         ssh.file_exists.side_effect = lambda path: path in present
         def open_remote(*_args, **_kwargs):
             remote = MagicMock()
@@ -412,7 +414,7 @@ class SharedXoviTests(unittest.TestCase):
             launcher_update_available=True,
         )
         final = shared.SharedInspection({feature.feature_id: state}, False, True)
-        ssh = Mock()
+        ssh = MagicMock()
         ssh.exec_checked.return_value = ""
         stage = Mock(return_value=("1" * 64, "2" * 64))
         with (
@@ -632,7 +634,7 @@ class SharedXoviTests(unittest.TestCase):
             )
 
     def test_emergency_sentinel_clear_requires_root_owned_regular_file(self):
-        ssh = Mock()
+        ssh = MagicMock()
         ssh.exec_checked.return_value = ""
 
         with (
@@ -657,7 +659,7 @@ class SharedXoviTests(unittest.TestCase):
         self.assertIn(shared.SHARED_RECOVERY_SENTINEL, clear)
 
     def test_emergency_sentinel_set_is_atomic_root_owned_and_never_restarts(self):
-        ssh = Mock()
+        ssh = MagicMock()
         ssh.exec_checked.return_value = ""
 
         with (
@@ -677,7 +679,7 @@ class SharedXoviTests(unittest.TestCase):
         self.assertTrue(any("600:0:0:0" in command for command in commands))
 
     def test_old_home_emergency_sentinel_is_validated_then_mirrored_to_data(self):
-        ssh = Mock()
+        ssh = MagicMock()
         ssh.exec_checked.return_value = ""
 
         with (
@@ -698,7 +700,7 @@ class SharedXoviTests(unittest.TestCase):
         ))
 
     def test_emergency_sentinel_detects_dangling_symlink_and_refuses_it(self):
-        ssh = Mock()
+        ssh = MagicMock()
         ssh.exec_command.return_value = ("", "", 0)
         ssh.exec_checked.side_effect = ("", RuntimeError("invalid sentinel"), "")
 
@@ -1221,7 +1223,7 @@ class SharedXoviTests(unittest.TestCase):
                 return expected_hashes[relative]
             return hashlib.sha256(uploads[path]).hexdigest()
 
-        ssh = Mock(exec_checked=Mock(return_value=""))
+        ssh = MagicMock(exec_checked=Mock(return_value=""))
         with (
             patch.object(shared, "_upload_path"),
             patch.object(shared, "_upload_bytes", side_effect=upload_bytes),
@@ -1256,7 +1258,7 @@ class SharedXoviTests(unittest.TestCase):
             ),
         )
         for listing, message in cases:
-            ssh = Mock()
+            ssh = MagicMock()
             ssh.exec_checked.side_effect = lambda command, listing=listing: (
                 listing
                 if command.startswith("stat -c")
@@ -1274,7 +1276,7 @@ class SharedXoviTests(unittest.TestCase):
                 "sub/payload.bin", "1" * 64, 4, 0o644
             )
         }
-        ssh = Mock()
+        ssh = MagicMock()
 
         def execute(command):
             if command.startswith("stat -c"):
@@ -1298,7 +1300,7 @@ class SharedXoviTests(unittest.TestCase):
         }
 
         def validate(listing):
-            ssh = Mock()
+            ssh = MagicMock()
             ssh.exec_checked.side_effect = lambda command: (
                 listing
                 if command.startswith("stat -c")
@@ -1392,7 +1394,7 @@ class SharedXoviTests(unittest.TestCase):
                 f"{legacy.layout.remote_base}/{path}"
                 for path, item in sorted(expected.items())
             )
-            ssh = Mock()
+            ssh = MagicMock()
             ssh.file_exists.side_effect = lambda path, legacy=legacy: path in {
                 legacy.layout.remote_base, legacy.marker_path, legacy.layout.dropin_path
             }
@@ -1426,7 +1428,7 @@ class SharedXoviTests(unittest.TestCase):
                 "xochitl_sha256": tap_package.xochitl_sha256,
             }
         }
-        ssh = Mock()
+        ssh = MagicMock()
         ssh.file_exists.side_effect = lambda path: path == shared.SHARED_LAYOUT.remote_base
         remote = MagicMock()
         remote.__enter__.return_value = io.StringIO(json.dumps(marker))
@@ -1467,7 +1469,7 @@ class SharedXoviTests(unittest.TestCase):
             False,
             True,
         )
-        ssh = Mock()
+        ssh = MagicMock()
         ssh.file_exists.return_value = False
         for module, state in (
             (tap, tap.TapPageTurnState.INCOMPATIBLE),
@@ -1752,7 +1754,7 @@ class SharedXoviTests(unittest.TestCase):
             new_tap.architecture,
             new_tap.xochitl_sha256,
         )
-        ssh = Mock()
+        ssh = MagicMock()
         ssh.file_exists.return_value = False
         with (
             patch.object(shared, "has_shared_artifacts", return_value=True),
@@ -1875,7 +1877,7 @@ class SharedXoviTests(unittest.TestCase):
             fast_marker = json.loads(
                 fast._vellum_marker(old_fast, enabled=True, process_token=self.TOKEN)
             )
-            ssh = Mock()
+            ssh = MagicMock()
             ssh.file_exists.side_effect = lambda path: path in {
                 tap.VELLUM_BIN,
                 tap.MARKER_PATH,
@@ -1918,7 +1920,7 @@ class SharedXoviTests(unittest.TestCase):
             )
 
             result = object()
-            tap_ssh = Mock()
+            tap_ssh = MagicMock()
             tap_ssh.file_exists.return_value = False
             with (
                 patch.object(tap, "_read_marker", return_value=tap_marker),
@@ -1942,7 +1944,7 @@ class SharedXoviTests(unittest.TestCase):
             self.assertNotIn("self uninstall", "\n".join(tap_commands))
             self.assertNotIn("--all", "\n".join(tap_commands))
 
-            fast_ssh = Mock()
+            fast_ssh = MagicMock()
             fast_ssh.file_exists.return_value = False
             with (
                 patch.object(fast, "_read_marker", return_value=fast_marker),
@@ -2023,7 +2025,7 @@ class SharedXoviTests(unittest.TestCase):
                     active,
                     enabled,
                 )
-                ssh = Mock()
+                ssh = MagicMock()
                 ssh.file_exists.return_value = False
                 with (
                     patch.object(shared, "has_shared_artifacts", return_value=True),
@@ -2044,7 +2046,7 @@ class SharedXoviTests(unittest.TestCase):
             runtime, feature = module._shared_specs(package)
             trusted = {feature.feature_id: feature}
             legacy = module._legacy_spec(package)
-            ssh = Mock()
+            ssh = MagicMock()
             ssh.file_exists.return_value = False
             ssh.exec_checked.return_value = ""
             final = shared.SharedInspection({}, False, True)
@@ -2091,7 +2093,7 @@ class SharedXoviTests(unittest.TestCase):
             }
             inspection = shared.SharedInspection(states, True, True)
             final = shared.SharedInspection({}, True, True)
-            ssh = Mock()
+            ssh = MagicMock()
             ssh.file_exists.return_value = False
             ssh.exec_checked.return_value = ""
             stage = Mock(return_value=("1" * 64, "2" * 64))
@@ -2171,7 +2173,7 @@ class SharedXoviTests(unittest.TestCase):
             relative = path.split("/stage/", 1)[1]
             return expected_hashes[relative]
 
-        ssh = Mock()
+        ssh = MagicMock()
         ssh.exec_checked.return_value = ""
         with (
             patch.object(shared, "_upload_path") as upload_path,
@@ -2233,7 +2235,7 @@ class SharedXoviTests(unittest.TestCase):
                 return hashlib.sha256(marker).hexdigest()
             raise AssertionError(path)
 
-        ssh = Mock()
+        ssh = MagicMock()
         ssh.exec_checked.return_value = ""
         with (
             patch.object(
@@ -2286,7 +2288,7 @@ class SharedXoviTests(unittest.TestCase):
         }
         all_legacies = (tap._legacy_spec(tap_package), fast._legacy_spec(fast_package))
         for incoming, existing in cases:
-            ssh = Mock()
+            ssh = MagicMock()
             ssh.file_exists.side_effect = lambda path, dropin=existing.layout.dropin_path: path == dropin
             ssh.exec_checked.return_value = ""
             stage = Mock(return_value=("1" * 64, "2" * 64))
@@ -2324,7 +2326,7 @@ class SharedXoviTests(unittest.TestCase):
         tap_package, fast_package = next(iter(self.contexts()))
         runtime, incoming = fast._shared_specs(fast_package)
         tap_legacy = tap._legacy_spec(tap_package)
-        ssh = Mock()
+        ssh = MagicMock()
         ssh.exec_checked.return_value = (
             "/etc/systemd/system/xochitl.service.d/custom-xovi.conf\n"
         )
@@ -2371,7 +2373,7 @@ class SharedXoviTests(unittest.TestCase):
         ):
             inspection = shared.SharedInspection(states, True, True)
             final = shared.SharedInspection({}, True, expected_dropin)
-            ssh = Mock()
+            ssh = MagicMock()
             ssh.exec_checked.return_value = ""
             transaction = Mock(return_value="#!/bin/sh\n:")
             with (
@@ -2425,7 +2427,7 @@ class SharedXoviTests(unittest.TestCase):
         }
         inspection = shared.SharedInspection(states, True, True)
         final = shared.SharedInspection({}, True, True)
-        ssh = Mock()
+        ssh = MagicMock()
         ssh.exec_checked.return_value = ""
         marker = Mock(return_value=b"marker")
 
@@ -2475,7 +2477,7 @@ class SharedXoviTests(unittest.TestCase):
             tap_feature.feature_id: tap_feature,
             fast_feature.feature_id: fast_feature,
         }
-        ssh = Mock()
+        ssh = MagicMock()
         ssh.exec_checked.return_value = ""
         transaction = Mock(return_value="#!/bin/sh\n:")
         current = (runtime.firmware, runtime.platform, runtime.architecture, "f" * 64)
@@ -2658,13 +2660,73 @@ class SharedXoviTests(unittest.TestCase):
         )
 
     def test_operation_lock_releases_after_failure(self):
-        ssh = Mock()
+        ssh = MagicMock()
         with self.assertRaisesRegex(RuntimeError, "boom"):
             with shared._operation_lock(ssh):
                 raise RuntimeError("boom")
         commands = [call.args[0] for call in ssh.exec_checked.call_args_list]
         self.assertTrue(commands[0].startswith("mkdir "))
         self.assertTrue(commands[-1].startswith("rmdir "))
+
+    def test_complete_transaction_including_rollback_and_unlock_owns_transport(self):
+        ssh = SSHClientWrapper()
+        ssh._client = Mock()
+        ssh._client.get_transport.return_value.is_active.return_value = True
+        events, errors = [], []
+        entered, release, contender, probed = (threading.Event() for _ in range(4))
+
+        def transaction():
+            try:
+                with shared._operation_lock(ssh):
+                    events.append("work")
+                    entered.set()
+                    if not release.wait(3):
+                        raise AssertionError("test gate timed out")
+                    events.append("rollback")
+                    raise RuntimeError("original error")
+            except Exception as exc:
+                errors.append(exc)
+
+        def inspect():
+            contender.set()
+            with ssh.operation_session():
+                events.append("probe")
+                probed.set()
+
+        with patch.object(ssh, "exec_checked", side_effect=lambda command: events.append(command)):
+            first = threading.Thread(target=transaction)
+            second = threading.Thread(target=inspect)
+            try:
+                first.start()
+                self.assertTrue(entered.wait(2))
+                second.start()
+                self.assertTrue(contender.wait(2))
+                self.assertFalse(probed.wait(0.05))
+            finally:
+                release.set()
+                first.join(3)
+                if second.ident is not None:
+                    second.join(3)
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertEqual([str(exc) for exc in errors], ["original error"])
+        self.assertTrue(events[0].startswith("mkdir "))
+        self.assertEqual(events[1:3], ["work", "rollback"])
+        self.assertTrue(events[3].startswith("rmdir "))
+        self.assertEqual(events[4:], ["probe"])
+
+    def test_unowned_lock_is_never_removed_and_cleanup_keeps_original_error(self):
+        ssh = MagicMock()
+        ssh.exec_checked.side_effect = RuntimeError("lock exists")
+        with self.assertRaisesRegex(RuntimeError, "lock exists"):
+            with shared._operation_lock(ssh):
+                self.fail("an existing lock must refuse entry")
+        self.assertEqual(ssh.exec_checked.call_count, 1)
+        self.assertNotIn("rmdir", ssh.exec_checked.call_args.args[0])
+        ssh.exec_checked.side_effect = [None, RuntimeError("disconnected")]
+        with self.assertLogs(level="ERROR"), self.assertRaisesRegex(ValueError, "initial failure"):
+            with shared._operation_lock(ssh):
+                raise ValueError("initial failure")
 
 
 if __name__ == "__main__":

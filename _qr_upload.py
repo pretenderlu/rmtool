@@ -246,7 +246,8 @@ def install(ssh_client, package, archive_path):
     if select_package(_trusted_catalog(), identity) != package:
         raise RuntimeError("设备与扫码传输包不精确匹配，未执行修改。")
     _assert_stopped(ssh_client)
-    if tap._vellum_runtime_present(ssh_client):
+    managed = shared.has_shared_artifacts(ssh_client)
+    if not managed and tap._vellum_runtime_present(ssh_client):
         raise RuntimeError(tap._vellum_conflict_detail(ssh_client))
     tap._preflight_device(ssh_client)
     if not _rmkit_cn.has_localization_cjk_font(ssh_client):
@@ -259,8 +260,11 @@ def install(ssh_client, package, archive_path):
     runtime, trusted, legacies, feature = _context(identity, package)
     if any(shared.validate_legacy(ssh_client, item) for item in legacies):
         raise RuntimeError("请先通过设备维护完成旧插件迁移。")
-    if shared.has_shared_artifacts(ssh_client):
+    if managed:
         _inspection, trusted, _selected = _inspect(ssh_client, identity, runtime, trusted, check_lower=True)
+        # Inactive external files stay untouched; active competing loaders do not.
+        import _plugin_recovery
+        _plugin_recovery._external_loaders(ssh_client, _inspection.layout)
     with tempfile.TemporaryDirectory() as temporary:
         extracted = extract_verified_package(archive_path, package, temporary)
         shared.enable_shared(ssh_client, runtime, feature, extracted, trusted, ())

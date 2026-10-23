@@ -58,6 +58,41 @@ fi
 
 
 class RootCapacityTests(unittest.TestCase):
+    def test_root_records_require_identical_filesystem_and_flags(self):
+        root = "1 0 179:2 / / rw,relatime - ext4 /dev/root rw"
+        duplicate = root.replace("1 0 ", "9 8 ", 1)
+        self.assertEqual(storage.root_mount_fields(root + "\n" + duplicate), root.split())
+        for other in (duplicate.replace("179:2", "179:3"), duplicate.replace(" rw", " ro"),
+                      duplicate.replace("ext4", "xfs"), duplicate.replace("/ /", "/sub /"),
+                      duplicate + " extra", ""):
+            with self.subTest(other=other), self.assertRaisesRegex(RuntimeError, "重启"):
+                storage.root_mount_fields(root + "\n" + other if other else "")
+
+    def test_root_capacity_shell_accepts_duplicates_but_refuses_conflicts_before_read(self):
+        git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
+        shell = str(git_bash) if git_bash.is_file() else shutil.which("bash")
+        self.assertIsNotNone(shell)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            script = root_probe_fixture(root)
+            record = (root / "mountinfo").read_text().strip()
+            duplicate = record.replace("1 0 ", "9 8 ", 1)
+            for other in (duplicate, duplicate.replace("179:2", "179:3"),
+                          duplicate.replace(" rw", " ro"), duplicate.replace("ext4", "xfs")):
+                with self.subTest(other=other):
+                    (root / "mountinfo").write_text(record + "\n" + other + "\n")
+                    probe = script if other == duplicate else "hexdump() { echo READ_ATTEMPTED >&2; return 2; }\n" + script
+                    result = subprocess.run([shell, "-c", probe], cwd=temp, capture_output=True,
+                                            text=True, timeout=20)
+                    if other == duplicate:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        ssh = Mock(exec_checked=Mock(return_value=result.stdout))
+                        self.assertEqual(storage.root_free_bytes(ssh, 0), 10215 * 1024)
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("restart device", result.stderr)
+                        self.assertNotIn("READ_ATTEMPTED", result.stderr)
+
     def test_zero_df_available_does_not_mean_root_cannot_allocate(self):
         ssh = Mock()
         ssh.exec_checked.return_value = root_snapshot()

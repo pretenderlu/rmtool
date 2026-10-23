@@ -17,6 +17,7 @@ import _legacy_vellum
 import _residue_migration
 import _tab_toolbox as toolbox
 import _toolbox_common as toolbox_common
+import _firmware
 from _ssh import SSHClientWrapper
 
 
@@ -77,6 +78,79 @@ class RecoveryUiTests(unittest.TestCase):
         with mock.patch.object(toolbox_common, "ask_confirmation", return_value=True):
             self.section._repair()
         return self.pool.start.call_args.args[0]
+
+    def locked_report(self):
+        result = report(recovery.RecoveryState.BLOCKED)
+        result.operation_locked = True
+        self.section._apply_status(result)
+        return result
+
+    def test_legacy_lock_exposes_restart_and_skips_incomplete_cleanup(self):
+        result = self.locked_report()
+        self.assertFalse(self.section.restart_recovery_button.isHidden())
+        self.assertTrue(self.section.restart_recovery_button.isEnabled())
+        self.assertTrue(self.section.recovery_detect_button.isEnabled())
+        self.assertFalse(self.section.repair_button.isEnabled())
+        with mock.patch.object(recovery, "inspect_recovery", return_value=result), \
+                mock.patch.object(recovery, "inspect_incomplete") as incomplete:
+            self.section._start_status_detection()
+            worker = self.pool.start.call_args.args[0]
+            worker.signals.finished.emit(worker.execute())
+        incomplete.assert_not_called()
+
+    def test_restart_requires_confirmation_and_never_targets_a_replacement_device(self):
+        for action in ("cancel", "reconnect", "new-report", "busy", "confirm"):
+            with self.subTest(action=action):
+                self.locked_report()
+                self.pool.reset_mock()
+
+                def confirm(*args, **kwargs):
+                    self.assertIn("保存并退出文档", args[2])
+                    self.assertIn("所有电脑", args[2])
+                    self.assertIn("不会删除", args[2])
+                    if action == "reconnect":
+                        self.reconnect()
+                    if action == "new-report":
+                        self.locked_report()
+                    if action == "busy":
+                        self.ssh._toolbox_task = object()
+                    return action != "cancel"
+
+                with mock.patch.object(toolbox_common, "ask_confirmation", side_effect=confirm):
+                    self.section._restart_interrupted()
+                if action != "confirm":
+                    self.pool.start.assert_not_called()
+                    if action == "busy":
+                        del self.ssh._toolbox_task
+                    continue
+                worker = self.pool.start.call_args.args[0]
+                self.assertTrue(toolbox_common.plugin_operation_busy(self.ssh))
+                with mock.patch.object(_firmware, "reboot_for_plugin_recovery") as restart, \
+                        mock.patch.object(toolbox_common, "show_info"):
+                    worker.signals.finished.emit(worker.execute())
+                restart.assert_called_once_with(self.ssh)
+                self.assertFalse(toolbox_common.plugin_operation_busy(self.ssh))
+                self.reconnect()
+
+    def test_restart_rejects_stale_report_or_queued_connection_change(self):
+        self.locked_report()
+        self.ssh._client = mock.Mock()
+        with mock.patch.object(toolbox_common, "ask_confirmation", return_value=True) as confirm:
+            self.section._restart_interrupted()
+        confirm.assert_not_called()
+        self.pool.start.assert_not_called()
+        self.reconnect()
+        self.locked_report()
+        with mock.patch.object(toolbox_common, "ask_confirmation", return_value=True):
+            self.section._restart_interrupted()
+        worker = self.pool.start.call_args.args[0]
+        self.reconnect()
+        with mock.patch.object(_firmware, "reboot_for_plugin_recovery") as restart:
+            with self.assertRaisesRegex(RuntimeError, "连接已变化"):
+                worker.execute()
+        restart.assert_not_called()
+        worker.signals.error.emit(RuntimeError("old connection"))
+        self.assertFalse(toolbox_common.plugin_operation_busy(self.ssh))
 
     def test_read_only_detection_uses_inspector_not_repair_or_migration(self):
         result = report()

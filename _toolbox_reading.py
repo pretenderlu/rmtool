@@ -2,9 +2,8 @@
 
 import logging
 
-from PyQt5 import QtCore, QtWidgets, sip
+from PyQt5 import QtCore, QtWidgets
 
-import _package_download
 import _rmkit_cn
 import _note_enhancements
 import _reading_enhancements
@@ -365,66 +364,11 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         on_done=None,
         show_errors: bool = True,
     ):
-        if self._busy:
-            if on_done is not None:
-                on_done()
-            return
-        ssh_client = self.ssh_client
-        feature_id = self.backend.FEATURE_ID
-        self._set_busy(True, pending)
-        worker = _rmtool.Worker(fn, *args)
-
-        def on_finished(status):
-            if sip.isdeleted(self):
-                if close_connection:
-                    ssh_client.close()
-                return
-            self._set_busy(False)
-            self._apply_status(status)
-            if close_connection:
-                self.ssh_client.close()
-            if success:
-                _ui.show_info(self, _rmtool.APP_NAME, success)
-            if on_done is not None:
-                on_done()
-
-        def on_error(exc: Exception):
-            if sip.isdeleted(self):
-                if close_connection:
-                    ssh_client.close()
-                logging.error(
-                    "%s operation failed after tab close: %s",
-                    feature_id,
-                    exc,
-                )
-                return
-            if isinstance(exc, _package_download.PackageDownloadError):
-                # Download failed before any device change; keep the session.
-                self._set_busy(False, "资源包下载失败，可手动加载后重试")
-                logging.error(
-                    "%s package download failed: %s", feature_id, exc
-                )
-                if show_errors:
-                    _ui._show_package_download_error(self, exc, retry=self._install)
-                if on_done is not None:
-                    on_done()
-                return
-            if close_connection:
-                self.ssh_client.close()
-            self._set_busy(False, "操作失败，设备不会被自动重启；请检查日志后重试")
-            logging.error("%s operation failed: %s", feature_id, exc)
-            if show_errors:
-                _ui.show_error(
-                    self,
-                    _rmtool.APP_NAME,
-                    f"操作失败：{exc}\n设备不会被自动重启。",
-                )
-            if on_done is not None:
-                on_done()
-
-        worker.signals.finished.connect(on_finished)
-        worker.signals.error.connect(on_error)
-        self.thread_pool.start(worker)
+        return _ui.start_plugin_worker(
+            self, fn, *args, pending=pending, success=success,
+            close_connection=close_connection, on_done=on_done,
+            show_errors=show_errors, retry=self._install,
+        )
 
     @require_connection
     def _detect_status(self):
@@ -750,43 +694,16 @@ class WeReadLauncherSection(ReadingEnhancementsSection):
         self, fn, *args, pending: str, success: str = "", on_done=None,
         show_errors: bool = True,
     ):
-        if self._busy:
-            if on_done is not None:
-                on_done()
-            return
-        self._set_busy(True, pending)
-        self.app_status_label.setText(pending)
-        worker = _rmtool.Worker(fn, *args)
-
-        def on_finished(result):
-            if sip.isdeleted(self):
-                return
+        def apply(result):
             app_status, launcher_status = result
-            self._set_busy(False)
             self._apply_app_status(app_status)
             self._apply_status(launcher_status)
-            if success:
-                _ui.show_info(self, _rmtool.APP_NAME, success)
-            if on_done is not None:
-                on_done()
 
-        def on_error(exc: Exception):
-            if sip.isdeleted(self):
-                logging.error("WeRead operation failed after tab close: %s", exc)
-                return
-            self._set_busy(False, "操作失败，请检查日志后重试")
-            self.app_status_label.setText("操作失败，请检查日志后重试")
-            if isinstance(exc, _package_download.PackageDownloadError):
-                if show_errors:
-                    _ui._show_package_download_error(self, exc, retry=self._install_app)
-            elif show_errors:
-                _ui.show_error(self, _rmtool.APP_NAME, f"操作失败：{exc}\n设备不会被自动重启。")
-            if on_done is not None:
-                on_done()
-
-        worker.signals.finished.connect(on_finished)
-        worker.signals.error.connect(on_error)
-        self.thread_pool.start(worker)
+        return _ui.start_plugin_worker(
+            self, fn, *args, pending=pending, success=success,
+            on_done=on_done, show_errors=show_errors, apply_status=apply,
+            retry=self._install_app,
+        )
 
     @require_connection
     def _install_app(self):

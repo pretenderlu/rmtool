@@ -490,14 +490,14 @@ def parse_state(text):
     return DeviceState(values, platforms[0], active, "a" if values["boot"] == "1" else "b")
 
 
-def assert_idle(state, *, writing=False, image=None):
+def assert_idle(state, *, writing=False, image=None, check_plugin_lock=True):
     v = state.values
     if state.pending or any(v[k] != "0" for k in ("roota_errcnt", "rootb_errcnt", "swu_status", "swu_recovery")):
         raise RuntimeError("存在待应用更新、失败状态或 A/B 错误计数；不会自动清零。")
     if v["writer"] != "idle" or v["holders"] != "idle":
         raise RuntimeError("原生更新器或分区占用状态非空闲，拒绝操作。")
-    if v["shared_lock"] != "idle":
-        raise RuntimeError("其他插件事务正在执行或遗留锁需要检查。")
+    if check_plugin_lock and v["shared_lock"] != "idle":
+        raise RuntimeError("其他插件事务正在执行或遗留锁需要检查；请停止操作、保存文档后重启设备。")
     if writing:
         if v["engine_file"] not in ("masked", "masked-runtime") or v["engine"] not in ("inactive", "failed"):
             raise RuntimeError("自动更新服务尚未屏蔽，无法排除并发写入；请先独立确认自动更新策略。")
@@ -645,12 +645,24 @@ def inspect_device(ssh):
         try:
             if transaction[0] not in ("none", "completed"):
                 raise RuntimeError(transaction[1])
-            assert_idle(state)
+            # A plugin lock protects mutations, not unrelated read-only tools.
+            assert_idle(state, check_plugin_lock=False)
         except RuntimeError as exc:
             reason = str(exc)
         if hasattr(ssh, "firmware_guard_reason"):
             ssh.firmware_guard_reason = reason
         return state, transaction
+
+
+def reboot_for_plugin_recovery(ssh):
+    """Recheck updates before an explicitly confirmed restart; never delete locks."""
+    with ssh.operation_session():
+        with firmware_session(ssh):
+            transaction = query_transaction(ssh)
+            if transaction[0] not in ("none", "completed"):
+                raise RuntimeError(transaction[1])
+            ssh.exec_checked(GUARD_PROBE)
+        ssh.exec_checked("systemctl reboot")
 
 
 class FirmwareSSHClientWrapper(SSHClientWrapper):

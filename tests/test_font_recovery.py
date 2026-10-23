@@ -110,6 +110,27 @@ class FontRecoveryTests(unittest.TestCase):
         self.assertEqual(fonts.get_font_recovery_status(ssh), fonts.FontRecoveryStatus())
         self.assertEqual(ssh.commands, [])
 
+    def test_identical_duplicate_roots_allow_owned_mount_recovery(self):
+        ssh = RecoverySSH()
+        ssh.mounts.append(ROOT.replace("1 0 ", "4 1 ", 1))
+        ssh.add_mount()
+        status = fonts.get_font_recovery_status(ssh)
+        self.assertEqual(status.state, "ready")
+        with mock.patch.object(fonts, "set_active_user_font"):
+            fonts.repair_user_font(ssh, "/home/fonts", "test.ttf", False, status)
+        self.assertEqual(fonts.get_font_recovery_status(ssh).state, "none")
+        self.assertEqual(ssh.commands.count(f"umount {MOUNT}"), 1)
+
+    def test_conflicting_root_records_request_restart_without_writes(self):
+        for root in (ROOT.replace("179:2", "179:3"), ROOT.replace("rw,relatime", "ro,relatime")):
+            with self.subTest(root=root):
+                ssh = RecoverySSH()
+                ssh.mounts.append(root)
+                status = fonts.get_font_recovery_status(ssh)
+                self.assertEqual(status.state, "blocked")
+                self.assertIn("手动重启", status.detail)
+                self.assertEqual(ssh.renames, [])
+
     def test_hash_covers_original_bytes_and_detects_same_size_replacement(self):
         ssh = RecoverySSH()
         path = ssh.add_file("upper-0", b"original")

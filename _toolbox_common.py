@@ -1,15 +1,115 @@
 """Shared widgets and dialogs for the toolbox sections."""
 
 import logging
+from contextlib import nullcontext
 from typing import Optional
 
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
 # Toolbox sections call these through this module (``_ui.show_info`` ...),
 # so tests and callers have one place to patch.
 from _dialogs import ask_confirmation, show_error, show_info, show_warning  # noqa: F401
 import _package_download
 import rmtool as _rmtool  # late-bound access to avoid circular import
+
+
+def plugin_operation_busy(ssh_client) -> bool:
+    state = vars(ssh_client)
+    client = getattr(ssh_client, "_client", None)
+    return state.get("_toolbox_task") is not None and state.get("_toolbox_task_client", client) is client
+
+
+def start_plugin_worker(
+    owner, fn, *args, pending, success="", close_connection=False,
+    on_done=None, show_errors=True, apply_status=None, retry=None,
+    error_hint="设备不会被自动重启。",
+):
+    """Reserve one connection until the worker and its completion cleanup finish."""
+    ssh = owner.ssh_client
+    if owner._busy or plugin_operation_busy(ssh):
+        if not owner._busy and show_errors:
+            owner.status_label.setText("另一个插件操作正在进行，请等待完成后再试。")
+        if on_done is not None:
+            on_done()
+        return
+    task = object()
+    client = getattr(ssh, "_client", None)
+    ssh._toolbox_task = task
+    ssh._toolbox_task_client = client
+    owner._busy = True
+    owner.status_label.setText(pending)
+    owner._update_buttons()
+
+    def current():
+        return getattr(ssh, "_client", None) is client and ssh.is_connected()
+
+    def execute():
+        session = getattr(ssh, "operation_session", nullcontext)
+        with session():
+            if not current():
+                raise RuntimeError("设备连接已变化，请重新检测后操作。")
+            return fn(*args)
+
+    completed = False
+
+    def finish(result=None, exc=None):
+        nonlocal completed
+        if completed:
+            return
+        completed = True
+
+        def release():
+            if vars(ssh).get("_toolbox_task") is task:
+                del ssh._toolbox_task
+                vars(ssh).pop("_toolbox_task_client", None)
+
+        try:
+            valid = current()
+            deleted = sip.isdeleted(owner)
+            if not deleted and vars(ssh).get("_toolbox_task") is task:
+                owner._busy = False
+                owner._update_buttons()
+            if not valid:
+                return
+            if exc is None:
+                if not deleted:
+                    (apply_status or owner._apply_status)(result)
+                if close_connection:
+                    with getattr(ssh, "_state_lock", nullcontext()):
+                        if current():
+                            ssh.close()
+                release()
+                if success and not deleted:
+                    show_info(owner, _rmtool.APP_NAME, success)
+            else:
+                # A preflight failure must not cancel another device operation.
+                release()
+                logging.error("%s operation failed: %s", type(owner).__name__, exc)
+                if deleted:
+                    return
+                if isinstance(exc, _package_download.PackageDownloadError):
+                    owner.status_label.setText("资源包下载失败，可手动加载后重试")
+                    if show_errors:
+                        _show_package_download_error(owner, exc, retry=retry)
+                else:
+                    owner._status = None
+                    owner._update_buttons()
+                    owner.status_label.setText(f"操作失败：{exc}；请重新检测，设备不会自动重启。")
+                    if show_errors:
+                        show_error(owner, _rmtool.APP_NAME, f"操作失败：{exc}\n{error_hint}")
+        finally:
+            release()
+            if on_done is not None:
+                on_done()
+
+    worker = _rmtool.Worker(execute)
+    worker.signals.finished.connect(lambda result: finish(result=result))
+    worker.signals.error.connect(lambda exc: finish(exc=exc))
+    try:
+        owner.thread_pool.start(worker)
+    except Exception as exc:
+        finish(exc=exc)
+    return worker
 
 
 def _show_package_download_error(

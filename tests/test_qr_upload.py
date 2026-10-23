@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 import _qr_upload as qr
 import _tap_page_turn as tap
 import _xovi_standalone as shared
+from tests.test_plugin_recovery import Device
 
 
 class QrUploadTests(unittest.TestCase):
@@ -153,6 +154,37 @@ class QrUploadTests(unittest.TestCase):
                     deploy.assert_not_called()
                     font_install.assert_not_called()
                     ssh.exec_checked.assert_not_called()
+
+    def test_managed_install_allows_inactive_external_files_but_rejects_active_loaders(self):
+        for conflict in ("none", "dropin", "loaded", "modified"):
+            with self.subTest(conflict=conflict):
+                device = Device(package=self.package)
+                old_runtime = "/home/root/xovi/xovi.so"
+                device.add(old_runtime, b"old runtime")
+                if conflict == "dropin":
+                    device.add("/etc/systemd/system/xochitl.service.d/99-foreign.conf", b"[Service]\n")
+                elif conflict == "loaded":
+                    device.maps = "1-2 r-xp 0 0:0 1 " + old_runtime
+                elif conflict == "modified":
+                    device.break_payload()
+                with (patch.object(tap, "get_device_identity", return_value=self.identity),
+                      patch.object(qr, "_assert_stopped"), patch.object(tap, "_preflight_device"),
+                      patch.object(qr._rmkit_cn, "has_localization_cjk_font", return_value=True),
+                      patch.object(tap, "_vellum_runtime_present", return_value=True),
+                      patch.object(shared, "_check_lower_dropins") as check_lower,
+                      patch.object(qr, "extract_verified_package", return_value=Path("verified")),
+                      patch.object(shared, "enable_shared") as deploy,
+                      patch.object(qr, "get_status")):
+                    if conflict == "none":
+                        qr.install(device, self.package, "bundle")
+                        deploy.assert_called_once()
+                        check_lower.assert_called_once()
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            qr.install(device, self.package, "bundle")
+                        deploy.assert_not_called()
+                self.assertEqual(device.entries[old_runtime].data, b"old runtime")
+                self.assertFalse(any(event.startswith(("mkdir", "rm ", "rmdir", "mount ")) for event in device.events))
 
     def test_disable_and_uninstall_only_target_qr_and_preserve_books(self):
         ssh = Mock()

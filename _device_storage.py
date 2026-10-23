@@ -7,6 +7,14 @@ import struct
 
 
 LEGACY_ROOT_RESERVE = 8 * 1024 * 1024
+ROOT_MOUNT_AWK = r'''$5 == "/" {
+    if (NF < 10 || $4 != "/") { bad=1; next }
+    signature=$3
+    for (i=4; i<=NF; i++) signature=signature " " $i
+    if (found && signature != previous) bad=1
+    previous=signature; found=1; selected=$0
+}
+END { if (bad || !found) exit 1; print selected }'''
 SYSTEM_SPACE_COMMAND = (
     "target=/; if mountpoint -q /data 2>/dev/null; then target=/data; fi; "
     "printf '%s=' \"$target\"; "
@@ -23,7 +31,7 @@ case "$machine" in
 esac
 uid=$(id -u) || fail 'uid read failed'
 if [ "$uid" != 0 ]; then printf 'ordinary\n'; exit 0; fi
-root_mount=$(awk '$5 == "/" {print}' /proc/self/mountinfo) || fail 'mountinfo read failed'
+root_mount=$(awk __ROOT_MOUNT_FILTER__ /proc/self/mountinfo) || fail 'conflicting or invalid root mounts; save documents and restart device'
 device_id=$(printf '%s\n' "$root_mount" | awk '{print $3}')
 case "$device_id" in ''|*[!0-9:]*) fail 'invalid root device id' ;; esac
 device_path=$(readlink -f "/sys/dev/block/$device_id") || fail 'root device resolution failed'
@@ -39,7 +47,21 @@ printf 'reserved=%s\n' "$reserved"
 superblock=$(hexdump -v -s 1024 -n 1024 -e '1/1 "%02x"' "/dev/$device") || fail 'superblock read failed'
 [ "${#superblock}" -eq 2048 ] || fail 'superblock short or invalid read'
 printf 'superblock=%s\n' "$superblock"
-"""
+""".replace("__ROOT_MOUNT_FILTER__", shlex.quote(ROOT_MOUNT_AWK))
+
+
+def root_mount_fields(mountinfo: str) -> list[str]:
+    records = (line.split() for line in mountinfo.splitlines())
+    roots = [fields for fields in records if len(fields) >= 5 and fields[4] == "/"]
+    if not roots:
+        raise RuntimeError("无法确认根分区挂载，请保存文档并手动重启设备后重试。")
+    for fields in roots:
+        if (len(fields) < 10 or fields[3:5] != ["/", "/"]
+                or not re.fullmatch(r"[0-9]+:[0-9]+", fields[2])
+                or "-" not in fields or len(fields) != fields.index("-") + 4
+                or fields[2:] != roots[0][2:]):
+            raise RuntimeError("根分区挂载记录无效或存在冲突，请保存文档并手动重启设备后重试。")
+    return roots[0]
 
 
 def root_free_bytes(ssh_client, ordinary_free: int) -> int:

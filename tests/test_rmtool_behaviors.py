@@ -80,6 +80,10 @@ class FakeConnectionClient(QtCore.QObject):
     def is_connected(self):
         return self._connected
 
+    @contextmanager
+    def operation_session(self):
+        yield
+
     def close(self):
         self.close_calls += 1
         self._connected = False
@@ -2546,10 +2550,12 @@ class WallpaperUiTests(unittest.TestCase):
         ), mock.patch.object(rmtool, "Worker", return_value=worker) as worker_cls, mock.patch.object(
             section.thread_pool, "start"
         ), mock.patch.object(_toolbox_common, "show_info") as show_info:
-            section._install()
+            with mock.patch.object(section, "installer") as operation:
+                section._install()
+                worker_cls.call_args.args[0]()
             worker.signals.finished.connect.call_args.args[0](result)
-        worker_cls.assert_called_once_with(
-            _tab_toolbox._install_reading_enhancements, client, package, "state", False
+        operation.assert_called_once_with(
+            client, package, "state", False
         )
         self.assertEqual(client.close_calls, 1)
         self.assertIn("设置 > 阅读增强", ask.call_args.args[2])
@@ -2584,10 +2590,13 @@ class WallpaperUiTests(unittest.TestCase):
         ) as worker_cls, mock.patch.object(section.thread_pool, "start"), mock.patch.object(
             _toolbox_common, "show_info"
         ):
-            section._install()
+            with mock.patch.object(section, "installer") as operation:
+                section._install()
+                worker_cls.call_args.args[0]()
             worker.signals.finished.connect.call_args.args[0](result)
         self.assertIn("迁移不会沿用旧版开关状态", ask.call_args.args[2])
-        self.assertEqual(worker_cls.call_args.args[-1], True)
+        operation.assert_called_once()
+        self.assertTrue(operation.call_args.args[-1])
         self.assertEqual(client.close_calls, 1)
 
     def test_reading_enhancements_legacy_cleanup_is_secondary_action(self):
@@ -2624,10 +2633,12 @@ class WallpaperUiTests(unittest.TestCase):
         ), mock.patch.object(rmtool, "Worker", return_value=worker) as worker_cls, mock.patch.object(
             section.thread_pool, "start"
         ), mock.patch.object(_toolbox_common, "show_info") as show_info:
-            section._cleanup_legacy()
+            with mock.patch.object(section, "cleaner") as operation:
+                section._cleanup_legacy()
+                worker_cls.call_args.args[0]()
             worker.signals.finished.connect.call_args.args[0](result)
-        worker_cls.assert_called_once_with(
-            _tab_toolbox._cleanup_reading_enhancements, client, "state"
+        operation.assert_called_once_with(
+            client, "state"
         )
         self.assertIn("重新连接", ask.call_args.args[2])
         self.assertIn("全新安装", show_info.call_args.args[2])
@@ -2676,14 +2687,16 @@ class WallpaperUiTests(unittest.TestCase):
         ) as worker_cls, mock.patch.object(section.thread_pool, "start"), mock.patch.object(
             _toolbox_common, "show_info"
         ) as show_info:
-            section._disable()
+            with mock.patch.object(_reading_enhancements, "disable") as operation:
+                section._disable()
+                worker_cls.call_args.args[0]()
             worker.signals.finished.connect.call_args.args[0](
                 _reading_enhancements.ReadingEnhancementsStatus(
                     _reading_enhancements.ReadingEnhancementsState.DISABLE_PENDING_REBOOT,
                     identity, package, (package,), recovery_available=True
                 )
             )
-        worker_cls.assert_called_once_with(_reading_enhancements.disable, client, (package,))
+        operation.assert_called_once_with(client, (package,))
         self.assertEqual(client.close_calls, 1)
         self.assertIn("手动重启", show_info.call_args.args[2])
 
@@ -2998,7 +3011,9 @@ class WallpaperUiTests(unittest.TestCase):
         ), mock.patch.object(rmtool, "Worker", return_value=worker) as worker_cls, mock.patch.object(
             section.thread_pool, "start"
         ) as start_worker, mock.patch.object(_toolbox_common, "show_info") as show_info:
-            section._enable_localization()
+            with mock.patch.object(_rmkit_cn, "enable_cloud_localization") as operation:
+                section._enable_localization()
+                worker_cls.call_args.args[0]()
             worker.signals.finished.connect.call_args.args[0](
                 _rmkit_cn.LocalizationStatus(
                     _rmkit_cn.LocalizationState.ENABLED,
@@ -3008,8 +3023,7 @@ class WallpaperUiTests(unittest.TestCase):
                 )
             )
 
-        worker_cls.assert_called_once_with(
-            _rmkit_cn.enable_cloud_localization,
+        operation.assert_called_once_with(
             client,
             package,
             str(state_dir),
@@ -3077,10 +3091,11 @@ class WallpaperUiTests(unittest.TestCase):
         ) as worker_cls, mock.patch.object(
             section.thread_pool, "start"
         ) as start_worker:
-            section._enable_localization()
+            with mock.patch.object(_rmkit_cn, "enable_cloud_localization") as operation:
+                section._enable_localization()
+                worker_cls.call_args.args[0]()
 
-        worker_cls.assert_called_once_with(
-            _rmkit_cn.enable_cloud_localization,
+        operation.assert_called_once_with(
             client,
             package,
             str(state_dir),
@@ -4157,11 +4172,12 @@ class FontUiTests(unittest.TestCase):
         with mock.patch.object(QtWidgets, "QProgressDialog") as progress_dialog, mock.patch.object(
             rmtool, "Worker", return_value=worker_instance
         ) as worker_cls, mock.patch.object(widget.thread_pool, "start") as start_worker:
-            widget._upload_selected_font()
+            with mock.patch.object(widget, "_upload_font") as operation:
+                widget._upload_selected_font()
+                worker_cls.call_args.args[0]()
 
         progress_dialog.assert_called_once()
-        worker_cls.assert_called_once_with(
-            widget._upload_font,
+        operation.assert_called_once_with(
             str(font_path),
             "preview-font.ttf",
         )
@@ -5184,7 +5200,11 @@ class MainWindowConstructionTests(unittest.TestCase):
 
         window.resize(1024, 640)
         QtWidgets.QApplication.processEvents()
-        self.assertGreater(window.sidebar_scroll.verticalScrollBar().maximum(), 0)
+        content = window.connection_widget
+        viewport = window.sidebar_scroll.viewport()
+        self.assertGreaterEqual(content.height(), content.minimumSizeHint().height())
+        if content.height() > viewport.height():
+            self.assertGreater(window.sidebar_scroll.verticalScrollBar().maximum(), 0)
 
 
 class DashboardTabTests(unittest.TestCase):

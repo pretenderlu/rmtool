@@ -225,7 +225,7 @@ class SharedMigrationSafetyTests(unittest.TestCase):
                     shared, "shared_transaction_script", wraps=shared.shared_transaction_script,
                 ))
                 shared.migrate_shared(
-                    mock.Mock(), runtime, trusted, runtime, trusted,
+                    mock.MagicMock(), runtime, trusted, runtime, trusted,
                     {feature.feature_id: Path("verified")} if enabled else {},
                 )
                 state = stage.call_args.args[2][feature.feature_id]

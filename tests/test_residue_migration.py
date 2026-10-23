@@ -525,7 +525,7 @@ class ResidueMigrationTests(unittest.TestCase):
                         fid: shared.SharedFeatureState(old_trusted[fid], True, "old-token")
                         for fid in kept | skipped
                     }, False, False)
-                    ssh = mock.Mock()
+                    ssh = mock.MagicMock()
                     ssh.exec_checked.return_value = ""
                     if failure == "transaction":
                         def execute(command):
@@ -698,7 +698,7 @@ class MigrateSharedTests(unittest.TestCase):
         return shared.SharedInspection(states, False, False)
 
     def _run(self, residue, new_features, roots, *, skipped_feature_ids=()):
-        ssh = mock.Mock()
+        ssh = mock.MagicMock()
         ssh.exec_checked.return_value = ""
         final = shared.SharedInspection({}, False, True)
         stage = mock.Mock(return_value=("1" * 64, "2" * 64))
@@ -831,7 +831,7 @@ class MigrateSharedTests(unittest.TestCase):
     def test_migrate_passes_template_tolerance_to_residue_inspection(self):
         enabled = {fid: True for fid in self.old_trusted}
         roots = {fid: Path("roots") / fid for fid in enabled}
-        ssh = mock.Mock()
+        ssh = mock.MagicMock()
         ssh.exec_checked.return_value = ""
         stage = mock.Mock(return_value=("1" * 64, "2" * 64))
         with (

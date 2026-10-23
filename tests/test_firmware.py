@@ -183,6 +183,36 @@ class ImageTests(unittest.TestCase):
 
 
 class SafetyTests(unittest.TestCase):
+    def test_plugin_lock_does_not_poison_read_gate_but_still_blocks_firmware_writes(self):
+        ssh = FakeSSH()
+        ssh.probe = state_text(shared_lock="busy")
+        state, _ = f.inspect_device(ssh)
+        self.assertEqual(ssh.firmware_guard_reason, "")
+        with self.assertRaisesRegex(RuntimeError, "插件"):
+            f.assert_idle(state, writing=True)
+        ssh.probe = state_text(shared_lock="busy", swu_status="1")
+        f.inspect_device(ssh)
+        self.assertTrue(ssh.firmware_guard_reason)
+
+    def test_restart_lock_recovery_checks_transaction_and_fresh_update_guard(self):
+        ssh = FakeSSH()
+        for state in ("none", "completed"):
+            with mock.patch.object(f, "query_transaction", return_value=(state, "")):
+                f.reboot_for_plugin_recovery(ssh)
+            self.assertEqual(ssh.commands[-2:], [f.GUARD_PROBE, "systemctl reboot"])
+        for state in ("running", "unknown", "success", "failed"):
+            ssh.commands.clear()
+            with mock.patch.object(f, "query_transaction", return_value=(state, "stop")):
+                with self.assertRaisesRegex(RuntimeError, "stop"):
+                    f.reboot_for_plugin_recovery(ssh)
+            self.assertEqual(ssh.commands, [])
+        with mock.patch.object(f, "query_transaction", return_value=("none", "")), \
+                mock.patch.object(ssh, "exec_checked", side_effect=RuntimeError("update pending")), \
+                mock.patch.object(ssh, "exec_command") as reboot:
+            with self.assertRaisesRegex(RuntimeError, "update pending"):
+                f.reboot_for_plugin_recovery(ssh)
+        reboot.assert_not_called()
+
     def test_actual_probe_and_aliases(self):
         for machine, platform in (("reMarkable Chiappa", "chiappa"), ("reMarkable Paper Pro", "ferrari"),
                                   ("CT-PCBA-IMX8MM", "ferrari")):

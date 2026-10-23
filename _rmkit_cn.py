@@ -995,9 +995,7 @@ def get_font_recovery_status(ssh_client) -> FontRecoveryStatus:
             return FontRecoveryStatus()
         lines = ssh_client.exec_checked("cat /proc/self/mountinfo").splitlines()
         parsed = [line.split() for line in lines]
-        root = [parts for parts in parsed if len(parts) >= 10 and parts[4] == "/"]
-        if len(root) != 1:
-            raise RuntimeError("无法确认字体恢复所需的根分区挂载。")
+        root = storage.root_mount_fields("\n".join(lines))
         mounts = []
         for line, parts in zip(lines, parsed):
             if len(parts) < 10:
@@ -1006,8 +1004,8 @@ def get_font_recovery_status(ssh_client) -> FontRecoveryStatus:
             if not target.startswith("/tmp/rmtool-font-rootfs-"):
                 continue
             token = target.removeprefix("/tmp/rmtool-font-rootfs-")
-            if (token not in tokens or parts[2:4] != root[0][2:4]
-                    or parts[parts.index("-") + 1:] != root[0][root[0].index("-") + 1:]):
+            if (token not in tokens or parts[2:4] != root[2:4]
+                    or parts[parts.index("-") + 1:] != root[root.index("-") + 1:]):
                 raise RuntimeError(f"字体临时挂载归属不明：{target}；请先保存文档并手动重启设备。")
             mounts.append(line)
         if len(mounts) > 8:

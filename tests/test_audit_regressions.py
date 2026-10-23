@@ -51,12 +51,17 @@ class FirmwareRegressionTests(unittest.TestCase):
         self.assertEqual(self.ssh.firmware_guard_reason, "")
         self.assertEqual(self.ssh.files[self.directory + "/completed.json"], record)
         for busy in ({"writer": "busy"}, {"holders": "busy"}, {"swu_status": "1"},
-                     {"boot": "2"}, {"shared_lock": "busy"}, {"roota_errcnt": "1"},
+                     {"boot": "2"}, {"roota_errcnt": "1"},
                      {"swu_recovery": "1"}):
             with self.subTest(busy=busy):
                 self.ssh.probe = state_text(**busy)
                 firmware.inspect_device(self.ssh)
                 self.assertTrue(self.ssh.firmware_guard_reason)
+        self.ssh.probe = state_text(shared_lock="busy")
+        state, _ = firmware.inspect_device(self.ssh)
+        self.assertEqual(self.ssh.firmware_guard_reason, "")
+        with self.assertRaisesRegex(RuntimeError, "插件"):
+            firmware.assert_idle(state, writing=True)
 
     def test_missing_result_is_persistently_reconciled(self):
         del self.ssh.files[self.directory + "/result"]
