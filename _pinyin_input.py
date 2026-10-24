@@ -901,7 +901,11 @@ def uninstall(
             if _server_running(ssh_client):
                 raise RuntimeError("拼音输入法服务正在运行，请退出后重试。")
         _xovi_standalone.remove_shared_features(
-            ssh_client, runtime, installed_trusted, (FEATURE_ID,)
+            ssh_client,
+            runtime,
+            installed_trusted,
+            (FEATURE_ID,),
+            _lock_already_held=True,
         )
         if had_payload:
             ssh_client.exec_checked(

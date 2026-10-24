@@ -2758,6 +2758,8 @@ def remove_shared_features(
     runtime: SharedRuntimeSpec,
     trusted: Mapping[str, SharedFeatureSpec],
     feature_ids: Iterable[str],
+    *,
+    _lock_already_held: bool = False,
 ) -> SharedInspection:
     """Remove verified features in one transaction, preserving other peers."""
     remove_ids = frozenset(feature_ids)
@@ -2765,7 +2767,8 @@ def remove_shared_features(
         raise RuntimeError("没有指定要清理的共享 Xovi 功能。")
     if not remove_ids <= set(trusted):
         raise RuntimeError("共享 Xovi 清理目标不在内置信任清单中。")
-    with _operation_lock(ssh_client):
+    lock = nullcontext() if _lock_already_held else _operation_lock(ssh_client)
+    with lock:
         inspection = inspect_shared(ssh_client, runtime, trusted, check_lower=True)
         present = set(inspection.states)
         if not remove_ids <= present:

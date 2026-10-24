@@ -15,6 +15,37 @@ import _tap_page_turn as tap
 import _xovi_standalone as shared
 
 
+class FakeSSH:
+    def __init__(self):
+        self.locked = False
+        self.lock_acquisitions = 0
+        self.lock_releases = 0
+        self.external_present = True
+        self.shared_removed = False
+        self.events = []
+
+    def exec_checked(self, command):
+        self.events.append(command)
+        if command.startswith(f"mkdir {shared._OPERATION_LOCK} "):
+            if self.locked:
+                raise RuntimeError("another rmtool Xovi operation is active")
+            self.locked = True
+            self.lock_acquisitions += 1
+            return ""
+        if command == f"rmdir {shared._OPERATION_LOCK}":
+            if not self.locked:
+                raise RuntimeError("operation lock is not held")
+            self.locked = False
+            self.lock_releases += 1
+            return ""
+        if command.startswith(f"rm -rf {pinyin.REMOTE_BASE};"):
+            if not self.shared_removed:
+                raise RuntimeError("external payload removed before shared transaction")
+            self.external_present = False
+            self.events.append("external-removed")
+        return ""
+
+
 class PinyinInputTests(unittest.TestCase):
     def package(self):
         return pinyin._trusted_catalog()[0]
@@ -772,6 +803,105 @@ class PinyinInputTests(unittest.TestCase):
         self.assertIn(f" {pinyin.REMOTE_BASE}", commands)
         self.assertNotIn("systemctl restart", commands)
         self.assertNotIn("reboot", commands)
+
+    def uninstall_fixture(self):
+        package = self.package()
+        native_package = native.select_package(native._trusted_catalog(), self.identity())
+        runtime, feature = pinyin._shared_specs(package)
+        _runtime, peer = native._shared_specs(native_package)
+        trusted = {pinyin.FEATURE_ID: feature, native.FEATURE_ID: peer}
+        inspection = shared.SharedInspection(
+            {
+                feature_id: shared.SharedFeatureState(
+                    spec, True, "12345678-1234-1234-1234-123456789abc:1:1"
+                )
+                for feature_id, spec in trusted.items()
+            },
+            True,
+            True,
+        )
+        return package, runtime, trusted, inspection
+
+    def test_uninstall_preserves_peer_with_one_lock_and_removes_payload_after_shared_success(self):
+        package, runtime, trusted, inspection = self.uninstall_fixture()
+        expected = pinyin.PinyinInputStatus(
+            pinyin.PinyinInputState.NOT_INSTALLED, self.identity(), package
+        )
+        ssh = FakeSSH()
+
+        def replace_features(*_args, **_kwargs):
+            ssh.shared_removed = True
+            ssh.events.append("shared-removed")
+            return inspection
+
+        with patch.object(tap, "get_device_identity", return_value=self.identity()), patch.object(
+            pinyin, "_trusted_shared_context", return_value=(runtime, trusted, ())
+        ), patch.object(
+            pinyin, "_inspect_shared_revision", return_value=(inspection, trusted, None)
+        ), patch.object(shared, "inspect_shared", return_value=inspection), patch.object(
+            shared, "_assert_receipt_operation_scope"
+        ), patch.object(
+            shared, "replace_shared_features", side_effect=replace_features
+        ) as replace_shared, patch.object(
+            pinyin, "_has_external_payload", return_value=True
+        ), patch.object(pinyin, "_validate_external_payload"), patch.object(
+            pinyin, "_server_running", return_value=False
+        ), patch.object(pinyin, "get_status", return_value=expected) as refresh:
+            result = pinyin.uninstall(ssh, (package,))
+
+        self.assertIs(result, expected)
+        self.assertEqual((ssh.lock_acquisitions, ssh.lock_releases), (1, 1))
+        self.assertFalse(ssh.locked)
+        self.assertFalse(ssh.external_present)
+        self.assertEqual(set(replace_shared.call_args.args[4]), {native.FEATURE_ID})
+        self.assertEqual(set(replace_shared.call_args.args[5]), {native.FEATURE_ID})
+        self.assertLess(ssh.events.index("shared-removed"), ssh.events.index("external-removed"))
+        refresh.assert_called_once_with(ssh, (package,))
+
+    def test_uninstall_refuses_running_service_before_any_removal(self):
+        package, runtime, trusted, inspection = self.uninstall_fixture()
+        ssh = FakeSSH()
+        with patch.object(tap, "get_device_identity", return_value=self.identity()), patch.object(
+            pinyin, "_trusted_shared_context", return_value=(runtime, trusted, ())
+        ), patch.object(
+            pinyin, "_inspect_shared_revision", return_value=(inspection, trusted, None)
+        ), patch.object(shared, "inspect_shared", return_value=inspection), patch.object(
+            shared, "replace_shared_features"
+        ) as replace_shared, patch.object(
+            pinyin, "_has_external_payload", return_value=True
+        ), patch.object(pinyin, "_validate_external_payload"), patch.object(
+            pinyin, "_server_running", return_value=True
+        ):
+            with self.assertRaisesRegex(RuntimeError, "服务正在运行"):
+                pinyin.uninstall(ssh, (package,))
+
+        replace_shared.assert_not_called()
+        self.assertFalse(ssh.shared_removed)
+        self.assertTrue(ssh.external_present)
+        self.assertEqual((ssh.lock_acquisitions, ssh.lock_releases), (1, 1))
+        self.assertFalse(ssh.locked)
+
+    def test_uninstall_shared_failure_preserves_payload_and_releases_lock(self):
+        package, runtime, trusted, inspection = self.uninstall_fixture()
+        ssh = FakeSSH()
+        with patch.object(tap, "get_device_identity", return_value=self.identity()), patch.object(
+            pinyin, "_trusted_shared_context", return_value=(runtime, trusted, ())
+        ), patch.object(
+            pinyin, "_inspect_shared_revision", return_value=(inspection, trusted, None)
+        ), patch.object(shared, "inspect_shared", return_value=inspection), patch.object(
+            shared, "_assert_receipt_operation_scope"
+        ), patch.object(
+            shared, "replace_shared_features", side_effect=RuntimeError("shared failed")
+        ), patch.object(pinyin, "_has_external_payload", return_value=True), patch.object(
+            pinyin, "_validate_external_payload"
+        ), patch.object(pinyin, "_server_running", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "shared failed"):
+                pinyin.uninstall(ssh, (package,))
+
+        self.assertFalse(ssh.shared_removed)
+        self.assertTrue(ssh.external_present)
+        self.assertEqual((ssh.lock_acquisitions, ssh.lock_releases), (1, 1))
+        self.assertFalse(ssh.locked)
 
     def test_device_mutation_source_never_restarts_or_reboots(self):
         source = Path(pinyin.__file__).read_text(encoding="utf-8")
