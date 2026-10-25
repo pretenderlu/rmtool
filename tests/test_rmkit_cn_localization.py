@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 import shlex
 import stat
 import tempfile
@@ -25,37 +26,51 @@ class FakeSFTP:
         symlinks=None,
         after_rename=None,
         before_remove=None,
+        file_links=None,
     ):
         self.files = files
         self.file_modes = file_modes or {}
         self.file_owners = file_owners or {}
+        self.file_links = file_links or {}
         self.symlinks = symlinks if symlinks is not None else {}
         self.after_rename = after_rename
         self.before_remove = before_remove
 
     def _attributes(self, path):
         uid, gid = self.file_owners.get(path, (0, 0))
+        default_mode = (
+            stat.S_IFDIR | 0o755
+            if any(item.startswith(path.rstrip("/") + "/") for item in self.files)
+            else stat.S_IFREG | 0o644
+        )
         return SimpleNamespace(
-            st_mode=self.file_modes.get(path, stat.S_IFREG | 0o644),
+            st_mode=self.file_modes.get(path, default_mode),
             st_uid=uid,
             st_gid=gid,
+            st_nlink=self.file_links.get(path, 1),
         )
 
     def stat(self, path):
-        if path not in self.files:
-            raise IOError(path)
+        if path not in self.files and not any(
+            item.startswith(path.rstrip("/") + "/") for item in self.files
+        ):
+            raise FileNotFoundError(path)
         return self._attributes(path)
 
     def lstat(self, path):
         if path in self.symlinks:
-            return SimpleNamespace(st_mode=stat.S_IFLNK | 0o777, st_uid=0, st_gid=0)
-        if path not in self.files:
-            raise IOError(path)
+            return SimpleNamespace(
+                st_mode=stat.S_IFLNK | 0o777, st_uid=0, st_gid=0, st_nlink=1
+            )
+        if path not in self.files and not any(
+            item.startswith(path.rstrip("/") + "/") for item in self.files
+        ):
+            raise FileNotFoundError(path)
         return self._attributes(path)
 
     def open(self, path, _mode="rb"):
         if path not in self.files:
-            raise IOError(path)
+            raise FileNotFoundError(path)
         return BytesIO(self.files[path])
 
     def listdir_attr(self, remote_dir):
@@ -127,6 +142,8 @@ class FakeSSH:
         file_modes=None,
         file_owners=None,
         symlinks=None,
+        file_links=None,
+        mountinfo=None,
     ):
         self.files = dict(files or {})
         self.firmware = firmware
@@ -145,12 +162,15 @@ class FakeSSH:
         self.font_match_paths = dict(font_match_paths or {})
         self.system_font_match_paths = dict(system_font_match_paths or {})
         self.fail_cache_count = fail_cache_count
+        self.fail_root_transaction = False
         self.root_free_bytes = root_free_bytes
         self.fail_exec_once_contains = list(fail_exec_once_contains)
         self.fail_rename_after_at = fail_rename_after_at
         self.fail_remove_before_at = fail_remove_before_at
         self.file_modes = dict(file_modes or {})
         self.file_owners = dict(file_owners or {})
+        self.file_links = dict(file_links or {})
+        self.mountinfo = mountinfo or "1 0 8:1 / / rw - ext4 /dev/root rw"
         self.symlinks = dict(symlinks or {})
         if cjk_available:
             self.cjk_files.add(self.active_font)
@@ -175,6 +195,7 @@ class FakeSSH:
             self.symlinks,
             self._after_rename,
             self._before_remove,
+            self.file_links,
         )
 
     def _after_rename(self):
@@ -186,6 +207,25 @@ class FakeSSH:
         self.remove_count += 1
         if self.remove_count == self.fail_remove_before_at:
             raise IOError("simulated remove failure")
+
+    def _apply_expected_clear_script(self, script):
+        marker = re.search(
+            r": > (/tmp/rmtool-font-clear-[0-9a-f]+\.started)", script
+        ).group(1)
+        required = set(re.findall(r"sha256sum (/[^ )]+) \|", script))
+        with self.sftp_session() as sftp:
+            for path in required:
+                digest = re.search(
+                    rf"sha256sum {re.escape(path)} \|.*= ([0-9a-f]{{64}})", script
+                ).group(1)
+                _rmkit_cn._home_only_file_metadata(sftp.lstat(path), path)
+                if hashlib.sha256(self.files[path]).hexdigest() != digest:
+                    raise RuntimeError("expected clear validation failed")
+        self.files[marker] = b""
+        for path in _rmkit_cn.SYSTEM_FONT_PATHS.values():
+            self.files.pop(path, None)
+        if self.fail_root_transaction:
+            raise RuntimeError("simulated root transaction failure")
 
     def exec_checked(self, command):
         self.events.append(("exec", command))
@@ -223,6 +263,8 @@ class FakeSSH:
                 if self.files.get(path) in self.cjk_font_data
             )
             return "".join(f"{path}\n" for path in sorted(files))
+        if command == "cat /proc/self/mountinfo":
+            return self.mountinfo + "\n"
         if command.startswith("fc-scan "):
             scanned_path = shlex.split(command)[1]
             if scanned_path not in self.files:
@@ -274,6 +316,9 @@ class FakeSSH:
 
         args = shlex.split(command)
         if args[:1] == ["/bin/sh"] and len(args) == 2:
+            script = self.files[args[1]].decode("utf-8")
+            if "mount_now=" in script:
+                self._apply_expected_clear_script(script)
             stage_dir = str(Path(args[1]).parent).replace("\\", "/")
             config_index = list(_rmkit_cn.SYSTEM_FONT_ROOT_PATHS).index(
                 _rmkit_cn.SYSTEM_FONTCONFIG_FILE
@@ -2285,6 +2330,230 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertIn(f"<string>{system_target}</string>", system_config)
         self.assertIn(f"<dir>{_rmkit_cn.SYSTEM_FONT_DIR}</dir>", system_config)
         self.assertFalse(any(".rmtool-" in path for path in ssh.files))
+
+    def test_home_only_inspector_and_expected_plan_execute_exact_transaction(self):
+        font_dir = "/home/root/.local/share/fonts"
+        target = f"{font_dir}/selected.ttf"
+        font_data = b"exact home-only candidate"
+        ssh = FakeSSH({target: font_data}, device_font_family="Selected Family")
+        _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
+
+        plan = _rmkit_cn.inspect_home_only_font(ssh)
+
+        self.assertEqual(plan.remote_path, target)
+        self.assertEqual(plan.mirror_path, _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"])
+        self.assertEqual(plan.size, len(font_data))
+        self.assertTrue(plan.metadata)
+        self.assertTrue(plan.mount_fingerprint)
+        self.assertTrue(all(item.nlink == 1 for item in plan.metadata))
+        _rmkit_cn.set_active_user_font(
+            ssh, font_dir, "selected.ttf", False, expected_home_only=plan
+        )
+        self.assertEqual(ssh.files[target], font_data)
+        self.assertNotIn(plan.mirror_path, ssh.files)
+        self.assertNotIn(_rmkit_cn.SYSTEM_FONTCONFIG_FILE, ssh.files)
+
+    def test_home_only_inspector_rejects_unmanaged_links_and_mismatch_without_writes(self):
+        font_dir = "/home/root/.local/share/fonts"
+        target = f"{font_dir}/selected.ttf"
+        mirror = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        for case in ("unmanaged-config", "source-link", "mirror-link", "mirror-bytes", "unknown-file"):
+            with self.subTest(case=case):
+                ssh = FakeSSH({target: b"font"})
+                _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
+                if case == "unmanaged-config":
+                    ssh.files[_rmkit_cn.SYSTEM_FONTCONFIG_FILE] = b"custom config"
+                elif case == "source-link":
+                    ssh.symlinks[target] = target
+                elif case == "mirror-link":
+                    ssh.symlinks[mirror] = mirror
+                elif case == "unknown-file":
+                    ssh.files[f"{_rmkit_cn.SYSTEM_FONT_DIR}/unknown.ttf"] = b"unknown"
+                else:
+                    ssh.files[mirror] = b"different"
+                before = dict(ssh.files)
+                event_count = len(ssh.events)
+                transfers = ssh.transfer_count
+                with self.assertRaises(RuntimeError):
+                    _rmkit_cn.inspect_home_only_font(ssh)
+                self.assertEqual(ssh.files, before)
+                self.assertFalse(any(
+                    kind == "exec" and command.startswith(("mkdir ", "rm ", "mv ", "mount "))
+                    for kind, command in ssh.events[event_count:]
+                ))
+                self.assertEqual(ssh.transfer_count, transfers)
+
+    def test_home_only_metadata_parent_mount_and_io_guards(self):
+        font_dir = "/home/root/.local/share/fonts"
+        target = f"{font_dir}/selected.ttf"
+        mirror = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        cases = (
+            "wrong-owner", "wrong-group", "mode-0666", "mode-0600",
+            "hardlink", "parent-symlink", "parent-mode", "mount-cover",
+            "lstat-error", "open-error", "listdir-error",
+        )
+        for case in cases:
+            with self.subTest(case=case):
+                ssh = FakeSSH({target: b"font"})
+                _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
+                if case == "wrong-owner":
+                    ssh.file_owners[target] = (1000, 0)
+                elif case == "wrong-group":
+                    ssh.file_owners[mirror] = (0, 1000)
+                elif case == "mode-0666":
+                    ssh.file_modes[_rmkit_cn.FONTCONFIG_FILE] = stat.S_IFREG | 0o666
+                elif case == "mode-0600":
+                    ssh.file_modes[_rmkit_cn.SYSTEM_FONTCONFIG_FILE] = stat.S_IFREG | 0o600
+                elif case == "hardlink":
+                    ssh.file_links[target] = 2
+                elif case == "parent-symlink":
+                    ssh.symlinks[font_dir] = font_dir
+                elif case == "parent-mode":
+                    ssh.file_modes[font_dir] = stat.S_IFDIR | 0o700
+                elif case == "mount-cover":
+                    ssh.mountinfo += "\n2 1 8:2 / /data/rmtool rw - ext4 /dev/data rw"
+                before = dict(ssh.files)
+                transfers = ssh.transfer_count
+                if case.endswith("-error"):
+                    class FailingSFTP(FakeSFTP):
+                        def lstat(self, path):
+                            if case == "lstat-error" and path == _rmkit_cn.FONTCONFIG_FILE:
+                                raise IOError("injected lstat failure")
+                            return super().lstat(path)
+
+                        def open(self, path, mode="rb"):
+                            if case == "open-error" and path == target:
+                                raise IOError("injected open failure")
+                            return super().open(path, mode)
+
+                        def listdir_attr(self, path):
+                            if case == "listdir-error" and path == _rmkit_cn.SYSTEM_FONT_DIR:
+                                raise IOError("injected listdir failure")
+                            return super().listdir_attr(path)
+
+                    @contextmanager
+                    def failing_session():
+                        yield FailingSFTP(
+                            ssh.files, ssh.file_modes, ssh.file_owners, ssh.symlinks,
+                            file_links=ssh.file_links,
+                        )
+                    ssh.sftp_session = failing_session
+                with self.assertRaises(RuntimeError):
+                    _rmkit_cn.inspect_home_only_font(ssh)
+                self.assertEqual(ssh.files, before)
+                self.assertEqual(ssh.transfer_count, transfers)
+
+    def test_home_only_expected_plan_drift_stops_before_transaction(self):
+        font_dir = "/home/root/.local/share/fonts"
+        target = f"{font_dir}/selected.ttf"
+        mirror = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        ssh = FakeSSH({target: b"font"})
+        _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
+        plan = _rmkit_cn.inspect_home_only_font(ssh)
+        ssh.files[mirror] = b"changed after confirmation"
+        before = dict(ssh.files)
+        transfers = ssh.transfer_count
+        event_count = len(ssh.events)
+
+        with self.assertRaisesRegex(RuntimeError, "重新检测"):
+            _rmkit_cn.set_active_user_font(
+                ssh, font_dir, "selected.ttf", False, expected_home_only=plan
+            )
+
+        self.assertEqual(ssh.files, before)
+        self.assertEqual(ssh.transfer_count, transfers)
+        self.assertFalse(any(
+            kind == "exec" and command.startswith(("mkdir ", "rm ", "mv ", "mount "))
+            for kind, command in ssh.events[event_count:]
+        ))
+
+    def test_home_only_delete_window_rejects_valid_a_to_b_and_preserves_new_bytes(self):
+        font_dir = "/home/root/.local/share/fonts"
+        target = f"{font_dir}/selected.ttf"
+        mirror = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        ssh = FakeSSH({target: b"state A"})
+        _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
+        plan = _rmkit_cn.inspect_home_only_font(ssh)
+        original_sha256 = _rmkit_cn._remote_sha256
+        drifted = False
+
+        def sha256_with_drift(client, path):
+            nonlocal drifted
+            digest = original_sha256(client, path)
+            if path == target and not drifted:
+                drifted = True
+                ssh.files[target] = b"valid state B"
+                ssh.files[mirror] = b"valid state B"
+            return digest
+
+        with patch.object(_rmkit_cn, "_remote_sha256", side_effect=sha256_with_drift):
+            with self.assertRaisesRegex(RuntimeError, "新字节不会被清理"):
+                _rmkit_cn.set_active_user_font(
+                    ssh, font_dir, "selected.ttf", False, expected_home_only=plan
+                )
+
+        self.assertTrue(drifted)
+        self.assertEqual(ssh.files[target], b"valid state B")
+        self.assertEqual(ssh.files[mirror], b"valid state B")
+        self.assertNotIn(
+            f"rm -f {_rmkit_cn.SYSTEM_FONT_PATHS['.otf']} {mirror}",
+            [command for kind, command in ssh.events if kind == "exec"],
+        )
+
+    def test_clear_device_script_rejects_drift_after_inspector_without_rollback(self):
+        font_dir = "/home/root/.local/share/fonts"
+        target = f"{font_dir}/selected.ttf"
+        mirror = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        ssh = FakeSSH({target: b"state A"})
+        _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
+        plan = _rmkit_cn.inspect_home_only_font(ssh)
+        original_inspector = _rmkit_cn.inspect_home_only_font
+
+        def inspect_then_drift(client):
+            snapshot = original_inspector(client)
+            ssh.files[target] = b"valid state B"
+            ssh.files[mirror] = b"valid state B"
+            return snapshot
+
+        with patch.object(
+            _rmkit_cn, "inspect_home_only_font", side_effect=inspect_then_drift
+        ), patch.object(_rmkit_cn, "_restore_system_font_mirror") as restore:
+            with self.assertRaises(RuntimeError):
+                _rmkit_cn._clear_system_font_mirror(
+                    ssh, expected_home_only=plan
+                )
+
+        restore.assert_not_called()
+        self.assertEqual(ssh.files[target], b"valid state B")
+        self.assertEqual(ssh.files[mirror], b"valid state B")
+        self.assertFalse(any(path.endswith(".started") for path in ssh.files))
+
+    def test_expected_clear_rollback_uses_verified_snapshot_without_stat_reread(self):
+        font_dir = "/home/root/.local/share/fonts"
+        target = f"{font_dir}/selected.ttf"
+        mirror = _rmkit_cn.SYSTEM_FONT_PATHS[".ttf"]
+        ssh = FakeSSH({target: b"state A"})
+        _rmkit_cn.set_active_user_font(ssh, font_dir, "selected.ttf")
+        plan = _rmkit_cn.inspect_home_only_font(ssh)
+        expected = dict(plan.verified_files)
+        ssh.fail_root_transaction = True
+
+        with patch.object(
+            _rmkit_cn, "_system_font_snapshot",
+            side_effect=AssertionError("expected mode must not reread a fail-open snapshot"),
+        ) as snapshot:
+            with self.assertRaises(RuntimeError):
+                _rmkit_cn._clear_system_font_mirror(
+                    ssh, expected_home_only=plan
+                )
+
+        snapshot.assert_not_called()
+        self.assertEqual(ssh.files[mirror], expected[mirror])
+        self.assertEqual(
+            ssh.files[_rmkit_cn.SYSTEM_FONTCONFIG_FILE],
+            expected[_rmkit_cn.SYSTEM_FONTCONFIG_FILE],
+        )
+        self.assertFalse(any(path.endswith(".started") for path in ssh.files))
 
     def test_set_active_user_font_home_only_skips_data_space_check(self):
         font_dir = "/home/root/.local/share/fonts"

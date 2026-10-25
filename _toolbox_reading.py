@@ -5,6 +5,7 @@ import logging
 from PyQt5 import QtCore, QtWidgets
 
 import _rmkit_cn
+import _capacity_recovery
 import _note_enhancements
 import _reading_enhancements
 import _weread_app
@@ -363,11 +364,13 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         close_connection: bool = False,
         on_done=None,
         show_errors: bool = True,
+        recovery_intent=None,
     ):
         return _ui.start_plugin_worker(
             self, fn, *args, pending=pending, success=success,
             close_connection=close_connection, on_done=on_done,
             show_errors=show_errors, retry=self._install,
+            recovery_intent=recovery_intent,
         )
 
     @require_connection
@@ -414,11 +417,21 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             cancel_text="取消",
         ):
             return
+        state_dir = str(_rmtool.app_state_dir())
+        intent = None
+        if self.backend is _qr_upload:
+            intent = _capacity_recovery.make_original_intent(
+                self.ssh_client,
+                _qr_upload.FEATURE_ID,
+                self._status.package,
+                state_dir,
+                self._status.identity,
+            )
         self._start_worker(
             self.installer,
             self.ssh_client,
             self._status.package,
-            str(_rmtool.app_state_dir()),
+            state_dir,
             migration,
             pending=(
                 f"正在验证旧版并迁移到{self.feature_name}…"
@@ -436,6 +449,7 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
             )
             + f"请手动重启设备，然后前往“设置 > {self.device_page_name}”。",
             close_connection=True,
+            recovery_intent=intent,
         )
 
     @require_connection
@@ -528,8 +542,8 @@ def _qr_upload_status(ssh_client, state_dir):
 
 
 def _install_qr_upload(ssh_client, package, state_dir, migrate):
-    archive = _qr_upload.download_package(package, state_dir)
-    return _qr_upload.install(ssh_client, package, archive)
+    del migrate
+    return _qr_upload.install_cloud(ssh_client, package, state_dir)
 
 
 class QrUploadSection(ReadingEnhancementsSection):

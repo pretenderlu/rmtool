@@ -12,12 +12,20 @@ FEEDBACK_RESULT = 2
 # Set by the main window: called with the error text after the user picks
 # "反馈问题".  None (tests, standalone widgets) hides the button entirely.
 _feedback_handler: Optional[Callable[[str], None]] = None
+_capacity_recovery_handler: Optional[Callable[[object, BaseException], None]] = None
 
 
 def set_feedback_handler(handler: Optional[Callable[[str], None]]) -> None:
     """Register the callback that starts the guided diagnostics flow."""
     global _feedback_handler
     _feedback_handler = handler
+
+
+def set_capacity_recovery_handler(
+    handler: Optional[Callable[[object, BaseException], None]]
+) -> None:
+    global _capacity_recovery_handler
+    _capacity_recovery_handler = handler
 
 
 _KIND_HEADINGS = {
@@ -137,6 +145,10 @@ def _build_dialog(
     )
     primary_button.setDefault(True)
     primary_button.clicked.connect(dialog.accept)
+    if primary_role == "danger" and secondary_text:
+        primary_button.setDefault(False)
+        secondary_button.setDefault(True)
+        secondary_button.setFocus()
     button_row.addWidget(primary_button)
     surface_layout.addLayout(button_row)
 
@@ -157,24 +169,39 @@ def show_error(
     message: str,
     *,
     feedback: bool = True,
+    error: Optional[BaseException] = None,
+    recovery_intent: Optional[object] = None,
 ) -> None:
     """Show an error; offers "反馈问题" when a feedback handler is registered.
 
     Pass ``feedback=False`` for errors raised by the feedback flow itself.
     """
     handler = _feedback_handler if feedback else None
+    recovery_handler = None
+    if recovery_intent is not None and error is not None:
+        from _capacity_recovery import capacity_context
+        context = capacity_context(error)
+        if context is not None and context.kind == "shared-capacity":
+            recovery_handler = _capacity_recovery_handler
     result = _show_message(
         parent,
         title,
         message,
         kind="error",
         feedback_text="反馈问题" if handler else None,
+        primary_text="修复空间并继续" if recovery_handler else "知道了",
+        secondary_text="稍后处理" if recovery_handler else None,
     )
     if handler and result == FEEDBACK_RESULT:
         try:
             handler(message)
         except Exception:
             logging.exception("Could not start the feedback flow")
+    elif recovery_handler and result == QtWidgets.QDialog.Accepted:
+        try:
+            recovery_handler(recovery_intent, error)
+        except Exception:
+            logging.exception("Could not start capacity recovery")
 
 
 def _show_message(
@@ -184,6 +211,8 @@ def _show_message(
     *,
     kind: str,
     feedback_text: Optional[str] = None,
+    primary_text: str = "知道了",
+    secondary_text: Optional[str] = None,
 ) -> int:
     dialog = _build_dialog(
         parent,
@@ -191,7 +220,8 @@ def _show_message(
         _KIND_HEADINGS.get(kind, "提示"),
         message,
         kind=kind,
-        primary_text="知道了",
+        primary_text=primary_text,
+        secondary_text=secondary_text,
         feedback_text=feedback_text,
     )
     return dialog.exec_()

@@ -1310,7 +1310,7 @@ class WallpaperUiTests(unittest.TestCase):
         toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
         self.addCleanup(toolbox.deleteLater)
 
-        self.assertEqual(toolbox.tool_table.rowCount(), 11)
+        self.assertEqual(toolbox.tool_table.rowCount(), 12)
         self.assertEqual(
             [
                 toolbox.tool_table.item(row, 0).text()
@@ -1326,6 +1326,7 @@ class WallpaperUiTests(unittest.TestCase):
                 "扫码传输",
                 "时间管理",
                 "设备控制",
+                "设备修复与清理",
                 "诊断日志导出",
                 "旧版插件迁移/清理",
             ],

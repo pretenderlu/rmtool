@@ -617,6 +617,103 @@ class PinyinInputTests(unittest.TestCase):
         self.assertEqual(detail, "")
         self.assertTrue(installed)
 
+    def test_cloud_capacity_failure_with_native_peer_is_read_only_and_precedes_download(self):
+        from tests.test_plugin_recovery import Device
+
+        package = next(
+            item for item in pinyin._trusted_catalog()
+            if item.platform == "rm2" and item.release_version == "3.29.0.153"
+        )
+        device = Device(package=package)
+        native_feature = device.trusted["native-chinese"]
+        device.install({
+            "native-chinese": shared.SharedFeatureState(
+                native_feature, True, "12345678-1234-1234-1234-123456789abc:778:1000"
+            ),
+        })
+        device.free_kib = 0
+        execute = device.exec_checked
+        def root_full(command):
+            if command == shared.storage.SYSTEM_SPACE_COMMAND:
+                device.events.append(command)
+                return "/=0"
+            return execute(command)
+        device.exec_checked = root_full
+        device.transfer_file = Mock()
+        entries = set(device.entries)
+        with (
+            patch.object(tap, "get_device_identity", return_value=device.identity),
+            patch.object(tap, "_preflight_device"),
+            patch.object(pinyin, "_assert_no_rmkit_ime"),
+            patch.object(pinyin, "download_package") as download,
+        ):
+            with self.assertRaises(RuntimeError) as raised:
+                pinyin.enable_cloud(device, package, ".rmtool")
+        self.assertEqual(raised.exception.recovery_context["kind"], "shared-capacity")
+        self.assertEqual(raised.exception.recovery_context["required"], 20795392)
+        download.assert_not_called()
+        device.transfer_file.assert_not_called()
+        self.assertEqual(set(device.entries), entries)
+        mutations = (
+            "mkdir ", "mount --bind", "umount ", "rmdir ", "rm ", "mv ",
+            "chmod ", "chown ",
+        )
+        self.assertFalse(any(
+            token in command for command in device.events for token in mutations
+        ), device.events)
+
+    def test_exact_enabled_preflight_does_not_require_free_capacity(self):
+        from tests.test_plugin_recovery import Device
+
+        package = next(
+            item for item in pinyin._trusted_catalog()
+            if item.platform == "rm2" and item.release_version == "3.29.0.153"
+        )
+        device = Device(package=package)
+        device.install_pinyin()
+        device.free_kib = 0
+        device.transfer_file = Mock()
+        with (
+            patch.object(tap, "get_device_identity", return_value=device.identity),
+            patch.object(tap, "_preflight_device"),
+            patch.object(pinyin, "_assert_no_rmkit_ime"),
+        ):
+            pinyin.preflight(device, package)
+        device.transfer_file.assert_not_called()
+
+    def test_formal_capacity_failure_happens_before_home_staging(self):
+        package = next(
+            item for item in pinyin._trusted_catalog()
+            if item.platform == "rm2" and item.release_version == "3.29.0.153"
+        )
+        identity = tap.DeviceIdentity(
+            package.firmware, package.platform, package.architecture, package.xochitl_sha256
+        )
+        runtime, feature = pinyin._shared_specs(package)
+        with (
+            patch.object(tap, "get_device_identity", return_value=identity),
+            patch.object(tap, "_preflight_device"),
+            patch.object(pinyin, "_assert_no_rmkit_ime"),
+            patch.object(
+                pinyin, "_trusted_shared_context",
+                return_value=(runtime, {pinyin.FEATURE_ID: feature}, ()),
+            ),
+            patch.object(tap, "extract_verified_package", return_value=Path("verified")),
+            patch.object(shared, "_operation_lock", return_value=nullcontext()),
+            patch.object(shared, "has_shared_artifacts", return_value=False),
+            patch.object(pinyin, "_has_external_payload", return_value=False),
+            patch.object(
+                shared, "check_shared_enable_capacity",
+                side_effect=RuntimeError("capacity"),
+            ),
+            patch.object(pinyin, "_stage_external") as stage,
+            patch.object(shared, "_enable_shared_locked") as activate,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "capacity"):
+                pinyin.enable(Mock(), package, "package.tar.gz", ".rmtool")
+        stage.assert_not_called()
+        activate.assert_not_called()
+
     def test_enable_rolls_back_home_payload_when_shared_activation_fails(self):
         package = self.package()
         ssh = Mock()

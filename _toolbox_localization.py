@@ -9,6 +9,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets, sip
 import _rmkit_cn
 import _native_chinese
 import _pinyin_input
+import _capacity_recovery
 from _ssh import SSHClientWrapper, require_connection
 # Dialog helpers are looked up on _toolbox_common at call time so a single
 # patch point covers every toolbox section.
@@ -1091,11 +1092,13 @@ class PinyinInputSection(QtWidgets.QWidget):
         close_connection: bool = False,
         on_done=None,
         show_errors: bool = True,
+        recovery_intent=None,
     ):
         return _ui.start_plugin_worker(
             self, fn, *args, pending=pending, success=success,
             close_connection=close_connection, on_done=on_done,
             show_errors=show_errors, retry=self._enable,
+            recovery_intent=recovery_intent,
         )
 
     @require_connection
@@ -1136,11 +1139,19 @@ class PinyinInputSection(QtWidgets.QWidget):
             cancel_text="取消",
         ):
             return
+        state_dir = str(_rmtool.app_state_dir())
+        intent = _capacity_recovery.make_original_intent(
+            self.ssh_client,
+            _pinyin_input.FEATURE_ID,
+            self._status.package,
+            state_dir,
+            self._status.identity,
+        )
         self._start_worker(
             _pinyin_input.enable_cloud,
             self.ssh_client,
             self._status.package,
-            str(_rmtool.app_state_dir()),
+            state_dir,
             pending=("正在验证并修复旧版拼音输入法…" if repairing else
                      "正在下载、验证并部署拼音输入法…"),
             success=(
@@ -1149,6 +1160,7 @@ class PinyinInputSection(QtWidgets.QWidget):
                 else "拼音输入法已部署并通过校验，SSH 会话已关闭。\n"
             ) + "请手动重启设备后，在键盘语言中选择中文。",
             close_connection=True,
+            recovery_intent=intent,
         )
 
     @require_connection

@@ -279,6 +279,33 @@ class LegacySystemFontMigration:
         return self.state == "ready"
 
 
+@dataclass(frozen=True)
+class HomeOnlyFontMetadata:
+    path: str
+    mode: int
+    uid: int
+    gid: int
+    nlink: int
+
+
+@dataclass(frozen=True)
+class HomeOnlyFontState:
+    remote_dir: str
+    filename: str
+    remote_path: str
+    mirror_path: str
+    family: str
+    font_sha256: str
+    user_config_sha256: str
+    system_config_sha256: str
+    size: int
+    metadata: tuple[HomeOnlyFontMetadata, ...] = ()
+    mount_fingerprint: str = ""
+    verified_files: tuple[tuple[str, Optional[bytes]], ...] = field(
+        default=(), compare=False, repr=False
+    )
+
+
 def get_font_mirror_verification(ssh_client) -> FontMirrorVerification:
     """Return the real-device validation level for the persistent font layout."""
     import _tap_page_turn as tap
@@ -1142,10 +1169,69 @@ def _write_remote_bytes_unique(
             Path(local_path).unlink(missing_ok=True)
 
 
+def _expected_clear_marker(token: str) -> str:
+    return f"/tmp/rmtool-font-clear-{token}.started"
+
+
+def _expected_clear_shell(expected, token: str) -> str:
+    marker = _expected_clear_marker(token)
+    checks = [f"[ ! -e {shlex.quote(marker)} ] && [ ! -L {shlex.quote(marker)} ]"]
+    for item in expected.metadata:
+        path = shlex.quote(item.path)
+        if stat.S_ISDIR(item.mode):
+            checks.append(
+                f"[ -d {path} ] && [ ! -L {path} ] && "
+                f"[ \"$(stat -c '%a:%u:%g' {path})\" = '755:0:0' ]"
+            )
+    required_files = {
+        expected.remote_path: expected.font_sha256,
+        expected.mirror_path: expected.font_sha256,
+        FONTCONFIG_FILE: expected.user_config_sha256,
+        SYSTEM_FONTCONFIG_FILE: expected.system_config_sha256,
+    }
+    for path, digest in required_files.items():
+        quoted = shlex.quote(path)
+        checks.extend((
+            f"[ -f {quoted} ] && [ ! -L {quoted} ] && "
+            f"[ \"$(stat -c '%a:%u:%g:%h' {quoted})\" = '644:0:0:1' ]",
+            f"[ \"$(sha256sum {quoted} | awk '{{print $1}}')\" = {shlex.quote(digest)} ]",
+        ))
+    for path in SYSTEM_FONT_STATE_PATHS:
+        if path in (expected.mirror_path, SYSTEM_FONTCONFIG_FILE):
+            continue
+        quoted = shlex.quote(path)
+        checks.append(f"[ ! -e {quoted} ] && [ ! -L {quoted} ]")
+    managed_paths = (expected.remote_path, FONTCONFIG_FILE, *SYSTEM_FONT_STATE_PATHS)
+    mount_awk = (
+        "BEGIN { count=split(\"" + " ".join(managed_paths) + "\", targets, \" \") }\n"
+        "{\n"
+        "    path=$5\n"
+        "    for (i=1; i<=count; i++) {\n"
+        "        target=targets[i]\n"
+        "        if (target == path || index(target, path \"/\") == 1 || "
+        "index(path, target \"/\") == 1) { print; break }\n"
+        "    }\n"
+        "}"
+    )
+    checks.extend((
+        f"mount_now=$(awk {shlex.quote(mount_awk)} /proc/self/mountinfo | sort)",
+        "[ \"$(printf '%s' \"$mount_now\" | sha256sum | awk '{print $1}')\" = "
+        f"{shlex.quote(expected.mount_fingerprint)} ]",
+        f": > {shlex.quote(marker)}",
+        f"chmod 0600 {shlex.quote(marker)}",
+        "rm -f " + " ".join(shlex.quote(path) for path in SYSTEM_FONT_PATHS.values()),
+    ))
+    for path in SYSTEM_FONT_PATHS.values():
+        quoted = shlex.quote(path)
+        checks.append(f"[ ! -e {quoted} ] && [ ! -L {quoted} ]")
+    return "\n".join(checks)
+
+
 def _root_font_transaction_script(
     token: str,
     staged_files: dict[str, Optional[tuple[str, str]]],
     expected_target: Optional[str],
+    expected_clear=None,
 ) -> str:
     if set(staged_files) != set(SYSTEM_FONT_ROOT_PATHS):
         raise ValueError("root font transaction must cover every managed root path")
@@ -1213,6 +1299,10 @@ def _root_font_transaction_script(
                 f"{shlex.quote(pattern)} | head -n 1)\" = {shlex.quote(expected_target)} ]"
             )
         verification = "\n".join(checks)
+    expected_lines = (
+        _expected_clear_shell(expected_clear, token)
+        if expected_clear is not None else ""
+    )
 
     return f"""#!/bin/sh
 set -eu
@@ -1314,6 +1404,8 @@ rollback() {{
 }}
 trap rollback EXIT INT TERM
 
+{expected_lines}
+
 [ ! -e "$BACKUP_DIR" ] && [ ! -L "$BACKUP_DIR" ]
 mkdir -m 0700 "$BACKUP_DIR"
 BACKUP_CREATED=1
@@ -1347,6 +1439,7 @@ def _apply_persistent_root_font_state(
     token: str,
     *,
     expected_target: Optional[str] = None,
+    expected_clear=None,
 ) -> None:
     if set(root_files) != set(SYSTEM_FONT_ROOT_PATHS):
         raise ValueError("root font state must cover every managed root path")
@@ -1365,7 +1458,9 @@ def _apply_persistent_root_font_state(
                 ssh_client, staged_path, data, f"{token}-root-{index}"
             )
             staged[path] = (staged_path, hashlib.sha256(data).hexdigest())
-        script = _root_font_transaction_script(token, staged, expected_target)
+        script = _root_font_transaction_script(
+            token, staged, expected_target, expected_clear
+        )
         with tempfile.NamedTemporaryFile(
             mode="w", encoding="utf-8", newline="\n", delete=False
         ) as script_file:
@@ -1430,9 +1525,22 @@ def _restore_system_font_mirror(
 
 def _clear_system_font_mirror(
     ssh_client,
+    *,
+    expected_home_only=None,
 ) -> dict[str, Optional[bytes]]:
     """Remove rmtool's pre-unlock font mirror and return its exact prior state."""
-    previous_files = _system_font_snapshot(ssh_client)
+    if expected_home_only is None:
+        previous_files = _system_font_snapshot(ssh_client)
+    else:
+        try:
+            current_home_only = inspect_home_only_font(ssh_client)
+        except Exception as exc:
+            raise RuntimeError("删除前字体状态已变化，新字节不会被清理。") from exc
+        if current_home_only != expected_home_only:
+            raise RuntimeError("删除前字体状态已变化，新字节不会被清理。")
+        previous_files = dict(expected_home_only.verified_files)
+        if set(previous_files) != set(SYSTEM_FONT_STATE_PATHS):
+            raise RuntimeError("home-only 计划缺少完整已验证回滚快照。")
     config = previous_files[SYSTEM_FONTCONFIG_FILE]
     has_mirror_files = any(
         previous_files[path] is not None
@@ -1447,23 +1555,39 @@ def _clear_system_font_mirror(
         return previous_files
 
     token = os.urandom(6).hex()
+    marker = _expected_clear_marker(token) if expected_home_only is not None else ""
     try:
-        # Do not recreate /data/rmtool/fonts when the user explicitly chose
-        # the home-only layout.  Removing the managed files directly keeps
-        # the no-lock-screen mode genuinely independent of /data capacity.
-        ssh_client.exec_checked(
-            "rm -f "
-            + " ".join(
-                shlex.quote(path) for path in SYSTEM_FONT_PATHS.values()
+        if expected_home_only is not None:
+            _apply_persistent_root_font_state(
+                ssh_client,
+                {path: None for path in SYSTEM_FONT_ROOT_PATHS},
+                token,
+                expected_clear=expected_home_only,
             )
-        )
-        _apply_persistent_root_font_state(
-            ssh_client,
-            {path: None for path in SYSTEM_FONT_ROOT_PATHS},
-            token,
-        )
+        else:
+            # Do not recreate /data/rmtool/fonts when the user explicitly chose
+            # the home-only layout.  Removing the managed files directly keeps
+            # the no-lock-screen mode genuinely independent of /data capacity.
+            ssh_client.exec_checked(
+                "rm -f "
+                + " ".join(
+                    shlex.quote(path) for path in SYSTEM_FONT_PATHS.values()
+                )
+            )
+            _apply_persistent_root_font_state(
+                ssh_client,
+                {path: None for path in SYSTEM_FONT_ROOT_PATHS},
+                token,
+            )
         refresh_font_cache(ssh_client, SYSTEM_FONT_DIR, SYSTEM_FONTCONFIG_DIR)
     except Exception as exc:
+        if expected_home_only is not None:
+            try:
+                mutation_started = _file_exists(ssh_client, marker)
+            except Exception:
+                mutation_started = False
+            if not mutation_started:
+                raise
         try:
             _restore_system_font_mirror(
                 ssh_client, previous_files, f"{token}-rollback"
@@ -1473,6 +1597,13 @@ def _clear_system_font_mirror(
                 f"{exc}；/data 字体镜像清理回滚失败：{rollback_exc}"
             ) from rollback_exc
         raise
+    finally:
+        if expected_home_only is not None:
+            try:
+                if _file_exists(ssh_client, marker):
+                    ssh_client.exec_checked(f"rm -f {shlex.quote(marker)}")
+            except Exception:
+                logging.warning("Could not remove expected font-clear marker")
     return previous_files
 
 
@@ -2730,6 +2861,174 @@ def upload_user_font(
     )
 
 
+def _home_only_file_metadata(attributes, path: str) -> HomeOnlyFontMetadata:
+    error = _legacy_regular_file_error(attributes, path)
+    if error or getattr(attributes, "st_nlink", None) != 1:
+        raise RuntimeError(f"字体文件所有者、权限或硬链接状态不可信：{path}；{error}")
+    return HomeOnlyFontMetadata(
+        path, attributes.st_mode, attributes.st_uid, attributes.st_gid, attributes.st_nlink
+    )
+
+
+def _home_only_directory_metadata(attributes, path: str) -> HomeOnlyFontMetadata:
+    if (
+        not stat.S_ISDIR(attributes.st_mode)
+        or stat.S_IMODE(attributes.st_mode) != 0o755
+        or getattr(attributes, "st_uid", None) != 0
+        or getattr(attributes, "st_gid", None) != 0
+    ):
+        raise RuntimeError(f"字体受管父目录的类型、所有者或权限不可信：{path}")
+    return HomeOnlyFontMetadata(
+        path,
+        attributes.st_mode,
+        attributes.st_uid,
+        attributes.st_gid,
+        getattr(attributes, "st_nlink", 0),
+    )
+
+
+def _home_only_parents(paths) -> tuple[str, ...]:
+    parents = set()
+    for path in paths:
+        parent = posixpath.dirname(path)
+        while parent:
+            parents.add(parent)
+            if parent == "/":
+                break
+            parent = posixpath.dirname(parent)
+    return tuple(sorted(parents))
+
+
+def _home_only_mount_fingerprint(ssh_client, managed_paths) -> str:
+    lines = ssh_client.exec_checked("cat /proc/self/mountinfo").splitlines()
+    if not lines:
+        raise RuntimeError("无法读取字体挂载边界。")
+    relevant = []
+    root_seen = False
+    for line in lines:
+        fields = line.split()
+        if len(fields) < 10 or "-" not in fields:
+            raise RuntimeError("字体挂载信息格式无效。")
+        path = fields[4]
+        root_seen |= path == "/"
+        if not any(
+            target == path or target.startswith(path + "/") or path.startswith(target + "/")
+            for target in managed_paths
+        ):
+            continue
+        relevant.append(line)
+        if path in ("/", "/home", "/data"):
+            continue
+        if path == "/etc":
+            from _plugin_recovery import _is_stock_etc_overlay
+            if _is_stock_etc_overlay(fields, fields.index("-")):
+                continue
+        raise RuntimeError(f"字体受管路径存在挂载遮挡：{path}")
+    if not root_seen:
+        raise RuntimeError("无法确认根挂载边界。")
+    return hashlib.sha256("\n".join(sorted(relevant)).encode()).hexdigest()
+
+
+def _inspect_home_only_font(ssh_client) -> HomeOnlyFontState:
+    """Return an exact home-font/managed-lock-screen snapshot without writes."""
+    paths = (FONTCONFIG_FILE, *SYSTEM_FONT_STATE_PATHS)
+    snapshots = {}
+    metadata = []
+    with ssh_client.sftp_session() as sftp:
+        for path in paths:
+            try:
+                attributes = sftp.lstat(path)
+            except FileNotFoundError:
+                snapshots[path] = None
+                continue
+            metadata.append(_home_only_file_metadata(attributes, path))
+            snapshots[path] = _read_bytes(ssh_client, path)
+    user_config = snapshots[FONTCONFIG_FILE]
+    system_config = snapshots[SYSTEM_FONTCONFIG_FILE]
+    if user_config is None or system_config is None:
+        raise RuntimeError("当前没有完整的用户字体和锁屏镜像配置。")
+    remote_path = _font_config_target(user_config)
+    if (
+        remote_path is None
+        or not remote_path.startswith("/home/root/")
+        or posixpath.splitext(remote_path)[1].lower() not in CUSTOM_FONT_PATHS
+    ):
+        raise RuntimeError("当前用户 Fontconfig 没有指向 home 中的 TTF/OTF 字体。")
+    remote_dir = posixpath.dirname(remote_path)
+    filename = posixpath.basename(remote_path)
+    _user_font_path(remote_dir, filename)
+    with ssh_client.sftp_session() as sftp:
+        source_attributes = _lstat_regular_file(sftp, remote_path)
+        metadata.append(_home_only_file_metadata(source_attributes, remote_path))
+    font_data = _read_bytes(ssh_client, remote_path)
+    family = _scan_font_family(ssh_client, remote_path)
+    if user_config != fontconfig_override(family, remote_path).encode("utf-8"):
+        raise RuntimeError("用户 Fontconfig 不是当前字体的精确 rmtool 配置。")
+    if _ui_font_match_paths(ssh_client) != (remote_path,):
+        raise RuntimeError("当前活动字体与 home 中的用户字体不一致。")
+    extension = posixpath.splitext(filename)[1].lower()
+    mirror_path = SYSTEM_FONT_PATHS[extension]
+    if _system_font_config_target(system_config) != mirror_path:
+        raise RuntimeError("锁屏配置没有指向当前机型的 rmtool 字体镜像。")
+    allowed_configs = tuple(
+        fontconfig_override(family, mirror_path).replace(
+            "<!-- ponytail: user-level UI font override; restore the prior file to undo. -->",
+            f"<!-- rmtool system UI font; owner: {owner} -->",
+        ).encode("utf-8")
+        for owner in ("user", "localization")
+    )
+    if system_config not in allowed_configs:
+        raise RuntimeError("锁屏 Fontconfig 不是完整匹配的 rmtool 管理配置。")
+    expected_files = {mirror_path, SYSTEM_FONTCONFIG_FILE}
+    if any(
+        snapshots[path] is not None
+        for path in SYSTEM_FONT_STATE_PATHS
+        if path not in expected_files
+    ):
+        raise RuntimeError("检测到额外或旧版字体镜像，不能自动处理。")
+    with ssh_client.sftp_session() as sftp:
+        entries = sftp.listdir_attr(SYSTEM_FONT_DIR)
+        for path in _home_only_parents((remote_path, mirror_path, FONTCONFIG_FILE, SYSTEM_FONTCONFIG_FILE)):
+            try:
+                attributes = sftp.lstat(path)
+            except FileNotFoundError as exc:
+                raise RuntimeError(f"字体受管父目录缺失：{path}") from exc
+            metadata.append(_home_only_directory_metadata(attributes, path))
+    if (
+        {getattr(entry, "filename", "") for entry in entries}
+        != {posixpath.basename(mirror_path)}
+        or any(not stat.S_ISREG(entry.st_mode) for entry in entries)
+    ):
+        raise RuntimeError("锁屏字体目录包含未知或链接项，不能自动处理。")
+    if snapshots[mirror_path] != font_data:
+        raise RuntimeError("home 字体源与锁屏镜像的字节不一致。")
+    _verify_system_font_matches(ssh_client, mirror_path)
+    mount_fingerprint = _home_only_mount_fingerprint(
+        ssh_client, (remote_path, FONTCONFIG_FILE, *SYSTEM_FONT_STATE_PATHS)
+    )
+    return HomeOnlyFontState(
+        remote_dir,
+        filename,
+        remote_path,
+        mirror_path,
+        family,
+        hashlib.sha256(font_data).hexdigest(),
+        hashlib.sha256(user_config).hexdigest(),
+        hashlib.sha256(system_config).hexdigest(),
+        len(font_data),
+        tuple(sorted(metadata, key=lambda item: item.path)),
+        mount_fingerprint,
+        tuple((path, snapshots[path]) for path in SYSTEM_FONT_STATE_PATHS),
+    )
+
+
+def inspect_home_only_font(ssh_client) -> HomeOnlyFontState:
+    try:
+        return _inspect_home_only_font(ssh_client)
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("无法完整读取字体状态，已停止 home-only 检查。") from exc
+
+
 def set_active_user_font(
     ssh_client,
     remote_dir: str,
@@ -2738,6 +3037,7 @@ def set_active_user_font(
     *,
     fontconfig_remote_path: str = FONTCONFIG_FILE,
     expected_legacy_migration: Optional[LegacySystemFontMigration] = None,
+    expected_home_only: Optional[HomeOnlyFontState] = None,
 ) -> UserFont:
     """Select an existing user font by exact path with byte-exact rollback."""
     directory, remote_path = _user_font_path(remote_dir, filename)
@@ -2762,6 +3062,20 @@ def set_active_user_font(
 
     with ssh_client.sftp_session() as sftp:
         _require_top_level_regular_font(sftp, directory, filename)
+    if expected_home_only is not None:
+        if (
+            lock_screen_support
+            or fontconfig_remote_path != FONTCONFIG_FILE
+            or (directory, remote_path)
+            != (expected_home_only.remote_dir, expected_home_only.remote_path)
+        ):
+            raise RuntimeError("home-only 字体计划与当前操作不一致，未修改设备。")
+        try:
+            current_home_only = inspect_home_only_font(ssh_client)
+        except Exception as exc:
+            raise RuntimeError("字体状态已变化，未修改设备。请重新检测后再试。") from exc
+        if current_home_only != expected_home_only:
+            raise RuntimeError("字体状态已变化，未修改设备。请重新检测后再试。")
     if expected_legacy_migration is not None:
         current_migration = get_legacy_system_font_migration(ssh_client, directory)
         if current_migration != expected_legacy_migration:
@@ -2779,7 +3093,9 @@ def set_active_user_font(
         if mirror_plan is not None:
             _install_system_font_mirror(ssh_client, mirror_plan, family)
         else:
-            _clear_system_font_mirror(ssh_client)
+            _clear_system_font_mirror(
+                ssh_client, expected_home_only=expected_home_only
+            )
     except Exception as exc:
         rollback_errors = []
         try:

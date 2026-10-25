@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -210,3 +211,33 @@ umount() {
         result = self.execute()
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual((self.root / "mount/foreign").read_bytes(), b"keep")
+
+    def test_expected_clear_validation_precedes_marker_and_delete(self):
+        source = "/home/root/.local/share/fonts/selected.ttf"
+        mirror = "/data/rmtool/fonts/active-ui-font.ttf"
+        expected = fonts.HomeOnlyFontState(
+            "/home/root/.local/share/fonts",
+            "selected.ttf",
+            source,
+            mirror,
+            "Selected",
+            "a" * 64,
+            "b" * 64,
+            "c" * 64,
+            100,
+            (
+                fonts.HomeOnlyFontMetadata(
+                    "/data", stat.S_IFDIR | 0o755, 0, 0, 2
+                ),
+            ),
+            "d" * 64,
+        )
+        script = fonts._expected_clear_shell(expected, self.TOKEN)
+        result = subprocess.run(
+            [SH, "-n"], input=script, capture_output=True, encoding="utf-8", timeout=30
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        marker = f": > {fonts._expected_clear_marker(self.TOKEN)}"
+        self.assertLess(script.index("sha256sum"), script.index(marker))
+        self.assertLess(script.index("mount_now="), script.index(marker))
+        self.assertLess(script.index(marker), script.index("rm -f"))

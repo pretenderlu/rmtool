@@ -2275,6 +2275,70 @@ class SharedXoviTests(unittest.TestCase):
             commands,
         )
 
+    def test_legacy_early_and_formal_plans_have_identical_states_and_budget(self):
+        tap_package, fast_package = next(iter(self.contexts()))
+        runtime, incoming = tap._shared_specs(tap_package)
+        peer = fast._shared_specs(fast_package)[1]
+        existing = fast._legacy_spec(fast_package)
+        trusted = {incoming.feature_id: incoming, peer.feature_id: peer}
+        legacies = (tap._legacy_spec(tap_package), existing)
+        ssh = MagicMock()
+        ssh.file_exists.side_effect = lambda path: path == existing.layout.dropin_path
+        lower_checks = []
+        def validate(_ssh, item, *, check_lower):
+            lower_checks.append(check_lower)
+            return item == existing
+        with (
+            patch.object(shared, "_assert_managed_dropins"),
+            patch.object(shared, "has_shared_artifacts", return_value=False),
+            patch.object(shared, "validate_legacy", side_effect=validate),
+            patch.object(shared, "_process_token", return_value=self.TOKEN),
+        ):
+            early = shared._shared_enable_plan(
+                ssh, runtime, incoming, trusted, legacies, check_lower=False
+            )
+            formal = shared._shared_enable_plan(
+                ssh, runtime, incoming, trusted, legacies
+            )
+        self.assertIsInstance(early, shared.SharedEnablePlan)
+        self.assertIsInstance(formal, shared.SharedEnablePlan)
+        self.assertEqual(early.states, formal.states)
+        self.assertEqual(early.previous_sources, formal.previous_sources)
+        self.assertEqual(set(early.states), set(trusted))
+        self.assertTrue(all(state.enabled for state in early.states.values()))
+        self.assertEqual(
+            shared.shared_capacity_budget(runtime, early.states),
+            shared.shared_capacity_budget(runtime, formal.states),
+        )
+        self.assertEqual(lower_checks, [False, False, True, True])
+
+    def test_formal_enable_locked_retains_full_lower_validation(self):
+        package = next(
+            item for item in tap._trusted_catalog()
+            if item.platform == "rm2" and item.release_version == "3.29.0.153"
+        )
+        runtime, feature = tap._shared_specs(package)
+        trusted = {feature.feature_id: feature}
+        legacy = tap._legacy_spec(package)
+        inspection = shared.SharedInspection({
+            feature.feature_id: shared.SharedFeatureState(feature, True, self.TOKEN),
+        }, False, True)
+        ssh = MagicMock()
+        with (
+            patch.object(shared, "_assert_managed_dropins"),
+            patch.object(shared, "has_shared_artifacts", return_value=True),
+            patch.object(shared, "inspect_shared", return_value=inspection) as inspect,
+            patch.object(shared, "validate_legacy", return_value=False) as validate,
+            patch.object(shared, "_stage_shared") as stage,
+        ):
+            result = shared._enable_shared_locked(
+                ssh, runtime, feature, Path("unused"), trusted, (legacy,)
+            )
+        self.assertIs(result, inspection)
+        inspect.assert_called_once_with(ssh, runtime, trusted, check_lower=True)
+        validate.assert_called_once_with(ssh, legacy, check_lower=True)
+        stage.assert_not_called()
+
     def test_both_legacy_migration_directions_preserve_peer(self):
         tap_package, fast_package = next(iter(self.contexts()))
         cases = (
@@ -2299,7 +2363,9 @@ class SharedXoviTests(unittest.TestCase):
                 patch.object(
                     shared,
                     "validate_legacy",
-                    side_effect=lambda _ssh, item: item.feature.feature_id == existing.feature.feature_id,
+                    side_effect=lambda _ssh, item, check_lower: (
+                        item.feature.feature_id == existing.feature.feature_id
+                    ),
                 ),
                 patch.object(shared, "_process_token", return_value=self.TOKEN),
                 patch.object(shared, "_stage_shared", stage),

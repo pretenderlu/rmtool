@@ -241,7 +241,7 @@ def get_status(ssh_client, catalog):
         return QrUploadStatus(QrUploadState.BROKEN, identity, package, catalog, detail=str(exc), recovery_available=True)
 
 
-def install(ssh_client, package, archive_path):
+def preflight(ssh_client, package, *, with_plan=False):
     identity = tap.get_device_identity(ssh_client)
     if select_package(_trusted_catalog(), identity) != package:
         raise RuntimeError("设备与扫码传输包不精确匹配，未执行修改。")
@@ -258,17 +258,38 @@ def install(ssh_client, package, archive_path):
             "不使用密码锁屏时可选择仅保存在 home，不占用 data 字体空间。"
         )
     runtime, trusted, legacies, feature = _context(identity, package)
-    if any(shared.validate_legacy(ssh_client, item) for item in legacies):
+    if any(shared.validate_legacy(ssh_client, item, check_lower=False) for item in legacies):
         raise RuntimeError("请先通过设备维护完成旧插件迁移。")
+    inspection = None
     if managed:
-        _inspection, trusted, _selected = _inspect(ssh_client, identity, runtime, trusted, check_lower=True)
+        inspection, trusted, _selected = _inspect(
+            ssh_client, identity, runtime, trusted, check_lower=False
+        )
         # Inactive external files stay untouched; active competing loaders do not.
         import _plugin_recovery
-        _plugin_recovery._external_loaders(ssh_client, _inspection.layout)
+        _plugin_recovery._external_loaders(ssh_client, inspection.layout)
+    enable_plan = None
+    if runtime.platform in {"rm1", "rm2"}:
+        enable_plan = shared.check_shared_enable_capacity(
+            ssh_client, runtime, feature, trusted, (), inspection=inspection
+        )
+    if with_plan:
+        return runtime, trusted, feature, enable_plan
+    return runtime, trusted, feature
+
+
+def install(ssh_client, package, archive_path):
+    runtime, trusted, feature = preflight(ssh_client, package)
     with tempfile.TemporaryDirectory() as temporary:
         extracted = extract_verified_package(archive_path, package, temporary)
         shared.enable_shared(ssh_client, runtime, feature, extracted, trusted, ())
     return get_status(ssh_client, (package,))
+
+
+def install_cloud(ssh_client, package, state_dir):
+    preflight(ssh_client, package)
+    archive = download_package(package, state_dir)
+    return install(ssh_client, package, archive)
 
 
 def _change(ssh_client, catalog, *, remove):

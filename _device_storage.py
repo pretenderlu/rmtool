@@ -167,11 +167,21 @@ def system_free_bytes(ssh_client) -> tuple[str, int]:
     return partition, available
 
 
-def require_capacity(partition: str, available: int, required: int) -> None:
+def require_capacity(
+    partition: str, available: int, required: int, *, recovery_kind: str = "capacity"
+) -> None:
     if available < required:
-        raise RuntimeError(
+        error = RuntimeError(
             f"{partition} 空间不足：本次操作含安全余量需要 {required / 1048576:.2f} MiB，"
             f"可用 {available / 1048576:.2f} MiB，还差 {(required - available) / 1048576:.2f} MiB。"
             "请清理已确认归属的旧安装，勿删除未知系统文件；"
             "不需要密码锁屏的字体可选择仅部署到 /home。"
         )
+        error.recovery_context = {
+            "kind": recovery_kind,
+            "partition": partition,
+            "required": required,
+            "available": available,
+            "shortfall": required - available,
+        }
+        raise error

@@ -2476,6 +2476,77 @@ def _qmd_check_command(stage: str, enabled: Iterable[SharedFeatureSpec]) -> str:
     )
 
 
+@dataclass(frozen=True)
+class SharedFeatureCapacityBudget:
+    feature_id: str
+    payload_bytes: int
+    validation_bytes: int
+
+
+@dataclass(frozen=True)
+class SharedCapacityBudget:
+    marker_bytes: int
+    launcher_bytes: int
+    dropin_bytes: int
+    runtime_bytes: int
+    feature_bytes: int
+    validation_bytes: int
+    feature_budgets: tuple[SharedFeatureCapacityBudget, ...]
+    allocated_bytes: int
+    transaction_bytes: int
+    required_bytes: int
+
+
+def _allocated_sizes(sizes: Iterable[int]) -> int:
+    return sum(((size + 4095) // 4096) * 4096 for size in sizes)
+
+
+def shared_capacity_budget(
+    runtime, states, *, staged=False, controls_only=False
+) -> SharedCapacityBudget:
+    enabled = tuple(state.spec for state in states.values() if state.enabled)
+    marker = _allocated_sizes((len(shared_marker(runtime, states, "0" * 64, "0" * 64)),))
+    launcher = dropin = runtime_bytes = validation_bytes = 0
+    feature_budgets = ()
+    if enabled:
+        if not controls_only:
+            runtime_bytes = _allocated_sizes(item.size for item in runtime.files)
+            feature_budgets = tuple(
+                SharedFeatureCapacityBudget(
+                    feature.feature_id,
+                    _allocated_sizes(item.size for item in feature.files),
+                    _allocated_sizes(
+                        item.size for item in feature.files
+                        if item.runtime_path.endswith(".qmd")
+                    ),
+                )
+                for feature in enabled
+            )
+            # qmd-tool validation also makes a temporary copy of the QML inputs.
+            validation_bytes = _allocated_sizes(
+                item.size for item in runtime.files if item.path.endswith("hashtab")
+            ) + sum(item.validation_bytes for item in feature_budgets)
+        launcher = _allocated_sizes((len(shared_launcher(runtime, enabled).encode()),))
+        dropin = _allocated_sizes((len(shared_dropin(runtime, enabled).encode()),))
+    feature_bytes = sum(item.payload_bytes for item in feature_budgets)
+    allocated = marker + launcher + dropin + runtime_bytes + feature_bytes + validation_bytes
+    # Existing payload backups are renamed, not reclaimed or counted as free.
+    transaction = 64 * 1024 + (allocated if controls_only else 0)
+    required = transaction + (0 if staged else allocated)
+    return SharedCapacityBudget(
+        marker,
+        launcher,
+        dropin,
+        runtime_bytes,
+        feature_bytes,
+        validation_bytes,
+        feature_budgets,
+        allocated,
+        transaction,
+        required,
+    )
+
+
 def check_shared_capacity(ssh_client, runtime, states, *, staged=False, controls_only=False):
     """Budget legacy installs and repairs without changing boot-time storage."""
     if runtime.platform not in {"rm1", "rm2"}:
@@ -2483,31 +2554,32 @@ def check_shared_capacity(ssh_client, runtime, states, *, staged=False, controls
     home_layout = preferred_layout(runtime) == LEGACY_SHARED_LAYOUT
     if home_layout:
         ssh_client.exec_checked("mountpoint -q /home")
-    enabled = tuple(state.spec for state in states.values() if state.enabled)
-    sizes = [len(shared_marker(runtime, states, "0" * 64, "0" * 64))]
-    if enabled:
-        if not controls_only:
-            sizes.extend(item.size for item in runtime.files)
-            sizes.extend(item.size for feature in enabled for item in feature.files)
-            # qmd-tool validation also makes a temporary copy of the QML inputs.
-            sizes.extend(item.size for item in runtime.files if item.path.endswith("hashtab"))
-            sizes.extend(item.size for feature in enabled for item in feature.files
-                         if item.runtime_path.endswith(".qmd"))
-        sizes.extend((len(shared_launcher(runtime, enabled).encode()),
-                      len(shared_dropin(runtime, enabled).encode())))
-    allocated = sum(((size + 4095) // 4096) * 4096 for size in sizes)
-    # Existing payload backups are renamed, not reclaimed or counted as free.
-    overhead = 64 * 1024 + (allocated if controls_only else 0)
-    needed = overhead + (0 if staged else allocated)
+    budget = shared_capacity_budget(
+        runtime, states, staged=staged, controls_only=controls_only
+    )
     if home_layout:
-        storage.require_capacity("/home", storage.df_free_bytes(ssh_client, "/home"),
-                                 24 * 1024 * 1024 + needed)
+        storage.require_capacity(
+            "/home",
+            storage.df_free_bytes(ssh_client, "/home"),
+            24 * 1024 * 1024 + budget.required_bytes,
+            recovery_kind="shared-capacity",
+        )
         available = storage.root_free_bytes(ssh_client, storage.df_free_bytes(ssh_client, "/"))
-        storage.require_capacity("/", available, 1024 * 1024 + overhead)
+        storage.require_capacity(
+            "/",
+            available,
+            1024 * 1024 + budget.transaction_bytes,
+            recovery_kind="shared-capacity",
+        )
     else:
         partition, available = storage.system_free_bytes(ssh_client)
         reserve = storage.LEGACY_ROOT_RESERVE if partition == "/" else 25 * 1024 * 1024
-        storage.require_capacity(partition, available, reserve + needed)
+        storage.require_capacity(
+            partition,
+            available,
+            reserve + budget.required_bytes,
+            recovery_kind="shared-capacity",
+        )
 
 
 def _assert_home_catalog(runtime, states):
@@ -2817,14 +2889,25 @@ def enable_shared(
         )
 
 
-def _enable_shared_locked(
+@dataclass(frozen=True)
+class SharedEnablePlan:
+    inspection: SharedInspection
+    target_trusted: Mapping[str, SharedFeatureSpec]
+    states: Mapping[str, SharedFeatureState]
+    previous_sources: Mapping[str, str]
+    present_legacy: tuple[LegacyStandaloneSpec, ...]
+
+
+def _shared_enable_plan(
     ssh_client,
     runtime: SharedRuntimeSpec,
     feature: SharedFeatureSpec,
-    extracted_root: str | Path,
     trusted: Mapping[str, SharedFeatureSpec],
     legacy_specs: Iterable[LegacyStandaloneSpec],
-) -> SharedInspection:
+    *,
+    inspection: SharedInspection | None = None,
+    check_lower: bool = True,
+) -> SharedEnablePlan | SharedInspection:
     layout = preferred_layout(runtime)
     if set(trusted) - {
         "tap-page-turn",
@@ -2855,11 +2938,18 @@ def _enable_shared_locked(
         if feature_id in trusted
     })
     shared_exists = has_shared_artifacts(ssh_client)
-    inspection = inspect_shared(ssh_client, runtime, trusted, check_lower=True) if shared_exists else SharedInspection({}, False, False)
+    if inspection is None:
+        inspection = (
+            inspect_shared(ssh_client, runtime, trusted, check_lower=check_lower)
+            if shared_exists else SharedInspection({}, False, False)
+        )
     _assert_receipt_operation_scope(
         inspection, trusted, (feature.feature_id,)
     )
-    present_legacy = [item for item in legacy_specs if validate_legacy(ssh_client, item)]
+    present_legacy = tuple(
+        item for item in legacy_specs
+        if validate_legacy(ssh_client, item, check_lower=check_lower)
+    )
     if shared_exists and present_legacy:
         raise RuntimeError("检测到共享与旧版独立 Xovi 混合布局，拒绝修改。")
     if len(present_legacy) > 1:
@@ -2911,6 +3001,55 @@ def _enable_shared_locked(
     ]
     if len(set(feature_paths)) != len(feature_paths):
         raise RuntimeError("共享 Xovi 功能路径发生冲突。")
+    return SharedEnablePlan(
+        inspection, target_trusted, states, previous_sources, present_legacy
+    )
+
+
+def check_shared_enable_capacity(
+    ssh_client,
+    runtime: SharedRuntimeSpec,
+    feature: SharedFeatureSpec,
+    trusted: Mapping[str, SharedFeatureSpec],
+    legacy_specs: Iterable[LegacyStandaloneSpec],
+    *,
+    inspection: SharedInspection | None = None,
+) -> SharedEnablePlan | SharedInspection:
+    plan = _shared_enable_plan(
+        ssh_client,
+        runtime,
+        feature,
+        trusted,
+        legacy_specs,
+        inspection=inspection,
+        check_lower=False,
+    )
+    if isinstance(plan, SharedEnablePlan):
+        try:
+            check_shared_capacity(ssh_client, runtime, plan.states)
+        except RuntimeError as exc:
+            exc.shared_enable_plan = plan
+            raise
+    return plan
+
+
+def _enable_shared_locked(
+    ssh_client,
+    runtime: SharedRuntimeSpec,
+    feature: SharedFeatureSpec,
+    extracted_root: str | Path,
+    trusted: Mapping[str, SharedFeatureSpec],
+    legacy_specs: Iterable[LegacyStandaloneSpec],
+) -> SharedInspection:
+    plan = _shared_enable_plan(ssh_client, runtime, feature, trusted, legacy_specs)
+    if isinstance(plan, SharedInspection):
+        return plan
+    inspection = plan.inspection
+    target_trusted = plan.target_trusted
+    states = plan.states
+    previous_sources = plan.previous_sources
+    present_legacy = plan.present_legacy
+    layout = preferred_layout(runtime)
 
     token = uuid.uuid4().hex
     stage = f"{layout.remote_base}.staging-{token}"

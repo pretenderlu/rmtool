@@ -22,7 +22,7 @@ def plugin_operation_busy(ssh_client) -> bool:
 def start_plugin_worker(
     owner, fn, *args, pending, success="", close_connection=False,
     on_done=None, show_errors=True, apply_status=None, retry=None,
-    error_hint="设备不会被自动重启。",
+    error_hint="设备不会被自动重启。", recovery_intent=None,
 ):
     """Reserve one connection until the worker and its completion cleanup finish."""
     ssh = owner.ssh_client
@@ -96,7 +96,13 @@ def start_plugin_worker(
                     owner._update_buttons()
                     owner.status_label.setText(f"操作失败：{exc}；请重新检测，设备不会自动重启。")
                     if show_errors:
-                        show_error(owner, _rmtool.APP_NAME, f"操作失败：{exc}\n{error_hint}")
+                        show_error(
+                            owner,
+                            _rmtool.APP_NAME,
+                            f"操作失败：{exc}\n{error_hint}",
+                            error=exc,
+                            recovery_intent=recovery_intent,
+                        )
         finally:
             release()
             if on_done is not None:

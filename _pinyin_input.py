@@ -751,6 +751,32 @@ def _stage_external(ssh_client, package: PinyinInputPackage, extracted: Path, st
     )
 
 
+def preflight(ssh_client, package: PinyinInputPackage):
+    identity = tap.get_device_identity(ssh_client)
+    if select_package(_trusted_catalog(), identity) != package:
+        raise RuntimeError("设备与拼音输入法包不精确匹配，未执行修改。")
+    tap._preflight_device(ssh_client)
+    _assert_no_rmkit_ime(ssh_client)
+    runtime, trusted, legacies = _trusted_shared_context(identity)
+    _runtime, feature = _shared_specs(package)
+    if runtime.platform not in {"rm1", "rm2"}:
+        return
+    installed_trusted = trusted
+    inspection = None
+    if _xovi_standalone.has_shared_artifacts(ssh_client):
+        inspection, installed_trusted, _outdated = _inspect_shared_revision(
+            ssh_client, runtime, trusted, package, check_lower=False
+        )
+    return _xovi_standalone.check_shared_enable_capacity(
+        ssh_client,
+        runtime,
+        feature,
+        installed_trusted,
+        legacies,
+        inspection=inspection,
+    )
+
+
 def enable(
     ssh_client,
     package: PinyinInputPackage,
@@ -794,6 +820,15 @@ def enable(
                 and inspection.layout == _xovi_standalone.preferred_layout(runtime)
             ):
                 return get_status(ssh_client, (package,))
+            if runtime.platform in {"rm1", "rm2"}:
+                _xovi_standalone.check_shared_enable_capacity(
+                    ssh_client,
+                    runtime,
+                    feature,
+                    installed_trusted,
+                    legacies,
+                    inspection=inspection,
+                )
             previous_moved = False
             new_moved = False
             try:
@@ -833,6 +868,7 @@ def enable(
 def enable_cloud(
     ssh_client, package: PinyinInputPackage, state_dir: str
 ) -> PinyinInputStatus:
+    preflight(ssh_client, package)
     return enable(ssh_client, package, download_package(package, state_dir), state_dir)
 
 

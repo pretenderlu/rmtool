@@ -12,7 +12,9 @@ from unittest.mock import Mock, patch
 
 import _device_storage as storage
 import _native_chinese as native
+import _pinyin_input as pinyin
 import _plugin_recovery as recovery
+import _qr_upload as qr
 import _xovi_standalone as shared
 
 
@@ -186,8 +188,16 @@ class RootCapacityTests(unittest.TestCase):
                 storage.system_free_bytes(ssh)
 
     def test_capacity_error_has_partition_required_available_and_shortfall(self):
-        with self.assertRaisesRegex(RuntimeError, r"/ 空间不足.*9\.00 MiB.*8\.00 MiB.*1\.00 MiB"):
+        with self.assertRaisesRegex(RuntimeError, r"/ 空间不足.*9\.00 MiB.*8\.00 MiB.*1\.00 MiB") as raised:
             storage.require_capacity("/", 8 * 1048576, 9 * 1048576)
+        self.assertIs(type(raised.exception), RuntimeError)
+        self.assertEqual(raised.exception.recovery_context, {
+            "kind": "capacity",
+            "partition": "/",
+            "required": 9 * 1048576,
+            "available": 8 * 1048576,
+            "shortfall": 1048576,
+        })
         storage.require_capacity("/", 9 * 1048576, 9 * 1048576)
 
     def test_probe_shell_executes_read_only_against_fixture(self):
@@ -271,6 +281,119 @@ class LegacyPluginCapacityTests(unittest.TestCase):
         ssh.exec_checked.side_effect = execute
         return ssh
 
+    def test_rm2_153_observed_budgets_match_current_trusted_manifests(self):
+        native_package = next(
+            item for item in native._trusted_catalog()
+            if item.platform == "rm2" and item.release_version == "3.29.0.153"
+        )
+        _native_runtime, native_feature = native._shared_specs(native_package)
+        expected = {
+            pinyin.FEATURE_ID: (11317248, 90112, 684032, 12341248, 20795392),
+            qr.FEATURE_ID: (11317248, 10383360, 634880, 22585344, 31039488),
+        }
+        for module in (pinyin, qr):
+            package = next(
+                item for item in module._trusted_catalog()
+                if item.platform == "rm2" and item.release_version == "3.29.0.153"
+            )
+            runtime, feature = module._shared_specs(package)
+            states = {
+                native_feature.feature_id: shared.SharedFeatureState(
+                    native_feature, True, "token"
+                ),
+                feature.feature_id: shared.SharedFeatureState(feature, True, "token"),
+            }
+            with self.subTest(feature=feature.feature_id):
+                budget = shared.shared_capacity_budget(runtime, states)
+                runtime_bytes, feature_bytes, validation, allocated, total = expected[
+                    feature.feature_id
+                ]
+                self.assertEqual(budget.runtime_bytes, runtime_bytes)
+                self.assertEqual(budget.feature_bytes, 233472 + feature_bytes)
+                by_feature = {item.feature_id: item for item in budget.feature_budgets}
+                self.assertEqual(by_feature[native_feature.feature_id].payload_bytes, 233472)
+                self.assertEqual(by_feature[feature.feature_id].payload_bytes, feature_bytes)
+                self.assertEqual(budget.validation_bytes, validation)
+                self.assertEqual(
+                    budget.marker_bytes + budget.launcher_bytes + budget.dropin_bytes,
+                    16384,
+                )
+                self.assertEqual(budget.allocated_bytes, allocated)
+                self.assertEqual(budget.transaction_bytes, 64 * 1024)
+                self.assertEqual(
+                    budget.required_bytes + storage.LEGACY_ROOT_RESERVE, total
+                )
+                self.assertEqual(total / 1048576, {
+                    pinyin.FEATURE_ID: 19.83203125,
+                    qr.FEATURE_ID: 29.6015625,
+                }[feature.feature_id])
+                with self.assertRaises(AttributeError):
+                    budget.required_bytes = 0
+
+    def test_capacity_threshold_and_structured_shared_context(self):
+        budget = shared.shared_capacity_budget(self.runtime, self.states)
+        for partition, reserve in (("/", 8 * 1048576), ("/data", 25 * 1048576)):
+            required = reserve + budget.required_bytes
+            with self.subTest(partition=partition), patch.object(
+                storage, "system_free_bytes", return_value=(partition, required)
+            ):
+                shared.check_shared_capacity(Mock(), self.runtime, self.states)
+            with self.subTest(partition=partition, short=1), patch.object(
+                storage, "system_free_bytes", return_value=(partition, required - 1)
+            ):
+                with self.assertRaises(RuntimeError) as raised:
+                    shared.check_shared_capacity(Mock(), self.runtime, self.states)
+            self.assertEqual(raised.exception.recovery_context, {
+                "kind": "shared-capacity",
+                "partition": partition,
+                "required": required,
+                "available": required - 1,
+                "shortfall": 1,
+            })
+
+    def test_enable_capacity_error_and_success_share_the_same_real_plan(self):
+        trusted = {self.feature.feature_id: self.feature}
+        budget = shared.shared_capacity_budget(self.runtime, self.states)
+        required = storage.LEGACY_ROOT_RESERVE + budget.required_bytes
+        with patch.object(shared, "_assert_managed_dropins"), patch.object(
+            shared, "has_shared_artifacts", return_value=False
+        ), patch.object(shared, "_process_token", return_value="token"), patch.object(
+            storage, "system_free_bytes", return_value=("/", 0),
+        ) as capacity:
+            with self.assertRaises(RuntimeError) as raised:
+                shared.check_shared_enable_capacity(
+                    Mock(), self.runtime, self.feature, trusted, ()
+                )
+            failed_plan = raised.exception.shared_enable_plan
+            capacity.return_value = ("/", required)
+            returned_plan = shared.check_shared_enable_capacity(
+                Mock(), self.runtime, self.feature, trusted, ()
+            )
+        self.assertEqual(returned_plan, failed_plan)
+        self.assertEqual(returned_plan.states, self.states)
+
+    def test_budget_preserves_4k_controls_only_and_staged_accounting(self):
+        budget = shared.shared_capacity_budget(self.runtime, self.states)
+        self.assertEqual(budget.allocated_bytes % 4096, 0)
+        controls = shared.shared_capacity_budget(
+            self.runtime, self.states, controls_only=True
+        )
+        self.assertEqual(controls.runtime_bytes, 0)
+        self.assertEqual(controls.feature_bytes, 0)
+        self.assertEqual(controls.validation_bytes, 0)
+        self.assertEqual(
+            controls.allocated_bytes,
+            controls.marker_bytes + controls.launcher_bytes + controls.dropin_bytes,
+        )
+        self.assertEqual(controls.transaction_bytes, 64 * 1024 + controls.allocated_bytes)
+        self.assertEqual(controls.required_bytes, 64 * 1024 + 2 * controls.allocated_bytes)
+        staged = shared.shared_capacity_budget(self.runtime, self.states, staged=True)
+        self.assertEqual(staged.required_bytes, 64 * 1024)
+        staged_controls = shared.shared_capacity_budget(
+            self.runtime, self.states, staged=True, controls_only=True
+        )
+        self.assertEqual(staged_controls.required_bytes, 64 * 1024 + controls.allocated_bytes)
+
     def test_rm2_root_payload_budget_includes_allocation_and_reserve(self):
         with patch.object(storage, "require_capacity", wraps=storage.require_capacity) as check:
             shared.check_shared_capacity(self.ssh(free=50000), self.runtime, self.states)
@@ -296,6 +419,35 @@ class LegacyPluginCapacityTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "/ 空间不足"):
             shared.check_shared_capacity(self.ssh(free=4096), runtime, self.states)
 
+    def test_rm1_home_and_root_exact_thresholds_and_one_byte_short(self):
+        runtime = replace(self.runtime, platform="rm1")
+        budget = shared.shared_capacity_budget(runtime, self.states)
+        home_required = 24 * 1048576 + budget.required_bytes
+        root_required = 1048576 + budget.transaction_bytes
+        cases = (
+            (home_required, root_required, None),
+            (home_required - 1, root_required, "/home"),
+            (home_required, root_required - 1, "/"),
+        )
+        for home_available, root_available, failure in cases:
+            with self.subTest(failure=failure), patch.object(
+                storage, "df_free_bytes", side_effect=(home_available, root_available)
+            ), patch.object(storage, "root_free_bytes", return_value=root_available):
+                if failure is None:
+                    shared.check_shared_capacity(Mock(), runtime, self.states)
+                    continue
+                with self.assertRaises(RuntimeError) as raised:
+                    shared.check_shared_capacity(Mock(), runtime, self.states)
+                required = home_required if failure == "/home" else root_required
+                available = home_available if failure == "/home" else root_available
+                self.assertEqual(raised.exception.recovery_context, {
+                    "kind": "shared-capacity",
+                    "partition": failure,
+                    "required": required,
+                    "available": available,
+                    "shortfall": 1,
+                })
+
     def test_independent_data_retains_conservative_reserve(self):
         ssh = self.ssh(partition="/data")
         with self.assertRaisesRegex(RuntimeError, "/data 空间不足"):
@@ -318,18 +470,20 @@ class LegacyPluginCapacityTests(unittest.TestCase):
             shared.check_shared_capacity(ssh, replace(self.runtime, platform=platform), self.states)
             ssh.exec_checked.assert_not_called()
 
-    def test_control_staging_rechecks_capacity_after_hash_verification(self):
+    def test_early_check_does_not_replace_formal_staging_drift_recheck(self):
         ssh = Mock()
         uploaded = {}
         def upload(_ssh, data, path, mode):
             uploaded[path] = data
-        with patch.object(shared, "check_shared_capacity", side_effect=(None, RuntimeError("space drift"))) as check, \
+        with patch.object(shared, "check_shared_capacity", side_effect=(
+                None, None, RuntimeError("space drift"))) as check, \
                 patch.object(shared, "_upload_bytes", side_effect=upload), \
                 patch.object(shared, "_remote_sha256", side_effect=
                              lambda _ssh, path: hashlib.sha256(uploaded[path]).hexdigest()), \
                 self.assertRaisesRegex(RuntimeError, "space drift"):
+            shared.check_shared_capacity(ssh, self.runtime, self.states, controls_only=True)
             shared._stage_shared(ssh, self.runtime, self.states, {}, {}, "/stage", controls_only=True)
-        self.assertEqual(check.call_count, 2)
+        self.assertEqual(check.call_count, 3)
         self.assertEqual(check.call_args.kwargs, {"staged": True, "controls_only": True})
         self.assertTrue(uploaded)
 

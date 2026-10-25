@@ -118,6 +118,52 @@ class QrUploadTests(unittest.TestCase):
                     qr.install(ssh, self.package, "unused")
                 deploy.assert_not_called()
 
+    def test_cloud_capacity_failure_with_native_peer_is_read_only_and_precedes_download(self):
+        import rmtool  # noqa: F401
+        from _toolbox_reading import _install_qr_upload
+
+        package = next(
+            item for item in self.catalog
+            if item.platform == "rm2" and item.release_version == "3.29.0.153"
+        )
+        device = Device(package=package)
+        native_feature = device.trusted["native-chinese"]
+        device.install({
+            "native-chinese": shared.SharedFeatureState(
+                native_feature, True, "12345678-1234-1234-1234-123456789abc:778:1000"
+            ),
+        })
+        device.free_kib = 0
+        execute = device.exec_checked
+        def root_full(command):
+            if command == shared.storage.SYSTEM_SPACE_COMMAND:
+                device.events.append(command)
+                return "/=0"
+            return execute(command)
+        device.exec_checked = root_full
+        device.transfer_file = Mock()
+        entries = set(device.entries)
+        with (patch.object(tap, "get_device_identity", return_value=device.identity),
+              patch.object(tap, "_preflight_device"),
+              patch.object(qr._rmkit_cn, "has_localization_cjk_font", return_value=True),
+              patch.object(qr, "download_package") as download,
+              patch.object(qr, "install") as install):
+            with self.assertRaises(RuntimeError) as raised:
+                _install_qr_upload(device, package, ".rmtool", False)
+        self.assertEqual(raised.exception.recovery_context["kind"], "shared-capacity")
+        self.assertEqual(raised.exception.recovery_context["required"], 31039488)
+        download.assert_not_called()
+        install.assert_not_called()
+        device.transfer_file.assert_not_called()
+        self.assertEqual(set(device.entries), entries)
+        mutations = (
+            "mkdir ", "mount --bind", "umount ", "rmdir ", "rm ", "mv ",
+            "chmod ", "chown ",
+        )
+        self.assertFalse(any(
+            token in command for command in device.events for token in mutations
+        ), device.events)
+
     def test_install_uses_verified_shared_transaction_without_restart(self):
         ssh = Mock()
         with (patch.object(tap, "get_device_identity", return_value=self.identity),
@@ -178,7 +224,7 @@ class QrUploadTests(unittest.TestCase):
                     if conflict == "none":
                         qr.install(device, self.package, "bundle")
                         deploy.assert_called_once()
-                        check_lower.assert_called_once()
+                        check_lower.assert_not_called()
                     else:
                         with self.assertRaises(RuntimeError):
                             qr.install(device, self.package, "bundle")

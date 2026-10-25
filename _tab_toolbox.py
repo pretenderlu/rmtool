@@ -58,6 +58,7 @@ from _toolbox_legacy import (  # noqa: F401 - re-exported for callers and tests
     _LEGACY_PLATFORM_LABELS,
     LegacyPluginMigrationSection,
 )
+from _toolbox_recovery import CapacityRecoverySection
 from _toolbox_diagnostics import (  # noqa: F401 - re-exported for callers and tests
     _collect_diagnostics,
     DiagnosticPreviewDialog,
@@ -87,6 +88,8 @@ class ToolboxTab(QtWidgets.QWidget):
         self.tap_page_turn_section = TapPageTurnSection(ssh_client)
         self.diagnostics_section = DiagnosticsSection(ssh_client)
         self.legacy_plugin_section = LegacyPluginMigrationSection(ssh_client)
+        self.capacity_recovery_section = CapacityRecoverySection(ssh_client)
+        self.capacity_recovery_section.diagnostics_handler = self.show_diagnostics
         self._detectable_sections = (
             self.native_chinese_section,
             self.pinyin_input_section,
@@ -168,6 +171,13 @@ class ToolboxTab(QtWidgets.QWidget):
                 "keywords": "重启 Wi-Fi SSH 前光",
                 "section": self.control_section,
                 "status": None,
+            },
+            {
+                "title": "设备修复与清理",
+                "category": "设备维护",
+                "keywords": "容量 空间 修复 清理 字体 继续安装",
+                "section": self.capacity_recovery_section,
+                "status": self.capacity_recovery_section.status_label,
             },
             {
                 "title": "诊断日志导出",
@@ -424,6 +434,17 @@ class ToolboxTab(QtWidgets.QWidget):
             if entry["section"] is self.diagnostics_section
         )
         self.tool_table.setCurrentCell(row, 0)
+
+    def show_capacity_recovery(self, intent=None, error=None):
+        self.search_input.clear()
+        self.category_combo.setCurrentIndex(0)
+        row = next(
+            row for row, entry in enumerate(self._tool_entries)
+            if entry["section"] is self.capacity_recovery_section
+        )
+        self.tool_table.setCurrentCell(row, 0)
+        if intent is not None:
+            self.capacity_recovery_section.open_intent(intent, error)
 
     def _show_plugin_recovery(self):
         self.search_input.clear()

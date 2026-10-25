@@ -927,6 +927,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_tabs_enabled(self, enabled: bool):
         feedback_open = self._feedback_open()
+        recovery_open = self._capacity_recovery_open()
         for idx in range(self.pages.count()):
             widget = self.pages.widget(idx)
             if widget is self.dashboard_tab:
@@ -935,7 +936,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 continue
             # Keep the toolbox reachable while a feedback flow is open, so
             # a disconnect does not strand the user mid-report.
-            page_enabled = enabled or (widget is self.toolbox_tab and feedback_open)
+            page_enabled = enabled or (
+                widget is self.toolbox_tab and (feedback_open or recovery_open)
+            )
             widget.setEnabled(page_enabled)
             self.nav_buttons[idx].setEnabled(page_enabled)
 
@@ -945,6 +948,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def _feedback_open(self) -> bool:
         section = self._diagnostics_section()
         return section is not None and section.guide.isVisibleTo(section)
+
+    def _capacity_recovery_open(self) -> bool:
+        section = getattr(self.toolbox_tab, "capacity_recovery_section", None)
+        return (
+            section is not None
+            and section._intent is not None
+            and section.isVisibleTo(self.toolbox_tab)
+        )
 
     def start_feedback(self, error_message: str = "") -> None:
         """Error dialog "反馈问题": open device diagnostics and start collecting."""
@@ -963,6 +974,16 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception:
             self._update_tabs_enabled(self.ssh_client.is_connected())
             raise
+
+    def start_capacity_recovery(self, intent, error) -> None:
+        index = self.pages.indexOf(self.toolbox_tab)
+        self.toolbox_tab.setEnabled(True)
+        self.nav_buttons[index].setEnabled(True)
+        self.nav_buttons[index].setChecked(True)
+        self.pages.setCurrentIndex(index)
+        self.toolbox_tab.show_capacity_recovery(intent, error)
+        self.raise_()
+        self.activateWindow()
 
     def start_app_update_check(self) -> None:
         """Check the public release without delaying the first usable window."""
@@ -1236,6 +1257,7 @@ def main():
     import _dialogs
 
     _dialogs.set_feedback_handler(window.start_feedback)
+    _dialogs.set_capacity_recovery_handler(window.start_capacity_recovery)
     window._current_theme = theme
     window.connection_widget.set_footer_theme(theme)
     window.dashboard_tab.set_theme(theme)
