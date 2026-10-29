@@ -252,6 +252,19 @@ class ResidueMigrationTests(unittest.TestCase):
                 "_trusted_shared_context",
                 side_effect=[self.old_context, self.new_context],
             ),
+            mock.patch.object(
+                _residue_migration,
+                "_prepare_appload_root",
+                return_value=Path("extracted/appload"),
+            ),
+            mock.patch.object(
+                _residue_migration,
+                "_prepare_koreader_root",
+                return_value=Path("extracted/koreader"),
+            ),
+            mock.patch.object(
+                _residue_migration.appload, "ensure_shim_links"
+            ),
             mock.patch.object(shared, "migrate_shared") as migrate_shared,
         ):
             for feature_id, module in providers.items():
@@ -322,6 +335,19 @@ class ResidueMigrationTests(unittest.TestCase):
                 tap,
                 "_trusted_shared_context",
                 side_effect=[self.old_context, self.new_context],
+            ),
+            mock.patch.object(
+                _residue_migration,
+                "_prepare_appload_root",
+                return_value=Path("extracted/appload"),
+            ),
+            mock.patch.object(
+                _residue_migration,
+                "_prepare_koreader_root",
+                return_value=Path("extracted/koreader"),
+            ),
+            mock.patch.object(
+                _residue_migration.appload, "ensure_shim_links"
             ),
             mock.patch.object(shared, "migrate_shared") as migrate_shared,
         ):
@@ -506,13 +532,12 @@ class ResidueMigrationTests(unittest.TestCase):
 
     def test_optional_skip_runs_through_detection_and_shared_transaction(self):
         cases = (
-            ("3.27.3.0", "3.28.0.172", {"appload", "koreader"}, {"native-chinese"}),
             ("3.28.0.172", "3.29.0.152", {"qr-upload"}, {"native-chinese"}),
-            ("3.28.0.172", "3.29.0.153", {"weread-launcher"}, {
+            ("3.28.0.172", "3.29.0.153", set(), {
                 "native-chinese", "pinyin-input", "reading-enhancements",
-                "note-enhancements", "qr-upload",
+                "note-enhancements", "qr-upload", "weread-launcher",
             }),
-            ("3.28.0.172", "3.29.0.153", {"weread-launcher"}, set()),
+            ("3.28.0.172", "3.29.0.153", set(), {"weread-launcher"}),
         )
         for old_release, new_release, skipped, kept in cases:
             for failure in (None, "verify", "stage", "transaction"):

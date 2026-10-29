@@ -97,7 +97,7 @@ class BuildMatrixTests(unittest.TestCase):
             ), patch.object(fonts, "_epub_font_slots", return_value=()) as read_slots:
                 status = fonts.get_epub_font_slot_status(ssh)
                 expected = package.platform in matrix.COLOR_PLATFORMS and (
-                    package.release_version.startswith("3.28.") or package.release_version in ("3.29.0.152", "3.29.0.153")
+                    package.release_version.startswith("3.28.") or package.release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0")
                 )
                 self.assertEqual(status.supported, expected)
                 self.assertEqual(read_slots.called, expected)

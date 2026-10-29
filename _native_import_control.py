@@ -27,6 +27,8 @@ BRIDGE_PAYLOAD_PATH = "extensions.d/rmtool-native-import.so"
 HELPER_PAYLOAD_PATH = "helpers/rmtool-native-import"
 REQUIRED_PATHS = {*shared._COMMON_ARCHIVE_PATHS, QMD_PAYLOAD_PATH, BRIDGE_PAYLOAD_PATH, HELPER_PAYLOAD_PATH}
 ALLOWED_TARGETS = {
+    ("ferrari", "20261028104944", "aarch64", "35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd"): ("3.29.1.0", "stable", True, False),
+    ("chiappa", "20261028104944", "aarch64", "9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4"): ("3.29.1.0", "stable", True, False),
     ("ferrari", "20260827113527", "aarch64", "b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021"): ("3.28.0.172", "stable", True, False),
     ("chiappa", "20260827113527", "aarch64", "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"): ("3.28.0.172", "stable", True, False),
     ("tatsu", "20260827113527", "aarch64", "fa674d2ca3d8002602ce4b1b92280b96bcdf2cf32b6a42ec62ae178a1fad1fe3"): ("3.28.0.172", "stable", True, False),

@@ -33,6 +33,20 @@ TARGETS_BY_RELEASE = {
         'rm1': ('armv7l', '03120a45a41c036dc5b70c5d4a30fe24a5a86b2b0d18d24f3c6d0b90b3635133', '0c68cf7b049fb87929b5978494a1205bc558f239f77758821c67524133a3f54b'),
         'rm2': ('armv7l', '8aa42801358df4cf72f0aaadd4d19dbffac84ae5e70f332e452241e37cf23782', '53547bc30584b9057d5b05ada6c5fb2df3561c3a097c1c2b1aae527d5ddd2e26'),
     },
+    '3.29.1.0': {
+        'ferrari': ('aarch64', 'b94772f860ba8273a35b0dea24d1b74c28b6e8af718f7767c7417687721e2401', '35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd'),
+        'chiappa': ('aarch64', 'ce3b42e6178dc26fe5658c505aa97b54c062fe30597be26661c01ecd803e62df', '9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4'),
+    },
+}
+FIRMWARE_BY_RELEASE = {
+    '3.29.0.152': FIRMWARE,
+    '3.29.0.153': FIRMWARE,
+    '3.29.1.0': '20261028104944',
+}
+CHANNEL_BY_RELEASE = {
+    '3.29.0.152': 'beta',
+    '3.29.0.153': 'beta',
+    '3.29.1.0': 'stable',
 }
 FEATURES = ('tap-page-turn', 'native-chinese', 'pinyin-input', 'reading-enhancements', 'note-enhancements')
 HASHTAB = 'exthome/qt-resource-rebuilder/hashtab'
@@ -216,6 +230,8 @@ def main():
     args = parser.parse_args()
     release = args.release
     targets = TARGETS_BY_RELEASE[release]
+    firmware = FIRMWARE_BY_RELEASE[release]
+    channel = CHANNEL_BY_RELEASE[release]
     sys.path.insert(0, str(args.python_libs))
     args.output_dir.mkdir(parents=True, exist_ok=True)
     arm_translator = build_arm_translator(args.zig, args.output_dir) if any(t[0] == 'armv7l' for t in targets.values()) else None
@@ -230,10 +246,12 @@ def main():
         cache = args.firmware_cache / platform
         root = cache / 'extracted/selected-rootfs'
         swu = cache / f'remarkable-production-image-{release}-{platform}-public.swu'
-        if digest(swu.read_bytes()) != swu_hash or digest((root / 'usr/bin/xochitl').read_bytes()) != xochitl_hash or (root / 'etc/version').read_text().strip() != FIRMWARE:
+        if digest(swu.read_bytes()) != swu_hash or digest((root / 'usr/bin/xochitl').read_bytes()) != xochitl_hash or (root / 'etc/version').read_text().strip() != firmware:
             raise RuntimeError(f'Firmware identity mismatch: {platform}')
         resource = args.resources / platform
         identity = json.loads((resource / 'identity.json').read_text())
+        identity.setdefault('qrex_root', str(resource))
+        identity.setdefault('hashtab', 'hashtab')
         if identity['xochitl_sha256'] != xochitl_hash or identity['hashtab_sha256'] != digest((resource / 'hashtab').read_bytes()):
             raise RuntimeError(f'Resource provenance mismatch: {platform}')
         work = args.output_dir / platform
@@ -269,7 +287,7 @@ def main():
                 temp = Path(temporary)
                 if feature == 'reading-enhancements':
                     builder = load(ROOT / feature / 'build_assets.py')
-                    qmd_source = builder._source_for_target(qmd_source, FIRMWARE, release,
+                    qmd_source = builder._source_for_target(qmd_source, firmware, release,
                                                            platform, architecture, xochitl_hash, temp / 'src')
                     files['extensions.d/rmtool-highlight-snap.so'] = (highlight.read_bytes(), 0o644)
                 elif feature == 'tap-page-turn':
@@ -293,7 +311,7 @@ def main():
                     old_qm.write_bytes(files['native-chinese/reMarkable_zh_CN.qm'][0])
                     merged = temp / 'merged.ts'
                     supplements = [ROOT / 'translations/reMarkable_zh_CN_3_29_0_152_supplement.ts']
-                    if release == '3.29.0.153':
+                    if release in ('3.29.0.153', '3.29.1.0'):
                         supplements.append(ROOT / 'translations/reMarkable_zh_CN_3_29_0_153_supplement.ts')
                     run([args.qt_bin / 'lconvert.exe', '-sort-contexts', '-locations', 'none', old_qm,
                          *supplements, '-o', merged])
@@ -306,24 +324,24 @@ def main():
                     if first != (temp / 'repeat.qm').read_bytes():
                         raise RuntimeError('Non-deterministic Chinese catalog')
                     files['native-chinese/reMarkable_zh_CN.qm'] = (first, 0o644)
-                    carriers.append(dict(platform=platform, release_version=release, channel='beta',
+                    carriers.append(dict(platform=platform, release_version=release, channel=channel,
                                          asset=qm.name, size=len(first), sha256=digest(first), xochitl_sha256=xochitl_hash,
                                          stock_french_sha256=digest((stock / 'reMarkable_fr.qm').read_bytes())))
             payloads[feature] = files
             module = __import__('_' + feature.replace('-', '_'))
-            entry = dict(firmware=FIRMWARE, release_version=release, channel='beta', platform=platform,
+            entry = dict(firmware=firmware, release_version=release, channel=channel, platform=platform,
                          architecture=architecture, xochitl_sha256=xochitl_hash)
             if feature == 'tap-page-turn':
-                asset = f'rmtool-{feature}-{platform}-{FIRMWARE}-{release}.tar.gz'
+                asset = f'rmtool-{feature}-{platform}-{firmware}-{release}.tar.gz'
             else:
                 entry.update(offline_verified=True, device_verified=False)
                 if feature in ('reading-enhancements', 'note-enhancements'):
-                    asset = module._expected_asset_name(platform, FIRMWARE, release)
+                    asset = module._expected_asset_name(platform, firmware, release)
                     entry['package_revision'] = module.PACKAGE_REVISION
                 elif feature == 'native-chinese':
-                    asset = module.EXPECTED_ASSETS[(FIRMWARE, platform, architecture, xochitl_hash)]
+                    asset = module.EXPECTED_ASSETS[(firmware, platform, architecture, xochitl_hash)]
                 else:
-                    asset = f'rmtool-{feature}-{platform}-{FIRMWARE}-{release}.tar.gz'
+                    asset = f'rmtool-{feature}-{platform}-{firmware}-{release}.tar.gz'
                 origins = (module.COS_URL, module.GITHUB_URL) if feature in ('native-chinese', 'pinyin-input') else module.REMOTE_BASE_URLS
                 entry['urls'] = [f'{origin}/{asset}' for origin in origins]
             archive = base_builder.pack(files)

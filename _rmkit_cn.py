@@ -2611,7 +2611,7 @@ def get_epub_font_slot_status(ssh_client) -> EpubFontSlotStatus:
         )
     if package is None or not (
         package.release_version.startswith("3.28.")
-        or package.release_version in ("3.29.0.152", "3.29.0.153")
+        or package.release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0")
     ):
         return EpubFontSlotStatus(
             "unsupported",

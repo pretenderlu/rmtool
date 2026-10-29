@@ -28,9 +28,13 @@ class NativeChineseTests(unittest.TestCase):
             native.SUPPORTED_IDENTITY[3],
         )
 
+    @staticmethod
+    def package():
+        return native.select_package(native._trusted_catalog(), NativeChineseTests.identity())
+
     def test_manifest_is_complete_dual_source_three_file_feature(self):
         packages = native.parse_manifest(native.BUNDLED_MANIFEST.read_bytes())
-        self.assertEqual(len(packages), 29)
+        self.assertEqual(len(packages), 31)
         self.assertEqual(
             {
                 (item.platform, item.release_version)
@@ -66,6 +70,8 @@ class NativeChineseTests(unittest.TestCase):
                 ("tatsu", "3.29.0.152"),
                 ("rm1", "3.29.0.152"),
                 ("rm2", "3.29.0.152"),
+                ("chiappa", "3.29.1.0"),
+                ("ferrari", "3.29.1.0"),
             },
         )
         self.assertTrue(all(item.offline_verified for item in packages))
@@ -108,7 +114,8 @@ class NativeChineseTests(unittest.TestCase):
             native.parse_manifest(json.dumps(missing).encode())
 
         forged = json.loads(json.dumps(document))
-        forged["packages"][1]["device_verified"] = False
+        verified_index = next(index for index, package in enumerate(forged["packages"]) if package["device_verified"])
+        forged["packages"][verified_index]["device_verified"] = False
         with self.assertRaisesRegex(RuntimeError, "精确身份白名单"):
             native.parse_manifest(json.dumps(forged).encode())
 
@@ -353,6 +360,8 @@ class NativeChineseTests(unittest.TestCase):
                     pinyin.FEATURE_ID,
                     reading.FEATURE_ID,
                     note.FEATURE_ID,
+                    "appload",
+                    "koreader",
                     "tap-page-turn",
                     "fast-mono-reading",
                 },
@@ -450,7 +459,7 @@ class NativeChineseTests(unittest.TestCase):
     def test_download_uses_verified_cache_without_network(self):
         data = b"verified local archive"
         package = replace(
-            native._trusted_catalog()[0],
+            self.package(),
             size=len(data),
             sha256=hashlib.sha256(data).hexdigest(),
         )
@@ -597,7 +606,7 @@ class NativeChineseTests(unittest.TestCase):
             get_status.assert_not_called()
 
     def test_enable_checks_cjk_before_preflight_and_french_slot_inspection(self):
-        package = native._trusted_catalog()[0]
+        package = self.package()
         events = []
 
         def reject(*_args):
@@ -655,8 +664,8 @@ class NativeChineseTests(unittest.TestCase):
                 ssh.transfer_file.assert_not_called()
 
     def test_enable_rejects_missing_cjk_before_french_or_deployment(self):
-        package = native._trusted_catalog()[1]
         identity = tap.DeviceIdentity(*native.CHIAPPA_3273_IDENTITY)
+        package = native.select_package(native._trusted_catalog(), identity)
         with patch.object(
             tap, "get_device_identity", return_value=identity
         ), patch.object(tap, "_preflight_device"), patch.object(
@@ -863,7 +872,7 @@ class NativeChineseTests(unittest.TestCase):
         self.assertIs(activate.call_args.args[4], installed_trusted)
 
     def test_disable_switches_selected_chinese_to_english_before_removal(self):
-        package = native._trusted_catalog()[0]
+        package = self.package()
         runtime, feature = native._shared_specs(package)
         inspection = shared.SharedInspection(
             {
@@ -1010,7 +1019,7 @@ class NativeChineseTests(unittest.TestCase):
         self.assertIn("其他共享功能不受影响", status.detail)
 
     def test_status_recognizes_own_shared_firmware_residue(self):
-        package = native._trusted_catalog()[0]
+        package = self.package()
         runtime, feature = native._shared_specs(package)
         current = tap.DeviceIdentity(
             "20990101000000", "ferrari", "aarch64", "f" * 64
@@ -1051,7 +1060,7 @@ class NativeChineseTests(unittest.TestCase):
         )
 
     def test_disable_removes_verified_shared_firmware_residue(self):
-        package = native._trusted_catalog()[0]
+        package = self.package()
         runtime, feature = native._shared_specs(package)
         current = tap.DeviceIdentity(
             "20990101000000", "ferrari", "aarch64", "f" * 64
@@ -1106,7 +1115,7 @@ class NativeChineseTests(unittest.TestCase):
         status = native.NativeChineseStatus(
             native.NativeChineseState.EMERGENCY_DISABLED,
             self.identity(),
-            native._trusted_catalog()[0],
+            self.package(),
             installed=True,
             emergency_disabled=True,
         )

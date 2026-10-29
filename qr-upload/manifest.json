@@ -2,6 +2,60 @@
   "schema_version": 1,
   "packages": [
     {
+      "firmware": "20261028104944",
+      "platform": "ferrari",
+      "architecture": "aarch64",
+      "xochitl_sha256": "35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd",
+      "release_version": "3.29.1.0",
+      "channel": "stable",
+      "offline_verified": true,
+      "device_verified": false,
+      "package_revision": 1,
+      "asset": "rmtool-qr-upload-ferrari-20261028104944-3.29.1.0.tar.gz",
+      "sha256": "b6f4f24a5f0d3b846c3d804c0f4ddeac59d0ced7b268eeb43db3704169a68d36",
+      "size": 7323467,
+      "urls": [
+        "https://github.com/pretenderlu/rmtool/releases/download/qr-upload-assets/rmtool-qr-upload-ferrari-20261028104944-3.29.1.0.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/qr-upload/rmtool-qr-upload-ferrari-20261028104944-3.29.1.0.tar.gz"
+      ],
+      "files": [
+        {"path": "extensions.d/qt-resource-rebuilder.so", "mode": 420, "size": 9496456, "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"},
+        {"path": "extensions.d/rmtool-qr-upload.so", "mode": 420, "size": 2361408, "sha256": "26ee338e0d961a85d904f14479d69e876e771a5f53e2cb0ea6739c0d5b5331c4"},
+        {"path": "exthome/qt-resource-rebuilder/hashtab", "mode": 420, "size": 618618, "sha256": "481b73bd4b89d03bffe92da7940d81014595fb24acaa097f43a415c577ad42b0"},
+        {"path": "exthome/qt-resource-rebuilder/qr-upload.qmd", "mode": 420, "size": 12316, "sha256": "dcd987967d637ad7d9da3a65e662d752109ab20937ea299d4e5990e3c5754199"},
+        {"path": "helpers/rmtool-qr-upload", "mode": 493, "size": 7078048, "sha256": "d2adaf246aea623aec359081e9f760a219b30cfab111bc32482903e4370e1619"},
+        {"path": "qmd-tool", "mode": 493, "size": 1966264, "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"},
+        {"path": "xovi.so", "mode": 420, "size": 103008, "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"}
+      ]
+    },
+    {
+      "firmware": "20261028104944",
+      "platform": "chiappa",
+      "architecture": "aarch64",
+      "xochitl_sha256": "9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4",
+      "release_version": "3.29.1.0",
+      "channel": "stable",
+      "offline_verified": true,
+      "device_verified": false,
+      "package_revision": 1,
+      "asset": "rmtool-qr-upload-chiappa-20261028104944-3.29.1.0.tar.gz",
+      "sha256": "c6b5ced09bd720766cb2f296a49f848ad0a6b930d9ac849df99112aa8244e599",
+      "size": 7320807,
+      "urls": [
+        "https://github.com/pretenderlu/rmtool/releases/download/qr-upload-assets/rmtool-qr-upload-chiappa-20261028104944-3.29.1.0.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/qr-upload/rmtool-qr-upload-chiappa-20261028104944-3.29.1.0.tar.gz"
+      ],
+      "files": [
+        {"path": "extensions.d/qt-resource-rebuilder.so", "mode": 420, "size": 9496456, "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"},
+        {"path": "extensions.d/rmtool-qr-upload.so", "mode": 420, "size": 2361408, "sha256": "26ee338e0d961a85d904f14479d69e876e771a5f53e2cb0ea6739c0d5b5331c4"},
+        {"path": "exthome/qt-resource-rebuilder/hashtab", "mode": 420, "size": 613338, "sha256": "13ecbc377f54f4f8cd34c7d4a82f361296ac0808ac614d6d68955351b72327fb"},
+        {"path": "exthome/qt-resource-rebuilder/qr-upload.qmd", "mode": 420, "size": 12316, "sha256": "dcd987967d637ad7d9da3a65e662d752109ab20937ea299d4e5990e3c5754199"},
+        {"path": "helpers/rmtool-qr-upload", "mode": 493, "size": 7078048, "sha256": "d2adaf246aea623aec359081e9f760a219b30cfab111bc32482903e4370e1619"},
+        {"path": "qmd-tool", "mode": 493, "size": 1966264, "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"},
+        {"path": "xovi.so", "mode": 420, "size": 103008, "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"}
+      ]
+    },
+    {
       "firmware": "20260827113527",
       "platform": "chiappa",
       "architecture": "aarch64",

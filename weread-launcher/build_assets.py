@@ -32,11 +32,14 @@ def run(command: list[str], label: str) -> bytes:
     return result.stdout
 
 
-def compile_qmd(qmd_tool: Path, qmldiff: Path, source: Path, target_root: Path, work: Path) -> bytes:
+def compile_qmd(
+    qmd_tool: Path, qmldiff: Path, source: Path, target_root: Path, work: Path,
+    *, require_replay: bool = True,
+) -> bytes:
     hashtab = target_root / "hashtab"
     qrex = target_root / "qrex-out"
-    if not hashtab.is_file() or not qrex.is_dir():
-        raise RuntimeError(f"missing 3.28 validation tree: {target_root}")
+    if not hashtab.is_file() or (require_replay and not qrex.is_dir()):
+        raise RuntimeError(f"missing exact validation tree: {target_root}")
     compiled = run(
         [str(qmd_tool), "hash", "-hashtab", str(hashtab), str(source)],
         f"compile {target_root.name}",
@@ -55,6 +58,8 @@ def compile_qmd(qmd_tool: Path, qmldiff: Path, source: Path, target_root: Path, 
         f"qmd check {target_root.name}",
     ):
         raise RuntimeError(f"QMD check was incomplete: {target_root.name}")
+    if not require_replay:
+        return compiled
     run(
         [str(qmldiff), "apply-diffs", "--hashtab", str(hashtab), "-c",
          str(qrex), str(replay), str(qmd_path)],
@@ -110,6 +115,11 @@ def build_archive(package, carrier: Path, qmd: bytes, bridge: bytes, shim: bytes
     return tap._gzip_member(tap._tar_member(files, apk_checksums=False, include_directories=False)), files
 
 
+def require_aarch64(data: bytes, label: str) -> None:
+    if not data.startswith(b"\x7fELF") or int.from_bytes(data[18:20], "little") != 183:
+        raise RuntimeError(f"{label} is not an AArch64 ELF payload")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--qmd-tool", type=Path, required=True)
@@ -120,20 +130,30 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--write-manifest", type=Path, required=True)
     parser.add_argument("--cache-root", action="append", type=Path, default=[])
+    parser.add_argument("--allow-hash-only", action="store_true")
+    parser.add_argument("--release", choices=("3.28.0.172", "3.29.0.152", "3.29.0.153", "3.29.1.0"))
     args = parser.parse_args()
 
     bridge = args.bridge.read_bytes()
-    if not bridge.startswith(b"\x7fELF") or len(bridge) > 4 * 1024 * 1024:
+    require_aarch64(bridge, "WeRead launcher bridge")
+    if len(bridge) > 4 * 1024 * 1024:
         raise RuntimeError("WeRead launcher bridge is not a bounded ELF payload")
     shim = args.shim.read_bytes()
-    if not shim.startswith(b"\x7fELF") or len(shim) > 256 * 1024:
+    require_aarch64(shim, "WeRead fast refresh shim")
+    if len(shim) > 256 * 1024:
         raise RuntimeError("WeRead fast refresh shim is not a bounded ELF payload")
     roots = tuple(args.cache_root) or (ROOT / ".rmtool/cache/reading-enhancements",)
     carriers = tuple(
         package for package in reading._trusted_catalog()
-        if package.release_version == "3.28.0.172" and package.platform in {"ferrari", "chiappa"}
+        if package.release_version in {"3.28.0.172", "3.29.0.152", "3.29.0.153", "3.29.1.0"}
+        and package.platform in {"ferrari", "chiappa"}
+        and (not args.release or package.release_version == args.release)
     )
-    if len(carriers) != len(weread.ALLOWED_TARGETS):
+    expected_targets = sum(
+        1 for target in weread.ALLOWED_TARGETS.values()
+        if not args.release or target[0] == args.release
+    )
+    if len(carriers) != expected_targets:
         raise RuntimeError("reading carrier set does not cover WeRead launcher targets")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -145,8 +165,9 @@ def main() -> int:
                 args.qmd_tool,
                 args.qmldiff,
                 ROOT / "weread-launcher/qmd-src/weread-launcher-3.28.qmd",
-                args.matrix_root / f"{package.platform}-{package.firmware}",
+                args.matrix_root / f"{package.platform}-{package.firmware}-{package.release_version}",
                 work,
+                require_replay=not args.allow_hash_only,
             )
             archive, files = build_archive(
                 package, find_carrier(package, roots), qmd, bridge, shim

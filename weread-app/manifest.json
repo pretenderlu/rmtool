@@ -17,6 +17,6 @@
   "supported": {
     "platforms": ["ferrari", "chiappa"],
     "architectures": ["aarch64"],
-    "firmware_series": ["3.28"]
+    "firmware_series": ["3.28", "3.29"]
   }
 }

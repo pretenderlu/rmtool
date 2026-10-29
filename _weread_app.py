@@ -109,7 +109,7 @@ def parse_manifest(data: bytes) -> WeReadAppPackage:
         or set(supported) != {"platforms", "architectures", "firmware_series"}
         or supported.get("platforms") != ["ferrari", "chiappa"]
         or supported.get("architectures") != ["aarch64"]
-        or supported.get("firmware_series") != ["3.28"]
+        or supported.get("firmware_series") != ["3.28", "3.29"]
     ):
         raise RuntimeError("微信读书 App 清单与内置信任信息不一致。")
     urls = document.get("urls")
@@ -160,10 +160,9 @@ def _supported(device: WeReadAppDevice, package: WeReadAppPackage) -> bool:
     return (
         device.platform in package.platforms
         and device.architecture in package.architectures
-        and any(
-            device.release_version == series
-            or device.release_version.startswith(series + ".")
-            for series in package.firmware_series
+        and (
+            device.release_version.startswith("3.28.")
+            or device.release_version in {"3.29.0.152", "3.29.0.153", "3.29.1.0"}
         )
     )
 
@@ -171,8 +170,8 @@ def _supported(device: WeReadAppDevice, package: WeReadAppPackage) -> bool:
 def _require_supported(device: WeReadAppDevice, package: WeReadAppPackage) -> None:
     if not _supported(device, package):
         raise RuntimeError(
-            "微信读书 App 仅支持运行 3.28 系列固件的 Paper Pro 和 Move（aarch64），"
-            "未下载或修改设备。"
+            "微信读书 App 仅支持运行 3.28、3.29.0.152/.153 或 3.29.1.0 固件的 "
+            "Paper Pro 和 Move（aarch64），未下载或修改设备。"
         )
 
 
@@ -197,7 +196,7 @@ def get_status(ssh_client) -> WeReadAppStatus:
     if not _supported(device, package):
         return WeReadAppStatus(
             WeReadAppState.INCOMPATIBLE, device, detail=(
-                "仅支持 Paper Pro/Move 的 3.28 系列固件。"
+                "仅支持 Paper Pro/Move 的 3.28、3.29.0.152/.153 或 3.29.1.0 固件。"
             )
         )
     try:

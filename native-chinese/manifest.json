@@ -2,6 +2,58 @@
   "schema_version": 1,
   "packages": [
     {
+      "firmware": "20261028104944",
+      "release_version": "3.29.1.0",
+      "channel": "stable",
+      "platform": "ferrari",
+      "architecture": "aarch64",
+      "xochitl_sha256": "35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd",
+      "offline_verified": true,
+      "device_verified": false,
+      "urls": [
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-ferrari-20261028104944-3.29.1.0.tar.gz",
+        "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-ferrari-20261028104944-3.29.1.0.tar.gz"
+      ],
+      "asset": "rmtool-native-chinese-ferrari-20261028104944-3.29.1.0.tar.gz",
+      "size": 3896372,
+      "sha256": "9b12c8ea74ecd4c9ef5955f158ee034bd15d81e1a3e63d686d2d0eac293b1e3a",
+      "files": [
+        {"path": "extensions.d/native-chinese-translator.so", "size": 3976, "sha256": "4408c4ecf1e2774cbbc10374aae544e3d600525663eba8893cdceb83374b8734", "mode": 420},
+        {"path": "extensions.d/qt-resource-rebuilder.so", "size": 9496456, "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f", "mode": 420},
+        {"path": "exthome/qt-resource-rebuilder/hashtab", "size": 618618, "sha256": "481b73bd4b89d03bffe92da7940d81014595fb24acaa097f43a415c577ad42b0", "mode": 420},
+        {"path": "exthome/qt-resource-rebuilder/native-chinese.qmd", "size": 2035, "sha256": "71b4b40163cdffb8f0e31e0ac8d9e1a40fc62984c928af56024c0251f8979f63", "mode": 420},
+        {"path": "native-chinese/reMarkable_zh_CN.qm", "size": 214403, "sha256": "5f428e69d5718ac9ef4aa9ee5c05ad7c07d2157f7f2c1e4dab4f6cbcac2d81df", "mode": 420},
+        {"path": "qmd-tool", "size": 1966264, "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9", "mode": 493},
+        {"path": "xovi.so", "size": 103008, "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446", "mode": 420}
+      ]
+    },
+    {
+      "firmware": "20261028104944",
+      "release_version": "3.29.1.0",
+      "channel": "stable",
+      "platform": "chiappa",
+      "architecture": "aarch64",
+      "xochitl_sha256": "9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4",
+      "offline_verified": true,
+      "device_verified": false,
+      "urls": [
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-chinese/rmtool-native-chinese-chiappa-20261028104944-3.29.1.0.tar.gz",
+        "https://github.com/pretenderlu/rmtool/releases/download/native-chinese-assets/rmtool-native-chinese-chiappa-20261028104944-3.29.1.0.tar.gz"
+      ],
+      "asset": "rmtool-native-chinese-chiappa-20261028104944-3.29.1.0.tar.gz",
+      "size": 3891831,
+      "sha256": "b217f7d3435926352fa4b6d22e66d9a583688763d6869ffbf0869df1c01217aa",
+      "files": [
+        {"path": "extensions.d/native-chinese-translator.so", "size": 3976, "sha256": "4408c4ecf1e2774cbbc10374aae544e3d600525663eba8893cdceb83374b8734", "mode": 420},
+        {"path": "extensions.d/qt-resource-rebuilder.so", "size": 9496456, "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f", "mode": 420},
+        {"path": "exthome/qt-resource-rebuilder/hashtab", "size": 613338, "sha256": "13ecbc377f54f4f8cd34c7d4a82f361296ac0808ac614d6d68955351b72327fb", "mode": 420},
+        {"path": "exthome/qt-resource-rebuilder/native-chinese.qmd", "size": 2035, "sha256": "71b4b40163cdffb8f0e31e0ac8d9e1a40fc62984c928af56024c0251f8979f63", "mode": 420},
+        {"path": "native-chinese/reMarkable_zh_CN.qm", "size": 210177, "sha256": "f90054fc45147901e26f3260feb1e729985f435396586f3ab05c02736aacbf60", "mode": 420},
+        {"path": "qmd-tool", "size": 1966264, "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9", "mode": 493},
+        {"path": "xovi.so", "size": 103008, "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446", "mode": 420}
+      ]
+    },
+    {
       "firmware": "20260806095513",
       "release_version": "3.28.0.166",
       "channel": "beta",

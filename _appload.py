@@ -6,6 +6,7 @@ import hashlib
 import logging
 import os
 import shlex
+import tarfile
 import tempfile
 import urllib.request
 import zipfile
@@ -21,20 +22,29 @@ import _xovi_standalone as shared
 
 APPLOAD_REPO_URL = "https://github.com/asivery/rm-appload"
 KOREADER_REPO_URL = "https://github.com/koreader/koreader"
-APPLOAD_VERSION = "v0.5.3"
+APPLOAD_VERSION = "v0.6.0"
 KOREADER_VERSION = "v2026.07.1"
 FEATURE_ID = "appload"
 KOREADER_FEATURE_ID = "koreader"
 KOREADER_INSTALL_DIR = "/home/root/xovi/exthome/appload/koreader"
 SHIM_LINK_DIR = "/home/root/shims"
 APPLOAD_COMPATIBLE_FIRMWARES = frozenset(
-    {"20260506100933", "20260612085811"}
+    {
+        "20260506100933",
+        "20260612085811",
+        "20260629074044",
+        "20260702125656",
+        "20260806095513",
+        "20260827113527",
+        "20261009073202",
+        "20261028104944",
+    }
 )
 
 MAX_APPLOAD_BYTES = 16 * 1024 * 1024
 MAX_KOREADER_BYTES = 64 * 1024 * 1024
 MAX_KOREADER_UNPACKED_BYTES = 160 * 1024 * 1024
-MAX_ZIP_ENTRIES = 5000
+MAX_ARCHIVE_ENTRIES = 5000
 
 
 @dataclass(frozen=True)
@@ -61,21 +71,21 @@ APPLOAD_ASSETS = {
         "AppLoad",
         APPLOAD_VERSION,
         "aarch64",
-        "appload-aarch64.zip",
-        4_118_708,
-        "032e3f2c57a004aba4425894758e4b542c67590efd222e3b3d5141124c45e84d",
+        "appload-aarch64.tar.gz",
+        4_405_410,
+        "2e7912d15df910631dab847ea5d344081ad75c02a46aaac78bdf731accc53a1f",
         f"{APPLOAD_REPO_URL}/releases/download/"
-        f"{APPLOAD_VERSION}/appload-aarch64.zip",
+        f"{APPLOAD_VERSION}/appload-aarch64.tar.gz",
     ),
     "armv7l": OfficialAsset(
         "AppLoad",
         APPLOAD_VERSION,
         "armv7l",
-        "appload-arm32.zip",
-        4_201_361,
-        "dd68c6816c121934da78f59eb497c215e5a9729200de0a8a5bcbeaa5d0aa068b",
+        "appload-arm32.tar.gz",
+        4_491_890,
+        "25aa54735742ea63c0a043cba5496987dd4ca742d8b3fc26a21b7368372bf44f",
         f"{APPLOAD_REPO_URL}/releases/download/"
-        f"{APPLOAD_VERSION}/appload-arm32.zip",
+        f"{APPLOAD_VERSION}/appload-arm32.tar.gz",
     ),
 }
 
@@ -83,40 +93,40 @@ APPLOAD_FILES = {
     "aarch64": (
         OfficialFile(
             "appload.so",
-            4_056_880,
-            "31214cbbe64c8bfe7d99096f077c3009dba8a42ef1a733801aa0ec59c134e7cc",
+            4_342_120,
+            "5b2dd6c066da6932d88a1d62be1068ca5ba751f481636dd51f727221db62e3ad",
             0o755,
         ),
         OfficialFile(
             "shims/qtfb-shim-32bit.so",
-            251_072,
-            "aa4fb1e6f2edf5ef0137360cac77713a24ab508800301f81c19c579fee3f5031",
+            251_424,
+            "d4ff9a7a3513804fc6af94b963a129e11be2f95d476ab0516065d25c04e175ff",
             0o755,
         ),
         OfficialFile(
             "shims/qtfb-shim.so",
-            251_040,
-            "6df704049aa057ff6374eaaa03a4f4a4d683b7c1ce772920d1a124be74d782c4",
+            251_384,
+            "b25c490ada0b4cde6e2c77118014e8f63b32dbd84cfccaf63def74914e2197c3",
             0o755,
         ),
     ),
     "armv7l": (
         OfficialFile(
             "appload.so",
-            9_351_704,
-            "0c5592e48098288fd00b71f72b3eb6821aae0bf17cc3646dd8e95bf19c391810",
+            10_105_464,
+            "28082cb18c5ca26740d15babc7334388866394004040a659613a0640047cb551",
             0o755,
         ),
         OfficialFile(
             "shims/qtfb-shim-32bit.so",
-            544_188,
-            "19a9d2c75741113f37f81f7affead40eeb12fa3cc41109b7f41ba154f60799cc",
+            546_064,
+            "c78d85b6b9a00b4038cf8fe3353f1d20a66406770cc83d21ba21db04f17904d7",
             0o755,
         ),
         OfficialFile(
             "shims/qtfb-shim.so",
-            544_156,
-            "4eab5f8f54d5fbaaba86497128b3b5029dc07033ac9dd499a226638cc255e9d2",
+            546_032,
+            "c1792257bcb6423a22e8e066affccab6c2cf71501127ed69dc3e1c28224d3a56",
             0o755,
         ),
     ),
@@ -172,16 +182,16 @@ class AppLoadStatus:
     detail: str = ""
 
 
-def _safe_zip_path(value: str) -> str:
+def _safe_archive_path(value: str) -> str:
     if not value or "\\" in value:
-        raise RuntimeError("官方 ZIP 包含无效路径。")
+        raise RuntimeError("官方包包含无效路径。")
     path = PurePosixPath(value.rstrip("/"))
     if (
         path.is_absolute()
         or ".." in path.parts
         or str(path) != value.rstrip("/")
     ):
-        raise RuntimeError("官方 ZIP 包含不安全路径。")
+        raise RuntimeError("官方包包含不安全路径。")
     return str(path)
 
 
@@ -265,10 +275,10 @@ def extract_official_zip(
     try:
         with zipfile.ZipFile(archive) as bundle:
             entries = bundle.infolist()
-            if not entries or len(entries) > MAX_ZIP_ENTRIES:
+            if not entries or len(entries) > MAX_ARCHIVE_ENTRIES:
                 raise RuntimeError("官方 ZIP 文件数量异常。")
             for info in entries:
-                name = _safe_zip_path(info.filename)
+                name = _safe_archive_path(info.filename)
                 if expected_prefix and not (
                     name == expected_prefix
                     or name.startswith(expected_prefix + "/")
@@ -301,9 +311,63 @@ def extract_official_zip(
     return output
 
 
+def extract_official_tar(
+    archive: str | Path,
+    destination: str | Path,
+    *,
+    maximum_unpacked: int,
+    expected_prefix: str = "",
+) -> Path:
+    output = Path(destination)
+    output.mkdir(parents=True, exist_ok=True)
+    total = 0
+    try:
+        with tarfile.open(archive, "r:gz") as bundle:
+            entries = bundle.getmembers()
+            if not entries or len(entries) > MAX_ARCHIVE_ENTRIES:
+                raise RuntimeError("官方 tar.gz 文件数量异常。")
+            seen = set()
+            for info in entries:
+                name = _safe_archive_path(info.name)
+                if name in seen:
+                    raise RuntimeError("官方 tar.gz 包含重复路径。")
+                seen.add(name)
+                if expected_prefix and not (
+                    name == expected_prefix
+                    or name.startswith(expected_prefix + "/")
+                ):
+                    raise RuntimeError("官方 tar.gz 顶层目录不符合预期。")
+                if not (info.isfile() or info.isdir()):
+                    raise RuntimeError("官方 tar.gz 包含链接或特殊文件。")
+                if info.isfile():
+                    total += info.size
+                    if total > maximum_unpacked:
+                        raise RuntimeError("官方 tar.gz 解压后超过允许大小。")
+                target = output.joinpath(*PurePosixPath(name).parts)
+                if info.isdir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                source = bundle.extractfile(info)
+                if source is None:
+                    raise RuntimeError("官方 tar.gz 文件不完整。")
+                with source, target.open("wb") as target_file:
+                    copied = 0
+                    while chunk := source.read(1024 * 1024):
+                        copied += len(chunk)
+                        if copied > info.size:
+                            raise RuntimeError("官方 tar.gz 文件大小异常。")
+                        target_file.write(chunk)
+                if copied != info.size:
+                    raise RuntimeError("官方 tar.gz 文件不完整。")
+                os.chmod(target, 0o755 if info.mode & 0o111 else 0o644)
+    except (OSError, tarfile.TarError) as exc:
+        raise RuntimeError("无法解压官方 tar.gz。") from exc
+    return output
+
+
 def _runtime_package(identity: tap.DeviceIdentity):
-    package = tap.select_package(tap._trusted_catalog(), identity)
-    return package if package is not None and package.channel == "stable" else None
+    return tap.select_package(tap._trusted_catalog(), identity)
 
 
 def app_asset(identity: tap.DeviceIdentity) -> Optional[OfficialAsset]:
@@ -479,13 +543,13 @@ def _prepare_appload_root(
 ) -> Path:
     runtime_package = _runtime_package(identity)
     if runtime_package is None:
-        raise RuntimeError("当前设备没有可用的正式版共享运行资源。")
+        raise RuntimeError("当前设备没有可用的共享运行资源。")
     runtime_archive = tap.download_package(runtime_package, state_dir)
     root = tap.extract_verified_package(
         runtime_archive, runtime_package, destination
     )
     official_root = root / "official-appload"
-    extract_official_zip(
+    extract_official_tar(
         official_archive,
         official_root,
         maximum_unpacked=MAX_APPLOAD_BYTES,
@@ -511,6 +575,42 @@ def _prepare_appload_root(
     return root
 
 
+def _prepare_peer_root(
+    ssh_client,
+    identity: tap.DeviceIdentity,
+    feature_id: str,
+    feature: shared.SharedFeatureSpec,
+    state_dir: str,
+    destination: str | Path,
+) -> Path:
+    from _residue_migration import _providers
+
+    module = _providers().get(feature_id)
+    if module is None:
+        raise RuntimeError(
+            f"检测到 {feature_id} 旧版功能，暂不能随 AppLoad 联合更新，请先修复更新。"
+        )
+    package = module.select_package(module._trusted_catalog(), identity)
+    if package is None or module._shared_specs(package)[1] != feature:
+        raise RuntimeError(f"{feature_id} 没有一致的精确受信包。")
+    if feature_id in {"qr-upload", "native-import"}:
+        import _qr_upload as qr
+
+        qr._assert_stopped(ssh_client)
+    if feature_id == "pinyin-input":
+        import _pinyin_input as pinyin
+
+        if pinyin._server_running(ssh_client):
+            raise RuntimeError("拼音输入法服务正在运行，请退出后重试。")
+        if pinyin._has_external_payload(ssh_client):
+            pinyin._validate_external_payload(package)
+    archive = module.download_package(package, state_dir)
+    extractor = getattr(
+        module, "extract_verified_package", tap.extract_verified_package
+    )
+    return extractor(archive, package, destination)
+
+
 def enable(
     ssh_client,
     archive_path: str | Path,
@@ -519,17 +619,41 @@ def enable(
     identity = tap.get_device_identity(ssh_client)
     asset = app_asset(identity)
     if asset is None:
-        raise RuntimeError("当前设备不是 rmtool 精确支持的正式版固件。")
+        raise RuntimeError("当前设备不是 rmtool 精确支持的固件。")
     archive = verify_official_asset(archive_path, asset)
     tap._preflight_device(ssh_client)
     runtime, trusted, legacies = tap._trusted_shared_context(identity)
     feature = trusted[FEATURE_ID]
+    peer_ids = ()
+    if shared.has_shared_artifacts(ssh_client):
+        inspection = shared.inspect_shared(ssh_client, runtime, trusted)
+        peer_ids = sorted(
+            shared._receipt_mismatch_ids(inspection, trusted) - {FEATURE_ID}
+        )
     with tempfile.TemporaryDirectory() as temporary:
         root = _prepare_appload_root(
             identity, archive, state_dir, temporary
         )
+        additional_roots = {}
+        for feature_id in peer_ids:
+            destination = Path(temporary) / feature_id
+            destination.mkdir()
+            additional_roots[feature_id] = _prepare_peer_root(
+                ssh_client,
+                identity,
+                feature_id,
+                trusted[feature_id],
+                state_dir,
+                destination,
+            )
         shared.enable_shared(
-            ssh_client, runtime, feature, root, trusted, legacies
+            ssh_client,
+            runtime,
+            feature,
+            root,
+            trusted,
+            legacies,
+            additional_roots=additional_roots,
         )
     return get_status(ssh_client)
 
@@ -538,7 +662,7 @@ def enable_cloud(ssh_client, state_dir: str) -> AppLoadStatus:
     identity = tap.get_device_identity(ssh_client)
     asset = app_asset(identity)
     if asset is None:
-        raise RuntimeError("当前设备不是 rmtool 精确支持的正式版固件。")
+        raise RuntimeError("当前设备不是 rmtool 精确支持的固件。")
     archive = download_official_asset(asset, state_dir)
     return enable(ssh_client, archive, state_dir)
 

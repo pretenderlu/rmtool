@@ -285,6 +285,39 @@ class DetectionTests(unittest.TestCase):
             status = _koreader.get_managed_status(ssh)
         self.assertEqual(status.state, _koreader.ManagedState.EXTERNAL)
 
+    def test_missing_bridge_is_repairable_instead_of_broken(self):
+        ssh = FakeSSH()
+        ssh.add_file(_koreader.MANAGED_MARKER, b"marker")
+        ssh.add_file(
+            posixpath.join(_koreader.APPLOAD_INSTALL_DIR, "git-rev"), b"v1"
+        )
+        identity = SimpleNamespace(
+            firmware="20260612085811",
+            platform="chiappa",
+            architecture="aarch64",
+            xochitl_sha256="a" * 64,
+        )
+        asset = SimpleNamespace(version="v1")
+        with (
+            mock.patch.object(_koreader.tap, "get_device_identity", return_value=identity),
+            mock.patch.object(_koreader._appload, "koreader_asset", return_value=asset),
+            mock.patch.object(_koreader, "_read_managed_marker", return_value=True),
+            mock.patch.object(_koreader, "_bridge_enabled", return_value=False),
+            mock.patch.object(
+                _koreader,
+                "_test_path",
+                side_effect=lambda client, flag, path: (
+                    flag == "x"
+                    or (flag == "d" and path in client.dirs)
+                    or (flag == "f" and path in client.files)
+                ),
+            ),
+        ):
+            status = _koreader.get_managed_status(ssh)
+
+        self.assertEqual(status.state, _koreader.ManagedState.REPAIRABLE)
+        self.assertIn("启动入口未启用", status.detail)
+
     def test_install_requires_explicit_external_migration(self):
         ssh = FakeSSH()
         identity = SimpleNamespace(architecture="aarch64")
@@ -958,7 +991,7 @@ class TabStateTests(TabTestBase):
         package = next(
             item
             for item in _appload.tap._trusted_catalog()
-            if item.channel == "stable"
+            if item.release_version == "3.29.0.153" and item.platform == "chiappa"
         )
         identity = _appload.tap.DeviceIdentity(
             package.firmware,
@@ -985,6 +1018,7 @@ class TabStateTests(TabTestBase):
         self.assertTrue(self.tab.disable_appload_button.isEnabled())
         self.assertTrue(self.tab.uninstall_appload_button.isEnabled())
         self.assertIn("GitHub 官方发布", self.tab.management_status_label.text())
+        self.assertIn("3.29.0.153（测试版）", self.tab.management_status_label.text())
 
     def test_legacy_data_offers_migration_install(self):
         package = next(

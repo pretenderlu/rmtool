@@ -26,7 +26,8 @@ class WeReadLauncherTests(unittest.TestCase):
         self.catalog = weread.parse_manifest(
             MANIFEST.read_bytes(), require_local_match=False
         )
-        self.package = self.catalog[0]
+        self.package = next(item for item in self.catalog
+                            if item.platform == "chiappa" and item.release_version == "3.28.0.172")
         self.identity = tap.DeviceIdentity(
             self.package.firmware,
             self.package.platform,
@@ -35,13 +36,31 @@ class WeReadLauncherTests(unittest.TestCase):
         )
         self.runtime, self.feature = weread._shared_specs(self.package)
 
-    def test_manifest_is_exact_172_color_device_matrix_with_two_mirrors(self):
-        self.assertEqual(len(self.catalog), 2)
+    def test_manifest_is_exact_color_device_matrix_with_two_mirrors(self):
+        self.assertEqual(len(self.catalog), 8)
         self.assertEqual({item.platform for item in self.catalog}, {"ferrari", "chiappa"})
-        self.assertTrue(all(item.release_version == "3.28.0.172" for item in self.catalog))
+        self.assertEqual(
+            {item.release_version for item in self.catalog},
+            {"3.28.0.172", "3.29.0.152", "3.29.0.153", "3.29.1.0"},
+        )
         self.assertTrue(all(item.offline_verified for item in self.catalog))
-        verification = {item.platform: item.device_verified for item in self.catalog}
+        verification = {
+            item.platform: item.device_verified
+            for item in self.catalog
+            if item.release_version == "3.28.0.172"
+        }
         self.assertEqual(verification, {"chiappa": True, "ferrari": False})
+        stable_verification = {
+            item.platform: item.device_verified
+            for item in self.catalog
+            if item.release_version == "3.29.1.0"
+        }
+        self.assertEqual(stable_verification, {"chiappa": True, "ferrari": False})
+        self.assertTrue(all(
+            not item.device_verified
+            for item in self.catalog
+            if item.release_version not in {"3.28.0.172", "3.29.1.0"}
+        ))
         manifest_text = MANIFEST.read_text(encoding="utf-8")
         self.assertNotIn("revision-2", manifest_text)
         self.assertNotIn("revision-3", manifest_text)
@@ -114,6 +133,20 @@ class WeReadLauncherTests(unittest.TestCase):
             weread.parse_manifest(
                 json.dumps(document).encode(), require_local_match=False
             )
+
+    def test_native_payloads_require_aarch64_elf(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "weread_build_assets", ROOT / "weread-launcher" / "build_assets.py"
+        )
+        builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(builder)
+        for name in ("rmtool-weread-launcher.so", "rmtool-weread-fast.so"):
+            payload = (ROOT / "weread-launcher" / "native" / name).read_bytes()
+            builder.require_aarch64(payload, name)
+            with self.assertRaisesRegex(RuntimeError, "AArch64"):
+                builder.require_aarch64(payload[:18] + b"\x00\x00" + payload[20:], name)
 
     def test_bridge_is_a_strict_xovi_extension_not_a_process_preload(self):
         self.assertEqual(self.feature.preload_paths, ())

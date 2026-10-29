@@ -421,7 +421,13 @@ class KOReaderTab(QtWidgets.QWidget):
 
     def _apply_management_status(self, result) -> None:
         self._appload_status, self._managed_status = result
+        package = _appload._runtime_package(self._appload_status.identity)
+        firmware = ""
+        if package is not None:
+            channel = "正式版" if package.channel == "stable" else "测试版"
+            firmware = f"当前固件：{package.release_version}（{channel}）\n"
         self.management_status_label.setText(
+            f"{firmware}"
             f"AppLoad：{self._app_status_text(self._appload_status)}\n"
             f"KOReader：{self._managed_status_text(self._managed_status)}\n"
             "资源均直接来自各自 GitHub 官方发布；操作不会自动重启设备。"
@@ -516,14 +522,15 @@ class KOReaderTab(QtWidgets.QWidget):
             self,
             _rmtool.APP_NAME,
             "将从 AppLoad 官方 GitHub Release 下载固定校验版本，并接入 "
-            "rmtool 共享 Xovi。操作不会自动重启设备，是否继续？",
+            "rmtool 共享 Xovi。检测到可安全修复的旧版共享插件时，会在同一事务中"
+            "一并更新并保留原开关状态。操作不会自动重启设备，是否继续？",
             confirm_text="安装",
             cancel_text="取消",
         ):
             return
         self._run_management_operation(
             "安装 AppLoad",
-            "正在下载、校验并安装 AppLoad 官方资源…",
+            "正在校验并更新共享插件、安装 AppLoad…",
             lambda: _appload.enable_cloud(
                 self.ssh_client, str(_rmtool.app_state_dir())
             ),
@@ -576,9 +583,9 @@ class KOReaderTab(QtWidgets.QWidget):
             return
         path, _selected = QtWidgets.QFileDialog.getOpenFileName(
             self,
-            "选择 AppLoad 或 KOReader 官方 ZIP",
+            "选择 AppLoad 或 KOReader 官方包",
             "",
-            "官方 ZIP (*.zip);;所有文件 (*)",
+            "官方包 (*.zip *.tar.gz);;所有文件 (*)",
         )
         if not path:
             return

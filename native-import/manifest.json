@@ -620,6 +620,130 @@
           "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14"
         }
       ]
+    },
+    {
+      "firmware": "20261028104944",
+      "release_version": "3.29.1.0",
+      "channel": "stable",
+      "platform": "ferrari",
+      "architecture": "aarch64",
+      "xochitl_sha256": "35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd",
+      "asset": "rmtool-native-import-ferrari-20261028104944-3.29.1.0.tar.gz",
+      "sha256": "1a8928128e686e01febec8b2f5fb778f4066d1ccb5a191d008529cddd797a6ff",
+      "size": 4934657,
+      "urls": [
+        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-ferrari-20261028104944-3.29.1.0.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-ferrari-20261028104944-3.29.1.0.tar.gz"
+      ],
+      "package_revision": 1,
+      "offline_verified": true,
+      "device_verified": false,
+      "files": [
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
+          "size": 9496456,
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
+        },
+        {
+          "path": "extensions.d/rmtool-native-import.so",
+          "mode": 420,
+          "size": 227864,
+          "sha256": "75297040da3340396dee7dc942f61641f288eaa6e581c866915eb787d7025657"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
+          "size": 618618,
+          "sha256": "481b73bd4b89d03bffe92da7940d81014595fb24acaa097f43a415c577ad42b0"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/native-import.qmd",
+          "mode": 420,
+          "size": 237,
+          "sha256": "a13ebec80e02e27a82bbc7b9d8eca8eb3e1a6b25f37c4a10c50c9a1315924e5f"
+        },
+        {
+          "path": "helpers/rmtool-native-import",
+          "mode": 493,
+          "size": 2621600,
+          "sha256": "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd"
+        },
+        {
+          "path": "qmd-tool",
+          "mode": 493,
+          "size": 1966264,
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
+        },
+        {
+          "path": "xovi.so",
+          "mode": 420,
+          "size": 103008,
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
+        }
+      ]
+    },
+    {
+      "firmware": "20261028104944",
+      "release_version": "3.29.1.0",
+      "channel": "stable",
+      "platform": "chiappa",
+      "architecture": "aarch64",
+      "xochitl_sha256": "9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4",
+      "asset": "rmtool-native-import-chiappa-20261028104944-3.29.1.0.tar.gz",
+      "sha256": "5fadfff073b8d2b35c1a0d3fcaf6d474de0877856e29b4359489414321c66204",
+      "size": 4932908,
+      "urls": [
+        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-chiappa-20261028104944-3.29.1.0.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-chiappa-20261028104944-3.29.1.0.tar.gz"
+      ],
+      "package_revision": 1,
+      "offline_verified": true,
+      "device_verified": false,
+      "files": [
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
+          "size": 9496456,
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
+        },
+        {
+          "path": "extensions.d/rmtool-native-import.so",
+          "mode": 420,
+          "size": 227864,
+          "sha256": "75297040da3340396dee7dc942f61641f288eaa6e581c866915eb787d7025657"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
+          "size": 613338,
+          "sha256": "13ecbc377f54f4f8cd34c7d4a82f361296ac0808ac614d6d68955351b72327fb"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/native-import.qmd",
+          "mode": 420,
+          "size": 237,
+          "sha256": "a13ebec80e02e27a82bbc7b9d8eca8eb3e1a6b25f37c4a10c50c9a1315924e5f"
+        },
+        {
+          "path": "helpers/rmtool-native-import",
+          "mode": 493,
+          "size": 2621600,
+          "sha256": "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd"
+        },
+        {
+          "path": "qmd-tool",
+          "mode": 493,
+          "size": 1966264,
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
+        },
+        {
+          "path": "xovi.so",
+          "mode": 420,
+          "size": 103008,
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
+        }
+      ]
     }
   ]
 }

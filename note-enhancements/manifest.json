@@ -2,6 +2,62 @@
   "schema_version": 1,
   "packages": [
     {
+      "firmware": "20261028104944",
+      "release_version": "3.29.1.0",
+      "channel": "stable",
+      "platform": "ferrari",
+      "architecture": "aarch64",
+      "xochitl_sha256": "35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd",
+      "offline_verified": true,
+      "device_verified": false,
+      "package_revision": 12,
+      "urls": [
+        "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets/rmtool-note-enhancements-ferrari-20261028104944-3.29.1.0.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/rmtool-note-enhancements-ferrari-20261028104944-3.29.1.0.tar.gz"
+      ],
+      "asset": "rmtool-note-enhancements-ferrari-20261028104944-3.29.1.0.tar.gz",
+      "size": 3857133,
+      "sha256": "3a7b50c2c4beb74a615653eed9b5989052058cad8c04f644a40222dc638b97f2",
+      "files": [
+        {"path": "LICENSE.qmd-tool", "size": 35149, "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986", "mode": 420},
+        {"path": "LICENSE.rm-xovi-extensions", "size": 35823, "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809", "mode": 420},
+        {"path": "LICENSE.xovi", "size": 7819, "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976", "mode": 420},
+        {"path": "extensions.d/qt-resource-rebuilder.so", "size": 9496456, "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f", "mode": 420},
+        {"path": "exthome/qt-resource-rebuilder/hashtab", "size": 618618, "sha256": "481b73bd4b89d03bffe92da7940d81014595fb24acaa097f43a415c577ad42b0", "mode": 420},
+        {"path": "exthome/qt-resource-rebuilder/note-enhancements.qmd", "size": 41576, "sha256": "42b83a4c23bc944596a85477ea03ba5892e59c32275c0bcf238c5ee500be5a39", "mode": 420},
+        {"path": "qmd-tool", "size": 1966264, "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9", "mode": 493},
+        {"path": "xovi.so", "size": 103008, "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446", "mode": 420}
+      ]
+    },
+    {
+      "firmware": "20261028104944",
+      "release_version": "3.29.1.0",
+      "channel": "stable",
+      "platform": "chiappa",
+      "architecture": "aarch64",
+      "xochitl_sha256": "9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4",
+      "offline_verified": true,
+      "device_verified": false,
+      "package_revision": 12,
+      "urls": [
+        "https://github.com/pretenderlu/rmtool/releases/download/note-enhancements-assets/rmtool-note-enhancements-chiappa-20261028104944-3.29.1.0.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/note-enhancements/rmtool-note-enhancements-chiappa-20261028104944-3.29.1.0.tar.gz"
+      ],
+      "asset": "rmtool-note-enhancements-chiappa-20261028104944-3.29.1.0.tar.gz",
+      "size": 3853809,
+      "sha256": "f1902b724cf41a03fcc0458366718fc3fd296758e7b3acafce1969fc6465193b",
+      "files": [
+        {"path": "LICENSE.qmd-tool", "size": 35149, "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986", "mode": 420},
+        {"path": "LICENSE.rm-xovi-extensions", "size": 35823, "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809", "mode": 420},
+        {"path": "LICENSE.xovi", "size": 7819, "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976", "mode": 420},
+        {"path": "extensions.d/qt-resource-rebuilder.so", "size": 9496456, "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f", "mode": 420},
+        {"path": "exthome/qt-resource-rebuilder/hashtab", "size": 613338, "sha256": "13ecbc377f54f4f8cd34c7d4a82f361296ac0808ac614d6d68955351b72327fb", "mode": 420},
+        {"path": "exthome/qt-resource-rebuilder/note-enhancements.qmd", "size": 41576, "sha256": "42b83a4c23bc944596a85477ea03ba5892e59c32275c0bcf238c5ee500be5a39", "mode": 420},
+        {"path": "qmd-tool", "size": 1966264, "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9", "mode": 493},
+        {"path": "xovi.so", "size": 103008, "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446", "mode": 420}
+      ]
+    },
+    {
       "firmware": "20260506100933",
       "release_version": "3.27.1.0",
       "channel": "stable",

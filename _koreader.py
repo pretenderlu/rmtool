@@ -125,7 +125,7 @@ def get_managed_status(ssh_client: SSHClientWrapper) -> ManagedStatus:
         return ManagedStatus(
             ManagedState.INCOMPATIBLE,
             identity,
-            detail="当前设备不是 rmtool 精确支持的正式版固件",
+            detail="当前设备不是 rmtool 精确支持的固件",
         )
     target_exists = _test_path(ssh_client, "d", APPLOAD_INSTALL_DIR)
     marker_exists = _test_path(ssh_client, "f", MANAGED_MARKER)
@@ -197,7 +197,13 @@ def get_managed_status(ssh_client: SSHClientWrapper) -> ManagedStatus:
                 "官方程序文件缺少可执行权限，可重新安装修复",
             )
         if not _bridge_enabled(ssh_client, identity):
-            raise RuntimeError("KOReader 文件存在，但 AppLoad 启动入口未启用")
+            return ManagedStatus(
+                ManagedState.REPAIRABLE,
+                identity,
+                asset,
+                version,
+                "KOReader 启动入口未启用，可重新安装修复",
+            )
     except Exception as exc:
         return ManagedStatus(
             ManagedState.BROKEN, identity, asset, detail=str(exc)
@@ -236,7 +242,7 @@ def _official_zip_modes(archive: Path) -> dict[str, int]:
     modes = {}
     with zipfile.ZipFile(archive) as bundle:
         for info in bundle.infolist():
-            name = _appload._safe_zip_path(info.filename)
+            name = _appload._safe_archive_path(info.filename)
             if info.is_dir():
                 continue
             raw_mode = (info.external_attr >> 16) & 0o777
@@ -271,9 +277,9 @@ def _prepare_bridge_root(
     state_dir: str,
     destination: str | Path,
 ) -> Path:
-    runtime_package = tap.select_package(tap._trusted_catalog(), identity)
-    if runtime_package is None or runtime_package.channel != "stable":
-        raise RuntimeError("当前设备没有可用的正式版共享运行资源。")
+    runtime_package = _appload._runtime_package(identity)
+    if runtime_package is None:
+        raise RuntimeError("当前设备没有可用的共享运行资源。")
     runtime_archive = tap.download_package(runtime_package, state_dir)
     root = tap.extract_verified_package(
         runtime_archive, runtime_package, destination
@@ -346,7 +352,7 @@ def install_managed(
     identity = tap.get_device_identity(ssh_client)
     asset = _appload.koreader_asset(identity)
     if asset is None:
-        raise RuntimeError("当前设备不是 rmtool 精确支持的正式版固件。")
+        raise RuntimeError("当前设备不是 rmtool 精确支持的固件。")
     app_status = _appload.get_status(ssh_client)
     if app_status.state not in (
         _appload.AppLoadState.ENABLED,
@@ -550,7 +556,7 @@ def install_managed_cloud(
     identity = tap.get_device_identity(ssh_client)
     asset = _appload.koreader_asset(identity)
     if asset is None:
-        raise RuntimeError("当前设备不是 rmtool 精确支持的正式版固件。")
+        raise RuntimeError("当前设备不是 rmtool 精确支持的固件。")
     archive = _appload.download_official_asset(asset, state_dir)
     return install_managed(
         ssh_client,

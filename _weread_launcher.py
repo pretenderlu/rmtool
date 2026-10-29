@@ -47,10 +47,22 @@ _ASSET_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.tar\.gz")
 OFFICIAL_FILES = _weread_app.OFFICIAL_FILES
 
 ALLOWED_TARGETS = {
+    ("ferrari", "20261028104944", "aarch64", "35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd"):
+        ("3.29.1.0", "stable", True, False),
+    ("chiappa", "20261028104944", "aarch64", "9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4"):
+        ("3.29.1.0", "stable", True, True),
     ("ferrari", "20260827113527", "aarch64", "b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021"):
         ("3.28.0.172", "stable", True, False),
     ("chiappa", "20260827113527", "aarch64", "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"):
         ("3.28.0.172", "stable", True, True),
+    ("ferrari", "20261009073202", "aarch64", "7aa5d67da6850d7021ade5a2232edeb5f34550236eca6f7a102f37f962dd4bd2"):
+        ("3.29.0.152", "beta", True, False),
+    ("chiappa", "20261009073202", "aarch64", "09ba8581a50d96c19b360606ee0288b8863faec620036c8eda3b2a0b5cc2d2e2"):
+        ("3.29.0.152", "beta", True, False),
+    ("ferrari", "20261009073202", "aarch64", "9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4"):
+        ("3.29.0.153", "beta", True, False),
+    ("chiappa", "20261009073202", "aarch64", "0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba"):
+        ("3.29.0.153", "beta", True, False),
 }
 
 _REVISION_2_FEATURES = {

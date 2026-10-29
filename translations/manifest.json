@@ -301,6 +301,28 @@
           "stock_french_sha256": "a7a096cd6b3ba3fc248a4926c2277ab7f0ba2bab38b25615e84f6051f49575ea"
         }
       ]
+    },
+    "20261028104944": {
+      "platform": "ferrari",
+      "release_version": "3.29.1.0",
+      "channel": "stable",
+      "asset": "reMarkable_zh_CN-3.29.1.0-ferrari.qm",
+      "size": 214403,
+      "sha256": "5f428e69d5718ac9ef4aa9ee5c05ad7c07d2157f7f2c1e4dab4f6cbcac2d81df",
+      "xochitl_sha256": "35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd",
+      "stock_french_sha256": "b6bf5938346c16efebc96ec37ddcc1c5d93eec6260293ccb119640caa59d0811",
+      "variants": [
+        {
+          "platform": "chiappa",
+          "release_version": "3.29.1.0",
+          "channel": "stable",
+          "asset": "reMarkable_zh_CN-3.29.1.0-chiappa.qm",
+          "size": 210177,
+          "sha256": "f90054fc45147901e26f3260feb1e729985f435396586f3ab05c02736aacbf60",
+          "xochitl_sha256": "9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4",
+          "stock_french_sha256": "5f0fbd874230e2e7256f682656b6d3b7e854c2513e44258a4143b365d9c42997"
+        }
+      ]
     }
   }
 }

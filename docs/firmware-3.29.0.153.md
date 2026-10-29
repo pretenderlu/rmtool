@@ -15,9 +15,11 @@ hardware checks remain separate. Existing Move package records remain unchanged.
 | RM2 | Yes | No port | Not applicable | Yes |
 
 Tap navigation is part of reading enhancements on the two color models and a
-standalone feature on the monochrome models. WeRead, AppLoad/KOReader and firmware
-partition-writing permissions are unchanged. This is not a port of color-only
-features to monochrome screens.
+standalone feature on the monochrome models. WeRead v1.0.0 installation and the
+rmtool native launcher now have exact offline integration on Paper Pro and Move;
+firmware partition-writing permissions are unchanged. AppLoad v0.6.0/KOReader now
+has exact offline integration on all five targets. Hardware acceptance remains
+pending. This is not a port of color-only features to monochrome screens.
 
 Stock RM1/RM2 .153 images still lack CJK fonts. The existing Native Chinese
 fallback-font flow applies; QR installation now checks Chinese font coverage

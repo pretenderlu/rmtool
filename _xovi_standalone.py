@@ -2882,10 +2882,18 @@ def enable_shared(
     extracted_root: str | Path,
     trusted: Mapping[str, SharedFeatureSpec],
     legacy_specs: Iterable[LegacyStandaloneSpec],
+    *,
+    additional_roots: Mapping[str, str | Path] | None = None,
 ) -> SharedInspection:
     with _operation_lock(ssh_client):
         return _enable_shared_locked(
-            ssh_client, runtime, feature, extracted_root, trusted, legacy_specs
+            ssh_client,
+            runtime,
+            feature,
+            extracted_root,
+            trusted,
+            legacy_specs,
+            additional_roots=additional_roots,
         )
 
 
@@ -2907,7 +2915,11 @@ def _shared_enable_plan(
     *,
     inspection: SharedInspection | None = None,
     check_lower: bool = True,
+    additional_features: Iterable[str] = (),
 ) -> SharedEnablePlan | SharedInspection:
+    additional_features = frozenset(additional_features)
+    if feature.feature_id in additional_features:
+        raise RuntimeError("共享 Xovi 联合更新目标重复。")
     layout = preferred_layout(runtime)
     if set(trusted) - {
         "tap-page-turn",
@@ -2927,6 +2939,8 @@ def _shared_enable_plan(
     target_trusted = dict(trusted)
     target_trusted[feature.feature_id] = feature
     assert_feature_layout(runtime, target_trusted.values())
+    if not additional_features <= set(target_trusted):
+        raise RuntimeError("共享 Xovi 联合更新包含未知功能。")
     legacy_specs = tuple(legacy_specs)
     _assert_managed_dropins(
         ssh_client,
@@ -2944,7 +2958,7 @@ def _shared_enable_plan(
             if shared_exists else SharedInspection({}, False, False)
         )
     _assert_receipt_operation_scope(
-        inspection, trusted, (feature.feature_id,)
+        inspection, trusted, {feature.feature_id, *additional_features}
     )
     present_legacy = tuple(
         item for item in legacy_specs
@@ -2968,6 +2982,7 @@ def _shared_enable_plan(
         and installed_state.spec == feature
         and inspection.layout == layout
         and not inspection.launcher_update_available
+        and not additional_features
     ):
         return inspection
     current = _process_token(ssh_client)
@@ -2994,6 +3009,13 @@ def _shared_enable_plan(
             previous_sources[legacy.feature.feature_id] = posixpath.join(
                 legacy.layout.remote_base, legacy.feature.archive_path
             )
+    for feature_id in additional_features:
+        record = states.get(feature_id)
+        if record is None:
+            raise RuntimeError("共享 Xovi 联合更新不能引入未指定的同伴功能。")
+        states[feature_id] = SharedFeatureState(
+            target_trusted[feature_id], record.enabled, record.process_token
+        )
     states[feature.feature_id] = SharedFeatureState(feature, True, current)
     enabled_specs = tuple(state.spec for state in states.values() if state.enabled)
     feature_paths = [
@@ -3040,8 +3062,18 @@ def _enable_shared_locked(
     extracted_root: str | Path,
     trusted: Mapping[str, SharedFeatureSpec],
     legacy_specs: Iterable[LegacyStandaloneSpec],
+    *,
+    additional_roots: Mapping[str, str | Path] | None = None,
 ) -> SharedInspection:
-    plan = _shared_enable_plan(ssh_client, runtime, feature, trusted, legacy_specs)
+    additional_roots = dict(additional_roots or {})
+    plan = _shared_enable_plan(
+        ssh_client,
+        runtime,
+        feature,
+        trusted,
+        legacy_specs,
+        additional_features=additional_roots,
+    )
     if isinstance(plan, SharedInspection):
         return plan
     inspection = plan.inspection
@@ -3060,7 +3092,13 @@ def _enable_shared_locked(
             ssh_client,
             runtime,
             states,
-            {feature.feature_id: Path(extracted_root)},
+            {
+                feature.feature_id: Path(extracted_root),
+                **{
+                    feature_id: Path(root)
+                    for feature_id, root in additional_roots.items()
+                },
+            },
             previous_sources,
             stage,
         )

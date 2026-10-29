@@ -13,7 +13,9 @@ new desktop native-import control.
 - Reading enhancements: tap navigation, refresh options, TOC shortcut,
   custom EPUB fonts and precise Chinese highlighting.
 - Note enhancements.
-- WeRead App/launcher and AppLoad/KOReader are **not** enabled for .153.
+- WeRead v1.0.0 and the rmtool native launcher have exact offline integration,
+  with Move hardware acceptance still pending. AppLoad v0.6.0/KOReader has
+  exact offline integration as well.
   Firmware-residue migration skips an incompatible WeRead launcher with an
   explicit status, preserving application data and migrating compatible peers.
   Skipping QR/WeRead alone does not change AppLoad shim links.

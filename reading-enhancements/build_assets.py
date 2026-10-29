@@ -176,7 +176,7 @@ def _strip_highlighter(source: str) -> str:
 
 
 def _tap_source_for_release(text: str, release_version: str) -> str:
-    if release_version in ("3.29.0.152", "3.29.0.153"):
+    if release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0"):
         # DeviceSceneView now forwards the same signals used by stock swipes.
         for old, new in (("moveBackward", "leftPageRequested"),
                          ("moveForward", "rightPageRequested")):
@@ -475,7 +475,7 @@ def _build_archive(base, base_archive: Path, qmd: bytes, highlight_extension: Pa
         base.architecture,
         base.xochitl_sha256,
     ):
-        if base.release_version in ("3.29.0.152", "3.29.0.153"):
+        if base.release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0"):
             highlight_extension = highlight_extension.with_name("rmtool-highlight-snap-3.29.so")
         files[reading.HIGHLIGHT_EXTENSION_PATH] = (highlight_extension.read_bytes(), 0o644)
         files[reading.HIGHLIGHT_LICENSE_PATH] = (

@@ -46,7 +46,7 @@ class WeReadAppTests(unittest.TestCase):
         )
         self.assertEqual(document["supported"]["platforms"], ["ferrari", "chiappa"])
         self.assertEqual(document["supported"]["architectures"], ["aarch64"])
-        self.assertEqual(document["supported"]["firmware_series"], ["3.28"])
+        self.assertEqual(document["supported"]["firmware_series"], ["3.28", "3.29"])
 
     def test_manifest_rejects_changed_hash_or_download_source(self):
         document = json.loads(app.BUNDLED_MANIFEST.read_text(encoding="utf-8"))
@@ -62,6 +62,7 @@ class WeReadAppTests(unittest.TestCase):
             app.WeReadAppDevice("chiappa", "aarch64", "3.27.3.0"),
             app.WeReadAppDevice("rm2", "aarch64", "3.28.0.172"),
             app.WeReadAppDevice("ferrari", "armv7l", "3.28.0.172"),
+            app.WeReadAppDevice("chiappa", "aarch64", "3.29.0.154"),
         )
         for device in cases:
             with self.subTest(device=device), patch.object(
@@ -70,6 +71,13 @@ class WeReadAppTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "未下载或修改设备"):
                     app.install_online(Mock(), "state")
                 download.assert_not_called()
+
+    def test_exact_329_releases_are_supported(self):
+        for release in ("3.29.0.152", "3.29.0.153", "3.29.1.0"):
+            for platform in ("chiappa", "ferrari"):
+                with self.subTest(platform=platform, release=release):
+                    device = app.WeReadAppDevice(platform, "aarch64", release)
+                    self.assertTrue(app._supported(device, self.package))
 
     def test_install_rechecks_device_after_local_validation_and_cleans_temp(self):
         client = Mock()
@@ -216,8 +224,8 @@ class WeReadAppTests(unittest.TestCase):
         self.assertIn('QLabel("设备启动入口")', section)
         self.assertIn('QPushButton("安装微信读书 App")', section)
         self.assertIn('self.detect_button.setText("检测启动入口")', section)
-        self.assertIn("微信读书 App 支持 Paper Pro 和 Move 的 3.28 系列固件", section)
-        self.assertIn("设备启动入口目前仅适配 3.28.0.172", section)
+        self.assertIn("微信读书 App 支持 Paper Pro 和 Move 的 3.28、3.29.0.152/.153 及 3.29.1.0 固件", section)
+        self.assertIn("设备启动入口按精确固件适配", section)
         self.assertIn("若当前固件有匹配的设备启动入口", section)
         self.assertIn("腾讯微信读书官方 CDN", section)
         self.assertIn(

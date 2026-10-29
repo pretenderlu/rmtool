@@ -250,9 +250,12 @@ class NativeImportTests(unittest.TestCase):
     def test_all_five_devices_on_stable_and_beta_use_native_control_and_stock_post(self):
         import _xovi_standalone as shared
         catalog = control._trusted_catalog()
-        self.assertEqual({(p.platform, p.release_version) for p in catalog},
-                         {(platform, release) for platform in ("rm1", "rm2", "tatsu", "ferrari", "chiappa")
-                          for release in ("3.28.0.172", "3.29.0.153")})
+        self.assertEqual(
+            {(p.platform, p.release_version) for p in catalog},
+            {(platform, release) for platform in ("rm1", "rm2", "tatsu", "ferrari", "chiappa")
+             for release in ("3.28.0.172", "3.29.0.153")}
+            | {(platform, "3.29.1.0") for platform in ("ferrari", "chiappa")},
+        )
         for package in catalog:
             with self.subTest(platform=package.platform, release=package.release_version):
                 runtime, _feature = control._shared_specs(package)

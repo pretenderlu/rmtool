@@ -19,13 +19,14 @@ class QrUploadTests(unittest.TestCase):
 
     def setUp(self):
         self.catalog = qr._trusted_catalog()
-        self.package = self.catalog[0]
+        self.package = next(item for item in self.catalog
+                            if item.platform == "chiappa" and item.release_version == "3.28.0.172")
         p = self.package
         self.identity = tap.DeviceIdentity(p.firmware, p.platform, p.architecture, p.xochitl_sha256)
         self.runtime, self.trusted, self.legacies, self.feature = qr._context(self.identity, p)
 
     def test_manifest_and_shared_peers_are_exact(self):
-        self.assertEqual(len(self.catalog), 6)
+        self.assertEqual(len(self.catalog), 8)
         self.assertEqual(self.package.platform, "chiappa")
         self.assertEqual(self.package.release_version, "3.28.0.172")
         self.assertFalse(self.package.device_verified)
@@ -71,7 +72,7 @@ class QrUploadTests(unittest.TestCase):
 
     def test_manifest_rejects_scope_file_and_url_changes(self):
         original = json.loads(qr.BUNDLED_MANIFEST.read_bytes())
-        for key, value in (("platform", "ferrari"), ("offline_verified", 1),
+        for key, value in (("platform", "chiappa"), ("offline_verified", 1),
                            ("size", True), ("urls", ["https://example.com/payload"]),
                            ("files", []), ("package_revision", True)):
             with self.subTest(key=key):
@@ -294,7 +295,7 @@ class QrUploadTests(unittest.TestCase):
                   patch.object(shared, "inspect_shared_firmware_residue", return_value=shared.SharedInspection(states, False, True))):
                 report = migration.inspect_residue(Mock())
             self.assertTrue(report.migratable, report)
-            self.assertEqual({f.feature_id for f in report.features if f.target_available}, ids - {"weread-launcher"})
+            self.assertEqual({f.feature_id for f in report.features if f.target_available}, ids)
 
     def test_desktop_section_exposes_lifecycle_and_restart_confirmation(self):
         from rmtool import QtCore, QtWidgets

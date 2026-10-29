@@ -1157,6 +1157,56 @@ class SharedXoviTests(unittest.TestCase):
                 inspection, trusted, ("fast-mono-reading",)
             )
 
+    def test_joint_enable_updates_receipt_peer_and_preserves_state(self):
+        tap_package, fast_package = next(iter(self.contexts()))
+        runtime, current_tap = tap._shared_specs(tap_package)
+        _runtime, current_fast = fast._shared_specs(fast_package)
+        local_tap = replace(
+            current_tap,
+            package_id=current_tap.package_id + "-local",
+            sha256="e" * 64,
+        )
+        inspection = shared.SharedInspection(
+            {
+                "tap-page-turn": shared.SharedFeatureState(
+                    local_tap, True, self.TOKEN
+                ),
+                "fast-mono-reading": shared.SharedFeatureState(
+                    current_fast, True, self.TOKEN
+                ),
+            },
+            True,
+            True,
+            receipt_features=frozenset({"tap-page-turn", "fast-mono-reading"}),
+        )
+        trusted = {
+            "tap-page-turn": current_tap,
+            "fast-mono-reading": current_fast,
+        }
+        ssh = MagicMock()
+        with (
+            patch.object(shared, "_assert_managed_dropins"),
+            patch.object(shared, "has_shared_artifacts", return_value=True),
+            patch.object(shared, "_process_token", return_value=self.TOKEN),
+        ):
+            plan = shared._shared_enable_plan(
+                ssh,
+                runtime,
+                current_fast,
+                trusted,
+                (),
+                inspection=inspection,
+                additional_features=("tap-page-turn",),
+            )
+
+        self.assertIsInstance(plan, shared.SharedEnablePlan)
+        self.assertEqual(plan.states["tap-page-turn"].spec, current_tap)
+        self.assertTrue(plan.states["tap-page-turn"].enabled)
+        self.assertEqual(
+            plan.states["tap-page-turn"].process_token, self.TOKEN
+        )
+        self.assertEqual(plan.states["fast-mono-reading"].spec, current_fast)
+
     def test_schema2_local_revision_is_recognized_as_firmware_residue(self):
         tap_package, fast_package = next(iter(self.contexts()))
         _runtime, current = tap._shared_specs(tap_package)

@@ -17,8 +17,8 @@ Exact identities remain mandatory; this is not blanket support for 3.29.
 | Custom EPUB font menu | Offline verified | Not ported |
 | Note enhancements | Offline verified | Color-only; not applicable |
 | Precise Chinese highlighting | Offline verified | Not ported |
-| WeRead App / launcher | Not enabled on this beta | Not enabled |
-| AppLoad / KOReader installation | Integration remains deferred | Integration remains deferred |
+| WeRead App / launcher | v1.0.0 and native launcher; offline integration | Not enabled |
+| AppLoad / KOReader installation | v0.6.0 offline integration; hardware pending | v0.6.0 offline integration; hardware pending |
 
 There are 19 new packages: five each for Chinese, Pinyin and standalone tap,
 plus two each for reading and note enhancements. Normal color-device UI uses

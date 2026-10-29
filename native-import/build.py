@@ -73,7 +73,7 @@ def build_bridge(args, architecture, output):
 
 
 def stock_libraries(args, platform, release, output):
-    channel = "official" if release == "3.28.0.172" else "official-beta"
+    channel = "official" if release in ("3.28.0.172", "3.29.1.0") else "official-beta"
     cache = args.firmware_cache / channel / release / platform
     record = json.loads((cache / "download.json").read_text(encoding="utf-8"))
     image = (cache / record["filename"]).read_bytes()
@@ -123,7 +123,7 @@ def check_bridge(bridge, libraries, architecture, ELFFile):
 
 
 def resource_root(args, platform, firmware, release):
-    if release == "3.29.0.153":
+    if release in ("3.29.0.153", "3.29.1.0"):
         return args.beta_resources / platform
     group = "matrix-172" if platform in ("ferrari", "chiappa") else "matrix-172-classic"
     return args.stable_resources / group / f"{platform}-{firmware}"
@@ -142,6 +142,7 @@ def main():
     parser.add_argument("--stable-resources", type=Path, required=True)
     parser.add_argument("--beta-resources", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--release", choices=sorted({item[0] for item in control.ALLOWED_TARGETS.values()}))
     args = parser.parse_args()
     args.output = args.output.resolve()
     if not args.output.is_relative_to(ROOT / "build"):
@@ -159,6 +160,8 @@ def main():
     for identity, verification in control.ALLOWED_TARGETS.items():
         platform, firmware, architecture, stock = identity
         release, channel, offline, device = verification
+        if args.release and release != args.release:
+            continue
         libraries = args.output / "stock" / release / platform
         rootfs, provenance = stock_libraries(args, platform, release, libraries)
         binary = (rootfs / "usr/bin/xochitl").read_bytes()
@@ -238,10 +241,24 @@ def main():
         print(f"PASS {platform}/{release}: {imports} ABI imports; native controller replayed", flush=True)
     if len({check["webui_sha256"] for check in checks}) != 1:
         raise RuntimeError("Native web-import implementations differ; review each protocol before packaging")
-    manifest = (json.dumps(dict(schema_version=1, packages=entries), indent=2) + "\n").encode()
+    document = json.loads(control.BUNDLED_MANIFEST.read_text(encoding="utf-8"))
+    combined = {
+        (item["platform"], item["firmware"], item["architecture"], item["xochitl_sha256"]): item
+        for item in document["packages"]
+    }
+    for entry in entries:
+        combined[(entry["platform"], entry["firmware"], entry["architecture"], entry["xochitl_sha256"])] = entry
+    document["packages"] = list(combined.values())
+    manifest = (json.dumps(document, indent=2) + "\n").encode()
     catalog = control.parse_manifest(manifest, require_local_match=False)
+    built_identities = {
+        (item["platform"], item["firmware"], item["architecture"], item["xochitl_sha256"])
+        for item in entries
+    }
     for package in catalog:
-        control.load_local_package(package, args.output / package.asset, str(ROOT / ".rmtool"))
+        identity = (package.platform, package.firmware, package.architecture, package.xochitl_sha256)
+        if identity in built_identities:
+            control.load_local_package(package, args.output / package.asset, str(ROOT / ".rmtool"))
     packages.write_atomic(control.BUNDLED_MANIFEST, manifest)
     control._trusted_catalog.cache_clear()
     packages.write_atomic(args.output / "validation.json", (json.dumps(checks, indent=2) + "\n").encode())

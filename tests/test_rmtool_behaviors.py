@@ -1985,7 +1985,10 @@ class WallpaperUiTests(unittest.TestCase):
             FakeConnectionClient(connected=True, host="10.11.99.1")
         )
         self.addCleanup(section.deleteLater)
-        package = _native_chinese._trusted_catalog()[1]
+        package = next(
+            item for item in _native_chinese._trusted_catalog()
+            if item.platform == "chiappa" and item.channel == "stable" and item.device_verified
+        )
         identity = _native_chinese.tap.DeviceIdentity(
             package.firmware,
             package.platform,

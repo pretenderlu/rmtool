@@ -15,13 +15,14 @@ import _xovi_standalone as shared
 class NativeControlTests(unittest.TestCase):
     def setUp(self):
         self.catalog = control._trusted_catalog()
-        self.package = self.catalog[0]
+        self.package = next(item for item in self.catalog
+                            if item.platform == "ferrari" and item.release_version == "3.28.0.172")
         p = self.package
         self.identity = tap.DeviceIdentity(p.firmware, p.platform, p.architecture, p.xochitl_sha256)
         self.runtime, self.trusted, self.legacies, self.feature = control._context(self.identity, p)
 
     def test_exact_five_stable_and_five_beta_targets_share_verified_runtime(self):
-        self.assertEqual(len(self.catalog), 10)
+        self.assertEqual(len(self.catalog), 12)
         self.assertEqual({p.platform for p in self.catalog if p.channel == "stable"},
                          {"rm1", "rm2", "ferrari", "chiappa", "tatsu"})
         self.assertEqual({(p.platform, p.release_version) for p in self.catalog if p.channel == "beta"},
@@ -51,9 +52,12 @@ class NativeControlTests(unittest.TestCase):
             self.assertIsNone(control.select_package(self.catalog, replace(identity, xochitl_sha256=previous.xochitl_sha256)))
             with self.subTest(platform=p.platform):
                 runtime, trusted, legacies, _ = control._context(identity, p)
-                expected = {control.FEATURE_ID, "qr-upload", "native-chinese", "pinyin-input", "tap-page-turn"}
+                expected = {
+                    control.FEATURE_ID, "qr-upload", "native-chinese", "pinyin-input",
+                    "tap-page-turn", "appload", "koreader",
+                }
                 if p.platform in ("ferrari", "chiappa"):
-                    expected.update(("reading-enhancements", "note-enhancements"))
+                    expected.update(("reading-enhancements", "note-enhancements", "weread-launcher"))
                 self.assertEqual(set(trusted), expected)
                 self.assertEqual([legacy.feature.feature_id for legacy in legacies], ["tap-page-turn"])
                 self.assertTrue(all(legacy.runtime == runtime for legacy in legacies))

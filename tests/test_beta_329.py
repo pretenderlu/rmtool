@@ -115,6 +115,17 @@ class Beta329Tests(unittest.TestCase):
         finally:
             sys.path.remove(str(libraries))
 
+    def test_stable_32910_highlighter_matches_reviewed_binary_layout(self):
+        for platform, address in (('chiappa', '0xcaddb0'), ('ferrari', '0xcc8db0')):
+            path = (builder.ROOT / 'build/firmware-cache/official/3.29.1.0' / platform
+                    / 'extracted/selected-rootfs/usr/bin/xochitl')
+            if not path.is_file():
+                self.skipTest('Exact stable xochitl is not cached')
+            with self.subTest(platform=platform):
+                result = builder.highlight_abi_check(path, platform, '3.29.1.0')
+                self.assertEqual(result['address'], address)
+                self.assertEqual(result['xochitl_sha256'], builder.TARGETS_BY_RELEASE['3.29.1.0'][platform][2])
+
     def test_exact_beta_packages_are_offline_only_and_have_matching_carriers(self):
         packages = [p for p in native._trusted_catalog() if p.release_version == builder.RELEASE]
         self.assertEqual({p.platform for p in packages}, set(builder.TARGETS))
@@ -205,6 +216,66 @@ class Beta329Tests(unittest.TestCase):
                 _, trusted, _ = tap._trusted_shared_context(old)
                 features = {'native-chinese', 'pinyin-input'}
                 features.update({'reading-enhancements', 'note-enhancements'} if platform in ('ferrari', 'chiappa') else {'tap-page-turn'})
+                states = {name: shared.SharedFeatureState(trusted[name], True, 'old') for name in features}
+                with (self.subTest(platform=platform, release=release),
+                      patch.object(tap, 'get_device_identity', return_value=current),
+                      patch.object(shared, 'has_shared_artifacts', return_value=True),
+                      patch.object(shared, 'read_shared_identity', return_value=(old.firmware, old.platform, old.architecture, old.xochitl_sha256)),
+                      patch.object(shared, 'inspect_shared_firmware_residue', return_value=shared.SharedInspection(states, False, True))):
+                    report = migration.inspect_residue(Mock())
+                    self.assertTrue(report.migratable, report)
+                    self.assertEqual({f.feature_id for f in report.features if f.target_available}, features)
+
+    def test_stable_32910_selects_exact_clean_install_packages(self):
+        import _appload as appload
+        import _native_import_control as native_import
+        import _note_enhancements as note
+        import _pinyin_input as pinyin
+        import _qr_upload as qr
+        import _weread_launcher as weread
+
+        modules = (native, pinyin, reading, note, weread, native_import, qr, native.tap)
+        for platform in ('ferrari', 'chiappa'):
+            target = next(p for p in native._trusted_catalog()
+                          if p.platform == platform and p.release_version == '3.29.1.0')
+            identity = native.tap.DeviceIdentity(
+                target.firmware, platform, target.architecture, target.xochitl_sha256)
+            with self.subTest(platform=platform):
+                for module in modules:
+                    package = module.select_package(module._trusted_catalog(), identity)
+                    self.assertIsNotNone(package, module.__name__)
+                    self.assertEqual(package.release_version, '3.29.1.0')
+                    self.assertEqual(package.channel, 'stable')
+                    self.assertEqual(
+                        getattr(package, 'device_verified', False),
+                        module is weread and platform == 'chiappa',
+                    )
+                self.assertIsNotNone(appload.app_asset(identity))
+                self.assertIsNotNone(appload.koreader_asset(identity))
+                self.assertEqual(reading.select_package(
+                    reading._trusted_catalog(),
+                    native.tap.DeviceIdentity(target.firmware, platform, target.architecture, '0' * 64),
+                ), None)
+
+    def test_color_devices_migrate_current_features_to_stable_32910(self):
+        import _residue_migration as migration
+        tap = native.tap
+        for platform in ('ferrari', 'chiappa'):
+            target = next(p for p in native._trusted_catalog()
+                          if p.platform == platform and p.release_version == '3.29.1.0')
+            current = tap.DeviceIdentity(target.firmware, platform, target.architecture, target.xochitl_sha256)
+            for release in ('3.28.0.172', '3.29.0.153'):
+                source = next(p for p in native._trusted_catalog()
+                              if p.platform == platform and p.release_version == release)
+                old = tap.DeviceIdentity(source.firmware, platform, source.architecture, source.xochitl_sha256)
+                _, trusted, _ = tap._trusted_shared_context(old)
+                features = {
+                    'native-chinese', 'pinyin-input', 'reading-enhancements',
+                    'note-enhancements', 'tap-page-turn', 'weread-launcher',
+                    'native-import', 'appload', 'koreader',
+                }
+                if release == '3.29.0.153' or platform == 'chiappa':
+                    features.add('qr-upload')
                 states = {name: shared.SharedFeatureState(trusted[name], True, 'old') for name in features}
                 with (self.subTest(platform=platform, release=release),
                       patch.object(tap, 'get_device_identity', return_value=current),

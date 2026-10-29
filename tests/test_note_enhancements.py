@@ -32,7 +32,8 @@ class NoteEnhancementsBackendTests(unittest.TestCase):
         self.catalog = note.parse_manifest(
             MANIFEST_PATH.read_bytes(), require_local_match=False
         )
-        self.package = self.catalog[0]
+        self.package = next(item for item in self.catalog
+                            if item.platform == "chiappa" and item.release_version == "3.27.1.0")
         self.identity = tap.DeviceIdentity(
             self.package.firmware,
             self.package.platform,
@@ -42,7 +43,7 @@ class NoteEnhancementsBackendTests(unittest.TestCase):
         self.runtime, self.feature = note._shared_specs(self.package)
 
     def test_manifest_is_exact_color_device_matrix_with_two_mirrors(self):
-        self.assertEqual(len(self.catalog), 20)
+        self.assertEqual(len(self.catalog), 22)
         self.assertEqual(
             {
                 (item.platform, item.firmware, item.xochitl_sha256)
