@@ -5,7 +5,7 @@ requires-python = ">=3.12"
 license = "GPL-3.0-or-later"
 # Not an installable package: the version lives in rmtool.APP_VERSION and
 # tools/check_release.py keeps it in sync with release tags and notes.
-version = "1.21.0"
+version = "1.21.1"
 
 [tool.ruff]
 target-version = "py312"
