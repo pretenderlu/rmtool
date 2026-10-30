@@ -17,12 +17,13 @@ from `.152`. All five stock-catalog unions and QML translation keys passed the
 offline checks; new ports await publication and hardware acceptance. See the
 [five-device report](../docs/firmware-3.29.0.153.md).
 
-Stable `3.29.1.0` uses internal build `20261028104944` and adds exact Ferrari
-and Chiappa carrier records. Their stock French catalogs are byte-identical to
+Stable `3.29.1.0` uses internal build `20261028104944` and adds exact carrier
+records for all five models. Their stock French catalogs are byte-identical to
 the corresponding .153 catalogs, and the compiled Chinese catalogs retain the
 same verified bytes under release-qualified asset names. Fresh stable QML and
 stock-translation checks passed; hardware acceptance remains separate. See the
-[stable adaptation report](../docs/firmware-3.29.1.0.md).
+[stable adaptation report](../docs/firmware-3.29.1.0.md) and
+[legacy-device report](../docs/firmware-3.29.1.0-legacy.md).
 
 This directory contains the editable Qt Linguist source, the compiled catalog,
 and the cloud release manifest:

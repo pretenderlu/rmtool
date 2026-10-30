@@ -24,7 +24,7 @@ v1.18.2 publication. This is not confirmation of phone uploads on every model.
 | 3.28.0.172 | 20260827113527 | ferrari, chiappa, tatsu, rm1, rm2 | stable |
 | 3.29.0.152 | 20261009073202 | ferrari, chiappa, tatsu, rm1, rm2 | beta |
 | 3.29.0.153 | 20261009073202 | ferrari, chiappa, tatsu, rm1, rm2 | beta; offline coverage below |
-| 3.29.1.0 | 20261028104944 | ferrari, chiappa | stable; offline coverage below |
+| 3.29.1.0 | 20261028104944 | ferrari, chiappa, tatsu, rm1, rm2 | stable; offline coverage below |
 
 Paper Pro = ferrari; Move = chiappa; Paper Pure = tatsu. RM1/RM2 use armv7l;
 the other three use aarch64. Internal builds are not unique firmware identities:
@@ -54,6 +54,7 @@ does not apply to a monochrome screen.
 | Paper Pro, Move | 3.29.0.153 beta (offline) | Yes | Yes | In reading | Yes | Yes | Yes | Yes | Yes (offline) | Yes (offline) | Yes (offline) |
 | Paper Pro, Move | 3.29.1.0 stable | Yes (offline) | Yes (offline) | In reading | Yes (offline) | Yes (offline) | Yes (offline) | Yes (offline) | Yes (offline) | Yes (Move hardware; Paper Pro offline) | Yes (offline) |
 | Pure, RM1, RM2 | 3.29.0.153 beta (offline) | Yes | Yes | Yes | No | N/A | No | No | No | No | Yes (offline) |
+| Pure, RM1, RM2 | 3.29.1.0 stable (offline) | Yes | Yes | Yes | No | N/A | No | No | No | No | Yes (offline) |
 
 - The standalone tap/fast-mono packages remain trusted for migration. On color
   devices their normal UI entry is consolidated into reading enhancements;
@@ -99,8 +100,8 @@ the selected SSH connection. UUIDs, metadata and EPUB conversion belong to the
 system; rmtool does not fall back to direct library writes or restart the reader.
 
 Automatic preparation has independent exact-target packages for **RM1, RM2,
-Paper Pure, Paper Pro and Move on stable 3.28.0.172 and beta 3.29.0.153,
-plus Paper Pro and Move on stable 3.29.1.0**.
+Paper Pure, Paper Pro and Move on stable 3.28.0.172, beta 3.29.0.153, and
+stable 3.29.1.0**.
 The control component can be initialized/removed from the document center;
 its first load needs one manual reboot. QR reception is not a prerequisite.
 An authenticated, already loaded
@@ -108,7 +109,7 @@ QR control component remains usable. Existing enabled native services are left
 unchanged; temporary activation restores the original setting and only removes
 addresses owned by that session.
 
-All twelve packages passed exact stock ABI and peer-QMD replay checks. The current
+All fifteen packages passed exact stock ABI and peer-QMD replay checks. The current
 Move .153 QR-based control path has hardware evidence; the new independent
 component on each device/firmware still requires hardware acceptance. Core and
 QR .153 ports are separately verified in the plugin matrix and
@@ -122,7 +123,7 @@ activation support on other builds from the shared public version number.
 | SSH, documents, wallpapers, time, diagnostics | Runtime checks | Runtime checks | Runtime checks |
 | Font upload and system-font selection | Runtime checks | Runtime checks | Runtime checks; small /data |
 | Screen preview | DRM mapping probe | DRM mapping probe | Legacy framebuffer probe |
-| Phone QR reception | Stable 3.29.1.0 (offline); both .153; Move .172 | .153 (offline) | .153 (offline) |
+| Phone QR reception | Stable 3.29.1.0 (offline); both .153; Move .172 | Stable 3.29.1.0 and .153 (offline) | Stable 3.29.1.0 and .153 (offline) |
 | Firmware catalog / download in the UI | Available | Not exposed | Not exposed |
 | Firmware write / A-B switching | Validated new A-B layout only | Not enabled | Not enabled |
 

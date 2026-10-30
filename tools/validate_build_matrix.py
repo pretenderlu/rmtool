@@ -41,18 +41,19 @@ BETA_329_TARGETS = {(platform, release) for platform in COLOR_PLATFORMS | MONO_P
 BETA_329_COLOR_TARGETS = {(platform, release) for platform in COLOR_PLATFORMS
                           for release in ("3.29.0.152", "3.29.0.153")}
 STABLE_32910_COLOR_TARGETS = {(platform, "3.29.1.0") for platform in COLOR_PLATFORMS}
+STABLE_32910_MONO_TARGETS = {(platform, "3.29.1.0") for platform in MONO_PLATFORMS}
 EXPECTED_COVERAGE = {
-    "tap-page-turn": COLOR_TARGETS | MONO_TARGETS | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS,
+    "tap-page-turn": COLOR_TARGETS | MONO_TARGETS | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS,
     "fast-mono-reading": COLOR_TARGETS,
-    "native-chinese": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS} | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS,
-    "pinyin-input": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS} | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS,
+    "native-chinese": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS} | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS,
+    "pinyin-input": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS} | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS,
     "reading-enhancements": COLOR_TARGETS | BETA_329_COLOR_TARGETS | STABLE_32910_COLOR_TARGETS,
     "note-enhancements": COLOR_TARGETS | BETA_329_COLOR_TARGETS | STABLE_32910_COLOR_TARGETS,
     "weread-launcher": {(platform, "3.28.0.172") for platform in COLOR_PLATFORMS} | BETA_329_COLOR_TARGETS | STABLE_32910_COLOR_TARGETS,
     "qr-upload": {("chiappa", "3.28.0.172")} | {
-        (platform, "3.29.0.153") for platform in COLOR_PLATFORMS | MONO_PLATFORMS} | STABLE_32910_COLOR_TARGETS,
+        (platform, "3.29.0.153") for platform in COLOR_PLATFORMS | MONO_PLATFORMS} | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS,
     "native-import": {(platform, release) for platform in COLOR_PLATFORMS | MONO_PLATFORMS
-                      for release in ("3.28.0.172", "3.29.0.153")} | STABLE_32910_COLOR_TARGETS,
+                      for release in ("3.28.0.172", "3.29.0.153")} | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS,
 }
 
 # These are the official 3.28.0.172 identities extracted from the five cached
@@ -172,6 +173,24 @@ OFFICIAL_32910 = {
         "xochitl_sha256": "9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4",
         "stock_french_sha256": "5f0fbd874230e2e7256f682656b6d3b7e854c2513e44258a4143b365d9c42997",
         "localized_qm": ("reMarkable_zh_CN-3.29.1.0-chiappa.qm", 210177, "f90054fc45147901e26f3260feb1e729985f435396586f3ab05c02736aacbf60"),
+    },
+    "tatsu": {
+        "architecture": "aarch64",
+        "xochitl_sha256": "c464f2ee5f03468834cb117672ebaaabb1e322cdab8510bbdc2f663886334531",
+        "stock_french_sha256": "238c7365f0335ff8cf63aab5f6af8d7194bc3f1395b50e01f3613431c31866dd",
+        "localized_qm": ("reMarkable_zh_CN-3.29.1.0-tatsu.qm", 210177, "f90054fc45147901e26f3260feb1e729985f435396586f3ab05c02736aacbf60"),
+    },
+    "rm1": {
+        "architecture": "armv7l",
+        "xochitl_sha256": "2bc210bd4e05b709ea15d7e4f357b816505a40fb1838c02f6b60040ea3c87690",
+        "stock_french_sha256": "6acffe4c354cc9ade40d7ecb78e89306fc0b26582af83b31fbf5f21bd36e745d",
+        "localized_qm": ("reMarkable_zh_CN-3.29.1.0-rm1.qm", 223398, "0897282056ec44dd45bfa95da54d5d168379e9863274cc4cbcf021a54c18c18c"),
+    },
+    "rm2": {
+        "architecture": "armv7l",
+        "xochitl_sha256": "4ab39bdf42503fe8d9e10a31a415b28b9aed6f25bd32788226c02ee23879fd13",
+        "stock_french_sha256": "a7a096cd6b3ba3fc248a4926c2277ab7f0ba2bab38b25615e84f6051f49575ea",
+        "localized_qm": ("reMarkable_zh_CN-3.29.1.0-rm2.qm", 223398, "0897282056ec44dd45bfa95da54d5d168379e9863274cc4cbcf021a54c18c18c"),
     },
 }
 
@@ -364,9 +383,9 @@ def validate() -> None:
 def main() -> int:
     validate()
     print(
-        f"PASS: 34 device/firmware targets, {len(FEATURE_MODULES)} plugin matrices, shared runtimes, "
+        f"PASS: 37 device/firmware targets, {len(FEATURE_MODULES)} plugin matrices, shared runtimes, "
         "AppLoad/KOReader and WeRead boundaries, five preview profiles, and "
-        "seventeen official 3.28.0.172 / 3.29.0.152 / 3.29.0.153 / 3.29.1.0 localization carriers."
+        "twenty official 3.28.0.172 / 3.29.0.152 / 3.29.0.153 / 3.29.1.0 localization carriers."
     )
     return 0
 

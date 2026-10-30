@@ -10,16 +10,16 @@ library writes, SFTP fallback, automatic retry, or upload-triggered restart.
 
 | Device | Stable firmware | Beta firmware | Architecture |
 | --- | --- | --- | --- |
-| reMarkable 1 | 3.28.0.172 | 3.29.0.153 | ARMv7 |
-| reMarkable 2 | 3.28.0.172 | 3.29.0.153 | ARMv7 |
-| Paper Pure | 3.28.0.172 | 3.29.0.153 | AArch64 |
+| reMarkable 1 | 3.28.0.172, 3.29.1.0 | 3.29.0.153 | ARMv7 |
+| reMarkable 2 | 3.28.0.172, 3.29.1.0 | 3.29.0.153 | ARMv7 |
+| Paper Pure | 3.28.0.172, 3.29.1.0 | 3.29.0.153 | AArch64 |
 | Paper Pro | 3.28.0.172, 3.29.1.0 | 3.29.0.153 | AArch64 |
 | Paper Pro Move | 3.28.0.172, 3.29.1.0 | 3.29.0.153 | AArch64 |
 
 Every target requires its exact internal
-build and stock xochitl hash, not just a matching public version. All twelve
+build and stock xochitl hash, not just a matching public version. All fifteen
 packages have offline ABI and resource-replay verification; this does not
-claim twelve hardware tests. The current Move .153 QR-based controller has passed
+claim fifteen hardware tests. The current Move .153 QR-based controller has passed
 USB/Wi-Fi native imports and restoration tests. Independent-component hardware
 acceptance remains outstanding. Native transfer coverage does not authorize
 localization, QR reception or other plugins on these new beta targets; their

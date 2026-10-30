@@ -67,7 +67,7 @@ class PinyinInputTests(unittest.TestCase):
             (item.firmware, item.platform, item.architecture, item.xochitl_sha256)
             for item in packages
         }
-        self.assertEqual(len(packages), 31)
+        self.assertEqual(len(packages), 34)
         self.assertEqual(
             {(item.platform, item.release_version) for item in packages},
             {
@@ -80,7 +80,7 @@ class PinyinInputTests(unittest.TestCase):
             | {(platform, "3.28.0.172") for platform in ("tatsu", "rm1", "rm2")}
             | {(platform, "3.29.0.152") for platform in ("ferrari", "chiappa", "tatsu", "rm1", "rm2")}
             | {(platform, "3.29.0.153") for platform in ("ferrari", "chiappa", "tatsu", "rm1", "rm2")}
-            | {(platform, "3.29.1.0") for platform in ("ferrari", "chiappa")},
+            | {(platform, "3.29.1.0") for platform in ("ferrari", "chiappa", "tatsu", "rm1", "rm2")},
         )
         self.assertEqual(
             identities,
@@ -380,6 +380,7 @@ class PinyinInputTests(unittest.TestCase):
             peer.firmware, peer.platform, peer.architecture, peer.xochitl_sha256
         )
         runtime, trusted, _legacies = tap._trusted_shared_context(identity)
+        identity = replace(identity, xochitl_sha256="0" * 64)
         inspection = shared.SharedInspection({}, True, True)
         ssh = Mock()
         with patch.object(

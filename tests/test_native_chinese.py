@@ -34,7 +34,7 @@ class NativeChineseTests(unittest.TestCase):
 
     def test_manifest_is_complete_dual_source_three_file_feature(self):
         packages = native.parse_manifest(native.BUNDLED_MANIFEST.read_bytes())
-        self.assertEqual(len(packages), 31)
+        self.assertEqual(len(packages), 34)
         self.assertEqual(
             {
                 (item.platform, item.release_version)
@@ -72,6 +72,9 @@ class NativeChineseTests(unittest.TestCase):
                 ("rm2", "3.29.0.152"),
                 ("chiappa", "3.29.1.0"),
                 ("ferrari", "3.29.1.0"),
+                ("tatsu", "3.29.1.0"),
+                ("rm1", "3.29.1.0"),
+                ("rm2", "3.29.1.0"),
             },
         )
         self.assertTrue(all(item.offline_verified for item in packages))
@@ -206,7 +209,7 @@ class NativeChineseTests(unittest.TestCase):
                 self.assertEqual(predecessors[2].reason, "arm_calling_convention")
                 continue
             if other.architecture == "armv7l":
-                if other.release_version == "3.29.0.153":
+                if other.release_version in ("3.29.0.153", "3.29.1.0"):
                     self.assertEqual(predecessors, ())
                     continue
                 self.assertEqual(len(predecessors), 1)

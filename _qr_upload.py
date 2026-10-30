@@ -29,6 +29,12 @@ REQUIRED_PATHS = {*shared._COMMON_ARCHIVE_PATHS, QMD_PAYLOAD_PATH, BRIDGE_PAYLOA
 MAX_PACKAGE_BYTES = tap.MAX_PACKAGE_BYTES
 MAX_UNPACKED_BYTES = tap.MAX_UNPACKED_BYTES
 ALLOWED_TARGETS = {
+    ("tatsu", "20261028104944", "aarch64", "c464f2ee5f03468834cb117672ebaaabb1e322cdab8510bbdc2f663886334531"):
+        ("3.29.1.0", "stable", True, False),
+    ("rm1", "20261028104944", "armv7l", "2bc210bd4e05b709ea15d7e4f357b816505a40fb1838c02f6b60040ea3c87690"):
+        ("3.29.1.0", "stable", True, False),
+    ("rm2", "20261028104944", "armv7l", "4ab39bdf42503fe8d9e10a31a415b28b9aed6f25bd32788226c02ee23879fd13"):
+        ("3.29.1.0", "stable", True, False),
     ("ferrari", "20261028104944", "aarch64", "35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd"):
         ("3.29.1.0", "stable", True, False),
     ("chiappa", "20261028104944", "aarch64", "9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4"):

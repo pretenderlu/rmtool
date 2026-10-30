@@ -67,6 +67,9 @@ SUPPORTED_IDENTITY = tap.DeviceIdentity(
     "8726b4fce55a9154a5014956e5204401ce881d752c1ff3813adb622a68aac2f9",
 )
 ALLOWED_TARGETS = {
+    ("20261028104944", "tatsu", "aarch64", "c464f2ee5f03468834cb117672ebaaabb1e322cdab8510bbdc2f663886334531"): ("3.29.1.0", "stable", True, False),
+    ("20261028104944", "rm1", "armv7l", "2bc210bd4e05b709ea15d7e4f357b816505a40fb1838c02f6b60040ea3c87690"): ("3.29.1.0", "stable", True, False),
+    ("20261028104944", "rm2", "armv7l", "4ab39bdf42503fe8d9e10a31a415b28b9aed6f25bd32788226c02ee23879fd13"): ("3.29.1.0", "stable", True, False),
     ("20261028104944", "ferrari", "aarch64", "35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd"): ("3.29.1.0", "stable", True, False),
     ("20261028104944", "chiappa", "aarch64", "9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4"): ("3.29.1.0", "stable", True, False),
     ("20261009073202", "ferrari", "aarch64", "9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4"): ("3.29.0.153", "beta", True, False),

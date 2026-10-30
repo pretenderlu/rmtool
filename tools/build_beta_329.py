@@ -36,6 +36,9 @@ TARGETS_BY_RELEASE = {
     '3.29.1.0': {
         'ferrari': ('aarch64', 'b94772f860ba8273a35b0dea24d1b74c28b6e8af718f7767c7417687721e2401', '35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd'),
         'chiappa': ('aarch64', 'ce3b42e6178dc26fe5658c505aa97b54c062fe30597be26661c01ecd803e62df', '9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4'),
+        'tatsu': ('aarch64', '966d632cd60927ef6f36aef0db8268aeab2285d27b772ea45f292f72bc692cc8', 'c464f2ee5f03468834cb117672ebaaabb1e322cdab8510bbdc2f663886334531'),
+        'rm1': ('armv7l', '215d43ec9d72dd296e729b0d18dea4bdd8946c6f9c8e8e1b4bcbf7278c624a5f', '2bc210bd4e05b709ea15d7e4f357b816505a40fb1838c02f6b60040ea3c87690'),
+        'rm2': ('armv7l', '7a0af4173d90bae0adf0c5a9e94e7eaf5e86cf741e38bdbec4e3788315c9da6f', '4ab39bdf42503fe8d9e10a31a415b28b9aed6f25bd32788226c02ee23879fd13'),
     },
 }
 FIRMWARE_BY_RELEASE = {

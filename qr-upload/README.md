@@ -1,8 +1,7 @@
 # QR document upload
 
-The source includes rmtool-managed installation for **Paper Pro and Move on
-stable 3.29.1.0, all five models on 3.29.0.153, and Paper Pro Move on
-3.28.0.172**. Phone uploads and the device page passed Move .172
+The source includes rmtool-managed installation for **all five models on
+stable 3.29.1.0 and 3.29.0.153, and Paper Pro Move on 3.28.0.172**. Phone uploads and the device page passed Move .172
 manual-deployment tests. The .153 controller passed USB/Wi-Fi desktop native
 imports and restoration checks; .153 phone reception and complete managed
 installation/post-reboot acceptance remain separate hardware tests.

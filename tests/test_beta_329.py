@@ -257,6 +257,58 @@ class Beta329Tests(unittest.TestCase):
                     native.tap.DeviceIdentity(target.firmware, platform, target.architecture, '0' * 64),
                 ), None)
 
+    def test_legacy_devices_select_exact_stable_32910_packages(self):
+        import _appload as appload
+        import _native_import_control as native_import
+        import _pinyin_input as pinyin
+        import _qr_upload as qr
+        import _weread_launcher as weread
+
+        modules = (native, pinyin, native_import, qr, native.tap)
+        for platform in ('tatsu', 'rm1', 'rm2'):
+            target = next(p for p in native._trusted_catalog()
+                          if p.platform == platform and p.release_version == '3.29.1.0')
+            identity = native.tap.DeviceIdentity(
+                target.firmware, platform, target.architecture, target.xochitl_sha256)
+            with self.subTest(platform=platform):
+                for module in modules:
+                    package = module.select_package(module._trusted_catalog(), identity)
+                    self.assertIsNotNone(package, module.__name__)
+                    self.assertEqual(package.release_version, '3.29.1.0')
+                    self.assertEqual(package.channel, 'stable')
+                    self.assertFalse(getattr(package, 'device_verified', False))
+                self.assertIsNotNone(appload.app_asset(identity))
+                self.assertIsNotNone(appload.koreader_asset(identity))
+                self.assertIsNone(reading.select_package(reading._trusted_catalog(), identity))
+                self.assertIsNone(weread.select_package(weread._trusted_catalog(), identity))
+                runtime, _ = native.tap._shared_specs(native.tap.select_package(native.tap._trusted_catalog(), identity))
+                self.assertEqual(shared.preferred_layout(runtime).remote_base.startswith('/home/'), platform == 'rm1')
+
+    def test_legacy_devices_migrate_current_features_to_stable_32910(self):
+        import _residue_migration as migration
+        tap = native.tap
+        for platform in ('tatsu', 'rm1', 'rm2'):
+            target = next(p for p in native._trusted_catalog()
+                          if p.platform == platform and p.release_version == '3.29.1.0')
+            current = tap.DeviceIdentity(target.firmware, platform, target.architecture, target.xochitl_sha256)
+            for release in ('3.28.0.172', '3.29.0.153'):
+                source = next(p for p in native._trusted_catalog()
+                              if p.platform == platform and p.release_version == release)
+                old = tap.DeviceIdentity(source.firmware, platform, source.architecture, source.xochitl_sha256)
+                _, trusted, _ = tap._trusted_shared_context(old)
+                features = {'native-chinese', 'pinyin-input', 'tap-page-turn', 'native-import', 'appload', 'koreader'}
+                if release == '3.29.0.153':
+                    features.add('qr-upload')
+                states = {name: shared.SharedFeatureState(trusted[name], True, 'old') for name in features}
+                with (self.subTest(platform=platform, release=release),
+                      patch.object(tap, 'get_device_identity', return_value=current),
+                      patch.object(shared, 'has_shared_artifacts', return_value=True),
+                      patch.object(shared, 'read_shared_identity', return_value=(old.firmware, old.platform, old.architecture, old.xochitl_sha256)),
+                      patch.object(shared, 'inspect_shared_firmware_residue', return_value=shared.SharedInspection(states, False, True))):
+                    report = migration.inspect_residue(Mock())
+                    self.assertTrue(report.migratable, report)
+                    self.assertEqual({f.feature_id for f in report.features if f.target_available}, features)
+
     def test_color_devices_migrate_current_features_to_stable_32910(self):
         import _residue_migration as migration
         tap = native.tap

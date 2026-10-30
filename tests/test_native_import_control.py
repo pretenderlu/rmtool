@@ -22,7 +22,7 @@ class NativeControlTests(unittest.TestCase):
         self.runtime, self.trusted, self.legacies, self.feature = control._context(self.identity, p)
 
     def test_exact_five_stable_and_five_beta_targets_share_verified_runtime(self):
-        self.assertEqual(len(self.catalog), 12)
+        self.assertEqual(len(self.catalog), 15)
         self.assertEqual({p.platform for p in self.catalog if p.channel == "stable"},
                          {"rm1", "rm2", "ferrari", "chiappa", "tatsu"})
         self.assertEqual({(p.platform, p.release_version) for p in self.catalog if p.channel == "beta"},
