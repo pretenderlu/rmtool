@@ -143,6 +143,43 @@ class FirmwareUITests(unittest.TestCase):
             self.assertEqual(self.page.buttons["reboot"].isEnabled(), status == "success")
             self.assertEqual(self.page.buttons["switch"].isEnabled(), status in ("none", "completed"))
 
+    def test_release_button_only_for_failed_or_uncertain_after_refresh(self):
+        self.ssh.connected = True
+        for status in ("none", "running", "success", "completed", "failed", "unknown"):
+            with self.subTest(status=status):
+                self.page.state = None
+                self.page.transaction = (status, "state")
+                self.page._update()
+                self.assertTrue(self.page.buttons["release"].isHidden())
+                self.page.state = f.parse_state(state_text())
+                self.page._update()
+                releasable = status in ("failed", "unknown")
+                self.assertEqual(not self.page.buttons["release"].isHidden(), releasable)
+                self.assertEqual(self.page.buttons["release"].isEnabled(), releasable)
+
+    def test_release_requires_confirmation_then_refreshes(self):
+        self.ssh.connected = True
+        self.page.state = f.parse_state(state_text())
+        self.page.transaction = ("failed", "设备端事务失败")
+        with mock.patch("_tab_firmware.ask_confirmation", return_value=False), \
+                mock.patch.object(self.page, "_run") as run:
+            self.page.release_lock()
+        run.assert_not_called()
+        with mock.patch("_tab_firmware.ask_confirmation", return_value=True) as confirm, \
+                mock.patch.object(self.page, "_run") as run, \
+                mock.patch.object(f, "release_transaction", return_value="ok") as release, \
+                mock.patch("_tab_firmware.show_info") as info, \
+                mock.patch.object(self.page, "refresh") as refresh:
+            self.page.release_lock()
+            self.assertTrue(confirm.call_args.kwargs["danger"])
+            function, done = run.call_args.args
+            self.assertTrue(run.call_args.kwargs["device"])
+            function()
+            release.assert_called_once_with(self.ssh, self.ssh, confirmed=True)
+            done("ok")
+        info.assert_called_once()
+        refresh.assert_called_once_with()
+
     def test_running_transaction_polls_and_success_offers_reboot(self):
         with mock.patch.object(self.page, "_schedule_transaction_poll") as schedule:
             self.page._transaction_loaded(("running", "设备端事务仍在运行"))

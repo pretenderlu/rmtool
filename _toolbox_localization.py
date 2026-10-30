@@ -271,9 +271,11 @@ class RmkitCnSection(QtWidgets.QWidget):
         pending: str,
         success: str = "",
         error_hint: str = "若设备界面无响应，请手动重启设备。",
+        close_connection: bool = False,
     ):
         return _ui.start_plugin_worker(
             self, fn, *args, pending=pending, success=success, error_hint=error_hint,
+            close_connection=close_connection,
         )
 
     def _update_buttons(self):
@@ -466,6 +468,7 @@ class RmkitCnSection(QtWidgets.QWidget):
             str(_rmtool.app_state_dir()),
             font_path,
             font_family,
+            close_connection=True,
             pending=(
                 "正在安装并验证中文字体…"
                 if repair_font
@@ -498,6 +501,7 @@ class RmkitCnSection(QtWidgets.QWidget):
             _rmkit_cn.restore_localization,
             self.ssh_client,
             self._status.package,
+            close_connection=True,
             pending="正在还原汉化前状态…",
             success=(
                 "原配置与翻译文件已还原，原生界面已停止，SSH 会话已关闭。\n"

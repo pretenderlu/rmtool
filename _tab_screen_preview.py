@@ -113,7 +113,10 @@ class ScreenPreviewTab(QtWidgets.QWidget):
             if generation != self._generation:
                 self._refresh_controls()
                 return
-            on_success(result)
+            try:
+                on_success(result)
+            except Exception as exc:
+                failed(exc)
 
         def failed(exc):
             if sip.isdeleted(self) or self._worker is not worker:

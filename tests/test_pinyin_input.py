@@ -14,6 +14,8 @@ import _reading_enhancements as reading
 import _tap_page_turn as tap
 import _xovi_standalone as shared
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 class FakeSSH:
     def __init__(self):
@@ -103,7 +105,7 @@ class PinyinInputTests(unittest.TestCase):
                 for item in tap._trusted_catalog()
             },
         )
-        qmd = Path("pinyin-input/qmd/pinyin-input.qmd").read_bytes()
+        qmd = (ROOT / "pinyin-input/qmd/pinyin-input.qmd").read_bytes()
         spec = package.file(pinyin.QMD_PATH)
         self.assertEqual((len(qmd), hashlib.sha256(qmd).hexdigest()), (spec.size, spec.sha256))
         self.assertEqual(
@@ -118,7 +120,7 @@ class PinyinInputTests(unittest.TestCase):
             {(item.platform, item.release_version) for item in packages if item.device_verified},
             {("ferrari", "3.28.0.166")},
         )
-        rcc = Path("pinyin-input/zh_CN.rcc").read_bytes()
+        rcc = (ROOT / "pinyin-input/zh_CN.rcc").read_bytes()
         rcc_spec = package.file(pinyin.RCC_PATH)
         self.assertEqual((len(rcc), hashlib.sha256(rcc).hexdigest()), (333, rcc_spec.sha256))
         self.assertEqual(
@@ -127,7 +129,7 @@ class PinyinInputTests(unittest.TestCase):
         )
 
     def test_builder_checks_current_qmd_against_exact_firmware_hashtab(self):
-        source = Path("pinyin-input/build_assets.py").read_text(encoding="utf-8")
+        source = (ROOT / "pinyin-input/build_assets.py").read_text(encoding="utf-8")
         self.assertIn("sha256(xochitl.read_bytes()) != package.xochitl_sha256", source)
         self.assertIn('"-hashtabs",', source)
         self.assertIn('"-qmd",', source)

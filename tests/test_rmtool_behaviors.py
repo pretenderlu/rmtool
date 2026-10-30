@@ -48,6 +48,8 @@ import _toolbox_reading
 import _tab_wallpaper
 import _tokens
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 _APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
@@ -141,13 +143,18 @@ class FakeCarouselClient(QtCore.QObject):
         super().__init__()
         self.files = dict(files)
         self.commands = []
+        self.session_depth = 0
 
     def is_connected(self):
         return True
 
     @contextmanager
     def operation_session(self):
-        yield
+        self.session_depth += 1
+        try:
+            yield
+        finally:
+            self.session_depth -= 1
 
     def listdir_attr(self, remote_path):
         prefix = remote_path.rstrip("/") + "/"
@@ -178,6 +185,8 @@ class FakeCarouselClient(QtCore.QObject):
 
     def exec_checked(self, command):
         self.commands.append(command)
+        if command.startswith("mount -o remount"):
+            assert self.session_depth > 0, "root remount outside operation_session"
         parts = command.split(" ")
         if parts[0] == "cp":
             self.files[parts[-1]] = self.files[parts[-2]]
@@ -832,6 +841,7 @@ class LocalCredentialTests(unittest.TestCase):
             "secret",
             False,
             trust_unknown_host=True,
+            approved_fingerprint="11:22:33:44",
         )
 
     def test_connection_password_dialog_defaults_to_remember_checked(self):
@@ -2429,7 +2439,7 @@ class WallpaperUiTests(unittest.TestCase):
     @staticmethod
     def reading_enhancements_packages():
         return _reading_enhancements.parse_manifest(
-            Path("reading-enhancements/manifest.json").read_bytes(),
+            (ROOT / "reading-enhancements/manifest.json").read_bytes(),
             require_local_match=False,
         )
 
@@ -3037,6 +3047,45 @@ class WallpaperUiTests(unittest.TestCase):
         start_worker.assert_called_once_with(worker)
         self.assertIn("手动重启", show_info.call_args.args[2])
         self.assertIn("法语", show_info.call_args.args[2])
+        self.assertEqual(client.close_calls, 1)
+
+    def test_rmkit_failure_after_backend_closes_nothing_is_still_reported(self):
+        # The backend must not close the session itself; otherwise the worker
+        # result is discarded as "connection changed" and the user never sees
+        # the "restart manually" hint after xochitl was stopped.
+        client = FakeConnectionClient(connected=True, host="10.11.99.1")
+        section = _tab_toolbox.RmkitCnSection(client)
+        self.addCleanup(section.deleteLater)
+        package = self.translation_package()
+        section._apply_status(
+            _rmkit_cn.LocalizationStatus(
+                _rmkit_cn.LocalizationState.ENABLED,
+                _rmkit_cn.SUPPORTED_FIRMWARE,
+                True,
+                package,
+            )
+        )
+        worker = mock.Mock()
+        worker.signals = mock.Mock()
+
+        def failing_restore(ssh, _package):
+            ssh.events = ["systemctl stop xochitl"]
+            raise RuntimeError("upload failed")
+
+        with mock.patch.object(_toolbox_common, "ask_confirmation", return_value=True), \
+                mock.patch.object(rmtool, "Worker", return_value=worker) as worker_cls, \
+                mock.patch.object(section.thread_pool, "start"), \
+                mock.patch.object(_toolbox_common, "show_error") as show_error, \
+                mock.patch.object(_rmkit_cn, "restore_localization", side_effect=failing_restore):
+            section._restore_localization()
+            with self.assertRaises(RuntimeError) as raised:
+                worker_cls.call_args.args[0]()
+            worker.signals.error.connect.call_args.args[0](raised.exception)
+
+        show_error.assert_called_once()
+        self.assertIn("upload failed", show_error.call_args.args[2])
+        self.assertIn("手动重启", show_error.call_args.args[2])
+        self.assertEqual(client.close_calls, 0)
 
     def test_rmkit_missing_font_cancel_starts_no_worker(self):
         client = FakeConnectionClient(connected=True, host="10.11.99.1")
@@ -5686,6 +5735,46 @@ class HostKeyVerificationTests(unittest.TestCase):
             rmtool.host_key_fingerprint(next(iter(injected.values()))),
             rmtool.host_key_fingerprint(actual_key),
         )
+
+    def test_trust_requires_the_fingerprint_the_user_approved(self):
+        wrapper = rmtool.SSHClientWrapper()
+        approved = FakeHostKey(b"\xaa\xbb\xcc\xdd")
+        other = FakeHostKey(b"\x01\x02\x03\x04")
+        unknown_host = paramiko.SSHException(
+            "Server '10.11.99.1' not found in known_hosts"
+        )
+        with mock.patch.object(
+            wrapper, "_build_client", side_effect=[FakeSSHClient(exc=unknown_host)]
+        ), mock.patch.object(
+            wrapper, "_fetch_remote_host_key", return_value=other
+        ), mock.patch.object(wrapper, "_trust_host_key") as trust_host_key:
+            with self.assertRaises(rmtool.UnknownHostKeyError) as raised:
+                wrapper.connect(
+                    "10.11.99.1",
+                    "secret",
+                    trust_unknown_host=True,
+                    approved_fingerprint=rmtool.host_key_fingerprint(approved),
+                )
+        trust_host_key.assert_not_called()
+        self.assertIsNone(wrapper._client)
+        self.assertTrue(raised.exception.key_changed)
+        self.assertEqual(raised.exception.fingerprint, rmtool.host_key_fingerprint(other))
+
+        second_client = FakeSSHClient()
+        with mock.patch.object(
+            wrapper, "_build_client",
+            side_effect=[FakeSSHClient(exc=unknown_host), second_client],
+        ), mock.patch.object(
+            wrapper, "_fetch_remote_host_key", return_value=approved
+        ), mock.patch.object(wrapper, "_trust_host_key") as trust_host_key:
+            wrapper.connect(
+                "10.11.99.1",
+                "secret",
+                trust_unknown_host=True,
+                approved_fingerprint=rmtool.host_key_fingerprint(approved),
+            )
+        trust_host_key.assert_called_once()
+        self.assertIs(wrapper._client, second_client)
 
     def test_usb_connect_trusts_host_key_by_device_id(self):
         wrapper = rmtool.SSHClientWrapper()

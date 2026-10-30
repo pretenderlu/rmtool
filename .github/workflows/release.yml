@@ -10,8 +10,24 @@ permissions:
   contents: read
 
 jobs:
+  verify-release:
+    name: Verify release inputs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Check tag, version and release notes
+        run: python tools/check_release.py
+      - name: Lint
+        run: |
+          python -m pip install --disable-pip-version-check --no-input -r requirements-dev.txt
+          python -m ruff check .
+
   build-windows:
     name: Build Windows x64
+    needs: verify-release
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -34,6 +50,7 @@ jobs:
 
   build-macos:
     name: Build macOS ARM64
+    needs: verify-release
     runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -44,7 +61,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m venv --clear build/.venv
-          build/.venv/bin/python -m pip --isolated install --disable-pip-version-check --no-input --requirement requirements.txt "PyInstaller==6.21.0"
+          build/.venv/bin/python -m pip --isolated install --disable-pip-version-check --no-input --require-hashes --requirement requirements-build-macos.lock
           build/.venv/bin/python -m pip check
       - name: Run unit tests
         env:
@@ -122,12 +139,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          # verify-release already required this file for the tag.
           notes_file="docs/releases/${GITHUB_REF_NAME}.md"
-          if [[ -f "$notes_file" ]]; then
-            notes_args=(--notes-file "$notes_file")
-          else
-            notes_args=(--generate-notes)
-          fi
+          notes_args=(--notes-file "$notes_file")
           assets=(
             dist/rmtool-windows-x64.zip
             dist/rmtool-windows-x64-onefile.exe

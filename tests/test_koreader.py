@@ -16,6 +16,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5 import QtWidgets
 
+# Load rmtool first: the tab modules import it while it imports them.
+import rmtool  # noqa: F401
 import _appload
 import _koreader
 import _tab_koreader
@@ -788,6 +790,39 @@ class DownloadTests(unittest.TestCase):
             self.assertFalse(Path(local).exists())
 
 
+class LocalDownloadPathTests(unittest.TestCase):
+    def test_plain_names_stay_inside_the_chosen_folder(self):
+        with tempfile.TemporaryDirectory() as folder:
+            for name in ("book.epub", "三体 第一部.epub", ".hidden.pdf", "a..b.txt"):
+                path = _koreader.local_download_path(folder, name)
+                self.assertEqual(os.path.dirname(path), os.path.realpath(folder))
+                self.assertEqual(os.path.basename(path), name)
+
+    def test_names_that_change_folder_or_stream_are_refused(self):
+        with tempfile.TemporaryDirectory() as folder:
+            for name in (
+                "", ".", "..", "a/b.epub", "..\\..\\AppData\\x.bat", "C:\\Windows\\x",
+                "book.epub:stream", "con", "NUL.txt", "trailing.", "trailing ", "tab\tname",
+                "q?.epub",
+            ):
+                with self.subTest(name=name):
+                    with self.assertRaisesRegex(RuntimeError, "无法安全保存"):
+                        _koreader.local_download_path(folder, name)
+
+    def test_download_writes_nothing_when_any_name_is_unsafe(self):
+        tab = _tab_koreader.KOReaderTab(FakeSSH())
+        self.addCleanup(tab.deleteLater)
+        files = [
+            _koreader.KOReaderEntry("ok.epub", "/books/ok.epub", 1, MTIME, False),
+            _koreader.KOReaderEntry("bad:stream", "/books/bad:stream", 1, MTIME, False),
+        ]
+        with tempfile.TemporaryDirectory() as folder, \
+                mock.patch.object(_koreader, "download_file") as download:
+            with self.assertRaisesRegex(RuntimeError, "无法安全保存"):
+                tab._perform_download(files, folder, "/books")
+        download.assert_not_called()
+
+
 class DeleteTests(unittest.TestCase):
     def test_delete_file_removes_sdr_sidecar(self):
         ssh = FakeSSH()
@@ -971,6 +1006,17 @@ class TabTestBase(unittest.TestCase):
 
 
 class TabStateTests(TabTestBase):
+    def test_lost_session_error_is_reported_but_replaced_session_is_not(self):
+        token = self.tab._connection_token()
+        with mock.patch.object(self.tab, "_on_error") as report:
+            self.ssh._client = None
+            self.tab._report_if_session_lost(token, TimeoutError("超时"))
+            report.assert_called_once()
+            report.reset_mock()
+            self.ssh._client = object()
+            self.tab._report_if_session_lost(token, RuntimeError("old"))
+            report.assert_not_called()
+
     def entry(self, name, is_dir=False, directory="/books"):
         return _koreader.KOReaderEntry(
             name=name,

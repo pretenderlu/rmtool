@@ -17,6 +17,8 @@ import _rmkit_cn
 import _tap_page_turn as tap
 import _xovi_standalone as shared
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 class NativeChineseTests(unittest.TestCase):
     @staticmethod
@@ -135,7 +137,7 @@ class NativeChineseTests(unittest.TestCase):
     def test_ferrari_166_uses_catalog_for_keyboard_label_and_preserves_language_label(self):
         package = native.select_package(native._trusted_catalog(), self.identity())
         self.assertIsNotNone(package)
-        qmd = Path("native-chinese/qmd/ferrari-3.28.0.166.qmd").read_bytes()
+        qmd = (ROOT / "native-chinese/qmd/ferrari-3.28.0.166.qmd").read_bytes()
         spec = package.file(native.QMD_PATH)
         self.assertEqual(
             (len(qmd), hashlib.sha256(qmd).hexdigest()),
@@ -146,11 +148,10 @@ class NativeChineseTests(unittest.TestCase):
         self.assertEqual(source.count('"简体中文"'), 2)
         self.assertNotIn(
             'return "中文";',
-            Path("pinyin-input/qmd/pinyin-input.qmd").read_text(encoding="utf-8"),
+            (ROOT / "pinyin-input/qmd/pinyin-input.qmd").read_text(encoding="utf-8"),
         )
 
-        legacy = Path(
-            "native-chinese/qmd/ferrari-3.28.0.162-164.qmd"
+        legacy = (ROOT / "native-chinese/qmd/ferrari-3.28.0.162-164.qmd"
         ).read_bytes()
         self.assertEqual(
             (len(legacy), hashlib.sha256(legacy).hexdigest()),
@@ -300,7 +301,7 @@ class NativeChineseTests(unittest.TestCase):
                 self.assertEqual(installed[pinyin.FEATURE_ID], pinyin_spec)
 
     def test_build_metadata_and_reviewable_qmd_match_manifest(self):
-        path = Path("native-chinese/build_assets.py").resolve()
+        path = (ROOT / "native-chinese/build_assets.py").resolve()
         spec = importlib.util.spec_from_file_location("native_chinese_builder", path)
         builder = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(builder)

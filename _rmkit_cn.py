@@ -1372,7 +1372,7 @@ lower_rw() {{
 rollback() {{
     rc=$?
     [ "$rc" -ne 0 ] || rc=1
-    trap - EXIT INT TERM
+    trap - EXIT HUP INT PIPE TERM
     if [ "$COMMITTED" -eq 0 ] && [ "$SNAPSHOTTED" -eq 1 ]; then
         if [ "$MOUNTED" -eq 1 ]; then lower_ro 2>/dev/null || ROLLBACK_OK=0; fi
         if [ "$ROOT_RW" -eq 1 ]; then root_ro 2>/dev/null || ROLLBACK_OK=0; fi
@@ -1402,11 +1402,16 @@ rollback() {{
     fi
     exit "$rc"
 }}
-trap rollback EXIT INT TERM
+# Signals exit non-zero so the EXIT handler always sees a failure.
+trap rollback EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 141' PIPE
+trap 'exit 143' TERM
 
 {expected_lines}
 
-[ ! -e "$BACKUP_DIR" ] && [ ! -L "$BACKUP_DIR" ]
+{{ [ ! -e "$BACKUP_DIR" ] && [ ! -L "$BACKUP_DIR" ]; }} || exit 1
 mkdir -m 0700 "$BACKUP_DIR"
 BACKUP_CREATED=1
 {backup_lines('', 'upper')}
@@ -1429,7 +1434,7 @@ COMMITTED=1
 if ! rm -rf "$BACKUP_DIR"; then
     echo "rmtool font committed; backup retained at $BACKUP_DIR" >&2
 fi
-trap - EXIT INT TERM
+trap - EXIT HUP INT PIPE TERM
 """
 
 
@@ -3452,17 +3457,55 @@ def _font_marker(ssh_client) -> Optional[tuple[str, str, bool]]:
     return path, digest, had_fontconfig
 
 
+FONT_OWNER_RMKIT = "rmkit-cn"
+FONT_OWNER_NATIVE_CHINESE = "native-chinese"
+_FONT_OWNERS = (FONT_OWNER_RMKIT, FONT_OWNER_NATIVE_CHINESE)
+
+
+def _font_marker_owner(ssh_client) -> Optional[str]:
+    """Which feature installed the managed font, or None without a valid marker.
+
+    Markers written before the owner field existed are attributed by font:
+    only native Chinese installs the small bundled fallback font.
+    """
+    marker = _font_marker(ssh_client)
+    if not marker:
+        return None
+    try:
+        owner = json.loads(_read_bytes(ssh_client, FONT_MARKER_PATH)).get("owner")
+    except (TypeError, ValueError, UnicodeDecodeError, AttributeError):
+        return None
+    if owner in _FONT_OWNERS:
+        return owner
+    if owner is not None:
+        return None
+    return FONT_OWNER_NATIVE_CHINESE if marker[1] == BUNDLED_FALLBACK_FONT_SHA256 else FONT_OWNER_RMKIT
+
+
+def _remove_own_managed_font(ssh_client) -> bool:
+    """Remove the managed font only when rmkit-cn localization installed it."""
+    owner = _font_marker_owner(ssh_client)
+    if owner is not None and owner != FONT_OWNER_RMKIT:
+        logging.info("Keeping managed font installed by %s", owner)
+        return False
+    return _remove_managed_font(ssh_client)
+
+
 def _write_font_marker(
     ssh_client,
     path: str,
     digest: str,
     had_fontconfig: bool,
     system_backup_state: Optional[dict[str, Optional[str]]] = None,
+    owner: str = FONT_OWNER_RMKIT,
 ) -> None:
+    if owner not in _FONT_OWNERS:
+        raise ValueError("invalid managed font owner")
     marker_data = {
         "path": path,
         "sha256": digest,
         "had_fontconfig": had_fontconfig,
+        "owner": owner,
     }
     if system_backup_state is not None:
         marker_data["system_mirror_before_localization"] = system_backup_state
@@ -3555,7 +3598,8 @@ def _discard_stale_localization_state(ssh_client) -> None:
     """
     if _file_exists(ssh_client, FONT_MARKER_PATH):
         if _font_marker(ssh_client):
-            _remove_managed_font(ssh_client)
+            # Native Chinese relies on its fallback font independently.
+            _remove_own_managed_font(ssh_client)
         else:
             ssh_client.exec_checked(
                 f"rm -f {FONT_MARKER_PATH} {FONT_MARKER_PATH}.tmp"
@@ -3605,6 +3649,7 @@ def _install_managed_font(
     *,
     preserve_previous_managed_font: bool = False,
     lock_screen_support: bool = True,
+    owner: str = FONT_OWNER_RMKIT,
 ) -> None:
     path = _validate_font_file(local_path)
     font_data = path.read_bytes()
@@ -3719,6 +3764,7 @@ def _install_managed_font(
             digest,
             had_original_fontconfig,
             system_backup_state,
+            owner,
         )
         if (
             previous
@@ -3857,6 +3903,7 @@ def install_bundled_fallback_font(
     managed_font_kwargs = {
         "preserve_previous_managed_font": True,
         "lock_screen_support": lock_screen_support,
+        "owner": FONT_OWNER_NATIVE_CHINESE,
     }
     _install_managed_font(
         ssh_client,
@@ -4187,8 +4234,6 @@ def enable_localization(
             except Exception:
                 logging.exception("Could not remove the rolled-back backup marker")
         raise
-    finally:
-        ssh_client.close()
 
 
 def enable_cloud_localization(
@@ -4213,56 +4258,53 @@ def restore_localization(
 ) -> LocalizationStatus:
     """Restore the carrier catalog and original language, without restart."""
     package = package or _default_translation_package()
-    try:
-        _require_supported(ssh_client, package)
-        if not _file_exists(ssh_client, BACKUP_READY_PATH):
-            return get_localization_status(ssh_client, package)
-        status = get_localization_status(ssh_client, package)
-        if not _file_exists(ssh_client, BACKUP_READY_PATH):
-            # Status detection discarded a stale backup; the carrier is
-            # already stock, so there is nothing left to restore.
-            return status
-
-        _stop_xochitl(ssh_client)
-        backup_config = _read_bytes(ssh_client, BACKUP_CONFIG_PATH).decode(
-            "utf-8", "surrogateescape"
-        )
-        current_config = _read_bytes(ssh_client, CONFIG_PATH).decode(
-            "utf-8", "surrogateescape"
-        )
-        restored_config = set_language_config(
-            current_config, _general_language(backup_config)
-        ).encode("utf-8", "surrogateescape")
-
-        with tempfile.NamedTemporaryFile(delete=False) as config_file:
-            config_file.write(restored_config)
-            local_config_path = config_file.name
-        try:
-            with remount_rw(ssh_client):
-                try:
-                    if _file_exists(ssh_client, BACKUP_QM_PATH):
-                        ssh_client.exec_checked(
-                            f"cp -p {BACKUP_QM_PATH} {QM_PATH}.tmp"
-                        )
-                        ssh_client.exec_checked(f"mv -f {QM_PATH}.tmp {QM_PATH}")
-                    else:
-                        ssh_client.exec_checked(f"rm -f {QM_PATH} {QM_PATH}.tmp")
-                    ssh_client.transfer_file(local_config_path, f"{CONFIG_PATH}.tmp")
-                    ssh_client.exec_checked(f"chmod 0644 {CONFIG_PATH}.tmp")
-                    ssh_client.exec_checked(f"mv -f {CONFIG_PATH}.tmp {CONFIG_PATH}")
-                except Exception:
-                    ssh_client.exec_checked(
-                        f"rm -f {QM_PATH}.tmp {CONFIG_PATH}.tmp"
-                    )
-                    raise
-        finally:
-            Path(local_config_path).unlink(missing_ok=True)
-
-        _remove_managed_font(ssh_client)
-        ssh_client.exec_checked(
-            f"rm -f {BACKUP_READY_PATH} {BACKUP_CONFIG_PATH} {BACKUP_QM_PATH}"
-        )
-        _flush_remote_writes(ssh_client)
+    _require_supported(ssh_client, package)
+    if not _file_exists(ssh_client, BACKUP_READY_PATH):
         return get_localization_status(ssh_client, package)
+    status = get_localization_status(ssh_client, package)
+    if not _file_exists(ssh_client, BACKUP_READY_PATH):
+        # Status detection discarded a stale backup; the carrier is
+        # already stock, so there is nothing left to restore.
+        return status
+
+    _stop_xochitl(ssh_client)
+    backup_config = _read_bytes(ssh_client, BACKUP_CONFIG_PATH).decode(
+        "utf-8", "surrogateescape"
+    )
+    current_config = _read_bytes(ssh_client, CONFIG_PATH).decode(
+        "utf-8", "surrogateescape"
+    )
+    restored_config = set_language_config(
+        current_config, _general_language(backup_config)
+    ).encode("utf-8", "surrogateescape")
+
+    with tempfile.NamedTemporaryFile(delete=False) as config_file:
+        config_file.write(restored_config)
+        local_config_path = config_file.name
+    try:
+        with remount_rw(ssh_client):
+            try:
+                if _file_exists(ssh_client, BACKUP_QM_PATH):
+                    ssh_client.exec_checked(
+                        f"cp -p {BACKUP_QM_PATH} {QM_PATH}.tmp"
+                    )
+                    ssh_client.exec_checked(f"mv -f {QM_PATH}.tmp {QM_PATH}")
+                else:
+                    ssh_client.exec_checked(f"rm -f {QM_PATH} {QM_PATH}.tmp")
+                ssh_client.transfer_file(local_config_path, f"{CONFIG_PATH}.tmp")
+                ssh_client.exec_checked(f"chmod 0644 {CONFIG_PATH}.tmp")
+                ssh_client.exec_checked(f"mv -f {CONFIG_PATH}.tmp {CONFIG_PATH}")
+            except Exception:
+                ssh_client.exec_checked(
+                    f"rm -f {QM_PATH}.tmp {CONFIG_PATH}.tmp"
+                )
+                raise
     finally:
-        ssh_client.close()
+        Path(local_config_path).unlink(missing_ok=True)
+
+    _remove_own_managed_font(ssh_client)
+    ssh_client.exec_checked(
+        f"rm -f {BACKUP_READY_PATH} {BACKUP_CONFIG_PATH} {BACKUP_QM_PATH}"
+    )
+    _flush_remote_writes(ssh_client)
+    return get_localization_status(ssh_client, package)

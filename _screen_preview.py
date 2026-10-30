@@ -135,6 +135,12 @@ def get_status(ssh_client) -> PreviewStatus:
     return PreviewStatus(code == 0, machine, profile.label)
 
 
+STALE_BUFFER_CLEANUP = (
+    "find /tmp -maxdepth 1 -name 'rmtool-screen-preview-*.raw' -type f -mmin +1 "
+    "-exec rm -f {} + 2>/dev/null || true\n"
+)
+
+
 def _drm_capture_command(profile: DeviceProfile, remote_path: str) -> str:
     target = profile.buffer_width * profile.buffer_height * profile.bytes_per_pixel
     return f"""set -eu
@@ -229,6 +235,10 @@ def capture(ssh_client) -> PreviewFrame:
             if profile.mapping == "drm"
             else _legacy_capture_command(profile, remote_path)
         )
+        # /tmp is RAM on the device: drop buffers left by an earlier capture
+        # whose connection broke before its cleanup could run.
+        command = STALE_BUFFER_CLEANUP + command
+        failed = False
         try:
             stdout, stderr, code = ssh_client.exec_command(command, timeout=30)
             if code != 0:
@@ -250,12 +260,17 @@ def capture(ssh_client) -> PreviewFrame:
             png = _encode_png(profile, raw)
             width, height = validate_png(png)
             return PreviewFrame(png, width, height)
+        except BaseException:
+            failed = True
+            raise
         finally:
             try:
                 ssh_client.exec_checked(f"rm -f {remote_path}", timeout=10)
             except Exception as exc:
                 logging.exception("Failed to remove screen preview buffer")
-                raise RuntimeError("无法清理设备临时屏幕缓冲。") from exc
+                # Keep the original error; the next capture removes the file.
+                if not failed:
+                    raise RuntimeError("无法清理设备临时屏幕缓冲。") from exc
 
 
 def save_png_atomic(data: bytes, destination: str | Path) -> SavedFrame:

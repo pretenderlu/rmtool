@@ -644,6 +644,49 @@ class IncompleteSharedCleanupTests(unittest.TestCase):
         self.assertEqual(report.state, recovery.RecoveryState.BLOCKED)
         self.assertIn("未知文件", report.detail)
 
+    def test_tampered_or_foreign_launcher_blocks_cleanup(self):
+        self.device.entries.pop(BASE + "/package.json")
+        original = self.device.entries[BASE + "/launcher.sh"].data
+        for data in (
+            original + b"\n# changed\n",
+            original.replace(b"exec ", b"exec  ", 1),
+            b"#!/bin/sh\nexec /usr/bin/xochitl\n",
+        ):
+            with self.subTest(data=data[-20:]):
+                self.device.add(BASE + "/launcher.sh", data, 0o100755)
+                report = self.inspect()
+                self.assertEqual(report.state, recovery.RecoveryState.BLOCKED)
+                self.assertIn("launcher.sh", report.detail)
+
+    def test_every_launcher_variant_rmtool_writes_is_recognized(self):
+        runtime, trusted = self.device.runtime, self.device.trusted
+        contexts = ((runtime, trusted),)
+        features = tuple(trusted.values())
+        subsets = [(), features[:1], features[:2], features]
+        for enabled in subsets:
+            for flags in recovery._LAUNCHER_FLAGS:
+                sentinel, guard, unmatched, clean_stop = flags
+                with self.subTest(features=[f.feature_id for f in enabled], flags=flags):
+                    try:
+                        data = shared.shared_launcher(
+                            runtime, enabled, recovery_sentinel=sentinel,
+                            startup_guard=guard, legacy_unmatched_qmd_glob=unmatched,
+                            layout=self.device.layout, clean_stop_guard=clean_stop,
+                        ).encode()
+                    except (RuntimeError, ValueError, TypeError):
+                        continue
+                    self.assertTrue(recovery._trusted_launcher(contexts, self.device.layout, data))
+        self.assertFalse(recovery._trusted_launcher(contexts, self.device.layout, b"\xff\xfe"))
+
+    def test_inspection_renders_few_launchers(self):
+        self.device.entries.pop(BASE + "/package.json")
+        with mock.patch.object(shared, "shared_launcher", wraps=shared.shared_launcher) as render:
+            report = self.inspect()
+        self.assertEqual(report.state, recovery.RecoveryState.CLEANUP_AVAILABLE)
+        contexts = recovery._trusted_cleanup_contexts(self.device.identity)
+        # At most one feature set per context times the 16 flag combinations.
+        self.assertLessEqual(render.call_count, 16 * len(contexts))
+
     def test_symlinked_shared_base_blocks_cleanup(self):
         for path in tuple(self.device.entries):
             if path == BASE or path.startswith(BASE + "/"):

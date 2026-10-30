@@ -39,6 +39,28 @@ def _get_app_name():
     return APP_NAME
 
 
+QUICK_COMMAND_TIMEOUT = 60
+
+
+def quick_exec(ssh_client, command: str, *, timeout: float = QUICK_COMMAND_TIMEOUT, **kwargs):
+    """Run a short read-only probe with a short deadline.
+
+    The default 1800 s deadline suits installers; a stalled link would hold
+    the transport lock that long for a simple ``test -d``. Only real
+    connections take the keyword, so lightweight fakes keep working.
+    """
+    if isinstance(ssh_client, SSHClientWrapper):
+        return ssh_client.exec_command(command, timeout=timeout, **kwargs)
+    return ssh_client.exec_command(command, **kwargs)
+
+
+def quick_checked(ssh_client, command: str, *, timeout: float = QUICK_COMMAND_TIMEOUT) -> str:
+    """``exec_checked`` counterpart of :func:`quick_exec`."""
+    if isinstance(ssh_client, SSHClientWrapper):
+        return ssh_client.exec_checked(command, timeout=timeout)
+    return ssh_client.exec_checked(command)
+
+
 @contextmanager
 def remount_rw(ssh_client: "SSHClientWrapper") -> Iterator[None]:
     """Remount root as read-write, guaranteeing read-only on exit."""
@@ -198,6 +220,7 @@ class SSHClientWrapper(QtCore.QObject):
         trust_unknown_host: bool = False,
         device_id: str = "",
         device_name: str = "",
+        approved_fingerprint: str = "",
     ) -> None:
         with self._transport_lock:
             logging.info("Connecting to %s", host)
@@ -222,6 +245,13 @@ class SSHClientWrapper(QtCore.QObject):
                 if not trust_unknown_host:
                     raise UnknownHostKeyError(
                         host, host_key, key_changed=key_changed
+                    ) from exc
+                # Trust only the key the user saw; a different device or a
+                # man-in-the-middle may answer on the same address meanwhile.
+                if (approved_fingerprint
+                        and _get_host_key_fingerprint(host_key) != approved_fingerprint):
+                    raise UnknownHostKeyError(
+                        host, host_key, key_changed=True
                     ) from exc
                 self._trust_host_key(trust_identity, host_key)
                 client = self._build_client()

@@ -1,0 +1,3 @@
+# Direct build inputs; requirements-build.lock is generated from this file.
+-r requirements.txt
+PyInstaller==6.21.0

@@ -128,6 +128,31 @@ class ScreenPreviewBackendTests(unittest.TestCase):
             "rm -f /tmp/rmtool-screen-preview-capture.raw", timeout=10
         )
 
+    def test_capture_removes_stale_buffers_from_interrupted_captures(self):
+        ssh = FakeSSH(commands=[("", "failed", 45)])
+        with (
+            mock.patch.object(preview, "get_status", return_value=preview.PreviewStatus(
+                True, "reMarkable Chiappa", "Paper Pro Move")),
+            mock.patch.object(preview.uuid, "uuid4", return_value=SimpleNamespace(hex="capture")),
+        ):
+            with self.assertRaises(RuntimeError):
+                preview.capture(ssh)
+        command = next(command for command in ssh.commands if "/proc/$pid/mem" in command)
+        self.assertTrue(command.startswith(preview.STALE_BUFFER_CLEANUP))
+        self.assertIn("-mmin +1", command)
+
+    def test_cleanup_failure_does_not_hide_the_capture_error(self):
+        ssh = FakeSSH(commands=[("", "connection lost", 45)])
+        ssh.exec_checked.side_effect = RuntimeError("连接已断开")
+        with (
+            mock.patch.object(preview, "get_status", return_value=preview.PreviewStatus(
+                True, "reMarkable Chiappa", "Paper Pro Move")),
+            mock.patch.object(preview.uuid, "uuid4", return_value=SimpleNamespace(hex="capture")),
+            self.assertLogs(level="ERROR"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "读取设备当前画面失败"):
+                preview.capture(ssh)
+
     def test_legacy_capture_uses_framebuffer_mapping_without_signals(self):
         command = preview._legacy_capture_command(
             preview.PROFILES["rm2"], "/tmp/frame.raw"

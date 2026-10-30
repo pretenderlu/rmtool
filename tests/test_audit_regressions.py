@@ -66,6 +66,10 @@ class FirmwareRegressionTests(unittest.TestCase):
     def test_missing_result_is_persistently_reconciled(self):
         del self.ssh.files[self.directory + "/result"]
         self.assertEqual(firmware.query_transaction(self.ssh)[0], "completed")
+        self.assertTrue(any(
+            command == f"rm -f -- {self.directory}/image.swu {self.directory}/image.tmp"
+            for command in self.ssh.commands
+        ))
         self.ssh.probe = state_text()
         self.assertEqual(firmware.query_transaction(self.ssh)[0], "completed")
 

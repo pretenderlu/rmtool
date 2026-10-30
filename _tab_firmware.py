@@ -82,13 +82,14 @@ class FirmwareTab(QtWidgets.QWidget):
             (1, 1, "install", "安装所选固件", self.install),
             (2, 0, "reboot", "确认重启", self.reboot),
             (3, 0, "restore_plugins", "恢复更新前插件", self.restore_plugins),
+            (4, 0, "release", "解除固件锁定", self.release_lock),
         ):
             button = QtWidgets.QPushButton(label)
             if key == "install":
                 button.setProperty("btnRole", "primary")
             button.clicked.connect(callback)
             self.buttons[key] = button
-            if key in ("reboot", "restore_plugins"):
+            if key in ("reboot", "restore_plugins", "release"):
                 self.actions.addWidget(button, row, column, 1, 2)
             else:
                 self.actions.addWidget(button, row, column)
@@ -214,13 +215,15 @@ class FirmwareTab(QtWidgets.QWidget):
     def _update(self):
         connected = self.ssh_client.is_connected()
         safe = self.transaction[0] in ("none", "completed")
+        # Only offered after a refresh has shown the device state.
+        releasable = self.state is not None and self.transaction[0] in ("failed", "unknown")
         for key, button in self.buttons.items():
             enabled = not self.busy
-            if key in ("refresh", "restore", "install", "switch", "reboot", "restore_plugins"):
+            if key in ("refresh", "restore", "install", "switch", "reboot", "restore_plugins", "release"):
                 enabled &= connected
             if self.legacy_unsupported and key in (
                 "local", "list", "download", "install", "switch", "restore",
-                "reboot", "restore_plugins",
+                "reboot", "restore_plugins", "release",
             ):
                 enabled = False
             if key in ("restore", "install", "switch"):
@@ -235,8 +238,11 @@ class FirmwareTab(QtWidgets.QWidget):
                 enabled &= bool(self.state and self.state.values.get("engine_file") == "masked-runtime")
             if key == "restore_plugins":
                 enabled &= self.restore_report is not None
+            if key == "release":
+                enabled &= releasable
             button.setEnabled(enabled)
         self.buttons["reboot"].setVisible(self.transaction[0] == "success")
+        self.buttons["release"].setVisible(releasable)
         self.buttons["restore_plugins"].setVisible(self.restore_report is not None)
         self.buttons["restore"].setVisible(
             bool(self.state and self.state.values.get("engine_file") == "masked-runtime")
@@ -504,6 +510,22 @@ class FirmwareTab(QtWidgets.QWidget):
                 self._transaction_loaded,
                 device=True,
             )
+
+    def release_lock(self):
+        token = self.ssh_client.ensure_client()
+        detail = ("rmtool 会先确认设备没有待应用的更新、下次启动分区没有切换、A/B 错误计数为 0，"
+                  "且没有进程在写入备用分区；任一条件不满足都不会解除。\n"
+                  "不会清零计数或修改启动设置。任务日志会保留，暂存的固件镜像会删除以释放空间。\n"
+                  "解除后备用分区内容可能不完整，请不要切换到备用分区；需要时重新安装固件。")
+        if not ask_confirmation(self, "解除固件锁定", "上次固件操作失败或结果不明。确认设备状态正常后解除锁定？",
+                                detail=detail, danger=True):
+            return
+
+        def done(message):
+            show_info(self, "解除固件锁定", message)
+            self.refresh()
+
+        self._run(lambda: firmware.release_transaction(self.ssh_client, token, confirmed=True), done, device=True)
 
     def install(self):
         image = self.image

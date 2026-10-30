@@ -1,6 +1,6 @@
 # Device, Firmware and Feature Support
 
-Updated on 2026-10-29 for stable 3.29.1.0 on Paper Pro and Move.
+Updated on 2026-10-29 for stable 3.29.1.0 on Paper Pro and Move, and on 2026-10-30 for stable 3.29.1.0 on Paper Pure, reMarkable 1 and reMarkable 2.
 This describes **rmtool's installation gates**,
 not everything an upstream application might run on. A package requires the
 exact platform, architecture, internal build and stock xochitl SHA-256.

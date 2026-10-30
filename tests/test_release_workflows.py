@@ -153,5 +153,80 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn("qcloud_cos", workflow)
 
 
+class ReleaseGateTests(unittest.TestCase):
+    def load_checker(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("check_release", ROOT / "tools" / "check_release.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_current_version_passes_and_mismatched_tag_fails(self):
+        checker = self.load_checker()
+        version = checker.app_version()
+        self.assertEqual(checker.problems(None), [])
+        self.assertEqual(checker.problems(f"v{version}"), [])
+        self.assertTrue(any("does not match" in item for item in checker.problems("v0.0.1")))
+
+    def test_release_requires_verified_inputs_before_building(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        self.assertIn("python tools/check_release.py", workflow)
+        self.assertIn("python -m ruff check .", workflow)
+        self.assertEqual(workflow.count("needs: verify-release"), 2)
+        self.assertNotIn("--generate-notes", workflow)
+        self.assertIn("--require-hashes --requirement requirements-build-macos.lock", workflow)
+
+    def test_windows_build_is_hash_locked_and_smoke_tested(self):
+        script = (ROOT / "build-portable.ps1").read_text(encoding="utf-8-sig")
+        self.assertIn("--require-hashes", script)
+        self.assertIn("requirements-build-windows.lock", script)
+        self.assertIn("Invoke-HttpsSmokeTest $executable", script)
+        self.assertIn("Invoke-HttpsSmokeTest $oneFilePath", script)
+        self.assertLess(
+            script.index("Invoke-HttpsSmokeTest $executable"),
+            script.index("Compress-Archive"),
+        )
+
+    def test_build_locks_pin_every_package_with_hashes(self):
+        direct = {}
+        for line in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines():
+            if "==" in line and not line.startswith("#"):
+                name, version = line.split("==")
+                direct[name.strip().lower()] = version.strip()
+        direct["pyinstaller"] = "6.21.0"
+        for platform in ("windows", "macos"):
+            with self.subTest(platform=platform):
+                text = (ROOT / f"requirements-build-{platform}.lock").read_text(encoding="utf-8")
+                pins = {}
+                for line in text.splitlines():
+                    if line and line[0].isalpha():
+                        requirement = line.split(";")[0].rstrip(" \\")
+                        self.assertIn("==", requirement, line)
+                        name, version = requirement.split("==")
+                        pins[name.lower()] = version.strip()
+                for name, version in direct.items():
+                    self.assertEqual(pins.get(name), version, name)
+                self.assertIn("cryptography", pins)
+                self.assertGreaterEqual(text.count("--hash=sha256:"), len(pins))
+
+    def test_smoke_test_reports_failure_through_exit_status(self):
+        import subprocess
+        import sys
+
+        code = (
+            "import sys, runpy, _https\n"
+            "_https.smoke_test = lambda: (_ for _ in ()).throw(OSError('offline'))\n"
+            "sys.argv = ['rmtool', '--https-smoke-test']\n"
+            "runpy.run_path(sys.argv_path, run_name='__main__')\n"
+        ).replace("sys.argv_path", repr(str(ROOT / "rmtool.py")))
+        result = subprocess.run(
+            [sys.executable, "-c", code], cwd=str(ROOT), capture_output=True, text=True, timeout=60,
+            env={**__import__("os").environ, "PYTHONPATH": str(ROOT)},
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("HTTPS smoke test failed: offline", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -7,6 +7,7 @@ Set-Location $root
 $required = @(
     "rmtool.py",
     "requirements.txt",
+    "requirements-build-windows.lock",
     "assets\rmtool-icon.ico",
     "assets\fonts\NotoSansCJKsc-Regular.otf",
     "assets\fonts\NotoSansCJKsc-Common.otf",
@@ -57,8 +58,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $python = Join-Path $venvDir "Scripts\python.exe"
-& $python -m pip --isolated install --disable-pip-version-check --no-input `
-    --requirement (Join-Path $root "requirements.txt") "PyInstaller==6.21.0"
+# Hash-locked: identical sources produce identical dependency sets per release.
+& $python -m pip --isolated install --disable-pip-version-check --no-input --require-hashes `
+    --requirement (Join-Path $root "requirements-build-windows.lock")
 if ($LASTEXITCODE -ne 0) {
     throw "Could not install the pinned build dependencies."
 }
@@ -127,6 +129,30 @@ if (-not (Test-Path -LiteralPath $executable) -or
     throw "Build completed without the expected rmtool.exe, _internal directory, and certifi CA bundle."
 }
 
+function Invoke-HttpsSmokeTest([string]$Path) {
+    # Runs the packaged executable once to prove the frozen runtime and its CA
+    # bundle work. Needs network access; set RMTOOL_SKIP_SMOKE_TEST=1 to skip
+    # it for offline local builds (the release workflow always runs it).
+    if ($env:RMTOOL_SKIP_SMOKE_TEST -eq "1") {
+        Write-Host "Skipping HTTPS smoke test for $Path (RMTOOL_SKIP_SMOKE_TEST=1)."
+        return
+    }
+    # The executables use the GUI subsystem, so wait explicitly for the exit code.
+    $process = Start-Process -FilePath $Path -ArgumentList "--https-smoke-test" -PassThru -NoNewWindow
+    # Reading Handle keeps it open; otherwise ExitCode can be empty after exit.
+    $null = $process.Handle
+    if (-not $process.WaitForExit(180000)) {
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        throw "HTTPS smoke test timed out for $Path."
+    }
+    if ($process.ExitCode -ne 0) {
+        throw "HTTPS smoke test failed for $Path with exit code $($process.ExitCode)."
+    }
+    Write-Host "HTTPS smoke test passed: $Path"
+}
+
+Invoke-HttpsSmokeTest $executable
+
 Compress-Archive -LiteralPath $portableDir -DestinationPath $zipPath -CompressionLevel Optimal
 
 $oneFileArguments = $commonArguments + @(
@@ -143,6 +169,7 @@ if ($LASTEXITCODE -ne 0) {
 if (-not (Test-Path -LiteralPath $oneFilePath)) {
     throw "Build completed without the expected single-file executable."
 }
+Invoke-HttpsSmokeTest $oneFilePath
 
 Write-Host "Portable folder: $portableDir"
 Write-Host "Portable ZIP:    $zipPath"

@@ -18,6 +18,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import paramiko
 
 import _ssh
+# Load rmtool first: the tab modules import it while it imports them.
+import rmtool  # noqa: F401
 import _tab_wallpaper
 
 

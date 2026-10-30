@@ -11,9 +11,11 @@ import _reading_enhancements as reading
 import _tap_page_turn as tap
 import _xovi_standalone as shared
 
+ROOT = Path(__file__).resolve().parents[1]
 
-MANIFEST_PATH = Path("reading-enhancements/manifest.json")
-QMD_SOURCE_PATH = Path("reading-enhancements/qmd-src/reading-enhancements-3.28.qmd")
+
+MANIFEST_PATH = (ROOT / "reading-enhancements/manifest.json")
+QMD_SOURCE_PATH = (ROOT / "reading-enhancements/qmd-src/reading-enhancements-3.28.qmd")
 
 
 class ReadingEnhancementsBackendTests(unittest.TestCase):

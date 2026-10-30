@@ -350,7 +350,6 @@ def _cleanup_trust_data(contexts, layout=shared.SHARED_LAYOUT):
     allowed_dirs = set()
     core_specs = {}
     file_specs = {}
-    launcher_specs = set()
     dropin_hashes = set()
 
     def add_spec(path, digest, size, mode):
@@ -361,17 +360,72 @@ def _cleanup_trust_data(contexts, layout=shared.SHARED_LAYOUT):
         for item in runtime.files:
             add_spec(item.path, item.sha256, item.size, item.mode)
             core_specs.setdefault(item.path, set()).add((item.sha256, item.size, item.mode))
-        feature_values = tuple(trusted.values())
-        for feature in feature_values:
+        for feature in trusted.values():
             for item in feature.files:
                 add_spec(item.runtime_path, item.sha256, item.size, item.mode)
-        for flags in product((False, True), repeat=len(feature_values)):
-            enabled = tuple(
-                feature for feature, flag in zip(feature_values, flags) if flag
-            )
-            for recovery_sentinel, startup_guard, unmatched, clean_stop in product(
-                (False, True), repeat=4
-            ):
+        try:
+            for clean_stop in (True, False):
+                dropin = shared.shared_dropin(runtime, (), layout=layout, clean_stop_guard=clean_stop)
+                dropin_hashes.add(hashlib.sha256(dropin.encode()).hexdigest())
+        except (RuntimeError, OSError, ValueError, TypeError):
+            continue
+
+    # launcher.sh is verified against its content by _trusted_launcher().
+    add_spec("launcher.sh", "", -1, 0o755)
+    file_specs["launcher.sh"] = set()
+    dropin_path = f"systemd/{shared.SHARED_LAYOUT.dropin_name}"
+    add_spec(dropin_path, "", -1, 0o644)
+    file_specs[dropin_path] = {
+        (digest, -1, 0o644) for digest in dropin_hashes
+    }
+    allowed_dirs.update(shared._parent_directories(allowed_files))
+    allowed_dirs.discard("")
+    return allowed_files, allowed_dirs, core_specs, file_specs, dropin_hashes
+
+
+_LAUNCHER_FLAGS = tuple(product((False, True), repeat=4))
+_MAX_LAUNCHER_BYTES = 1024 * 1024
+
+
+def _launcher_candidates(launcher_text, trusted):
+    """Return the feature sets a launcher with *launcher_text* can have enabled.
+
+    shared_launcher() checks the SHA-256 of every enabled feature file, so a
+    feature can only be enabled when all of its file hashes occur in the text.
+    Only features whose hashes also occur through other features are
+    ambiguous and need both possibilities; normally there are none.
+    """
+    present = [
+        feature for feature in trusted.values()
+        if feature.files and all(item.sha256 in launcher_text for item in feature.files)
+    ]
+    required, ambiguous = [], []
+    for feature in present:
+        others = {
+            item.sha256 for other in present if other is not feature for item in other.files
+        }
+        if {item.sha256 for item in feature.files} <= others:
+            ambiguous.append(feature)
+        else:
+            required.append(feature)
+    for flags in product((False, True), repeat=len(ambiguous)):
+        yield tuple(required) + tuple(f for f, flag in zip(ambiguous, flags) if flag)
+
+
+def _trusted_launcher(contexts, layout, data):
+    """True when *data* is exactly a launcher rmtool renders for a trusted context.
+
+    Renders only the feature sets that the content allows, instead of every
+    combination of every trusted feature (exponential in the feature count).
+    """
+    digest = hashlib.sha256(data).hexdigest()
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    for runtime, trusted in contexts:
+        for enabled in _launcher_candidates(text, trusted):
+            for recovery_sentinel, startup_guard, unmatched, clean_stop in _LAUNCHER_FLAGS:
                 try:
                     launcher = shared.shared_launcher(
                         runtime,
@@ -384,26 +438,18 @@ def _cleanup_trust_data(contexts, layout=shared.SHARED_LAYOUT):
                     ).encode()
                 except (RuntimeError, OSError, ValueError, TypeError):
                     continue
-                launcher_specs.add(
-                    (hashlib.sha256(launcher).hexdigest(), len(launcher), 0o755)
-                )
-        try:
-            for clean_stop in (True, False):
-                dropin = shared.shared_dropin(runtime, (), layout=layout, clean_stop_guard=clean_stop)
-                dropin_hashes.add(hashlib.sha256(dropin.encode()).hexdigest())
-        except (RuntimeError, OSError, ValueError, TypeError):
-            continue
+                if len(launcher) == len(data) and hashlib.sha256(launcher).hexdigest() == digest:
+                    return True
+    return False
 
-    add_spec("launcher.sh", "", -1, 0o755)
-    file_specs["launcher.sh"] = launcher_specs
-    dropin_path = f"systemd/{shared.SHARED_LAYOUT.dropin_name}"
-    add_spec(dropin_path, "", -1, 0o644)
-    file_specs[dropin_path] = {
-        (digest, -1, 0o644) for digest in dropin_hashes
-    }
-    allowed_dirs.update(shared._parent_directories(allowed_files))
-    allowed_dirs.discard("")
-    return allowed_files, allowed_dirs, core_specs, file_specs, dropin_hashes
+
+def _remote_launcher_bytes(ssh_client, path, size):
+    if size > _MAX_LAUNCHER_BYTES:
+        return None
+    with ssh_client.open_remote(path, "r") as remote:
+        data = remote.read(_MAX_LAUNCHER_BYTES + 1)
+    data = data if isinstance(data, bytes) else data.encode("utf-8")
+    return data if len(data) == size else None
 
 
 def _cleanup_tree_snapshot(ssh_client, contexts, layout=shared.SHARED_LAYOUT):
@@ -448,6 +494,12 @@ def _cleanup_tree_snapshot(ssh_client, contexts, layout=shared.SHARED_LAYOUT):
         elif relative == "startup.pending":
             if stat.S_IMODE(mode) != 0o600 or size != 0 or digest != shared._EMPTY_SHA256:
                 raise RuntimeError("共享 Xovi 残留启动标记不安全。")
+        elif relative == "launcher.sh":
+            data = _remote_launcher_bytes(ssh_client, path, size)
+            if (stat.S_IMODE(mode) != 0o755 or data is None
+                    or hashlib.sha256(data).hexdigest() != digest
+                    or not _trusted_launcher(contexts, layout, data)):
+                raise RuntimeError(f"共享 Xovi 残留文件指纹未知：{relative}")
         else:
             matches = file_specs.get(relative, set())
             if not any(
@@ -475,7 +527,12 @@ cleanup() {{
     umount "$MOUNT_DIR" 2>/dev/null || true
     rmdir "$MOUNT_DIR" 2>/dev/null || true
 }}
-trap cleanup EXIT INT TERM
+# Signals exit non-zero so the EXIT handler always sees a failure.
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 141' PIPE
+trap 'exit 143' TERM
 mkdir -m 0700 "$MOUNT_DIR"
 mount --bind / "$MOUNT_DIR"
 for file in "$MOUNT_DIR"{directory}/*.conf; do
@@ -491,7 +548,7 @@ for file in "$MOUNT_DIR"{directory}/*.conf; do
     fi
 done
 cleanup
-trap - EXIT INT TERM
+trap - EXIT HUP INT PIPE TERM
 """).splitlines()
     found = []
     for line in output:
@@ -567,7 +624,8 @@ def _inspect_incomplete(ssh_client):
     identity = tap.get_device_identity(ssh_client)
     layout = shared.SHARED_LAYOUT
     if shared._remote_entry_exists(ssh_client, legacy_base):
-        if (identity.platform, identity.firmware) != ("rm1", "20260827113527") or shared._remote_entry_exists(ssh_client, base):
+        if (shared.preferred_layout(identity) != shared.LEGACY_SHARED_LAYOUT
+                or shared._remote_entry_exists(ssh_client, base)):
             raise RuntimeError("检测到旧 /home 共享布局或混合布局，拒绝自动清理；请使用迁移或人工恢复。")
         layout = shared.LEGACY_SHARED_LAYOUT
         base = legacy_base
@@ -787,7 +845,7 @@ unmount_root() {{
 rollback() {{
     rc=$?
     [ "$rc" -ne 0 ] || rc=1
-    trap - EXIT INT TERM
+    trap - EXIT HUP INT PIPE TERM
     set +e
     if [ "$COMMITTED" -eq 0 ]; then
         if [ "$MOUNTED" -eq 1 ]; then
@@ -824,7 +882,12 @@ rollback() {{
     fi
     exit "$rc"
 }}
-trap rollback EXIT INT TERM
+# Signals exit non-zero so the EXIT handler always sees a failure.
+trap rollback EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 141' PIPE
+trap 'exit 143' TERM
 
 {parent_checks}
 {base_check}
@@ -848,7 +911,7 @@ rmdir "$MOUNT_DIR"
 systemctl daemon-reload
 rm -rf "$BACKUP_DIR"
 COMMITTED=1
-trap - EXIT INT TERM
+trap - EXIT HUP INT PIPE TERM
 """
 
 

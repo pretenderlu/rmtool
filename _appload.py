@@ -458,8 +458,14 @@ def trusted_specs(identity: tap.DeviceIdentity):
     }
 
 
-def _extension_active(ssh_client) -> bool:
-    path = f"{shared.SHARED_LAYOUT.remote_base}/extensions.d/appload.so"
+def _shared_base(identity: tap.DeviceIdentity) -> str:
+    """Shared Xovi base for *identity*; RM1 3.28.0.172 and later use /home."""
+    return shared.preferred_layout(identity).remote_base
+
+
+def _extension_active(ssh_client, identity: tap.DeviceIdentity | None = None) -> bool:
+    base = _shared_base(identity) if identity is not None else shared.SHARED_LAYOUT.remote_base
+    path = f"{base}/extensions.d/appload.so"
     command = (
         "pid=$(systemctl show xochitl -p MainPID --value 2>/dev/null || true); "
         '[ -n "$pid" ] && [ "$pid" != 0 ] && '
@@ -520,7 +526,7 @@ def get_status(ssh_client) -> AppLoadStatus:
                     asset,
                     "等待手动重启后载入",
                 )
-            if _extension_active(ssh_client):
+            if _extension_active(ssh_client, identity):
                 return AppLoadStatus(AppLoadState.ENABLED, identity, asset)
             raise RuntimeError("AppLoad 未在当前 xochitl 进程中载入。")
         return AppLoadStatus(
@@ -602,8 +608,10 @@ def _prepare_peer_root(
 
         if pinyin._server_running(ssh_client):
             raise RuntimeError("拼音输入法服务正在运行，请退出后重试。")
+        # Raises unless the installed service files match this package, so
+        # the joint update cannot leave the service and shared tree mismatched.
         if pinyin._has_external_payload(ssh_client):
-            pinyin._validate_external_payload(package)
+            pinyin._validate_external_payload(ssh_client, package)
     archive = module.download_package(package, state_dir)
     extractor = getattr(
         module, "extract_verified_package", tap.extract_verified_package
@@ -676,11 +684,21 @@ def ensure_shim_links(ssh_client, identity: tap.DeviceIdentity) -> None:
     commands = [f"mkdir -p {shlex.quote(SHIM_LINK_DIR)}"]
     for name, item in sorted(files.items()):
         link = f"{SHIM_LINK_DIR}/{name}"
-        target = f"{shared.SHARED_LAYOUT.remote_base}/shims/{name}"
+        target = f"{_shared_base(identity)}/shims/{name}"
+        # A link from an earlier layout (e.g. before an RM1 firmware update) is
+        # replaced; anything else is not ours and is left alone.
+        known = " ".join(
+            shlex.quote(f"{base}/shims/{name}") for base in _known_shim_bases()
+        )
         commands.append(
             f"""
 if [ -L {shlex.quote(link)} ]; then
-    [ "$(readlink {shlex.quote(link)})" = {shlex.quote(target)} ] || {{ echo 'unexpected shim link' >&2; exit 1; }}
+    current=$(readlink {shlex.quote(link)})
+    case " {known} " in *" $current "*) ;; *) echo 'unexpected shim link' >&2; exit 1;; esac
+    if [ "$current" != {shlex.quote(target)} ]; then
+        rm -f {shlex.quote(link)}
+        ln -s {shlex.quote(target)} {shlex.quote(link)}
+    fi
 elif [ -e {shlex.quote(link)} ]; then
     [ -f {shlex.quote(link)} ] && [ "$(sha256sum {shlex.quote(link)} | awk '{{print $1}}')" = {shlex.quote(item.sha256)} ] || {{ echo 'unmanaged shim file' >&2; exit 1; }}
     rm -f {shlex.quote(link)}
@@ -694,6 +712,10 @@ fi
     ssh_client.exec_checked("\n".join(commands))
 
 
+def _known_shim_bases() -> tuple[str, ...]:
+    return (shared.SHARED_LAYOUT.remote_base, shared.LEGACY_SHARED_LAYOUT.remote_base)
+
+
 def remove_shim_links(ssh_client, identity: tap.DeviceIdentity) -> None:
     commands = []
     for item in APPLOAD_FILES[identity.architecture]:
@@ -701,12 +723,13 @@ def remove_shim_links(ssh_client, identity: tap.DeviceIdentity) -> None:
             continue
         name = PurePosixPath(item.path).name
         link = f"{SHIM_LINK_DIR}/{name}"
-        target = f"{shared.SHARED_LAYOUT.remote_base}/shims/{name}"
-        commands.append(
-            f"if [ -L {shlex.quote(link)} ] && "
-            f"[ \"$(readlink {shlex.quote(link)})\" = "
-            f"{shlex.quote(target)} ]; then rm -f {shlex.quote(link)}; fi"
-        )
+        for base in _known_shim_bases():
+            target = f"{base}/shims/{name}"
+            commands.append(
+                f"if [ -L {shlex.quote(link)} ] && "
+                f"[ \"$(readlink {shlex.quote(link)})\" = "
+                f"{shlex.quote(target)} ]; then rm -f {shlex.quote(link)}; fi"
+            )
     commands.append(f"rmdir {shlex.quote(SHIM_LINK_DIR)} 2>/dev/null || true")
     ssh_client.exec_checked("\n".join(commands))
 

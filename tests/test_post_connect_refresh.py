@@ -101,6 +101,28 @@ class PostConnectCoordinatorTests(unittest.TestCase):
             ],
         )
 
+    def test_reconnect_during_sequence_runs_one_more_pass(self):
+        window, log, steps = make_window_with_fake_steps()
+        self.addCleanup(window.deleteLater)
+        window.ssh_client.is_connected = lambda: True
+
+        window._start_post_connect_refresh()
+        # A new connection arrives while the first sequence still runs.
+        window._start_post_connect_refresh()
+        window._start_post_connect_refresh()
+        for name in ("documents", "wallpaper", "fonts"):
+            steps[name].callbacks[0]()
+
+        self.assertEqual(
+            log,
+            ["start:documents", "start:wallpaper", "start:fonts", "start:documents"],
+        )
+        self.assertTrue(window._post_connect_active)
+        for name in ("documents", "wallpaper", "fonts"):
+            steps[name].callbacks[-1]()
+        self.assertFalse(window._post_connect_active)
+        self.assertEqual(log.count("start:documents"), 2)
+
     def test_failing_step_does_not_block_remaining_steps(self):
         window, log, steps = make_window_with_fake_steps()
         self.addCleanup(window.deleteLater)

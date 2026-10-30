@@ -8,8 +8,10 @@ import _note_enhancements as note
 import _tap_page_turn as tap
 import _xovi_standalone as shared
 
+ROOT = Path(__file__).resolve().parents[1]
 
-MANIFEST_PATH = Path("note-enhancements/manifest.json")
+
+MANIFEST_PATH = (ROOT / "note-enhancements/manifest.json")
 
 
 class NoteEnhancementsBackendTests(unittest.TestCase):

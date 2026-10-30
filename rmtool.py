@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import tempfile
+import threading
 import uuid
 
 # When run as a script (__main__), submodules that `import rmtool` would
@@ -15,7 +16,14 @@ sys.modules.setdefault("rmtool", sys.modules[__name__])
 if sys.argv[1:] == ["--https-smoke-test"]:
     import _https
 
-    _https.smoke_test()
+    # Exit with a status instead of raising: a windowed (GUI) build would show
+    # a modal error dialog for an uncaught exception and hang the build job.
+    try:
+        _https.smoke_test()
+    except Exception as exc:
+        if sys.stderr is not None:
+            print(f"HTTPS smoke test failed: {exc}", file=sys.stderr)
+        raise SystemExit(1)
     raise SystemExit(0)
 
 from dataclasses import dataclass
@@ -94,23 +102,32 @@ def app_state_dir() -> Path:
 # ---------------------------------------------------------------------------
 # Logging – use rotating handler to prevent unbounded log growth
 # ---------------------------------------------------------------------------
-# Logging must never abort startup: if the state directory is not writable
-# (read-only mount, translocated .app), fall back to stderr logging.
-try:
-    _log_handler = logging.handlers.RotatingFileHandler(
-        str(app_state_dir() / "remarkable_tool.log"),
-        maxBytes=5 * 1024 * 1024,
-        backupCount=3,
-        encoding="utf-8",
+def configure_logging() -> None:
+    """Attach the rotating application log; called by main(), not on import.
+
+    Importing rmtool (tests, tools) must not create .rmtool/ or write to the
+    user's real log file. Logging must never abort startup: if the state
+    directory is not writable (read-only mount, translocated .app), fall
+    back to stderr logging.
+    """
+    root_logger = logging.getLogger()
+    if any(getattr(handler, "_rmtool_app_log", False) for handler in root_logger.handlers):
+        return
+    try:
+        handler = logging.handlers.RotatingFileHandler(
+            str(app_state_dir() / "remarkable_tool.log"),
+            maxBytes=5 * 1024 * 1024,
+            backupCount=3,
+            encoding="utf-8",
+        )
+    except OSError:
+        handler = logging.StreamHandler()
+    handler._rmtool_app_log = True
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
     )
-except OSError:
-    _log_handler = logging.StreamHandler()
-_log_handler.setFormatter(
-    logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-)
-_root_logger = logging.getLogger()
-_root_logger.addHandler(_log_handler)
-_root_logger.setLevel(logging.INFO)
+    root_logger.addHandler(handler)
+    root_logger.setLevel(logging.INFO)
 
 
 # ---------------------------------------------------------------------------
@@ -541,6 +558,10 @@ class WorkerSignals(QtCore.QObject):
 
 
 class Worker(QtCore.QRunnable):
+    # Number of workers currently running; closing the window checks it.
+    _running = 0
+    _running_lock = threading.Lock()
+
     def __init__(self, fn: Callable, *args, **kwargs):
         super().__init__()
         self.fn = fn
@@ -548,14 +569,24 @@ class Worker(QtCore.QRunnable):
         self.kwargs = kwargs
         self.signals = WorkerSignals()
 
+    @classmethod
+    def running_count(cls) -> int:
+        with cls._running_lock:
+            return cls._running
+
     @QtCore.pyqtSlot()
     def run(self):
+        with Worker._running_lock:
+            Worker._running += 1
         try:
             result = self.fn(*self.args, **self.kwargs)
             self.signals.finished.emit(result)
         except Exception as exc:  # pragma: no cover - emitted to UI
             logging.exception("Background task failed")
             self.signals.error.emit(exc)
+        finally:
+            with Worker._running_lock:
+                Worker._running -= 1
 
 
 # ---------------------------------------------------------------------------
@@ -731,6 +762,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._log_bridge = log_bridge
         self._log_panel = None
         self._post_connect_active = False
+        self._post_connect_pending = False
         self._app_update_worker = None
 
         # -- Sidebar (connection panel + page navigation) --
@@ -1055,9 +1087,29 @@ class MainWindow(QtWidgets.QMainWindow):
         self._main_splitter.setSizes([total - panel_height, panel_height])
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
+        if Worker.running_count() and self.ssh_client.is_connected():
+            from _dialogs import ask_confirmation
+
+            if not ask_confirmation(
+                self,
+                APP_NAME,
+                "设备操作仍在进行。现在退出会断开连接，正在执行的步骤结果可能不确定。确定退出吗？",
+                detail="已提交到设备端的固件安装不会因断开而停止；其他操作请等完成后再退出。",
+                confirm_text="仍然退出",
+                cancel_text="继续等待",
+                danger=True,
+            ):
+                event.ignore()
+                return
         if self._log_panel is not None and self._log_panel.isVisible():
             self._capture_log_panel_height()
-            save_config(self.config)
+            try:
+                save_config(self.config)
+            except RuntimeError:
+                logging.exception("Could not save the window layout on exit")
+        # Cancel running commands and give workers a moment to roll back.
+        self.ssh_client.close()
+        QtCore.QThreadPool.globalInstance().waitForDone(5000)
         super().closeEvent(event)
 
     def _set_connection_chip(self, connected: bool, device: Optional[Dict] = None) -> None:
@@ -1091,9 +1143,13 @@ class MainWindow(QtWidgets.QMainWindow):
         blocks the remaining steps. Reentrant while a sequence is active.
         """
         if self._post_connect_active:
-            logging.info("Post-connect refresh already running; skipping duplicate start")
+            # A reconnect during a sequence makes its remaining results stale
+            # (they are discarded by the tabs), so run one more full pass.
+            logging.info("Post-connect refresh already running; queued another pass")
+            self._post_connect_pending = True
             return
         self._post_connect_active = True
+        self._post_connect_pending = False
         steps = (
             self.documents_tab.refresh_quiet,
             self.wallpaper_tab.refresh_previews_quiet,
@@ -1105,6 +1161,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
             if index >= len(steps):
                 self._post_connect_active = False
+                if self._post_connect_pending and self.ssh_client.is_connected():
+                    self._start_post_connect_refresh()
                 return
             step = steps[index]
             done_called = False
@@ -1204,8 +1262,48 @@ def _resolve_stylesheet(template: str) -> str:
 _ARROW_ICONS = _generate_arrow_icons()
 
 
+def _install_exception_hook(app) -> None:
+    """Report uncaught slot exceptions instead of letting PyQt abort the process.
+
+    PyQt5 calls qFatal() for an exception that escapes a slot when no
+    sys.excepthook is installed; that closes rmtool mid-operation.
+    """
+    import traceback
+
+    reporting = {"active": False}
+
+    def hook(exc_type, exc, tb):
+        if issubclass(exc_type, (KeyboardInterrupt, SystemExit)):
+            sys.__excepthook__(exc_type, exc, tb)
+            return
+        logging.critical(
+            "Unhandled exception in the user interface:\n%s",
+            "".join(traceback.format_exception(exc_type, exc, tb)),
+        )
+        if reporting["active"] or QtWidgets.QApplication.instance() is not app:
+            return
+        reporting["active"] = True
+        try:
+            from _dialogs import show_error
+
+            show_error(
+                app.activeWindow(),
+                APP_NAME,
+                f"界面操作出错：{exc}\n程序已继续运行；如果设备操作正在进行，请重新检测状态后再操作。",
+                error=exc,
+            )
+        except Exception:
+            logging.exception("Could not show the unhandled exception dialog")
+        finally:
+            reporting["active"] = False
+
+    sys.excepthook = hook
+
+
 def main():
     import _xovi_standalone
+
+    configure_logging()
 
     _xovi_standalone.configure_managed_receipt_store(app_state_dir())
     # -- High-DPI: let Qt scale the UI by the OS display factor (must be set
@@ -1218,6 +1316,7 @@ def main():
 
     app = QtWidgets.QApplication(sys.argv)
     QtWidgets.QApplication.setStyle("Fusion")
+    _install_exception_hook(app)
 
     # -- Window/taskbar icon: the exe embeds the file icon, but Windows uses
     # the runtime window icon for the title bar and taskbar button --

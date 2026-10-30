@@ -254,6 +254,52 @@ class EnableTests(unittest.TestCase):
         self.assertEqual(events, ["stop", "download", "extract"])
 
 
+class PinyinPeerTests(unittest.TestCase):
+    def setUp(self):
+        import _pinyin_input as pinyin
+
+        self.pinyin = pinyin
+        self.package = next(
+            item for item in pinyin._trusted_catalog() if item.platform == "chiappa"
+        )
+        self.identity = tap.DeviceIdentity(
+            self.package.firmware,
+            self.package.platform,
+            self.package.architecture,
+            self.package.xochitl_sha256,
+        )
+        self.feature = pinyin._shared_specs(self.package)[1]
+
+    def prepare(self, validate):
+        ssh = mock.Mock()
+        with (
+            mock.patch.object(self.pinyin, "_server_running", return_value=False),
+            mock.patch.object(self.pinyin, "_has_external_payload", return_value=True),
+            mock.patch.object(self.pinyin, "_validate_external_payload", side_effect=validate) as check,
+            mock.patch.object(self.pinyin, "download_package", return_value=Path("archive")) as download,
+            mock.patch.object(_appload.tap, "extract_verified_package", return_value=Path("root")),
+        ):
+            try:
+                return _appload._prepare_peer_root(
+                    ssh, self.identity, "pinyin-input", self.feature, "state", "destination"
+                ), check, download, ssh
+            except RuntimeError:
+                return None, check, download, ssh
+
+    def test_installed_service_is_validated_on_the_device(self):
+        result, check, _download, ssh = self.prepare(lambda *_args: False)
+        self.assertEqual(result, Path("root"))
+        check.assert_called_once_with(ssh, self.package)
+
+    def test_mismatched_service_blocks_before_download(self):
+        def reject(*_args):
+            raise RuntimeError("拼音输入法服务 校验失败")
+
+        result, _check, download, _ssh = self.prepare(reject)
+        self.assertIsNone(result)
+        download.assert_not_called()
+
+
 class DisableOrderTests(unittest.TestCase):
     def test_shared_feature_is_disabled_before_shim_links_are_removed(self):
         package = next(

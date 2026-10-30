@@ -17,7 +17,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from _ssh import SSHClientWrapper
+from _ssh import SSHClientWrapper, quick_exec
 import _appload
 import _tap_page_turn as tap
 import _xovi_standalone as shared
@@ -47,6 +47,85 @@ MIGRATED_USER_PATHS = (
     "data/cr3.ini",
     "books",
 )
+
+# KOReader runs without KO_HOME, so its data directory is the install
+# directory itself.  For rmtool-managed installs, every regular file that is
+# not listed in the official file index is user data (docsettings,
+# hashdocsettings, dictionaries, user plugins, patches, fonts, ...) and must
+# survive reinstall, repair and uninstall.  Only the regenerable cache and
+# the OTA staging area are dropped.  Legacy/external installs keep the
+# MIGRATED_USER_PATHS allowlist, because their program files are unknown.
+OFFICIAL_INDEX = "ota/package.index"
+
+# POSIX/BusyBox shell helpers used inside the install and uninstall
+# transactions.  Each list holds "./relative/path" lines.
+_USER_DATA_SHELL = r"""
+list_user_files() {
+    src=$1
+    out=$2
+    shift 2
+    printf '%s\n' ./.rmtool-install.json > "$out.official" || return 1
+    for index in "$@"; do
+        [ -f "$index" ] && [ ! -L "$index" ] || continue
+        while IFS= read -r line || [ -n "$line" ]; do
+            printf './%s\n' "${line#koreader/}"
+        done < "$index" >> "$out.official" || return 1
+    done
+    ( cd "$src" && find . ! -type d ) > "$out.all" || return 1
+    awk 'NR == FNR { official[$0] = 1; next } !($0 in official)' \
+        "$out.official" "$out.all" > "$out.candidates" || return 1
+    : > "$out" || return 1
+    while IFS= read -r path; do
+        case "$path" in ./cache/*|./ota/*) continue ;; esac
+        if [ -L "$src/$path" ] || [ ! -f "$src/$path" ]; then
+            echo "unsafe KOReader user-data entry: $path" >&2
+            return 1
+        fi
+        printf '%s\n' "$path" >> "$out" || return 1
+    done < "$out.candidates"
+    rm -f "$out.official" "$out.all" "$out.candidates"
+}
+
+copy_user_files() {
+    src=$1
+    list=$2
+    dest=$3
+    while IFS= read -r path; do
+        rel=${path#./}
+        if [ -e "$dest/$rel" ] || [ -L "$dest/$rel" ]; then
+            continue
+        fi
+        mkdir -p "$(dirname "$dest/$rel")" || return 1
+        cp -a "$src/$rel" "$dest/$rel" || return 1
+    done < "$list"
+}
+
+move_user_files() {
+    src=$1
+    list=$2
+    dest=$3
+    while IFS= read -r path; do
+        rel=${path#./}
+        if [ -e "$dest/$rel" ] || [ -L "$dest/$rel" ]; then
+            echo "KOReader user-data target already exists: $rel" >&2
+            return 1
+        fi
+        mkdir -p "$(dirname "$dest/$rel")" || return 1
+        mv "$src/$rel" "$dest/$rel" || return 1
+    done < "$list"
+}
+
+restore_user_files() {
+    src=$1
+    dest=$2
+    list=$3
+    [ -e "$src" ] || [ -L "$src" ] || return 0
+    [ -d "$src" ] && [ ! -L "$src" ] || return 1
+    ( cd "$src" && find . ! -type d ) > "$list" || return 1
+    move_user_files "$src" "$list" "$dest" || return 1
+    rm -rf "$src" "$list"
+}
+""".strip()
 
 HOME_DIR_PATTERN = re.compile(
     r'\[\s*"home_dir"\s*\]\s*=\s*"((?:[^"\\]|\\.)*)"'
@@ -327,7 +406,7 @@ for proc in /proc/[0-9]*; do
 done
 exit 1
 """.strip()
-    return ssh_client.exec_command(command)[2] == 0
+    return quick_exec(ssh_client, command)[2] == 0
 
 
 def _rollback_payload(
@@ -381,6 +460,7 @@ def install_managed(
     remote_archive = f"/home/root/.cache/rmtool/koreader-{token}.tar.gz"
     stage = f"/home/root/.cache/rmtool/koreader-stage-{token}"
     backup = f"{APPLOAD_INSTALL_DIR}.rmtool-backup-{token}"
+    lists = f"/home/root/.cache/rmtool/koreader-files-{token}"
     marker = _managed_marker_bytes(asset)
     committed = False
     rollback_backup = backup
@@ -428,6 +508,11 @@ def install_managed(
                 for path, mode in sorted(official_modes.items())
                 if mode & 0o111
             )
+            # Unknown installs only migrate the allowlist; managed installs and
+            # preserved data keep every non-official file.
+            migration_mode = (
+                "allowlist" if current.state in legacy_states else "user-files"
+            )
             ssh_client.exec_checked(
                 f"""
 set -eu
@@ -437,15 +522,22 @@ PRESERVED={shlex.quote(PRESERVED_INSTALL_DIR)}
 STAGE={shlex.quote(stage)}
 ARCHIVE={shlex.quote(remote_archive)}
 BACKUP={shlex.quote(backup)}
+LIST={shlex.quote(lists)}
+MIGRATION={migration_mode}
+{_USER_DATA_SHELL}
 mkdir -p "$STAGE"
 tar -xzf "$ARCHIVE" -C "$STAGE"
 SOURCE=
 if [ -d "$TARGET" ]; then
     SOURCE="$TARGET"
+    # Without the official index, old program files cannot be told apart
+    # from user data; only migrate the allowlist in that case.
+    [ -f "$TARGET/{OFFICIAL_INDEX}" ] && [ ! -L "$TARGET/{OFFICIAL_INDEX}" ] ||
+        MIGRATION=allowlist
 elif [ -d "$PRESERVED" ]; then
     SOURCE="$PRESERVED"
 fi
-if [ -n "$SOURCE" ]; then
+if [ -n "$SOURCE" ] && [ "$MIGRATION" = allowlist ]; then
     for item in {migration_paths}; do
         [ -e "$SOURCE/$item" ] || [ -L "$SOURCE/$item" ] || continue
         [ ! -L "$SOURCE/$item" ] || {{ echo "unsafe migrated link: $item" >&2; exit 1; }}
@@ -457,6 +549,13 @@ if [ -n "$SOURCE" ]; then
         rm -rf "$STAGE/koreader/$item"
         cp -a "$SOURCE/$item" "$STAGE/koreader/$item"
     done
+elif [ -n "$SOURCE" ]; then
+    # Files of the old and the new official release are program files;
+    # everything else is KOReader user data and is carried over unchanged.
+    list_user_files "$SOURCE" "$LIST" \
+        "$SOURCE/{OFFICIAL_INDEX}" "$STAGE/koreader/{OFFICIAL_INDEX}" || exit 1
+    copy_user_files "$SOURCE" "$LIST" "$STAGE/koreader" || exit 1
+    rm -f "$LIST"
 fi
 chown -R root:root "$STAGE/koreader"
 [ -f "$STAGE/koreader/koreader.sh" ] && [ ! -L "$STAGE/koreader/koreader.sh" ]
@@ -540,7 +639,8 @@ trap - EXIT HUP INT TERM
             try:
                 ssh_client.exec_checked(
                     f"rm -rf {shlex.quote(stage)}; "
-                    f"rm -f {shlex.quote(remote_archive)}"
+                    f"rm -f {shlex.quote(remote_archive)} "
+                    f"{shlex.quote(lists)} {shlex.quote(lists)}.*"
                 )
             except Exception:
                 logging.exception("Could not clean KOReader staging files")
@@ -602,6 +702,7 @@ def uninstall_managed(ssh_client: SSHClientWrapper) -> ManagedStatus:
     preserved = shlex.quote(PRESERVED_INSTALL_DIR)
     backup_q = shlex.quote(backup)
     preserved_stage_q = shlex.quote(preserved_stage)
+    lists = shlex.quote(f"/home/root/.cache/rmtool/koreader-files-{token}")
     migration_paths = " ".join(shlex.quote(path) for path in MIGRATED_USER_PATHS)
     ssh_client.exec_checked(
         f"""
@@ -610,6 +711,9 @@ TARGET={target}
 BACKUP={backup_q}
 PRESERVED={preserved}
 STAGE={preserved_stage_q}
+LIST={lists}
+{_USER_DATA_SHELL}
+mkdir -p /home/root/.cache/rmtool
 for directory in /home/root/xovi /home/root/xovi/exthome \
     /home/root/.local/share/rmtool; do
     if [ -L "$directory" ]; then
@@ -640,43 +744,41 @@ rollback() {{
     rc=$?
     trap - EXIT HUP INT TERM
     if [ "$rc" -ne 0 ]; then
-        if [ -e "$PRESERVED" ] && [ ! -L "$PRESERVED" ]; then
-            for item in {migration_paths}; do
-                if [ -e "$PRESERVED/$item" ] || [ -L "$PRESERVED/$item" ]; then
-                    mkdir -p "$(dirname "$BACKUP/$item")"
-                    mv "$PRESERVED/$item" "$BACKUP/$item"
-                fi
-            done
-            rm -rf "$PRESERVED"
+        # Put every moved user file back before restoring the install, and
+        # keep the backup if that is not possible.
+        if restore_user_files "$PRESERVED" "$BACKUP" "$LIST.undo" &&
+            restore_user_files "$STAGE" "$BACKUP" "$LIST.undo"; then
+            rm -rf "$TARGET"
+            if [ -d "$BACKUP" ]; then mv "$BACKUP" "$TARGET"; fi
+        else
+            echo "KOReader user data left in $BACKUP" >&2
         fi
-        rm -rf "$TARGET"
-        if [ -d "$BACKUP" ]; then mv "$BACKUP" "$TARGET"; fi
+    else
+        rm -rf "$STAGE"
     fi
-    rm -rf "$STAGE"
+    rm -f "$LIST" "$LIST".*
     exit "$rc"
 }}
 trap rollback EXIT HUP INT TERM
 mkdir "$STAGE"
-for item in {migration_paths}; do
-    if [ -e "$BACKUP/$item" ] || [ -L "$BACKUP/$item" ]; then
-        [ ! -L "$BACKUP/$item" ] || {{
-            echo "unsafe KOReader user-data link: $item" >&2
-            exit 1
-        }}
-        if [ -d "$BACKUP/$item" ] && \
-            find -P "$BACKUP/$item" -type l -print -quit | grep -q .; then
-            echo "unsafe KOReader user-data tree: $item" >&2
-            exit 1
-        fi
-        mkdir -p "$(dirname "$STAGE/$item")"
-        mv "$BACKUP/$item" "$STAGE/$item"
-    fi
-done
+# Everything except the official program files is user data.  Without the
+# official index, only the allowlisted user data can be identified.
+if [ -f "$BACKUP/{OFFICIAL_INDEX}" ] && [ ! -L "$BACKUP/{OFFICIAL_INDEX}" ]; then
+    list_user_files "$BACKUP" "$LIST" "$BACKUP/{OFFICIAL_INDEX}" || exit 1
+else
+    : > "$LIST"
+    for item in {migration_paths}; do
+        [ -e "$BACKUP/$item" ] || continue
+        ( cd "$BACKUP" && find "./$item" ! -type d ) >> "$LIST" || exit 1
+    done
+fi
+move_user_files "$BACKUP" "$LIST" "$STAGE" || exit 1
 if find -P "$STAGE" -mindepth 1 -print -quit | grep -q .; then
     mv "$STAGE" "$PRESERVED"
 else
-    rmdir "$STAGE"
+    rm -rf "$STAGE"
 fi
+rm -f "$LIST" "$LIST".*
 trap - EXIT HUP INT TERM
 """.strip()
     )
@@ -695,15 +797,10 @@ set -eu
 TARGET={target}
 BACKUP={backup_q}
 PRESERVED={preserved}
-for item in {migration_paths}; do
-    if [ -e "$PRESERVED/$item" ] || [ -L "$PRESERVED/$item" ]; then
-        [ ! -L "$PRESERVED/$item" ]
-        mkdir -p "$(dirname "$BACKUP/$item")"
-        mv "$PRESERVED/$item" "$BACKUP/$item"
-    fi
-done
-rm -rf "$PRESERVED"
-[ ! -e "$TARGET" ] && [ ! -L "$TARGET" ]
+LIST={lists}
+{_USER_DATA_SHELL}
+restore_user_files "$PRESERVED" "$BACKUP" "$LIST.undo"
+{{ [ ! -e "$TARGET" ] && [ ! -L "$TARGET" ]; }} || exit 1
 mv "$BACKUP" "$TARGET"
 """.strip()
             )
@@ -720,9 +817,7 @@ mv "$BACKUP" "$TARGET"
 # -- Internal helpers ---------------------------------------------------------
 def _test_path(ssh_client: SSHClientWrapper, flag: str, path: str) -> bool:
     """Run ``test -<flag> <path>`` on the device and return the result."""
-    _stdout, _stderr, code = ssh_client.exec_command(
-        f"test -{flag} {shlex.quote(path)}"
-    )
+    _stdout, _stderr, code = quick_exec(ssh_client, f"test -{flag} {shlex.quote(path)}")
     return code == 0
 
 
@@ -920,6 +1015,34 @@ def upload_file(
             except OSError:
                 logging.warning("Unable to remove upload staging file %s", temporary, exc_info=True)
     return remote_path
+
+
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+)
+
+
+def local_download_path(target_dir: str, name: str) -> str:
+    """Join a device file name to the chosen local folder, refusing escapes.
+
+    Linux allows ``\\`` and ``:`` in names; on Windows they would change the
+    folder or create an NTFS alternate data stream outside the user's choice.
+    """
+    stem = name.split(".", 1)[0].rstrip(" ").upper()
+    if (
+        not name
+        or name in (".", "..")
+        or any(character in name for character in '/\\:*?"<>|')
+        or any(ord(character) < 32 for character in name)
+        or name.endswith((" ", "."))
+        or stem in _WINDOWS_RESERVED_NAMES
+    ):
+        raise RuntimeError(f"文件名无法安全保存到电脑，请先在设备上重命名：{name!r}")
+    root = os.path.realpath(target_dir)
+    path = os.path.realpath(os.path.join(root, name))
+    if os.path.dirname(path) != root:
+        raise RuntimeError(f"文件名无法安全保存到电脑，请先在设备上重命名：{name!r}")
+    return path
 
 
 def download_file(

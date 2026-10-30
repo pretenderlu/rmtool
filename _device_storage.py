@@ -5,6 +5,8 @@ import re
 import shlex
 import struct
 
+from _ssh import quick_checked
+
 
 LEGACY_ROOT_RESERVE = 8 * 1024 * 1024
 ROOT_MOUNT_AWK = r'''$5 == "/" {
@@ -68,7 +70,7 @@ def root_free_bytes(ssh_client, ordinary_free: int) -> int:
     """Count privileged ext4 blocks only with complete legacy-root evidence."""
     values = {}
     try:
-        output = ssh_client.exec_checked(ROOT_SPACE_COMMAND).strip()
+        output = quick_checked(ssh_client, ROOT_SPACE_COMMAND).strip()
         if output == "ordinary":
             return ordinary_free
         keys = ("mount", "stats", "reserved", "superblock")
@@ -134,7 +136,8 @@ def root_free_bytes(ssh_client, ordinary_free: int) -> int:
 
 
 def df_free_bytes(ssh_client, path: str) -> int:
-    value = ssh_client.exec_checked(
+    value = quick_checked(
+        ssh_client,
         f"df -Pk {shlex.quote(path)} | "
         "awk 'NR > 1 && $(NF-2) ~ /^[0-9]+$/ {print $(NF-2); exit}'"
     ).strip()
@@ -144,7 +147,7 @@ def df_free_bytes(ssh_client, path: str) -> int:
 
 
 def system_free_bytes(ssh_client) -> tuple[str, int]:
-    output = ssh_client.exec_checked(SYSTEM_SPACE_COMMAND).strip()
+    output = quick_checked(ssh_client, SYSTEM_SPACE_COMMAND).strip()
     values = []
     partition = "/data"
     for line in output.splitlines():

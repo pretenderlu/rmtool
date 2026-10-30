@@ -488,5 +488,30 @@ class LegacyPluginCapacityTests(unittest.TestCase):
         self.assertTrue(uploaded)
 
 
+
+class QuickCommandTimeoutTests(unittest.TestCase):
+    def test_real_connections_get_a_short_deadline_and_fakes_keep_working(self):
+        from unittest import mock
+        import _ssh
+
+        wrapper = _ssh.SSHClientWrapper()
+        with mock.patch.object(wrapper, "exec_command", return_value=("4\n", "", 0)) as command:
+            self.assertEqual(_ssh.quick_exec(wrapper, "test -d /x")[2], 0)
+        command.assert_called_once_with("test -d /x", timeout=_ssh.QUICK_COMMAND_TIMEOUT)
+        with mock.patch.object(wrapper, "exec_checked", return_value="4") as checked:
+            _ssh.quick_checked(wrapper, "df")
+        checked.assert_called_once_with("df", timeout=_ssh.QUICK_COMMAND_TIMEOUT)
+
+        class Fake:
+            def exec_command(self, command):
+                return "", "", 0
+
+            def exec_checked(self, command):
+                return "ok"
+
+        self.assertEqual(_ssh.quick_exec(Fake(), "x")[2], 0)
+        self.assertEqual(_ssh.quick_checked(Fake(), "x"), "ok")
+        self.assertLess(_ssh.QUICK_COMMAND_TIMEOUT, 1800)
+
 if __name__ == "__main__":
     unittest.main()

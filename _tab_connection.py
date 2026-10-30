@@ -611,6 +611,7 @@ class ConnectionWidget(QtWidgets.QWidget):
         password: str,
         remember_password: bool,
         trust_unknown_host: bool = False,
+        approved_fingerprint: str = "",
     ) -> None:
         device = self._current_device()
         device_id = device.get("id", "")
@@ -633,6 +634,7 @@ class ConnectionWidget(QtWidgets.QWidget):
             trust_unknown_host=trust_unknown_host,
             device_id=device_id,
             device_name=device_name,
+            **({"approved_fingerprint": approved_fingerprint} if approved_fingerprint else {}),
         )
 
         def on_finished(_: object):
@@ -685,6 +687,7 @@ class ConnectionWidget(QtWidgets.QWidget):
                         password,
                         remember_password,
                         trust_unknown_host=True,
+                        approved_fingerprint=exc.fingerprint,
                     )
                 return
             logging.error("Unable to connect: %s", exc)

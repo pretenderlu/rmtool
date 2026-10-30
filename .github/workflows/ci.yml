@@ -38,3 +38,9 @@ jobs:
         run: python -m unittest discover -s tests
       - name: Validate device and firmware matrix
         run: python tools/validate_build_matrix.py
+      - name: Run each test module in isolation
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python tools/check_test_isolation.py
+      - name: Check release inputs for the current version
+        run: python tools/check_release.py

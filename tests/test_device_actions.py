@@ -286,6 +286,31 @@ class BackgroundSlotTests(unittest.TestCase):
                 self.assertTrue(time_tab.sync_button.isEnabled())
                 self.assertTrue(control_tab.brightness_button.isEnabled())
 
+    def test_error_of_a_closed_session_is_still_reported(self):
+        # Timeouts close the session before the error reaches the UI; the
+        # "remote result unknown" warning must not be swallowed.
+        client = RecordingClient()
+        owner = QtWidgets.QWidget()
+        self.addCleanup(owner.deleteLater)
+        with mock.patch.object(QtCore.QThreadPool, "start"), \
+                mock.patch.object(_ui_tasks, "show_error") as error:
+            worker = _ui_tasks.run_in_background(owner, lambda _client: None, client)
+            client.close()
+            worker.signals.error.emit(TimeoutError("命令执行超时，远端操作结果未知"))
+        error.assert_called_once()
+        self.assertIn("结果未知", error.call_args.args[2])
+
+    def test_error_of_a_replaced_session_is_not_reported(self):
+        client = RecordingClient()
+        owner = QtWidgets.QWidget()
+        self.addCleanup(owner.deleteLater)
+        with mock.patch.object(QtCore.QThreadPool, "start"), \
+                mock.patch.object(_ui_tasks, "show_error") as error:
+            worker = _ui_tasks.run_in_background(owner, lambda _client: None, client)
+            client.reconnect()
+            worker.signals.error.emit(RuntimeError("old device"))
+        error.assert_not_called()
+
     def test_time_tab_runs_ssh_off_the_main_thread(self):
         client = RecordingClient()
         tab = _tab_toolbox.TimeTab(client)

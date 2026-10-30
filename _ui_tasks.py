@@ -40,6 +40,13 @@ def run_in_background(
         with ssh_client._state_lock:
             return session is not None and ssh_client._client is session
 
+    def session_replaced():
+        # A timeout or channel error closes the session (client becomes None);
+        # the user must still learn that the remote result is unknown. Only a
+        # newer connection, possibly to another device, makes an error stale.
+        with ssh_client._state_lock:
+            return ssh_client._client is not None and ssh_client._client is not session
+
     def execute():
         with ssh_client.operation_session():
             if not session_current():
@@ -71,7 +78,7 @@ def run_in_background(
             return
         restore()
         logging.error("%s: %s", log_message, exc)
-        if session_current():
+        if session is not None and not session_replaced():
             show_error(owner, _rmtool.APP_NAME, f"{error_prefix}：{exc}")
 
     worker = _rmtool.Worker(execute)

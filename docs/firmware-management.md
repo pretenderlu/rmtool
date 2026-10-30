@@ -79,8 +79,25 @@ or a missing unit never implies success. Same-boot success requires both a
 synced success record and successful exited unit. After reboot, reconciliation
 uses the changed boot ID plus target slot, version, xochitl hash and clean native
 state; it does not depend on a surviving transient unit. Missing/conflicting
-evidence remains locked for manual diagnosis. Logs and images are retained;
-there is no automatic cleanup/retry of uncertain jobs.
+evidence remains locked for manual diagnosis. There is no automatic retry.
+
+The job scripts record `aborted` instead of `failed` when they stop before the
+first write (power, updater, partition-user and native signature checks). An
+aborted job is released automatically once the device is idle again; its job
+directory is kept with a `released.json` record and only the staged image is
+removed. If `systemd-run` reports an error and the unit and result do not exist,
+nothing was started, so the pointer, image and shared lock are withdrawn at once.
+A leftover `current.tmp` or `pause.json.tmp` from an interrupted commit is
+removed before the next attempt, and the shared lock is released when the device
+proves that `current` was not moved.
+
+`failed` and `unknown` jobs remain locked. After a refresh the firmware page
+offers **Release firmware lock**. It requires confirmation, rejects running
+units, and repeats the idle gate used before a new install: no pending or
+applied update, unchanged next-boot partition, zero A/B error counters and no
+writer or user of the inactive partition. It never resets counters or boot
+flags. Logs stay in the job directory; the staged image is removed to free
+space. The shared plugin lock is removed only in the boot that created it.
 
 Official firmware installation deliberately does not inspect, modify, migrate,
 or reject third-party applications and plugins. This matches the stock updater:

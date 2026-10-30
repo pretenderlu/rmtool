@@ -12,6 +12,8 @@ import _package_download
 import _plugin_packages
 import _tap_page_turn as tap
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 class FakeSSH:
     def __init__(self, *, dropin=False):
@@ -116,7 +118,7 @@ class TapPageTurnTests(unittest.TestCase):
         self.assertEqual(parsed, (package,))
 
     def test_repository_manifest_is_valid(self):
-        parsed = tap.parse_manifest(Path("tap-page-turn/manifest.json").read_bytes())
+        parsed = tap.parse_manifest((ROOT / "tap-page-turn/manifest.json").read_bytes())
         self.assertEqual(len(parsed), 37)
         self.assertEqual(
             {

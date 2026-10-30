@@ -81,10 +81,14 @@ class SharedRuntimeSpec:
     files: tuple[SharedFileSpec, ...]
 
 
-def preferred_layout(runtime: SharedRuntimeSpec) -> StandaloneLayout:
-    # Scope storage migration to exact RM1 builds with an early home mount. Older
-    # AppLoad packages also have external shim links tied to the /data layout.
-    if runtime.platform == "rm1" and runtime.firmware in {"20260827113527", "20261009073202", "20261028104944"}:
+# Exact RM1 builds with an early /home mount keep the shared runtime in /home.
+# Older AppLoad packages also have external shim links tied to the /data layout.
+HOME_LAYOUT_RM1_FIRMWARE = frozenset({"20260827113527", "20261009073202", "20261028104944"})
+
+
+def preferred_layout(runtime) -> StandaloneLayout:
+    """Layout for a runtime spec or device identity (uses platform and firmware)."""
+    if runtime.platform == "rm1" and runtime.firmware in HOME_LAYOUT_RM1_FIRMWARE:
         return LEGACY_SHARED_LAYOUT
     return SHARED_LAYOUT
 
@@ -1934,12 +1938,17 @@ def _check_lower_dropins(ssh_client, expected: Mapping[str, Optional[str]]) -> N
     ssh_client.exec_checked(f"""set -eu
 MOUNT_DIR={shlex.quote(mount_dir)}
 cleanup() {{ umount "$MOUNT_DIR" 2>/dev/null || true; rmdir "$MOUNT_DIR" 2>/dev/null || true; }}
-trap cleanup EXIT INT TERM
+# Signals exit non-zero so the EXIT handler always sees a failure.
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 141' PIPE
+trap 'exit 143' TERM
 mkdir -p "$MOUNT_DIR"
 mount --bind / "$MOUNT_DIR"
 {script}
 cleanup
-trap - EXIT INT TERM
+trap - EXIT HUP INT PIPE TERM
 """)
 
 
@@ -1949,7 +1958,12 @@ def _assert_no_lower_xovi_dropins(ssh_client) -> None:
     found = ssh_client.exec_checked(f"""set -eu
 MOUNT_DIR={shlex.quote(mount_dir)}
 cleanup() {{ umount "$MOUNT_DIR" 2>/dev/null || true; rmdir "$MOUNT_DIR" 2>/dev/null || true; }}
-trap cleanup EXIT INT TERM
+# Signals exit non-zero so the EXIT handler always sees a failure.
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 141' PIPE
+trap 'exit 143' TERM
 mkdir -p "$MOUNT_DIR"
 mount --bind / "$MOUNT_DIR"
 for file in "$MOUNT_DIR"/etc/systemd/system/xochitl.service.d/*.conf; do
@@ -1959,7 +1973,7 @@ for file in "$MOUNT_DIR"/etc/systemd/system/xochitl.service.d/*.conf; do
     fi
 done
 cleanup
-trap - EXIT INT TERM
+trap - EXIT HUP INT PIPE TERM
 """).splitlines()
     if found:
         raise RuntimeError(
@@ -2127,7 +2141,7 @@ remove_lower_dropin() {{
 
 rollback() {{
     rc=$?
-    trap - EXIT INT TERM
+    trap - EXIT HUP INT PIPE TERM
     unmount_root
     if [ "$rc" -ne 0 ]; then
         rm -f "$DROPIN"
@@ -2142,7 +2156,12 @@ rollback() {{
     fi
     exit "$rc"
 }}
-trap rollback EXIT INT TERM
+# Signals exit non-zero so the EXIT handler always sees a failure.
+trap rollback EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 141' PIPE
+trap 'exit 143' TERM
 
 if [ -e "$BASE" ]; then
     HAD_BASE=1
@@ -2167,7 +2186,7 @@ cmp -s {shlex.quote(source_dropin)} "$MOUNT_DIR$DROPIN"
 unmount_root
 systemctl daemon-reload
 rm -rf "$BACKUP"
-trap - EXIT INT TERM
+trap - EXIT HUP INT PIPE TERM
 """
 
 
@@ -2186,7 +2205,12 @@ cleanup() {{
     fi
     rmdir "$MOUNT_DIR" 2>/dev/null || true
 }}
-trap cleanup EXIT INT TERM
+# Signals exit non-zero so the EXIT handler always sees a failure.
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 141' PIPE
+trap 'exit 143' TERM
 rm -f "$DROPIN"
 mkdir -p "$MOUNT_DIR"
 mount --bind / "$MOUNT_DIR"
@@ -2195,7 +2219,7 @@ mount -o remount,rw "$MOUNT_DIR"
 rm -f "$MOUNT_DIR$DROPIN"
 cleanup
 MOUNTED=0
-trap - EXIT INT TERM
+trap - EXIT HUP INT PIPE TERM
 systemctl daemon-reload
 """
 
@@ -2300,8 +2324,9 @@ cmp -s {shlex.quote(source_dropin)} "$MOUNT_DIR{SHARED_LAYOUT.dropin_path}"
     # Keep original bytes as rollback evidence. Refuse a colliding backup
     # instead of deleting an earlier recovery.
     prepare_backups = (
-        '[ ! -e "$BACKUP_DIR" ] && [ ! -L "$BACKUP_DIR" ]; '
-        + "\n".join(f"[ ! -e {shlex.quote(path)} ] && [ ! -L {shlex.quote(path)} ]; "
+        # `{ A && B; } || exit` because set -e ignores a failing `A` in `A && B`.
+        '{ [ ! -e "$BACKUP_DIR" ] && [ ! -L "$BACKUP_DIR" ]; } || exit 1; '
+        + "\n".join(f"{{ [ ! -e {shlex.quote(path)} ] && [ ! -L {shlex.quote(path)} ]; }} || exit 1; "
                     for path in base_backups) +
         'mkdir -m 0700 "$BACKUP_DIR"; BACKUPS_CREATED=1'
         if retain_backup else
@@ -2365,7 +2390,7 @@ mount_root_rw() {{
 rollback() {{
     rc=$?
     [ "$rc" -ne 0 ] || rc=1
-    trap - EXIT INT TERM
+    trap - EXIT HUP INT PIPE TERM
     if [ "$COMMITTED" -eq 0 ]; then
         if [ "$MOUNTED" -eq 1 ]; then
             sync
@@ -2409,7 +2434,12 @@ rollback() {{
     fi
     exit "$rc"
 }}
-trap rollback EXIT INT TERM
+# Signals exit non-zero so the EXIT handler always sees a failure.
+trap rollback EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 141' PIPE
+trap 'exit 143' TERM
 
 {prepare_backups}
 {backup_lines('', dropins, upper_backups)}
@@ -2432,7 +2462,7 @@ systemctl daemon-reload
 
 COMMITTED=1
 {commit_cleanup}
-trap - EXIT INT TERM
+trap - EXIT HUP INT PIPE TERM
 """
 
 
@@ -3544,7 +3574,7 @@ fi'''
     )
     remove_bases = "\n".join(
         f'if [ "${flag}" -eq 1 ]; then rm -rf {shlex.quote(base)}; '
-        f'[ ! -e {shlex.quote(base)} ] && [ ! -L {shlex.quote(base)} ]; fi'
+        f'{{ [ ! -e {shlex.quote(base)} ] && [ ! -L {shlex.quote(base)} ]; }} || exit 1; fi'
         for base, flag in zip(bases, base_flags)
     )
     restore_bases = "\n".join(
@@ -3670,7 +3700,7 @@ mount_root_rw() {{
 rollback() {{
     rc=$?
     [ "$rc" -ne 0 ] || rc=1
-    trap - EXIT INT TERM
+    trap - EXIT HUP INT PIPE TERM
     if [ "$COMMITTED" -eq 0 ]; then
         if [ "$MOUNTED" -eq 1 ]; then
             sync
@@ -3707,7 +3737,12 @@ rollback() {{
     fi
     exit "$rc"
 }}
-trap rollback EXIT INT TERM
+# Signals exit non-zero so the EXIT handler always sees a failure.
+trap rollback EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 141' PIPE
+trap 'exit 143' TERM
 
 rm -rf "$BACKUP_DIR" {' '.join(shlex.quote(path) for path in base_backups)}
 mkdir -p "$BACKUP_DIR"
@@ -3728,7 +3763,7 @@ systemctl daemon-reload
 {chr(10).join(f'[ ! -e {shlex.quote(path)} ] && [ ! -L {shlex.quote(path)} ]' for path in dropins)}
 COMMITTED=1
 rm -rf "$BACKUP_DIR"
-trap - EXIT INT TERM
+trap - EXIT HUP INT PIPE TERM
 """
 
 

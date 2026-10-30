@@ -1210,7 +1210,9 @@ class WallpaperTab(QtWidgets.QWidget):
 
     def _restore_carousel_overlays(self) -> int:
         """Worker entry: restore backed-up overlays. Returns restored count."""
-        with remount_rw(self.ssh_client):
+        # Same lock as blanking: remount_rw is not reentrant, and its final
+        # remount,ro must not land in the middle of another root write.
+        with self.ssh_client.operation_session(), remount_rw(self.ssh_client):
             self._migrate_legacy_carousel_backups()
             try:
                 entries = self.ssh_client.listdir_attr(_CAROUSEL_BACKUP_DIR)
@@ -1222,8 +1224,11 @@ class WallpaperTab(QtWidgets.QWidget):
                 if entry.filename.lower().endswith(".png")
             ]
             for filename in backups:
+                if "/" in filename or filename in (".", ".."):
+                    raise RuntimeError(f"轮播备份文件名无效：{filename}")
                 self.ssh_client.exec_checked(
-                    f"mv {_CAROUSEL_BACKUP_DIR}/{filename} {_CAROUSEL_DIR}/{filename}"
+                    f"mv {shlex.quote(_CAROUSEL_BACKUP_DIR + '/' + filename)} "
+                    f"{shlex.quote(_CAROUSEL_DIR + '/' + filename)}"
                 )
             logging.info("Restored %d carousel overlay(s)", len(backups))
             return len(backups)

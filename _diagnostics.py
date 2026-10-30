@@ -24,6 +24,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+from _ssh import quick_exec
+
 from _device_storage import ROOT_SPACE_COMMAND
 from _tap_page_turn import EXTERNAL_XOVI_PATHS
 
@@ -308,7 +310,8 @@ def _collect_device_item(ssh_client, diag: DiagItem) -> CollectedItem:
             else nullcontext()
         )
         with session:
-            stdout, _stderr, code = ssh_client.exec_command(capped, decode_errors="replace")
+            # Each item is a small read; never block the session for 30 minutes.
+            stdout, _stderr, code = quick_exec(ssh_client, capped, decode_errors="replace")
     except Exception as exc:
         return CollectedItem(diag, error=f"采集失败：{exc}")
     payload, separator, status = _decode(stdout).rpartition(marker)

@@ -621,7 +621,8 @@ class ResidueMigrationTests(unittest.TestCase):
                         self.assertTrue(state.enabled)
                     self.assertEqual(transaction.call_args.kwargs["enable_dropin"], bool(kept))
                     script = upload.call_args.args[1].decode()
-                    self.assertIn("trap rollback EXIT INT TERM", script)
+                    self.assertIn("trap rollback EXIT\n", script)
+                    self.assertIn("trap 'exit 129' HUP", script)
                     for external in (
                         weread_app.INSTALL_ROOT,
                         _residue_migration.koreader.OFFICIAL_INSTALL_DIR,

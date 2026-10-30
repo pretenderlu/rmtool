@@ -86,7 +86,7 @@ class RecoveryTransactionTests(unittest.TestCase):
             f"rootfs / ext4 {root_mode},relatime 0 0\n", encoding="ascii"
         )
         self.assertIn(failure, ("", "base-move", "stage-move", "upper-write", "lower-write", "rollback-move",
-                                "control-write", "control-rollback", "daemon-reload"))
+                                "control-write", "control-rollback", "daemon-reload", "hangup"))
         prelude = r'''
 FAILURE=__FAILURE__
 WINDOWS=__WINDOWS__
@@ -112,6 +112,11 @@ mv() {
     guard_paths "$@"
     if [ "$#" = 2 ] && [ "$1" = "$BASE" ]; then inject base-move || return $?; fi
     if [ "$#" = 2 ] && [ "$1" = "$STAGE" ]; then inject stage-move || return $?; fi
+    if [ "$#" = 2 ] && [ "$1" = "$STAGE" ] && [ "$FAILURE" = hangup ]; then
+        # The SSH session drops after the live base was moved to the backup.
+        printf '%s\n' hangup >> ./sandbox/failures
+        kill -HUP $$
+    fi
     if [ "$FAILURE" = rollback-move ] && [ "$1" = "$BACKUP_DIR/base-0" ]; then
         printf '%s\n' rollback-move >> ./sandbox/failures
         return 72
@@ -298,6 +303,11 @@ systemctl() {
 
     def test_base_move_failure_restores_originals(self):
         self.assertNotEqual(self.execute("base-move").returncode, 0)
+        self.assert_restored()
+
+    def test_hangup_mid_transaction_restores_originals(self):
+        result = self.execute("hangup")
+        self.assertEqual(result.returncode, 129, result.stderr)
         self.assert_restored()
 
     def test_stage_move_failure_restores_originals(self):

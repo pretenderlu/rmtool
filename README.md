@@ -173,7 +173,7 @@ Paper Pure、reMarkable 1 和 reMarkable 2 也已覆盖该正式版的原生中�
 - **扫码传输**：在受支持设备的设置中开启接收，手机连接同一可信 Wi-Fi 后扫码上传 PDF/EPUB，设备显示文件名和进度。单文件最多 200 MB，更大的文件建议通过 USB 连接使用文档中心上传。安装、停用或卸载后按提示手动重启；卸载入口不删除已导入书籍。
 - **壁纸管理**：读取设备现有启动、休眠、轮播和关机壁纸预览；当前界面只按所选设备的原生分辨率生成竖屏壁纸，支持留白、裁剪和拉伸，裁剪时可调整水平/垂直偏移；还可把选中的文档缩略图配合可选文案，在电脑本地排版为封面墙壁纸，不会把文档数据发送到云端。休眠壁纸可选择保存在用户分区，避免占用根分区空间。
 - **文档中心**：搜索和查看文档元数据、缩略图；批量上传 PDF/EPUB、检查剩余空间、批量删除。通过所选设备的 SSH 连接调用系统原生导入，由系统生成 UUID、文档信息并转换 EPUB，无需上传后重启。五款设备的 3.28.0.172、3.29.0.153 和 3.29.1.0 均提供独立的[原生传输控制组件](native-import/README.md)，不依赖安装扫码传输，也不代表其他插件已支持相同固件。首次在文档中心的“原生传输服务”菜单初始化组件并手动重启一次，之后 USB、Wi-Fi 上传均自动准备导入服务、完成后恢复原设置；已有可用扫码控制组件时直接复用。十五个目标已通过离线适配检查，独立组件仍需分别实机验收；其他固件可手动开启原生 USB 网页界面。桌面上传不受扫码传输的 200 MB 限制，仍会检查文档区空间。将单个文档中 `.rm` 或 `.note` 内可解析的手写笔迹导出为白底 PDF，不合并原 PDF/EPUB 页面。
-- **固件管理**：目前支持 Paper Pro 与 Paper Pro Move，可读取 A/B 分区和版本状态，获取官方固件列表，将校验通过的官方固件下载并安装至备用分区，或切换至已检查的备用分区；新固件启动后，可在存在精确匹配资源时按更新前的插件列表修复 rmtool 插件。安装、切换或插件修复完成后，请按界面提示重启设备。
+- **固件管理**：目前支持 Paper Pro 与 Paper Pro Move，可读取 A/B 分区和版本状态，获取官方固件列表，将校验通过的官方固件下载并安装至备用分区，或切换至已检查的备用分区；新固件启动后，可在存在精确匹配资源时按更新前的插件列表修复 rmtool 插件。安装、切换或插件修复完成后，请按界面提示重启设备。固件操作在写入分区前停止（如电源或固件校验未通过）时会自动解除锁定；写入中失败或结果不明时，可在刷新后使用“解除固件锁定”，rmtool 会先确认没有待应用更新、启动分区未切换且错误计数为 0，日志保留，不清零任何计数。
 - **AppLoad 与 KOReader**：在精确支持的固件上，不经过 Vellum，直接从各自官方 GitHub Release 安装 AppLoad 和 KOReader。rmtool 会固定校验文件名、大小和 SHA-256，也支持导入用户自行下载的同一官方 ZIP 或 tar.gz，且不会自动重启设备。检测到旧 Vellum/AppLoad KOReader 目录时，会先完整备份，再把设置、历史、统计、截图等白名单用户数据迁移到全新的官方程序中，不会把未知旧程序文件混入新版本。当前 rmtool 固定使用 AppLoad v0.6.0，开放所列 3.27、3.28 和 3.29 精确固件；旧版 AppLoad 可通过修复流程升级，检测到其他可精确验证的旧版共享插件时也会在同一事务中一并更新并保留原开关状态，无需用户逐个修复。3.28/3.29 新覆盖范围仍需按机型完成实机验收。安装后可继续在书库管理器中搜索目录、传输书籍、新建文件夹和删除项目，所有操作均限制在检测到的书库根目录内。
 - **微信读书**：Paper Pro 与 Paper Pro Move 的 3.28 和 3.29.0.152/.153 和 3.29.1.0 固件可直接从[腾讯微信读书官方 CDN](https://cdn.weread.qq.com/app/remarkable/remarkable-weread-v1.0.0-universal-release.zip)在线安装或修复 RemarkableWeRead v1.0.0；rmtool 自有设备启动入口覆盖 3.28.0.172 和三个 3.29 版本。官方 43 MB ZIP 不会打进 rmtool，也不会镜像到 rmtool 的 GitHub Release 或腾讯云 COS；rmtool 会先校验外层官方 ZIP，只提取指定的内层安装包并再次校验，然后传输到设备执行未经修改的上游安装脚本。重装会保留登录、下载和阅读数据。启动入口提供普通、彩色快刷与黑白快刷，后两种模式支持独立的定期完整刷新设置；入口安装后需手动重启设备。3.29 安装与启动入口均已完成离线校验，真机兼容性仍需按机型验收；其他固件请参考微信读书官方提供的安装说明。
 - **字体管理**：预览并上传多个 TTF/OTF，可在上传时重命名为 `zwzt.ttf`；查看 `/home/root/.local/share/rmtool/fonts` 中的非活动字体，按精确文件路径切换系统界面字体，并删除未启用字体。在上表支持的 Paper Pro / Move 3.28 和 3.29.0.152/.153 和 3.29.1.0 固件上，可按添加顺序把多个自定义字体加入 EPUB 阅读菜单，不再限制为三个，删除后自动前移。上传字体在用户明确选择前不会进入 Fontconfig 默认扫描范围。字体管理提供“为锁屏密码界面保留字体（写入 /data）”选项，默认开启：选中的系统字体会原子复制到 `/data/rmtool/fonts`，供密码解锁前后的界面共同使用，并按替换完成后的实际空间判断，应用后旧存储布局的 RM1/RM2 至少保留 8 MiB，其他设备至少保留 24 MiB；关闭后则只在 `/home` 中使用系统字体，不触发 `/data` 空间检查，并会清理 rmtool 管理的旧镜像，但解锁前界面可能仍使用原生字体。已有自定义字体目录继续受支持，不会被自动搬移。只有旧版根区镜像、rmtool 生成的 Fontconfig、文件元数据以及唯一 `/home` 原字体均精确匹配时，才会提供一键迁移，且遵循当前锁屏字体选项。界面会按精确设备与固件显示“已实机验证”“待实机验证”或“未实机验证”。上传不会自动切换字体或重启设备，重启由独立确认按钮执行。
@@ -292,7 +292,7 @@ Paper Pure、reMarkable 1 和 reMarkable 2 不在统一阅读增强包的覆盖�
 
 ### 插件停用与卸载
 
-所有可卸载的 rmtool 插件现在都区分“停用”和“卸载”：停用会保留已验证的插件文件，卸载会在再次确认后删除该插件及其受控资源，并保留仍被其他插件使用的共享运行时。原生中文卸载前会把当前语言安全切回英文；微信读书的“卸载启动入口”只删除 rmtool 注册的入口、图标和启动插件，不删除官方 App、登录信息、下载内容或阅读数据。KOReader 的卸载会保留 rmtool 白名单用户数据；“彻底清理旧版残留”仍是单独的不可逆操作。未知、被修改、混合或正在运行的安装不会被自动删除。完成后 SSH 会话关闭，需按提示手动重启设备。
+所有可卸载的 rmtool 插件现在都区分“停用”和“卸载”：停用会保留已验证的插件文件，卸载会在再次确认后删除该插件及其受控资源，并保留仍被其他插件使用的共享运行时。原生中文卸载前会把当前语言安全切回英文；微信读书的“卸载启动入口”只删除 rmtool 注册的入口、图标和启动插件，不删除官方 App、登录信息、下载内容或阅读数据。KOReader 的重装、修复和卸载会保留官方程序文件以外的全部用户数据（阅读进度、标注、设置、词典、自装插件和补丁等），卸载时移到 rmtool 保留区，下次安装自动恢复；“彻底清理旧版残留”仍是单独的不可逆操作。未知、被修改、混合或正在运行的安装不会被自动删除。完成后 SSH 会话关闭，需按提示手动重启设备。
 
 ## 使用建议
 
@@ -347,12 +347,14 @@ Windows 也可在依赖安装完成后双击 `rmtool.bat`，通过 `pythonw.exe`
 ## 开发与发布检查
 
 ```bash
-python -m compileall -q -l . rmrl tools tests
 python -m ruff check .
 python -m unittest discover -s tests -v
-git diff --check
-actionlint .github/workflows/release.yml .github/workflows/sync-localization-assets.yml .github/workflows/sync-feature-assets.yml
+python tools/validate_build_matrix.py
+python tools/check_test_isolation.py
+python tools/check_release.py
 ```
+
+以上即 CI 在每次推送和 PR 时执行的检查（单元测试需设置 `QT_QPA_PLATFORM=offscreen`）。`check_test_isolation.py` 在仓库外逐个运行测试模块，防止测试依赖导入顺序或当前目录；`check_release.py` 确认 `APP_VERSION`、`docs/releases/vX.Y.Z.md`（含“中文”和“English”两节）与 README 当前版本链接一致。
 
 Windows x64 本地构建运行：
 
@@ -360,7 +362,7 @@ Windows x64 本地构建运行：
 .\build-portable.ps1
 ```
 
-脚本生成 `dist/rmtool-windows-x64.zip` 和 `dist/rmtool-windows-x64-onefile.exe`。macOS ARM64 应用由 [Release 工作流](.github/workflows/release.yml) 构建；推送 `v*` 标签后，工作流会在 Windows 与 macOS 测试、构建均成功时发布三个下载文件。
+脚本按 `requirements-build-windows.lock` 的哈希锁定版本安装依赖，生成 `dist/rmtool-windows-x64.zip` 和 `dist/rmtool-windows-x64-onefile.exe`，并对两个程序各运行一次 `--https-smoke-test`（需要联网；离线时可设置 `RMTOOL_SKIP_SMOKE_TEST=1` 跳过）。macOS ARM64 应用由 [Release 工作流](.github/workflows/release.yml) 按 `requirements-build-macos.lock` 构建。推送 `v*` 标签后，工作流先确认标签与 `APP_VERSION` 一致、更新日志存在并通过 ruff，再在 Windows 与 macOS 测试、构建均成功时发布三个下载文件。修改 `requirements-build.in` 或 `requirements.txt` 后，按锁文件开头的命令用 uv 重新生成两个锁文件。
 
 固定资源 Release 仍由 GitHub Actions 严格验证，但腾讯云 COS 镜像改为维护者在 Windows 本地发布。先安装 `cos-python-sdk-v5==1.9.44`，将 [.env.example](.env.example) 复制为已被 Git 忽略的 `.env`，填入仅限该存储桶的 CAM 凭据，然后运行：
 

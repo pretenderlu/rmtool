@@ -11,6 +11,8 @@ import _fast_mono_reading as fast
 import _package_download
 import _tap_page_turn as tap
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 class FakeSSH:
     def __init__(self, *, files=(), dropins=""):
@@ -59,7 +61,7 @@ class FakeSSH:
 class FastMonoReadingTests(unittest.TestCase):
     def packages(self):
         return fast.parse_manifest(
-            Path("fast-mono-reading/manifest.json").read_bytes()
+            (ROOT / "fast-mono-reading/manifest.json").read_bytes()
         )
 
     def package(self):
@@ -428,8 +430,7 @@ class FastMonoReadingTests(unittest.TestCase):
 
     def test_qmd_sources_define_periodic_stock_cleanup(self):
         for version in ("3.27", "3.28"):
-            source = Path(
-                f"fast-mono-reading/qmd-src/fast-mono-reading-{version}.qmd"
+            source = (ROOT / f"fast-mono-reading/qmd-src/fast-mono-reading-{version}.qmd"
             ).read_text(encoding="utf-8")
             with self.subTest(version=version):
                 self.assertEqual(source.count("Connections {"), 1)
@@ -505,15 +506,15 @@ class FastMonoReadingTests(unittest.TestCase):
                 ))
 
     def test_manifest_rejects_unknown_or_forged_verification_identity(self):
-        document = json.loads(Path("fast-mono-reading/manifest.json").read_text())
+        document = json.loads((ROOT / "fast-mono-reading/manifest.json").read_text())
         document["packages"][0]["offline_verified"] = False
         with self.assertRaisesRegex(RuntimeError, "本地白名单"):
             fast.parse_manifest(json.dumps(document).encode())
-        document = json.loads(Path("fast-mono-reading/manifest.json").read_text())
+        document = json.loads((ROOT / "fast-mono-reading/manifest.json").read_text())
         document["packages"][0]["device_verified"] = True
         with self.assertRaisesRegex(RuntimeError, "本地白名单"):
             fast.parse_manifest(json.dumps(document).encode())
-        document = json.loads(Path("fast-mono-reading/manifest.json").read_text())
+        document = json.loads((ROOT / "fast-mono-reading/manifest.json").read_text())
         document["packages"][0]["xochitl_sha256"] = "0" * 64
         with self.assertRaisesRegex(RuntimeError, "未列入本地白名单"):
             fast.parse_manifest(json.dumps(document).encode())
@@ -527,23 +528,23 @@ class FastMonoReadingTests(unittest.TestCase):
             ("device_verified", True),
             ("sha256", "0" * 64),
         ):
-            document = json.loads(Path("fast-mono-reading/manifest.json").read_text())
+            document = json.loads((ROOT / "fast-mono-reading/manifest.json").read_text())
             document["packages"][0][field] = value
             with self.subTest(field=field), self.assertRaises(RuntimeError):
                 fast.parse_manifest(json.dumps(document).encode())
 
-        document = json.loads(Path("fast-mono-reading/manifest.json").read_text())
+        document = json.loads((ROOT / "fast-mono-reading/manifest.json").read_text())
         document["packages"][0]["files"][4]["sha256"] = "0" * 64
         with self.assertRaises(RuntimeError):
             fast.parse_manifest(json.dumps(document).encode())
 
     def test_manifest_rejects_missing_target_and_ninth_identity(self):
-        document = json.loads(Path("fast-mono-reading/manifest.json").read_text())
+        document = json.loads((ROOT / "fast-mono-reading/manifest.json").read_text())
         document["packages"].pop()
         with self.assertRaises(RuntimeError):
             fast.parse_manifest(json.dumps(document).encode())
 
-        document = json.loads(Path("fast-mono-reading/manifest.json").read_text())
+        document = json.loads((ROOT / "fast-mono-reading/manifest.json").read_text())
         ninth = dict(document["packages"][0])
         ninth["firmware"] = "99999999999999"
         ninth["asset"] = "rmtool-fast-mono-reading-chiappa-99999999999999.tar.gz"
@@ -553,13 +554,13 @@ class FastMonoReadingTests(unittest.TestCase):
 
     def test_manifest_requires_boolean_verification_fields(self):
         for field in ("offline_verified", "device_verified"):
-            document = json.loads(Path("fast-mono-reading/manifest.json").read_text())
+            document = json.loads((ROOT / "fast-mono-reading/manifest.json").read_text())
             document["packages"][0][field] = 1
             with self.subTest(field=field), self.assertRaisesRegex(RuntimeError, "必须是布尔值"):
                 fast.parse_manifest(json.dumps(document).encode())
 
     def test_manifest_rejects_files_outside_fixed_payload_whitelist(self):
-        document = json.loads(Path("fast-mono-reading/manifest.json").read_text())
+        document = json.loads((ROOT / "fast-mono-reading/manifest.json").read_text())
         document["packages"][0]["files"].append(
             {
                 "path": "extensions.d/unreviewed.so",
@@ -646,7 +647,7 @@ class FastMonoReadingTests(unittest.TestCase):
         self.assertEqual(package.download_url, package.download_urls[0])
 
     def test_manifest_falls_back_from_invalid_cos_to_github(self):
-        manifest = Path("fast-mono-reading/manifest.json").read_bytes()
+        manifest = (ROOT / "fast-mono-reading/manifest.json").read_bytes()
         with tempfile.TemporaryDirectory() as state_dir, patch.object(
             tap,
             "_download_limited",
@@ -678,7 +679,7 @@ class FastMonoReadingTests(unittest.TestCase):
         )
 
     def test_invalid_remote_data_does_not_replace_valid_manifest_cache(self):
-        manifest = Path("fast-mono-reading/manifest.json").read_bytes()
+        manifest = (ROOT / "fast-mono-reading/manifest.json").read_bytes()
         with tempfile.TemporaryDirectory() as state_dir:
             cache = fast._cache_dir(state_dir) / "manifest.json"
             tap._write_atomic(cache, manifest)

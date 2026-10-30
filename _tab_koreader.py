@@ -278,6 +278,18 @@ class KOReaderTab(QtWidgets.QWidget):
     def _session_current(self, token) -> bool:
         return token is not None and token is self._connection_token()
 
+    def _report_if_session_lost(self, token, exc: Exception) -> None:
+        """Show errors of a session that was closed (not replaced) mid-operation.
+
+        Command timeouts and channel errors close the connection first; the
+        remote result is then unknown and the user has to be told so.
+        """
+        if sip.isdeleted(self) or token is None:
+            return
+        current = self._connection_token()
+        if current is None:
+            self._on_error(exc)
+
     def _session_worker(self, token, operation, *args):
         def run(**kwargs):
             with self.ssh_client.operation_session():
@@ -462,6 +474,7 @@ class KOReaderTab(QtWidgets.QWidget):
                 logging.error(
                     "KOReader management refresh failed after tab close: %s", exc
                 )
+                self._report_if_session_lost(token, exc)
                 return
             self._management_loading = False
             self.management_status_label.setText(f"检测失败：{exc}")
@@ -503,6 +516,7 @@ class KOReaderTab(QtWidgets.QWidget):
                 logging.error(
                     "KOReader management operation failed after tab close: %s", exc
                 )
+                self._report_if_session_lost(token, exc)
                 return
             self._management_loading = False
             self._close_progress_dialog()
@@ -551,7 +565,8 @@ class KOReaderTab(QtWidgets.QWidget):
             if migrate
             else (
                 "将从 KOReader 官方 GitHub Release 下载与设备架构匹配的版本。"
-                "重新安装会保留现有用户文件，操作不会自动重启设备，是否继续？"
+                "重新安装会保留阅读进度、设置、词典、自装插件等全部用户数据，"
+                "只替换官方程序文件；操作不会自动重启设备，是否继续？"
             )
         )
         if not ask_confirmation(
@@ -630,8 +645,9 @@ class KOReaderTab(QtWidgets.QWidget):
         if not ask_confirmation(
             self,
             _rmtool.APP_NAME,
-            "将移除 KOReader 启动入口，并把完整安装目录迁移到 rmtool "
-            "保留区，以便下次安装恢复设置。操作不会自动重启设备，是否继续？",
+            "将移除 KOReader 启动入口和官方程序文件，阅读进度、设置、词典、"
+            "自装插件等全部用户数据会移到 rmtool 保留区，下次安装时自动恢复。"
+            "操作不会自动重启设备，是否继续？",
             confirm_text="卸载",
             cancel_text="取消",
             danger=True,
@@ -836,6 +852,7 @@ class KOReaderTab(QtWidgets.QWidget):
         def on_error(exc: Exception):
             if sip.isdeleted(self) or not self._session_current(token):
                 logging.error("KOReader refresh failed after tab close: %s", exc)
+                self._report_if_session_lost(token, exc)
                 return
             self._loading = False
             self._loaded_once = True
@@ -937,6 +954,7 @@ class KOReaderTab(QtWidgets.QWidget):
         def on_error(exc: Exception):
             if sip.isdeleted(self) or not self._session_current(token):
                 logging.error("KOReader navigation failed after tab close: %s", exc)
+                self._report_if_session_lost(token, exc)
                 return
             self.path_edit.setText(self._current_dir)
             self._on_error(exc)
@@ -1029,6 +1047,7 @@ class KOReaderTab(QtWidgets.QWidget):
                 # Worker outlived the tab; only log, touching widgets would
                 # raise RuntimeError (and abort the process on macOS).
                 logging.error("KOReader upload failed after tab close: %s", exc)
+                self._report_if_session_lost(token, exc)
                 return
             self._close_progress_dialog()
             self._on_error(exc)
@@ -1124,6 +1143,7 @@ class KOReaderTab(QtWidgets.QWidget):
                 # Worker outlived the tab; only log, touching widgets would
                 # raise RuntimeError (and abort the process on macOS).
                 logging.error("KOReader download failed after tab close: %s", exc)
+                self._report_if_session_lost(token, exc)
                 return
             self._close_progress_dialog()
             self._on_error(exc)
@@ -1145,7 +1165,9 @@ class KOReaderTab(QtWidgets.QWidget):
     ) -> None:
         total = sum(entry.size for entry in files)
         completed = 0
-        for entry in files:
+        # Validate every name before writing anything to the computer.
+        local_paths = [_koreader.local_download_path(target_dir, entry.name) for entry in files]
+        for entry, local_path in zip(files, local_paths):
             offset = completed
 
             def on_file_progress(transferred: int, _total: int, offset=offset):
@@ -1155,7 +1177,7 @@ class KOReaderTab(QtWidgets.QWidget):
             _koreader.download_file(
                 self.ssh_client,
                 entry.path,
-                os.path.join(target_dir, entry.name),
+                local_path,
                 library_root,
                 progress_callback=on_file_progress if progress_callback else None,
             )
@@ -1216,6 +1238,7 @@ class KOReaderTab(QtWidgets.QWidget):
                 # Worker outlived the tab; only log, touching widgets would
                 # raise RuntimeError (and abort the process on macOS).
                 logging.error("KOReader deletion failed after tab close: %s", exc)
+                self._report_if_session_lost(token, exc)
                 return
             self._close_progress_dialog()
             self._on_error(exc)
@@ -1268,6 +1291,7 @@ class KOReaderTab(QtWidgets.QWidget):
                 # Worker outlived the tab; only log, touching widgets would
                 # raise RuntimeError (and abort the process on macOS).
                 logging.error("KOReader mkdir failed after tab close: %s", exc)
+                self._report_if_session_lost(token, exc)
                 return
             self._close_progress_dialog()
             self._on_error(exc)

@@ -16,6 +16,8 @@ import _rmkit_cn
 import _reading_enhancements as reading
 import _tap_page_turn as tap
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 class FakeSFTP:
     def __init__(
@@ -654,7 +656,8 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertLess(sync_index, ready_index)
         exec_events = [value for kind, value in ssh.events if kind == "exec"]
         self.assertEqual(exec_events[-1], "sync")
-        self.assertEqual(ssh.close_count, 1)
+        # The toolbox closes the session after showing the result.
+        self.assertEqual(ssh.close_count, 0)
         commands = "\n".join(value for kind, value in ssh.events if kind == "exec")
         self.assertIn("mount -o remount,rw /", commands)
         self.assertIn("mount -o remount,ro /", commands)
@@ -708,6 +711,66 @@ class RmkitCnLocalizationTests(unittest.TestCase):
 
         self.assertEqual(ssh.files[_rmkit_cn.CONFIG_PATH], original_config)
         self.assertEqual(ssh.files[_rmkit_cn.QM_PATH], self.STOCK_QM)
+
+    def test_restore_keeps_fallback_font_installed_by_native_chinese(self):
+        target = _rmkit_cn.BUNDLED_FONT_PATH
+        digest = _rmkit_cn.BUNDLED_FALLBACK_FONT_SHA256
+        for owner in (None, _rmkit_cn.FONT_OWNER_NATIVE_CHINESE):
+            with self.subTest(owner=owner):
+                marker = {"path": target, "sha256": digest, "had_fontconfig": False}
+                if owner:
+                    marker["owner"] = owner
+                ssh = FakeSSH(
+                    {
+                        _rmkit_cn.CONFIG_PATH: b"[General]\nlanguage=fr_FR\n",
+                        **self.managed_files(),
+                        target: b"fallback font bytes",
+                        _rmkit_cn.FONTCONFIG_FILE: b"<fontconfig>native fallback</fontconfig>",
+                        _rmkit_cn.FONT_MARKER_PATH: json.dumps(marker).encode("ascii"),
+                    }
+                )
+                with patch.object(_rmkit_cn, "_remote_sha256",
+                                  side_effect=lambda _s, path: digest if path == target
+                                  else hashlib.sha256(ssh.files[path]).hexdigest()):
+                    _rmkit_cn.restore_localization(ssh)
+                self.assertIn(target, ssh.files)
+                self.assertIn(_rmkit_cn.FONT_MARKER_PATH, ssh.files)
+                self.assertEqual(
+                    ssh.files[_rmkit_cn.FONTCONFIG_FILE],
+                    b"<fontconfig>native fallback</fontconfig>",
+                )
+                self.assertEqual(ssh.files[_rmkit_cn.QM_PATH], self.STOCK_QM)
+                self.assertNotIn(_rmkit_cn.BACKUP_READY_PATH, ssh.files)
+
+    def test_restore_still_removes_its_own_font(self):
+        target = _rmkit_cn.CUSTOM_FONT_PATHS[".ttf"]
+        font = b"rmkit selected font"
+        for owner in (None, _rmkit_cn.FONT_OWNER_RMKIT):
+            with self.subTest(owner=owner):
+                marker = {"path": target, "sha256": hashlib.sha256(font).hexdigest(),
+                          "had_fontconfig": False}
+                if owner:
+                    marker["owner"] = owner
+                ssh = FakeSSH(
+                    {
+                        _rmkit_cn.CONFIG_PATH: b"[General]\nlanguage=fr_FR\n",
+                        **self.managed_files(),
+                        target: font,
+                        _rmkit_cn.FONTCONFIG_FILE: b"<fontconfig>rmkit</fontconfig>",
+                        _rmkit_cn.FONT_MARKER_PATH: json.dumps(marker).encode("ascii"),
+                    }
+                )
+                _rmkit_cn.restore_localization(ssh)
+                self.assertNotIn(target, ssh.files)
+                self.assertNotIn(_rmkit_cn.FONT_MARKER_PATH, ssh.files)
+                self.assertNotIn(_rmkit_cn.FONTCONFIG_FILE, ssh.files)
+
+    def test_new_markers_record_their_owner(self):
+        ssh = self.make_ssh(cjk_available=False, cjk_font_data=(b"cjk",))
+        _rmkit_cn.enable_localization(ssh, self.make_qm(), self.make_font(b"cjk", "x.ttf"), "X")
+        self.assertEqual(
+            json.loads(ssh.files[_rmkit_cn.FONT_MARKER_PATH])["owner"], _rmkit_cn.FONT_OWNER_RMKIT
+        )
 
     def test_upload_failures_roll_back_config_and_qm(self):
         for failure_number in (1, 2):
@@ -802,7 +865,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
                 for kind, value in ssh.events
             )
         )
-        self.assertEqual(ssh.close_count, 1)
+        self.assertEqual(ssh.close_count, 0)
 
     def test_detection_checks_active_sans_serif_not_any_cjk_font(self):
         other_cjk = "/home/root/.local/share/fonts/other-cjk.otf"
@@ -1563,6 +1626,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             "Fallback CJK",
             preserve_previous_managed_font=True,
             lock_screen_support=True,
+            owner=_rmkit_cn.FONT_OWNER_NATIVE_CHINESE,
         )
 
         with patch.object(_rmkit_cn, "_install_managed_font") as install, patch.object(
@@ -1581,6 +1645,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             "Fallback CJK",
             preserve_previous_managed_font=True,
             lock_screen_support=False,
+            owner=_rmkit_cn.FONT_OWNER_NATIVE_CHINESE,
         )
 
         wrong = self.make_font(b"not the bundled font", _rmkit_cn.BUNDLED_FALLBACK_FONT_NAME)
@@ -3722,26 +3787,22 @@ class RmkitCnLocalizationTests(unittest.TestCase):
                 self.assertNotIn(_rmkit_cn.FONT_MARKER_PATH, ssh.files)
 
     def test_bundled_font_and_cloud_translation_inputs_are_present(self):
-        font_path = Path("assets/fonts") / _rmkit_cn.BUNDLED_FONT_NAME
-        license_path = Path("assets/fonts/LICENSE")
-        qm_path = Path("translations/reMarkable_zh_CN.qm")
-        ferrari_qm_path = Path("translations/reMarkable_zh_CN_ferrari.qm")
-        legacy_qm_path = Path(
-            "translations/reMarkable_zh_CN-20260612085811-legacy.qm"
+        font_path = (ROOT / "assets/fonts") / _rmkit_cn.BUNDLED_FONT_NAME
+        license_path = (ROOT / "assets/fonts/LICENSE")
+        qm_path = (ROOT / "translations/reMarkable_zh_CN.qm")
+        ferrari_qm_path = (ROOT / "translations/reMarkable_zh_CN_ferrari.qm")
+        legacy_qm_path = (ROOT / "translations/reMarkable_zh_CN-20260612085811-legacy.qm"
         )
-        beta_qm_path = Path(
-            "translations/reMarkable_zh_CN-20260629074044.qm"
+        beta_qm_path = (ROOT / "translations/reMarkable_zh_CN-20260629074044.qm"
         )
         beta_164_paths = {
-            platform: Path(
-                f"translations/reMarkable_zh_CN-3.28.0.164-{platform}.qm"
+            platform: (ROOT / f"translations/reMarkable_zh_CN-3.28.0.164-{platform}.qm"
             )
             for platform in ("chiappa", "ferrari")
         }
-        beta_166_path = Path(
-            "translations/reMarkable_zh_CN-3.28.0.166-ferrari.qm"
+        beta_166_path = (ROOT / "translations/reMarkable_zh_CN-3.28.0.166-ferrari.qm"
         )
-        manifest_path = Path("translations/manifest.json")
+        manifest_path = (ROOT / "translations/manifest.json")
         self.assertEqual(
             _rmkit_cn.BUNDLED_TRANSLATION_MANIFEST_PATH,
             Path(_rmkit_cn.__file__).resolve().parent
@@ -3945,8 +4006,8 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             _rmkit_cn.parse_translation_manifest(
                 json.dumps(invalid_manifest).encode("utf-8")
             )
-        build_script = Path("build-portable.ps1").read_text(encoding="utf-8-sig")
-        release_workflow = Path(".github/workflows/release.yml").read_text(
+        build_script = (ROOT / "build-portable.ps1").read_text(encoding="utf-8-sig")
+        release_workflow = (ROOT / ".github/workflows/release.yml").read_text(
             encoding="utf-8"
         )
         self.assertIn("assets\\fonts\\NotoSansCJKsc-Regular.otf", build_script)
@@ -3983,8 +4044,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertIn("rmtool-windows-x64-onefile.exe", build_script)
 
     def test_localization_workflow_is_validation_only(self):
-        workflow = Path(
-            ".github/workflows/sync-localization-assets.yml"
+        workflow = (ROOT / ".github/workflows/sync-localization-assets.yml"
         ).read_text(encoding="utf-8")
 
         self.assertIn("tools/publish_resources.py verify", workflow)
@@ -3994,7 +4054,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertNotIn("put_object", workflow)
 
     def test_cloud_manifest_refresh_is_cached_for_offline_use(self):
-        manifest = Path("translations/manifest.json").read_bytes()
+        manifest = (ROOT / "translations/manifest.json").read_bytes()
         with tempfile.TemporaryDirectory() as state_dir:
             with patch.object(
                 _rmkit_cn, "_download_limited", return_value=manifest
@@ -4091,7 +4151,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             )
 
     def test_invalid_remote_manifests_preserve_valid_cache(self):
-        manifest = Path("translations/manifest.json").read_bytes()
+        manifest = (ROOT / "translations/manifest.json").read_bytes()
         with tempfile.TemporaryDirectory() as state_dir:
             manifest_path = (
                 Path(state_dir) / "cache" / "localization" / "manifest.json"
@@ -4117,7 +4177,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             )
 
     def test_invalid_cos_manifest_falls_back_to_github(self):
-        manifest = Path("translations/manifest.json").read_bytes()
+        manifest = (ROOT / "translations/manifest.json").read_bytes()
 
         def download(url, _max_bytes):
             if url == _rmkit_cn.TRANSLATION_MANIFEST_URLS[0]:
@@ -4139,7 +4199,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         )
 
     def test_first_run_remote_failure_uses_bundled_manifest(self):
-        manifest = Path("translations/manifest.json").read_bytes()
+        manifest = (ROOT / "translations/manifest.json").read_bytes()
         with tempfile.TemporaryDirectory() as state_dir:
             bundled_path = (
                 Path(state_dir)

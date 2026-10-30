@@ -93,8 +93,15 @@ def _prepare_koreader_root(
     if icon_spec is None:
         raise RuntimeError("KOReader 旧版入口缺少图标记录。")
     icon = Path(destination).parent / "koreader-icon.png"
+    # The residue stays where the old firmware put it (/home on RM1 .172+).
+    legacy = _xovi_standalone.LEGACY_SHARED_LAYOUT
+    residue_base = (
+        legacy.remote_base
+        if ssh_client.file_exists(legacy.remote_base)
+        else _xovi_standalone.SHARED_LAYOUT.remote_base
+    )
     ssh_client.download_file(
-        f"{_xovi_standalone.SHARED_LAYOUT.remote_base}/{icon_spec.runtime_path}",
+        f"{residue_base}/{icon_spec.runtime_path}",
         str(icon),
     )
     if (
