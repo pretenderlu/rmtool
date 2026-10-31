@@ -35,11 +35,13 @@ SCRIPT = textwrap.dedent(
 
 class ExceptionHookTests(unittest.TestCase):
     def run_app(self, mode):
-        env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+        # The child prints Chinese; Windows runners default to cp1252.
+        env = dict(os.environ, QT_QPA_PLATFORM="offscreen", PYTHONIOENCODING="utf-8")
         return subprocess.run(
             [sys.executable, "-c", SCRIPT, str(ROOT), mode],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
             env=env,
             cwd=str(ROOT),

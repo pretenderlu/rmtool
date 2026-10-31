@@ -27,6 +27,15 @@ if os.name == "nt":
     if git_sh.is_file():
         SH = str(git_sh)
 
+
+def _shell_path(path):
+    if os.name != "nt":
+        return str(path)
+    # Git Bash drops unquoted backslashes and its tar reads "C:" as a host.
+    drive, rest = os.path.splitdrive(os.path.abspath(path))
+    return "/" + drive.rstrip(":").lower() + rest.replace("\\", "/")
+
+
 HOME = "/home/root"
 TARGET_REL = _koreader.APPLOAD_INSTALL_DIR[len(HOME) + 1:]
 PRESERVED_REL = _koreader.PRESERVED_INSTALL_DIR[len(HOME) + 1:]
@@ -103,7 +112,7 @@ class SandboxSSH:
         # The sandbox does not run as root; BusyBox sh prefers its own
         # applets over PATH, so drop the ownership reset textually.
         text = text.replace('chown -R root:root "$STAGE/koreader"', ": no-chown")
-        return text.replace(HOME, str(self.home))
+        return text.replace(HOME, _shell_path(self.home))
 
     def exec_checked(self, command):
         self.commands.append(command)
@@ -122,7 +131,7 @@ class SandboxSSH:
         return "", "", 1
 
     def transfer_file(self, local, remote):
-        destination = Path(self._map(remote))
+        destination = Path(remote.replace(HOME, str(self.home)))
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(local, destination)
 
