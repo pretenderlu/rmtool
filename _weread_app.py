@@ -26,6 +26,7 @@ BUNDLED_MANIFEST = Path(__file__).with_name("weread-app") / "manifest.json"
 MAX_PACKAGE_BYTES = 48 * 1024 * 1024
 MAX_UNPACKED_BYTES = 72 * 1024 * 1024
 MAX_MEMBERS = 128
+SUPPORTED_329_RELEASES = ("3.29.0.152", "3.29.0.153", "3.29.1.0")
 INSTALL_ROOT = "/home/root/.local/opt/remarkable-weread"
 OFFICIAL_FILES = {
     f"{INSTALL_ROOT}/bin/remarkable-weread":
@@ -162,7 +163,7 @@ def _supported(device: WeReadAppDevice, package: WeReadAppPackage) -> bool:
         and device.architecture in package.architectures
         and (
             device.release_version.startswith("3.28.")
-            or device.release_version in {"3.29.0.152", "3.29.0.153", "3.29.1.0"}
+            or device.release_version in SUPPORTED_329_RELEASES
         )
     )
 
@@ -372,7 +373,7 @@ case "$(printf '%s' "$machine" | tr '[:upper:]' '[:lower:]')" in
   *ferrari*|*chiappa*) ;;
   *) echo 'unsupported device' >&2; exit 1 ;;
 esac
-case "$version" in 3.28|3.28.*) ;; *) echo 'unsupported firmware series' >&2; exit 1 ;; esac
+case "$version" in 3.28.*|{"|".join(SUPPORTED_329_RELEASES)}) ;; *) echo 'unsupported firmware series' >&2; exit 1 ;; esac
 [ "$(sha256sum "$archive" | awk '{{print $1}}')" = {expected_sha} ] || {{ echo 'archive checksum mismatch' >&2; exit 1; }}
 stage=$(mktemp -d /tmp/rmtool-weread-app.XXXXXXXX)
 tar -tzf "$archive" | grep -q '^remarkable-weread/install.sh$' || {{ echo 'installer missing' >&2; exit 1; }}

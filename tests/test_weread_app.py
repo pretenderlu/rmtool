@@ -1,6 +1,10 @@
 import hashlib
 import io
 import json
+import os
+import shlex
+import shutil
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -13,6 +17,11 @@ import _weread_app as app
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SH = shutil.which("sh")
+if os.name == "nt":
+    git_sh = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
+    if git_sh.is_file():
+        SH = str(git_sh)
 
 
 class WeReadAppTests(unittest.TestCase):
@@ -78,6 +87,51 @@ class WeReadAppTests(unittest.TestCase):
                 with self.subTest(platform=platform, release=release):
                     device = app.WeReadAppDevice(platform, "aarch64", release)
                     self.assertTrue(app._supported(device, self.package))
+
+    @unittest.skipUnless(SH, "A POSIX shell or Git Bash is required")
+    def test_remote_firmware_guard_matches_python_support(self):
+        client = Mock()
+        installed = app.WeReadAppStatus(
+            app.WeReadAppState.INSTALLED, self.device, self.package
+        )
+        with patch.object(app, "inspect_device", return_value=self.device), patch.object(
+            app, "_validate_archive"
+        ), patch.object(app, "get_status", return_value=installed):
+            app.install(client, self.package, Path("official.tar.gz"))
+        command = shlex.split(client.exec_checked.call_args_list[0].args[0])
+        self.assertEqual(command[:2], ["sh", "-c"])
+        guard = next(
+            line for line in command[2].splitlines()
+            if line.startswith('case "$version" in ')
+        )
+        cases = (
+            ("3.28.0.162", True),
+            ("3.28.0.172", True),
+            ("3.29.0.152", True),
+            ("3.29.0.153", True),
+            ("3.29.1.0", True),
+            ("3.27.3.0", False),
+            ("3.28", False),
+            ("3.29", False),
+            ("3.29.0.154", False),
+            ("3.29.1.1", False),
+            ("3.29.1.0-extra", False),
+            ("3.30.0.1", False),
+            ("", False),
+        )
+        for release, expected in cases:
+            with self.subTest(release=release):
+                # Execute only the real gate, never its cleanup or installer.
+                result = subprocess.run(
+                    [SH, "-c", "version=$1\n" + guard, "rmtool-test", release],
+                    capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, 0 if expected else 1, result.stderr)
+                if not expected:
+                    self.assertIn("unsupported firmware series", result.stderr)
+                for platform in ("chiappa", "ferrari"):
+                    device = app.WeReadAppDevice(platform, "aarch64", release)
+                    self.assertEqual(app._supported(device, self.package), expected)
 
     def test_install_rechecks_device_after_local_validation_and_cleans_temp(self):
         client = Mock()
