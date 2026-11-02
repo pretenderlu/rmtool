@@ -73,6 +73,21 @@ class RecoveryUiTests(unittest.TestCase):
             self.ssh._client.get_transport.return_value.is_active.return_value = True
             self.ssh.connection_changed.emit(True)
 
+    def test_healthy_external_coexistence_explains_preservation_without_cleanup(self):
+        import _tap_page_turn as tap
+        healthy = recovery.RecoveryReport(recovery.RecoveryState.NOT_NEEDED,
+            "共享插件完整，无需修复。\n" + tap.EXTERNAL_XOVI_PRESERVED_DETAIL,
+            ("appload",))
+        incomplete = recovery.RecoveryReport(recovery.RecoveryState.NOT_NEEDED,
+            "共享 Xovi 完整，无需清理残缺状态。")
+        self.section._apply_status(healthy, incomplete)
+        text = self.section.status_label.text()
+        self.assertIn("已保留", text)
+        self.assertIn("KOReader", text)
+        self.assertNotIn("清理已阻止", text)
+        self.assertFalse(self.section.repair_button.isEnabled())
+        self.assertFalse(self.section.cleanup_incomplete_button.isEnabled())
+
     def queued_repair(self):
         self.section._apply_status(report())
         with mock.patch.object(toolbox_common, "ask_confirmation", return_value=True):

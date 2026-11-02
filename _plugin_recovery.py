@@ -273,6 +273,17 @@ def _is_stock_etc_overlay(fields, separator):
 
 
 def _external_loaders(ssh_client, layout=shared.SHARED_LAYOUT):
+    process_token = shared._process_token(ssh_client, allow_stopped=True)
+    config = ssh_client.exec_checked("systemctl show xochitl -p FragmentPath -p DropInPaths")
+    fields = dict(line.split("=", 1) for line in config.splitlines() if "=" in line)
+    stock_roots = ("/usr/lib/systemd/system", "/lib/systemd/system")
+    if (len(config.splitlines()) != 2 or set(fields) != {"FragmentPath", "DropInPaths"}
+            or fields["FragmentPath"] not in {root + "/xochitl.service" for root in stock_roots}):
+        raise RuntimeError("无法确认 xochitl 原生服务配置来源，拒绝自动修改。")
+    allowed = {shared.SHARED_LAYOUT.dropin_path,
+               *(root + "/xochitl.service.d/xochitl-service-override.conf" for root in stock_roots)}
+    if set(fields["DropInPaths"].split()) - allowed:
+        raise RuntimeError("xochitl 实际加载了未知启动配置，拒绝自动修改：" + fields["DropInPaths"])
     directory = str(PurePosixPath(shared.SHARED_LAYOUT.dropin_path).parent)
     if shared._remote_entry_exists(ssh_client, directory):
         for path in ssh_client.exec_checked(
@@ -287,14 +298,16 @@ def _external_loaders(ssh_client, layout=shared.SHARED_LAYOUT):
                 raise RuntimeError(f"xochitl 配置存在未知目录：{path}")
     shared._assert_managed_dropins(ssh_client, (shared.SHARED_LAYOUT.dropin_path,))
     maps = ssh_client.exec_checked(
-        'pid=$(systemctl show xochitl -p MainPID --value); '
-        'if [ -n "$pid" ] && [ "$pid" != 0 ]; then cat /proc/$pid/maps; fi'
+        'pid=$(systemctl show xochitl -p MainPID --value) || exit 1; '
+        'case "$pid" in ""|*[!0-9]*) exit 1 ;; 0) ;; *) cat /proc/"$pid"/maps || exit 1 ;; esac'
     )
     for line in maps.splitlines():
         if any(name in line.lower() for name in ("xovi", "qt-resource-rebuilder", "appload")):
             fields = line.split(None, 5)
             if len(fields) < 6 or not fields[5].startswith(layout.remote_base + "/"):
                 raise RuntimeError("xochitl 正在加载未知外部插件，拒绝自动修复。")
+    if shared._process_token(ssh_client, allow_stopped=True) != process_token:
+        raise RuntimeError("核对外部插件期间 xochitl 进程发生变化，请重新检测。")
 
 
 def _assert_no_symlink_chain(ssh_client, path):
@@ -640,6 +653,11 @@ def _inspect_incomplete(ssh_client):
             _assert_no_symlink_chain(ssh_client, path)
             _ancestors(ssh_client, path)
     _unhidden_paths(ssh_client, layout)
+    if _complete_shared_exists(ssh_client, contexts):
+        if detail := tap._external_xovi_conflict_detail(ssh_client):
+            raise RuntimeError(detail)
+        _external_loaders(ssh_client, layout)
+        return RecoveryReport(RecoveryState.NOT_NEEDED, "共享 Xovi 完整，无需清理残缺状态。"), None
     forbidden = _incomplete_forbidden_paths()
     conflicts = tuple(path for path in forbidden
                       if path not in (base, shared.SHARED_LAYOUT.dropin_path)
@@ -681,8 +699,6 @@ def _inspect_incomplete(ssh_client):
             raise RuntimeError(f"紧急停用标记类型、权限或内容不安全：{sentinel}")
         sentinels.append((sentinel, mode, size, digest))
 
-    if _complete_shared_exists(ssh_client, contexts):
-        return RecoveryReport(RecoveryState.NOT_NEEDED, "共享 Xovi 完整，无需清理残缺状态。"), None
     plan = _CleanupPlan(
         tuple(base_entries),
         visible_dropin,
@@ -1089,9 +1105,10 @@ def _inspect(ssh_client):
     for path in (base + "/package.json", shared.SHARED_LAYOUT.dropin_path):
         _ancestors(ssh_client, path)
     _unhidden_paths(ssh_client, layout)
+    if detail := tap._external_xovi_conflict_detail(ssh_client):
+        raise RuntimeError(detail)
     forbidden = (
-        tap.VELLUM_ROOT, tap.SHARED_XOVI_LIBRARY, tap.SHARED_QRR_LIBRARY,
-        tap.SHARED_APPLOAD_LIBRARY, tap.REMOTE_BASE, migration.fast.REMOTE_BASE,
+        tap.VELLUM_ROOT, tap.REMOTE_BASE, migration.fast.REMOTE_BASE,
         tap.DROPIN_PATH, migration.fast.DROPIN_PATH,
     )
     conflicts = tuple(path for path in forbidden if shared._remote_entry_exists(ssh_client, path))
@@ -1137,7 +1154,10 @@ def _inspect(ssh_client):
                              and any(state.enabled for state in states.values()))
             if (not installed.launcher_update_available and not installed.startup_pending
                     and not outdated and layout == shared.preferred_layout(new_runtime)):
-                return RecoveryReport(RecoveryState.NOT_NEEDED, "共享插件完整，无需修复。", features), None
+                detail = "共享插件完整，无需修复。"
+                if tap._vellum_runtime_present(ssh_client):
+                    detail += "\n" + tap.EXTERNAL_XOVI_PRESERVED_DETAIL
+                return RecoveryReport(RecoveryState.NOT_NEEDED, detail, features), None
             if outdated:
                 issues.append("已识别的旧版插件需要更新。")
             if installed.launcher_update_available:

@@ -391,12 +391,12 @@ def get_status(
         )
     try:
         upstream = _known_upstream_qmd(ssh_client)
-        if tap._vellum_runtime_present(ssh_client):
+        if conflict := tap._external_xovi_conflict_detail(ssh_client):
             detail = (
                 "检测到已验证的社区延迟刷新补丁；它由 Vellum/外部 Xovi 管理，"
                 "rmtool 不会跨所有权自动修改。请先用原管理器卸载。"
                 if upstream
-                else tap._vellum_conflict_detail(ssh_client)
+                else conflict
             )
             return NoteEnhancementsStatus(
                 NoteEnhancementsState.BROKEN,
@@ -546,8 +546,8 @@ def install(
         raise RuntimeError("当前设备与笔记增强包不精确匹配，未执行修改。")
     if select_package(_trusted_catalog(), identity) != package:
         raise RuntimeError("笔记增强包与内置信任清单不一致，拒绝部署。")
-    if tap._vellum_runtime_present(ssh_client):
-        raise RuntimeError(tap._vellum_conflict_detail(ssh_client))
+    if detail := tap._external_xovi_conflict_detail(ssh_client):
+        raise RuntimeError(detail)
     if _known_upstream_qmd(ssh_client):
         raise RuntimeError("检测到外部 Xovi/延迟刷新补丁，请先由原管理器卸载。")
     tap._preflight_device(ssh_client)

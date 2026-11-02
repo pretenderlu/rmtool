@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -102,6 +103,8 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertIn("readlink", paths)
         self.assertIn("type=%F", paths)
         self.assertIn("ABSENT", paths)
+        self.assertIn('sha256sum "$f"', paths)
+        self.assertIn("33554432", paths)
         config = items["device/xovi-startup-config.txt"].command
         for root in ("/etc", "/run", "/usr/lib"):
             self.assertIn(root + "/systemd/system", config)
@@ -120,6 +123,35 @@ class DiagnosticsTests(unittest.TestCase):
             with zipfile.ZipFile(archive) as bundle:
                 self.assertIn(b"/home/root/xovi/xovi.so", bundle.read("device/external-xovi-paths.txt"))
                 self.assertIn(b"NO-MATCH-IN-CURRENT-MAINPID", bundle.read("device/xovi-loaded-maps.txt"))
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "needs Linux stat and POSIX symlinks")
+    def test_external_hash_probe_is_read_only_bounded_and_does_not_follow_file_links(self):
+        import hashlib
+        git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
+        shell = str(git_bash) if git_bash.is_file() else shutil.which("sh")
+        self.assertIsNotNone(shell)
+        command = next(item.command for item in _diagnostics.DEVICE_ITEMS
+                       if item.name == "device/external-xovi-paths.txt")
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "core").write_bytes(b"old runtime")
+            # Lower the bound in the sandbox rather than allocating 32 MiB.
+            (root / "large").write_bytes(b"x" * 33)
+            (root / "target").write_bytes(b"private user data")
+            sandbox = command.replace(" ".join(_diagnostics.EXTERNAL_XOVI_PATHS),
+                                      "core large missing link").replace("33554432", "32")
+            result = subprocess.run([shell, "-c", "ln -s target link && " + sandbox],
+                                    cwd=folder, text=True, capture_output=True, timeout=20)
+            if result.returncode and "Operation not permitted" in result.stderr:
+                self.skipTest("host cannot create POSIX symlinks")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(hashlib.sha256(b"old runtime").hexdigest(), result.stdout)
+            self.assertIn("HASH-SKIPPED-SIZE-LIMIT", result.stdout)
+            self.assertIn("ABSENT", result.stdout)
+            self.assertIn("link_target=target", result.stdout)
+            self.assertNotIn(hashlib.sha256(b"private user data").hexdigest(), result.stdout)
+            self.assertEqual((root / "core").read_bytes(), b"old runtime")
+            self.assertEqual((root / "target").read_bytes(), b"private user data")
 
     def test_font_config_missing_cache_is_not_failure_but_io_errors_are(self):
         git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"

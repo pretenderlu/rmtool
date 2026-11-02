@@ -872,13 +872,13 @@ def get_status(
             ssh_client, _legacy_specs_for_identity(identity, legacies)
         )
         shared_exists = shared.has_shared_artifacts(ssh_client)
-        if tap._vellum_runtime_present(ssh_client):
+        if detail := tap._external_xovi_conflict_detail(ssh_client):
             return ReadingEnhancementsStatus(
                 ReadingEnhancementsState.BROKEN,
                 identity,
                 package,
                 available,
-                tap._vellum_conflict_detail(ssh_client),
+                detail,
                 False,
                 False,
             )
@@ -1052,6 +1052,8 @@ def install(
     trusted_package = select_package(_trusted_catalog(), identity)
     if trusted_package != package:
         raise RuntimeError("阅读增强包与内置信任清单不一致，拒绝部署。")
+    if detail := tap._external_xovi_conflict_detail(ssh_client):
+        raise RuntimeError(detail)
     tap._preflight_device(ssh_client)
     runtime, trusted, legacies, feature = _trusted_context(identity, package)
     present_legacies = _validated_legacy_standalone(

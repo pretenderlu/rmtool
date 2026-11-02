@@ -1906,6 +1906,14 @@ def _inspect_shared(
             ssh_client,
             {SHARED_LAYOUT.dropin_path: dropin_sha if dropin_required else None},
         )
+    # Inactive legacy files may contain application data; only the verified
+    # managed tree is mutable, and a competing loader must still fail closed.
+    import _tap_page_turn as tap
+    if tap._vellum_runtime_present(ssh_client):
+        if ssh_client.file_exists(tap.VELLUM_BIN) or ssh_client.file_exists(tap.SHARED_XOVI_DROPIN):
+            raise RuntimeError(tap._vellum_conflict_detail(ssh_client))
+        import _plugin_recovery
+        _plugin_recovery._external_loaders(ssh_client, layout)
     if schema_version == 2:
         _remember_managed_receipt(marker)
     return SharedInspection(

@@ -964,6 +964,11 @@ EXTERNAL_XOVI_PATHS = (
     VELLUM_BIN, SHARED_XOVI_DROPIN, SHARED_XOVI_LIBRARY,
     SHARED_QRR_LIBRARY, SHARED_APPLOAD_LIBRARY,
 )
+EXTERNAL_XOVI_PRESERVED_DETAIL = (
+    "外部 Xovi 文件未在当前进程或启动配置中启用，已保留，不影响已验证的 rmtool 插件。"
+    "卸载只移除 rmtool 管理的功能；不要整目录删除 /home/root/xovi，"
+    "其中可能包含 KOReader 程序和阅读数据。需要清理外部文件时，请先导出诊断核对来源，再用原安装工具卸载。"
+)
 
 
 def _vellum_runtime_paths(ssh_client) -> tuple[str, ...]:
@@ -986,6 +991,30 @@ def _vellum_conflict_detail(ssh_client) -> str:
     return "\n".join(lines)
 
 
+def _external_xovi_conflict_detail(ssh_client) -> str:
+    if not _vellum_runtime_present(ssh_client):
+        return ""
+    detail = _vellum_conflict_detail(ssh_client)
+    if (not _xovi_standalone.has_shared_artifacts(ssh_client)
+            or ssh_client.file_exists(VELLUM_BIN)
+            or ssh_client.file_exists(SHARED_XOVI_DROPIN)):
+        return detail
+    try:
+        identity = DeviceIdentity(*_xovi_standalone.read_shared_identity(ssh_client))
+        runtime, trusted, _legacies = _trusted_shared_context(identity)
+        inspection = _xovi_standalone.inspect_shared(
+            ssh_client, runtime, trusted,
+            trusted_alternatives=_trusted_alternatives_for_identity(
+                trusted, (identity.firmware, identity.platform,
+                          identity.architecture, identity.xochitl_sha256)),
+        )
+        if not inspection.states:
+            raise RuntimeError("没有可验证的 rmtool 共享插件。")
+    except (RuntimeError, OSError, ValueError, TypeError) as exc:
+        return f"{detail}\n托管安装或加载状态校验失败：{exc}"
+    return ""
+
+
 def _assert_shared_xovi_installable(ssh_client) -> None:
     legacy_packages = set()
     if ssh_client.file_exists(VELLUM_BIN):
@@ -998,8 +1027,8 @@ def _assert_shared_xovi_installable(ssh_client) -> None:
             "检测到 rmtool 安装的旧版 Vellum 功能包，请先在对应功能区域卸载："
             + ", ".join(sorted(legacy_packages))
         )
-    if _vellum_runtime_present(ssh_client):
-        raise RuntimeError(_vellum_conflict_detail(ssh_client))
+    if detail := _external_xovi_conflict_detail(ssh_client):
+        raise RuntimeError(detail)
     allowed_dropins = {
         DROPIN_PATH,
         "/etc/systemd/system/xochitl.service.d/91-rmtool-fast-mono-reading.conf",
@@ -1179,13 +1208,13 @@ def get_status(
             "Vellum 点击翻页包存在，但 rmtool 状态标记缺失或无效",
             True,
         )
-    if _vellum_runtime_present(ssh_client):
+    if detail := _external_xovi_conflict_detail(ssh_client):
         return TapPageTurnStatus(
             TapPageTurnState.VELLUM_RUNTIME,
             identity,
             package,
             available,
-            _vellum_conflict_detail(ssh_client),
+            detail,
             False,
         )
 
@@ -1460,13 +1489,13 @@ def get_status(
             True,
         )
 
-    if _vellum_runtime_present(ssh_client):
+    if detail := _external_xovi_conflict_detail(ssh_client):
         return TapPageTurnStatus(
             TapPageTurnState.VELLUM_RUNTIME,
             identity,
             package,
             available,
-            _vellum_conflict_detail(ssh_client),
+            detail,
             False,
         )
 

@@ -512,8 +512,8 @@ def install(ssh_client, package, archive_path) -> WeReadLauncherStatus:
     error = _official_install_error(ssh_client)
     if error:
         raise RuntimeError(error + "。")
-    if tap._vellum_runtime_present(ssh_client):
-        raise RuntimeError(tap._vellum_conflict_detail(ssh_client))
+    if detail := tap._external_xovi_conflict_detail(ssh_client):
+        raise RuntimeError(detail)
     tap._preflight_device(ssh_client)
     runtime, trusted, legacies, feature = _trusted_context(identity, package)
     if any(shared.validate_legacy(ssh_client, item) for item in legacies):

@@ -265,8 +265,8 @@ def install(ssh_client, package, archive_path):
     if select_package(_trusted_catalog(), identity) != package:
         raise RuntimeError("设备与原生传输包不精确匹配，未执行修改。")
     _assert_stopped(ssh_client)
-    if tap._vellum_runtime_present(ssh_client):
-        raise RuntimeError(tap._vellum_conflict_detail(ssh_client))
+    if detail := tap._external_xovi_conflict_detail(ssh_client):
+        raise RuntimeError(detail)
     tap._preflight_device(ssh_client)
     runtime, trusted, legacies, feature = _context(identity, package)
     if any(shared.validate_legacy(ssh_client, item) for item in legacies):

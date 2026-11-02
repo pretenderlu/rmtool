@@ -5,7 +5,7 @@ import shlex
 import stat
 import tempfile
 import unittest
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
@@ -43,6 +43,8 @@ class Device:
         self.process_token = TOKEN
         self.counters = "0 0"
         self.maps = ""
+        self.loader_config = ("FragmentPath=/usr/lib/systemd/system/xochitl.service\n"
+                              "DropInPaths=" + DROPIN + "\n")
         self.mountinfo = "1 0 8:1 / / ro - ext4 /dev/root ro\n2 1 8:2 / /data rw - ext4 /dev/data rw\n"
         self.install(self.states)
 
@@ -60,13 +62,14 @@ class Device:
         self.add(path, mode=stat.S_IFLNK | 0o777)
 
     def install(self, states, *, schema_version=2):
+        base = self.layout.remote_base
         for path in list(self.entries):
-            if path == BASE or path.startswith(BASE + "/") or path == DROPIN:
+            if path == base or path.startswith(base + "/") or path == DROPIN:
                 del self.entries[path]
         enabled = tuple(state.spec for state in states.values() if state.enabled)
         launcher = shared.shared_launcher(self.runtime, enabled, layout=self.layout).encode()
         dropin = shared.shared_dropin(self.runtime, enabled, layout=self.layout).encode()
-        self.add(BASE + "/package.json", shared.shared_marker(
+        self.add(base + "/package.json", shared.shared_marker(
             self.runtime,
             states,
             hashlib.sha256(launcher).hexdigest(),
@@ -75,13 +78,13 @@ class Device:
         ))
         if enabled:
             for item in self.runtime.files:
-                self.add(BASE + "/" + item.path, mode=stat.S_IFREG | item.mode, digest=item.sha256, size=item.size)
+                self.add(base + "/" + item.path, mode=stat.S_IFREG | item.mode, digest=item.sha256, size=item.size)
             for feature in enabled:
                 for item in feature.files:
-                    self.add(BASE + "/" + item.runtime_path, mode=stat.S_IFREG | item.mode,
+                    self.add(base + "/" + item.runtime_path, mode=stat.S_IFREG | item.mode,
                              digest=item.sha256, size=item.size)
-            self.add(BASE + "/launcher.sh", launcher, 0o100755)
-            self.add(BASE + "/systemd/" + shared.SHARED_LAYOUT.dropin_name, dropin)
+            self.add(base + "/launcher.sh", launcher, 0o100755)
+            self.add(base + "/systemd/" + shared.SHARED_LAYOUT.dropin_name, dropin)
             self.add(DROPIN, dropin)
         self.states = dict(states)
 
@@ -131,6 +134,8 @@ class Device:
 
     def exec_checked(self, command):
         self.events.append(command)
+        if command == "systemctl show xochitl -p FragmentPath -p DropInPaths":
+            return self.loader_config
         if command == shared.storage.SYSTEM_SPACE_COMMAND:
             return f"/data={self.free_kib}"
         if command == shared.storage.ROOT_SPACE_COMMAND:
@@ -224,6 +229,104 @@ class RecoveryInspectionTests(unittest.TestCase):
         self.assertEqual(self.inspect().state, recovery.RecoveryState.NOT_NEEDED)
         self.device.entries.clear()
         self.assertEqual(self.inspect().state, recovery.RecoveryState.NOT_NEEDED)
+
+    def test_issue25_inactive_external_files_do_not_break_managed_features(self):
+        self.device = Device(package=next(p for p in recovery.migration.reading._trusted_catalog()
+            if p.platform == "chiappa" and p.release_version == "3.29.1.0"))
+        self.device.install({"appload": shared.SharedFeatureState(
+            self.device.trusted["appload"], True, TOKEN)})
+        self.device.maps = "1-2 r-xp 0 0:0 1 " + BASE + "/xovi.so"
+        for path in (tap.SHARED_XOVI_LIBRARY, tap.SHARED_QRR_LIBRARY,
+                     "/home/root/xovi/exthome/appload/koreader/settings.reader.lua"):
+            self.device.add(path, b"external data: preserve")
+        before = dict(self.device.entries)
+        for module in (recovery.migration.reading, recovery.migration.note):
+            with self.subTest(feature=module.FEATURE_ID), mock.patch.object(shared, "_check_lower_dropins") as lower:
+                result = module.get_status(self.device, module._trusted_catalog())
+                self.assertEqual(result.state.value, "not_installed", result.detail)
+                lower.assert_called()
+        report = self.inspect()
+        self.assertEqual(report.state, recovery.RecoveryState.NOT_NEEDED, report.detail)
+        self.assertIn("保留", report.detail)
+        self.assertEqual(recovery.inspect_incomplete(self.device).state,
+                         recovery.RecoveryState.NOT_NEEDED)
+        self.assertEqual(before, self.device.entries)
+
+    def test_inactive_external_files_require_intact_managed_tree_in_both_layouts(self):
+        for platform in ("rm1", "chiappa"):
+            package = next(p for p in recovery.pinyin._trusted_catalog()
+                if p.platform == platform and p.release_version == "3.29.1.0")
+            self.device = Device(package=package)
+            self.device.entries.clear()
+            self.device.layout = shared.preferred_layout(self.device.identity)
+            self.device.install(self.device.states)
+            self.device.add(tap.SHARED_XOVI_LIBRARY, b"unknown: never delete")
+            before = dict(self.device.entries)
+            self.assertEqual(tap._external_xovi_conflict_detail(self.device), "")
+            recovery._external_loaders(self.device, self.device.layout)
+            self.device.entries[self.device.layout.remote_base + "/qmd-tool"].digest = "0" * 64
+            self.assertIn("校验失败", tap._external_xovi_conflict_detail(self.device))
+            self.assertEqual(before, self.device.entries)
+
+    def test_external_coexistence_rejects_active_config_untrusted_and_unreadable_state(self):
+        for conflict in ("loaded", "dropin", "manager", "marker", "missing-marker", "maps-io", "pid-change",
+                         "run-dropin", "unit-override", "unknown-config", "duplicate-config", "invalid-pid"):
+            with self.subTest(conflict=conflict):
+                device = Device()
+                device.add(tap.SHARED_XOVI_LIBRARY, b"unknown old core")
+                if conflict == "loaded":
+                    device.maps = "1-2 r-xp 0 0:0 1 " + tap.SHARED_XOVI_LIBRARY
+                elif conflict == "dropin":
+                    device.add(tap.SHARED_XOVI_DROPIN, b"[Service]\nExecStart=/custom\n")
+                elif conflict == "manager":
+                    device.add(tap.VELLUM_BIN, b"unknown")
+                elif conflict == "marker":
+                    device.marker(lambda m: m.update(schema_version=999))
+                elif conflict == "missing-marker":
+                    del device.entries[BASE + "/package.json"]
+                elif conflict == "run-dropin":
+                    device.loader_config = device.loader_config.replace(DROPIN,
+                        "/run/systemd/system/xochitl.service.d/custom.conf")
+                elif conflict == "unit-override":
+                    device.loader_config = device.loader_config.replace("/usr/lib/", "/etc/")
+                elif conflict == "unknown-config":
+                    device.loader_config = ""
+                elif conflict == "duplicate-config":
+                    device.loader_config += "DropInPaths=" + DROPIN + "\n"
+                elif conflict == "invalid-pid":
+                    device.process_token = "unknown"
+                original = device.exec_checked
+                def command(value):
+                    if conflict == "maps-io" and 'cat /proc/"$pid"/maps' in value:
+                        raise RuntimeError("maps unreadable")
+                    if conflict == "pid-change" and 'cat /proc/"$pid"/maps' in value:
+                        device.process_token = TOKEN.replace(":778:", ":779:")
+                    return original(value)
+                with mock.patch.object(device, "exec_checked", side_effect=command):
+                    self.assertTrue(tap._external_xovi_conflict_detail(device))
+                self.assertFalse(any(event.startswith(("mkdir", "rm ", "rmdir", "mount "))
+                                     for event in device.events))
+
+    def test_replacement_rechecks_external_loader_after_detection(self):
+        self.device.add(tap.SHARED_XOVI_LIBRARY, b"unknown old core")
+        self.assertEqual(tap._external_xovi_conflict_detail(self.device), "")
+        self.device.maps = "1-2 r-xp 0 0:0 1 " + tap.SHARED_XOVI_LIBRARY
+        before = dict(self.device.entries)
+        with mock.patch.object(shared, "_operation_lock", return_value=nullcontext()) as lock, \
+                mock.patch.object(shared, "_check_lower_dropins"), \
+                self.assertRaisesRegex(RuntimeError, "未知外部插件"):
+            shared.replace_shared_features(self.device, self.device.runtime, self.device.trusted,
+                self.device.runtime, self.device.trusted, self.device.states, {})
+        lock.assert_called_once_with(self.device)
+        self.assertEqual(self.device.entries, before)
+        self.assertFalse(any(event.startswith(("mkdir", "rm ", "rmdir", "mount "))
+                             for event in self.device.events))
+
+    def test_running_healthy_shared_install_never_offers_incomplete_cleanup(self):
+        self.device.maps = "1-2 r-xp 0 0:0 1 " + BASE + "/xovi.so"
+        report = recovery.inspect_incomplete(self.device)
+        self.assertEqual(report.state, recovery.RecoveryState.NOT_NEEDED, report.detail)
+        self.assertFalse(report.can_cleanup)
 
     def test_interrupted_lock_is_read_only_and_offers_restart_not_deletion(self):
         self.device.add(shared._OPERATION_LOCK, mode=stat.S_IFDIR | 0o700)
@@ -495,7 +598,7 @@ class RecoveryInspectionTests(unittest.TestCase):
         self.assertTrue(self.inspect().can_repair)
 
     def test_vellum_external_dropins_runtime_and_hidden_mounts_blocked(self):
-        for path in (tap.VELLUM_ROOT, tap.SHARED_XOVI_LIBRARY, shared.LEGACY_SHARED_LAYOUT.remote_base,
+        for path in (tap.VELLUM_ROOT, shared.LEGACY_SHARED_LAYOUT.remote_base,
                      "/etc/systemd/system/xochitl.service.d/foreign.conf"):
             with self.subTest(path=path):
                 self.device.add(path, b"ExecStart=/external\n")

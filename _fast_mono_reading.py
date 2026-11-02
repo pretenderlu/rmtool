@@ -893,13 +893,13 @@ def get_status(
             "Vellum 快速黑白包存在，但 rmtool 状态标记缺失或无效",
             True,
         )
-    if tap._vellum_runtime_present(ssh_client):
+    if detail := tap._external_xovi_conflict_detail(ssh_client):
         return FastMonoReadingStatus(
             FastMonoReadingState.VELLUM_RUNTIME,
             identity,
             package,
             available,
-            tap._vellum_conflict_detail(ssh_client),
+            detail,
             False,
         )
 
@@ -1182,13 +1182,13 @@ def get_status(
             True,
         )
 
-    if tap._vellum_runtime_present(ssh_client):
+    if detail := tap._external_xovi_conflict_detail(ssh_client):
         return FastMonoReadingStatus(
             FastMonoReadingState.VELLUM_RUNTIME,
             identity,
             package,
             available,
-            tap._vellum_conflict_detail(ssh_client),
+            detail,
             False,
         )
 

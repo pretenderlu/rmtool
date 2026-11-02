@@ -108,12 +108,16 @@ DEVICE_ITEMS: tuple[DiagItem, ...] = (
     ),
     DiagItem(
         "device/external-xovi-paths.txt",
-        "外部 Xovi 冲突路径与类型（文件存在不代表正在加载）",
+        "外部 Xovi 路径、类型与 SHA-256（文件存在不代表正在加载）",
         "for f in " + " ".join(EXTERNAL_XOVI_PATHS) + "; do "
         "printf '\\n== %s\\n' \"$f\"; "
         "if [ -e \"$f\" ] || [ -L \"$f\" ]; then "
         "stat -c 'type=%F mode=%a owner=%u:%g size=%s path=%n' \"$f\"; "
-        "if [ -L \"$f\" ]; then printf 'link_target='; readlink \"$f\"; fi; "
+        "if [ -L \"$f\" ]; then printf 'link_target='; readlink \"$f\"; "
+        "elif [ -f \"$f\" ]; then size=$(stat -c %s \"$f\") || exit 1; "
+        "case \"$size\" in ''|*[!0-9]*) exit 1 ;; esac; "
+        "if [ \"$size\" -le 33554432 ]; then sha256sum \"$f\" || exit 1; "
+        "else echo HASH-SKIPPED-SIZE-LIMIT; fi; fi; "
         "else echo ABSENT; fi; done",
     ),
     DiagItem(
