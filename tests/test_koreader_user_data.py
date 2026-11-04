@@ -193,7 +193,7 @@ class KOReaderUserDataTests(unittest.TestCase):
         asset = _appload.OfficialAsset(
             "KOReader", "v1", "aarch64", "koreader.zip", 1, "a" * 64, "url"
         )
-        current = _koreader.ManagedStatus(state, identity, asset, "v0")
+        current = _koreader.ManagedStatus(state, identity, asset, "v1")
         app, archive = self.payload()
         modes = {"koreader/koreader.sh": 0o755}
         with (
@@ -249,6 +249,8 @@ class KOReaderUserDataTests(unittest.TestCase):
             mock.patch.object(
                 _koreader.shared, "remove_shared_features", side_effect=remove_error
             ),
+            mock.patch.object(_koreader.shared, "has_shared_artifacts", return_value=True),
+            mock.patch.object(_koreader.shared, "inspect_shared", return_value=SimpleNamespace(states={"koreader": object()})),
         ):
             return _koreader.uninstall_managed(ssh)
 
@@ -311,19 +313,35 @@ class KOReaderUserDataTests(unittest.TestCase):
                 self.assertEqual(_read_tree(target)["reader.lua"], b"new reader\n")
                 self.assertFalse(preserved.exists())
 
-    def test_uninstall_without_official_index_keeps_allowlist(self):
+    def test_uninstall_without_official_index_leaves_entire_install_untouched(self):
         for shell in _shells():
             with self.subTest(shell=shell):
                 ssh, target, preserved = self.sandbox(shell)
                 self.install_old(target)
                 (target / _koreader.OFFICIAL_INDEX).unlink()
-                self.run_uninstall(ssh)
-                kept = _read_tree(preserved)
-                self.assertEqual(kept["settings.reader.lua"], USER_FILES["settings.reader.lua"])
-                self.assertEqual(
-                    kept["settings/statistics.sqlite3"], USER_FILES["settings/statistics.sqlite3"]
-                )
-                self.assertNotIn("reader.lua", kept)
+                before = _read_tree(target)
+                with self.assertRaisesRegex(RuntimeError, "official file index missing"):
+                    self.run_uninstall(ssh)
+                self.assertEqual(_read_tree(target), before)
+                self.assertFalse(preserved.exists())
+
+    def test_repair_missing_index_retains_complete_old_tree(self):
+        ssh, target, _preserved = self.sandbox(SH)
+        self.install_old(target)
+        (target / _koreader.OFFICIAL_INDEX).unlink()
+        before = _read_tree(target)
+        self.run_install(ssh, _koreader.ManagedState.REPAIRABLE)
+        backups = list(target.parent.glob("koreader.rmtool-backup-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(_read_tree(backups[0]), before)
+        self.assertEqual((target / "reader.lua").read_bytes(), NEW_OFFICIAL["reader.lua"])
+
+    def test_repair_does_not_remove_unrelated_preserved_data(self):
+        ssh, target, preserved = self.sandbox(SH)
+        self.install_old(target)
+        _write_tree(preserved, {"unrelated.txt": b"previous recovery"})
+        self.run_install(ssh, _koreader.ManagedState.REPAIRABLE)
+        self.assertEqual(_read_tree(preserved), {"unrelated.txt": b"previous recovery"})
 
     def test_failed_uninstall_restores_install_with_user_data(self):
         for shell in _shells():
@@ -333,6 +351,31 @@ class KOReaderUserDataTests(unittest.TestCase):
                 before = _read_tree(target)
                 with self.assertRaisesRegex(RuntimeError, "bridge"):
                     self.run_uninstall(ssh, remove_error=RuntimeError("bridge"))
+                self.assertEqual(_read_tree(target), before)
+                self.assertFalse(preserved.exists())
+
+    def test_uninstall_signal_after_moving_user_files_rolls_back(self):
+        for signal, code in (("HUP", 129), ("INT", 130), ("PIPE", 141), ("TERM", 143)):
+            with self.subTest(signal=signal):
+                shell = SH
+                ssh, target, preserved = self.sandbox(shell)
+                self.install_old(target)
+                before = _read_tree(target)
+                execute = ssh.exec_checked
+                def interrupt(command):
+                    if 'trap rollback EXIT' in command:
+                        command = command.replace('move_user_files "$BACKUP" "$LIST" "$STAGE"', '''
+MOVES=0
+mv() {
+    command mv "$@" || return $?
+    MOVES=$((MOVES + 1))
+    if [ "$MOVES" -eq 3 ]; then kill -__SIGNAL__ $$; return __CODE__; fi
+}
+move_user_files "$BACKUP" "$LIST" "$STAGE"'''.replace("__SIGNAL__", signal).replace("__CODE__", str(code)))
+                    return execute(command)
+                with mock.patch.object(ssh, "exec_checked", side_effect=interrupt):
+                    with self.assertRaises(RuntimeError):
+                        self.run_uninstall(ssh)
                 self.assertEqual(_read_tree(target), before)
                 self.assertFalse(preserved.exists())
 

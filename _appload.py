@@ -10,7 +10,7 @@ import tarfile
 import tempfile
 import urllib.request
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path, PurePosixPath
 from typing import Optional
@@ -129,6 +129,20 @@ APPLOAD_FILES = {
             "c1792257bcb6423a22e8e066affccab6c2cf71501127ed69dc3e1c28224d3a56",
             0o755,
         ),
+    ),
+}
+
+# Published in v1.19.0; these are trusted payload bytes, not local receipts.
+APPLOAD_053_FILES = {
+    "aarch64": (
+        OfficialFile("appload.so", 4056880, "31214cbbe64c8bfe7d99096f077c3009dba8a42ef1a733801aa0ec59c134e7cc", 0o755),
+        OfficialFile("shims/qtfb-shim-32bit.so", 251072, "aa4fb1e6f2edf5ef0137360cac77713a24ab508800301f81c19c579fee3f5031", 0o755),
+        OfficialFile("shims/qtfb-shim.so", 251040, "6df704049aa057ff6374eaaa03a4f4a4d683b7c1ce772920d1a124be74d782c4", 0o755),
+    ),
+    "armv7l": (
+        OfficialFile("appload.so", 9351704, "0c5592e48098288fd00b71f72b3eb6821aae0bf17cc3646dd8e95bf19c391810", 0o755),
+        OfficialFile("shims/qtfb-shim-32bit.so", 544188, "19a9d2c75741113f37f81f7affead40eeb12fa3cc41109b7f41ba154f60799cc", 0o755),
+        OfficialFile("shims/qtfb-shim.so", 544156, "4eab5f8f54d5fbaaba86497128b3b5029dc07033ac9dd499a226638cc255e9d2", 0o755),
     ),
 }
 
@@ -425,6 +439,22 @@ def koreader_bridge_bytes() -> bytes:
     return text.encode("utf-8")
 
 
+def published_predecessors(identity, current):
+    if app_asset(identity) is None:
+        return ()
+    files = APPLOAD_053_FILES[identity.architecture]
+    previous = replace(current, package_id=f"appload-v0.5.3-{identity.architecture}",
+        sha256=files[0].sha256, size=files[0].size, mode=files[0].mode,
+        extra_files=tuple(shared.SharedFeatureFileSpec("official-appload/" + item.path, item.path,
+            item.sha256, item.size, item.mode) for item in files[1:]))
+    return (("published-appload-v0.5.3", previous),)
+
+
+def _inspect_shared(ssh_client, runtime, trusted, identity, *, check_lower=False):
+    return shared.inspect_shared_revisions(ssh_client, runtime, trusted,
+        tap._published_feature_revisions(identity, trusted), check_lower=check_lower)
+
+
 def _koreader_feature(identity: tap.DeviceIdentity) -> shared.SharedFeatureSpec:
     manifest = koreader_bridge_bytes()
     return shared.SharedFeatureSpec(
@@ -471,7 +501,10 @@ def _extension_active(ssh_client, identity: tap.DeviceIdentity | None = None) ->
         '[ -n "$pid" ] && [ "$pid" != 0 ] && '
         f"grep -Fq {shlex.quote(path)} /proc/$pid/maps 2>/dev/null"
     )
-    return ssh_client.exec_command(command)[2] == 0
+    if ssh_client.exec_command(command)[2] == 0:
+        return True
+    from _plugin_recovery import historical_mapping_active
+    return historical_mapping_active(ssh_client, "extensions.d/appload.so")
 
 
 def get_status(ssh_client) -> AppLoadStatus:
@@ -495,11 +528,11 @@ def get_status(ssh_client) -> AppLoadStatus:
                 "请先在设备工具中清理。"
             )
         runtime, trusted, _legacies = tap._trusted_shared_context(identity)
-        inspection = shared.inspect_shared(ssh_client, runtime, trusted)
+        inspection, _installed, selected = _inspect_shared(ssh_client, runtime, trusted, identity)
         record = inspection.states.get(FEATURE_ID)
         if record is None:
             return AppLoadStatus(AppLoadState.NOT_INSTALLED, identity, asset)
-        if (
+        if FEATURE_ID in selected or (
             FEATURE_ID in inspection.receipt_features
             and record.spec != trusted[FEATURE_ID]
         ):
@@ -515,6 +548,11 @@ def get_status(ssh_client) -> AppLoadStatus:
                 identity,
                 asset,
                 "检测到旧版启动器，可直接修复并重新启用",
+            )
+        if (inspection.startup_pending and not inspection.active) or shared.recovery_sentinel_present(ssh_client):
+            return AppLoadStatus(
+                AppLoadState.BROKEN, identity, asset,
+                "共享插件启动保护或紧急停用已生效，请使用“查看共享插件恢复”检查并修复启动配置；不要先清除保护。",
             )
         current = tap._xochitl_process_token(ssh_client)
         changed = current != record.process_token
@@ -634,7 +672,7 @@ def enable(
     feature = trusted[FEATURE_ID]
     peer_ids = ()
     if shared.has_shared_artifacts(ssh_client):
-        inspection = shared.inspect_shared(ssh_client, runtime, trusted)
+        inspection, trusted, _selected = _inspect_shared(ssh_client, runtime, trusted, identity)
         peer_ids = sorted(
             shared._receipt_mismatch_ids(inspection, trusted) - {FEATURE_ID}
         )
@@ -709,7 +747,7 @@ fi
 [ -L {shlex.quote(link)} ] && [ "$(readlink {shlex.quote(link)})" = {shlex.quote(target)} ]
 """.strip()
         )
-    ssh_client.exec_checked("\n".join(commands))
+    ssh_client.exec_checked("set -eu\n" + "\n".join(commands))
 
 
 def _known_shim_bases() -> tuple[str, ...]:
@@ -745,7 +783,7 @@ def disable(ssh_client) -> AppLoadStatus:
         raise RuntimeError(status.detail or "AppLoad 状态无法验证。")
     identity = status.identity
     runtime, trusted, _legacies = tap._trusted_shared_context(identity)
-    inspection = shared.inspect_shared(ssh_client, runtime, trusted)
+    inspection, trusted, _selected = _inspect_shared(ssh_client, runtime, trusted, identity)
     koreader = inspection.states.get(KOREADER_FEATURE_ID)
     if koreader is not None and koreader.enabled:
         raise RuntimeError("请先卸载 rmtool 管理的 KOReader，再停用 AppLoad。")
@@ -753,7 +791,8 @@ def disable(ssh_client) -> AppLoadStatus:
         raise RuntimeError(
             "检测到 KOReader 目录；为避免破坏应用，请先处理 KOReader。"
         )
-    shared.disable_shared(ssh_client, runtime, FEATURE_ID, trusted)
+    shared.disable_shared(ssh_client, runtime, FEATURE_ID, trusted,
+                          replacement_spec=_appload_feature(identity))
     remove_shim_links(ssh_client, identity)
     return get_status(ssh_client)
 
@@ -772,6 +811,7 @@ def uninstall(ssh_client) -> AppLoadStatus:
         raise RuntimeError("检测到 KOReader 目录；请先卸载 KOReader。")
     identity = status.identity
     runtime, trusted, _legacies = tap._trusted_shared_context(identity)
+    _inspection, trusted, _selected = _inspect_shared(ssh_client, runtime, trusted, identity, check_lower=True)
     shared.remove_shared_features(
         ssh_client, runtime, trusted, (FEATURE_ID,)
     )

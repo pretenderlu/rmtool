@@ -221,6 +221,8 @@ def parse_manifest(data: bytes) -> tuple[TapPageTurnPackage, ...]:
             raise RuntimeError("点击翻页资源包解压后过大。")
 
         identity = (platform, firmware, xochitl_sha)
+        if "-sha256-" in asset and not asset.endswith("-sha256-" + digest + ".tar.gz"):
+            raise RuntimeError("点击翻页资源名称摘要与清单不匹配。")
         if identity in identities or asset in assets:
             raise RuntimeError("点击翻页清单包含重复包。")
         identities.add(identity)
@@ -659,17 +661,68 @@ def _trusted_shared_context(identity: DeviceIdentity):
     return runtime, trusted, tuple(legacies)
 
 
+@lru_cache(maxsize=1)
+def _published_payloads():
+    document = json.loads((Path(__file__).with_name("assets") / "published-plugin-features.json").read_bytes())
+    if document.get("schema") != 1 or document.get("source") != "v1.21.3":
+        raise RuntimeError("已发布插件指纹清单无效。")
+    return document["features"]
+
+
+def _published_payload_predecessor(identity, current):
+    key = "|".join((identity.firmware, identity.platform, identity.architecture, identity.xochitl_sha256))
+    record = _published_payloads().get(current.feature_id, {}).get(key)
+    if record is None:
+        return None
+    files = record["files"]
+    if set(files) != {item.archive_path for item in current.files}:
+        raise RuntimeError("已发布插件路径与当前功能不一致，需要明确迁移规则。")
+    for digest, size, mode in files.values():
+        if not _SHA256_RE.fullmatch(digest) or type(size) is not int or size <= 0 or mode not in (0o644, 0o755):
+            raise RuntimeError("已发布插件文件指纹无效。")
+    digest, size, mode = files[current.archive_path]
+    return replace(current, sha256=digest, size=size, mode=mode, extra_files=tuple(
+        replace(item, sha256=files[item.archive_path][0], size=files[item.archive_path][1], mode=files[item.archive_path][2])
+        for item in current.extra_files
+    ))
+
+
+def _published_feature_revisions(identity, trusted):
+    revisions = {}
+    for module_name in ("_reading_enhancements", "_note_enhancements", "_native_chinese",
+                        "_pinyin_input", "_weread_launcher", "_fast_mono_reading", "_appload"):
+        module = __import__(module_name)
+        current = trusted.get(module.FEATURE_ID)
+        if current is None:
+            continue
+        if module_name == "_appload":
+            records = module.published_predecessors(identity, current)
+        else:
+            package = module.select_package(module._trusted_catalog(), identity)
+            if package is None:
+                continue
+            builder = module._known_shared_predecessor_specs
+            records = (builder(package) if module_name in ("_native_chinese", "_pinyin_input", "_fast_mono_reading")
+                       else builder(package, current))
+        items = []
+        for record in records:
+            reason, feature = ((record.reason, record.feature) if hasattr(record, "feature") else record)
+            if feature != current:
+                items.append((f"package-revision-{reason}" if isinstance(reason, int) else reason, feature))
+        if items:
+            revisions[module.FEATURE_ID] = tuple(items)
+    for feature_id, current in trusted.items():
+        predecessor = _published_payload_predecessor(identity, current)
+        if predecessor is not None and predecessor != current:
+            existing = revisions.get(feature_id, ())
+            revisions[feature_id] = (("published-v1.21.3", predecessor), *(
+                (reason, spec) for reason, spec in existing if spec != predecessor
+            ))
+    return revisions
+
+
 def _reading_enhancement_revisions(identity, trusted):
-    try:
-        import _reading_enhancements as reading
-    except ImportError:
-        return {}
-    current = trusted.get(reading.FEATURE_ID)
-    package = reading.select_package(reading._trusted_catalog(), identity)
-    if current is None or package is None:
-        return {}
-    predecessors = reading._known_shared_predecessor_specs(package, current)
-    return {reading.FEATURE_ID: predecessors} if predecessors else {}
+    return _published_feature_revisions(identity, trusted)
 
 
 def _trusted_shared_context_from_marker(ssh_client):
@@ -702,59 +755,17 @@ def _trusted_alternatives_for_identity(
     # Carry exact historical payload fingerprints across a package-identity
     # change.  This is what lets a locally tested feature remain recognizable
     # after the shared marker still names the pre-upgrade firmware package.
-    providers = (
-        "_fast_mono_reading",
-        "_native_chinese",
-        "_note_enhancements",
-        "_pinyin_input",
-        "_reading_enhancements",
-        "_weread_launcher",
-    )
-    for module_name in providers:
-        try:
-            module = __import__(module_name)
-            feature_id = module.FEATURE_ID
-            installed = installed_trusted.get(feature_id)
-            current = current_trusted.get(feature_id)
-            if installed is None or current is None:
-                continue
-            package = module.select_package(module._trusted_catalog(), identity)
-            predecessor_builder = getattr(
-                module, "_known_shared_predecessor_specs", None
-            )
-            if package is None or predecessor_builder is None:
-                continue
-            try:
-                records = predecessor_builder(package, current)
-            except TypeError:
-                records = predecessor_builder(package)
-            for record in records:
-                predecessor = getattr(record, "feature", None)
-                if predecessor is None and isinstance(record, tuple) and len(record) == 2:
-                    predecessor = record[1]
-                if not isinstance(
-                    predecessor, _xovi_standalone.SharedFeatureSpec
-                ):
-                    continue
-                candidate = replace(
-                    installed,
-                    sha256=predecessor.sha256,
-                    size=predecessor.size,
-                    extra_files=predecessor.extra_files,
-                    preload_paths=predecessor.preload_paths,
-                    sidecars=predecessor.sidecars,
-                    legacy_resource_path=predecessor.legacy_resource_path,
-                    strict_metadata_paths=predecessor.strict_metadata_paths,
-                )
-                if candidate != installed and candidate != current:
-                    existing = list(alternatives.get(feature_id, ()))
-                    if candidate not in existing:
-                        existing.append(candidate)
-                    alternatives[feature_id] = tuple(existing)
-        except (ImportError, RuntimeError, TypeError, ValueError):
-            # A feature without a compatible predecessor must not prevent
-            # other same-source features from being recognized.
+    for feature_id, records in _published_feature_revisions(identity, current_trusted).items():
+        installed = installed_trusted.get(feature_id)
+        if installed is None:
             continue
+        for _reason, predecessor in records:
+            rebound = replace(predecessor, package_id=installed.package_id)
+            existing = list(alternatives.get(feature_id, ()))
+            for candidate in (rebound, predecessor):
+                if candidate != installed and candidate not in existing:
+                    existing.append(candidate)
+            alternatives[feature_id] = tuple(existing)
     return alternatives
 
 
@@ -995,11 +1006,14 @@ def _external_xovi_conflict_detail(ssh_client) -> str:
     if not _vellum_runtime_present(ssh_client):
         return ""
     detail = _vellum_conflict_detail(ssh_client)
-    if (not _xovi_standalone.has_shared_artifacts(ssh_client)
-            or ssh_client.file_exists(VELLUM_BIN)
+    if (ssh_client.file_exists(VELLUM_BIN)
             or ssh_client.file_exists(SHARED_XOVI_DROPIN)):
         return detail
     try:
+        if not _xovi_standalone.has_shared_artifacts(ssh_client):
+            import _plugin_recovery
+            _plugin_recovery._external_loaders(ssh_client, _xovi_standalone.preferred_layout(get_device_identity(ssh_client)))
+            return ""
         identity = DeviceIdentity(*_xovi_standalone.read_shared_identity(ssh_client))
         runtime, trusted, _legacies = _trusted_shared_context(identity)
         inspection = _xovi_standalone.inspect_shared(
@@ -1786,36 +1800,14 @@ def disable(
         )
         runtime, trusted, _legacies = _trusted_shared_context(marker_identity)
         if marker_identity != current_identity:
-            _inspection, installed_trusted = _inspect_shared_firmware_residue(
-                ssh_client,
-                runtime,
-                trusted,
-                (
-                    current_identity.firmware,
-                    current_identity.platform,
-                    current_identity.architecture,
-                    current_identity.xochitl_sha256,
-                ),
-                tolerate_legacy_templates=True,
-            )
-            _xovi_standalone.remove_shared_firmware_residue(
-                ssh_client,
-                runtime,
-                installed_trusted,
-                (
-                    current_identity.firmware,
-                    current_identity.platform,
-                    current_identity.architecture,
-                    current_identity.xochitl_sha256,
-                ),
-                tolerate_legacy_templates=True,
-            )
+            raise RuntimeError("检测到跨固件共享插件残留，请到固件管理迁移或设备维护处理；点击翻页不会清理其他插件。")
         else:
             _xovi_standalone.disable_shared(
                 ssh_client,
                 runtime,
                 "tap-page-turn",
                 trusted,
+                replacement_spec=trusted.get("tap-page-turn"),
             )
         return get_status(ssh_client, catalog)
     if ssh_client.file_exists(MARKER_PATH):

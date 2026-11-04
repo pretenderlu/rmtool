@@ -26,6 +26,39 @@ from _ssh import SSHClientWrapper
 class SharedXoviTests(unittest.TestCase):
     TOKEN = "12345678-1234-1234-1234-123456789abc:778:1000"
 
+    def test_pinyin_committed_but_unverified_keeps_both_transaction_backups(self):
+        package = next(item for item in pinyin._trusted_catalog() if item.platform == "chiappa")
+        runtime, feature = pinyin._shared_specs(package)
+        trusted = {feature.feature_id: feature}
+        states = {feature.feature_id: shared.SharedFeatureState(feature, True, self.TOKEN)}
+        plan = shared.SharedEnablePlan(
+            shared.SharedInspection({}, False, False), trusted, states, {}, ()
+        )
+        ssh = Mock(exec_checked=Mock(return_value=""))
+        stage = "/home/root/.local/share/rmtool/pinyin-input.staging-" + "a" * 32
+        for verification_error in (False, True):
+            with self.subTest(verification_error=verification_error):
+                ssh.reset_mock()
+                with (
+                    patch.object(shared, "_shared_enable_plan", return_value=plan),
+                    patch.object(shared, "_stage_shared"),
+                    patch.object(shared, "_upload_bytes"),
+                    patch.object(shared, "shared_transaction_script", return_value="script") as script,
+                    patch.object(shared, "inspect_shared", side_effect=OSError("link lost") if verification_error else None) as inspect,
+                ):
+                    if verification_error:
+                        with self.assertRaisesRegex(RuntimeError, "已提交.*恢复备份"):
+                            shared._enable_shared_locked(ssh, runtime, feature, Path("unused"), trusted, (), pinyin_stage=stage)
+                    else:
+                        self.assertIs(shared._enable_shared_locked(ssh, runtime, feature, Path("unused"), trusted, (), pinyin_stage=stage), inspect.return_value)
+                    self.assertTrue(script.call_args.kwargs["retain_backup"])
+                cleanup = [call.args[0] for call in ssh.exec_checked.call_args_list
+                           if call.args[0].startswith("rm -rf -- ")]
+                self.assertEqual(len(cleanup), 0 if verification_error else 1)
+                if cleanup:
+                    self.assertIn(".xovi-dropins-", cleanup[0])
+                    self.assertIn("pinyin-input.backup-", cleanup[0])
+
     @staticmethod
     def contexts():
         tap_packages = tap._trusted_catalog()
@@ -250,7 +283,7 @@ class SharedXoviTests(unittest.TestCase):
                 return "\n".join(visible_dropins)
             if (
                 command.startswith("stat -c '%f|%u|%g|%s|%h'")
-                and "; [ ! -L " in command
+                and "&& [ ! -L " in command
             ):
                 sidecar = next(
                     item for item in sidecars if item.remote_path in command
@@ -1035,7 +1068,7 @@ class SharedXoviTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "伴随进程.*已被修改"):
             shared.inspect_shared(ssh, runtime, trusted)
 
-    def test_schema2_rejects_disabled_sidecar_residue(self):
+    def test_schema2_accepts_verified_disabled_sidecar_files(self):
         tap_package, fast_package = next(
             pair
             for pair in self.contexts()
@@ -1058,8 +1091,8 @@ class SharedXoviTests(unittest.TestCase):
             disabled_sidecar_present=True,
         )
 
-        with self.assertRaisesRegex(RuntimeError, "已停用功能仍残留伴随进程"):
-            shared.inspect_shared(ssh, runtime, trusted)
+        inspection = shared.inspect_shared(ssh, runtime, trusted)
+        self.assertFalse(inspection.states[pinyin.FEATURE_ID].enabled)
 
     def test_schema2_receipt_rejects_unsafe_or_incomplete_metadata(self):
         tap_package, fast_package = next(iter(self.contexts()))
@@ -1601,17 +1634,12 @@ class SharedXoviTests(unittest.TestCase):
                         side_effect=remove,
                     ) as cleanup,
                 ):
-                    result = module.disable(ssh, (new_package,))
-                installable = (
-                    tap.TapPageTurnState.NOT_INSTALLED
-                    if module is tap
-                    else fast.FastMonoReadingState.NOT_INSTALLED
-                )
-                self.assertEqual(result.state, installable)
-                self.assertIs(result.package, new_package)
-                cleanup.assert_called_once()
+                    with self.assertRaisesRegex(RuntimeError, "固件管理迁移"):
+                        module.disable(ssh, (new_package,))
+                cleanup.assert_not_called()
+                self.assertTrue(present)
 
-    def test_firmware_residue_cleanup_is_available_from_either_feature(self):
+    def test_feature_pages_never_remove_peer_firmware_residue(self):
         old_tap = next(
             item for item in tap._trusted_catalog()
             if item.platform == "chiappa" and item.release_version == "3.28.0.163"
@@ -1669,19 +1697,10 @@ class SharedXoviTests(unittest.TestCase):
                     side_effect=remove,
                 ) as cleanup,
             ):
-                result = module.disable(ssh, (package,))
-            self.assertEqual(
-                result.state,
-                tap.TapPageTurnState.NOT_INSTALLED
-                if module is tap
-                else fast.FastMonoReadingState.NOT_INSTALLED,
-            )
-            cleanup.assert_called_once()
-            installed_trusted = cleanup.call_args.args[2]
-            if overrides:
-                self.assertEqual(
-                    installed_trusted["fast-mono-reading"], old_fast_r2
-                )
+                with self.assertRaisesRegex(RuntimeError, "固件管理迁移"):
+                    module.disable(ssh, (package,))
+            cleanup.assert_not_called()
+            self.assertTrue(present)
 
     def test_firmware_residue_accepts_exact_current_feature_in_old_shared_tree(self):
         old_tap = next(

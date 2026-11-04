@@ -2,48 +2,186 @@
   "schema_version": 1,
   "packages": [
     {
-      "firmware": "20261028104944", "release_version": "3.29.1.0", "channel": "stable", "platform": "tatsu", "architecture": "aarch64",
+      "firmware": "20261028104944",
+      "release_version": "3.29.1.0",
+      "channel": "stable",
+      "platform": "tatsu",
+      "architecture": "aarch64",
       "xochitl_sha256": "c464f2ee5f03468834cb117672ebaaabb1e322cdab8510bbdc2f663886334531",
-      "asset": "rmtool-tap-page-turn-tatsu-20261028104944-3.29.1.0.tar.gz", "size": 3845007, "sha256": "67d51a75d55aa1c4631c4908b81dd3d9950eb29b3348cf90f9b5580d997a8b14",
+      "asset": "rmtool-tap-page-turn-tatsu-20261028104944-3.29.1.0-sha256-d2e28bddc3067b576229dd88f99f581dbdddaf712cb31538e3dbb758788edc67.tar.gz",
+      "size": 3845013,
+      "sha256": "d2e28bddc3067b576229dd88f99f581dbdddaf712cb31538e3dbb758788edc67",
       "files": [
-        {"path": "LICENSE.qmd-tool", "size": 35149, "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986", "mode": 420},
-        {"path": "LICENSE.rm-xovi-extensions", "size": 35823, "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809", "mode": 420},
-        {"path": "LICENSE.xovi", "size": 7819, "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976", "mode": 420},
-        {"path": "extensions.d/qt-resource-rebuilder.so", "size": 9496456, "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f", "mode": 420},
-        {"path": "exthome/qt-resource-rebuilder/hashtab", "size": 604258, "sha256": "c8a4e1a6e2a7d63a478dfc997ba61e2363d7c62dc549949937798c8d8ccadf7b", "mode": 420},
-        {"path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd", "size": 2876, "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac", "mode": 420},
-        {"path": "qmd-tool", "size": 1966264, "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9", "mode": 493},
-        {"path": "xovi.so", "size": 103008, "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446", "mode": 420}
+        {
+          "path": "LICENSE.qmd-tool",
+          "mode": 420,
+          "size": 35149,
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+        },
+        {
+          "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
+          "size": 35823,
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
+        },
+        {
+          "path": "LICENSE.xovi",
+          "mode": 420,
+          "size": 7819,
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
+        },
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
+          "size": 9496456,
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
+          "size": 604258,
+          "sha256": "c8a4e1a6e2a7d63a478dfc997ba61e2363d7c62dc549949937798c8d8ccadf7b"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
+          "mode": 420,
+          "size": 2978,
+          "sha256": "49c35a85639f0454509cf0a89758fbc95790979bdd4e60cff2c6dbb66bab4280"
+        },
+        {
+          "path": "qmd-tool",
+          "mode": 493,
+          "size": 1966264,
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
+        },
+        {
+          "path": "xovi.so",
+          "mode": 420,
+          "size": 103008,
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
+        }
       ]
     },
     {
-      "firmware": "20261028104944", "release_version": "3.29.1.0", "channel": "stable", "platform": "rm1", "architecture": "armv7l",
+      "firmware": "20261028104944",
+      "release_version": "3.29.1.0",
+      "channel": "stable",
+      "platform": "rm1",
+      "architecture": "armv7l",
       "xochitl_sha256": "2bc210bd4e05b709ea15d7e4f357b816505a40fb1838c02f6b60040ea3c87690",
-      "asset": "rmtool-tap-page-turn-rm1-20261028104944-3.29.1.0.tar.gz", "size": 3829431, "sha256": "af68b1f22b0edbea5314f9d4f5004197fb7e004e24ed5a145cb33da054b14ded",
+      "asset": "rmtool-tap-page-turn-rm1-20261028104944-3.29.1.0-sha256-de65c7848409f8c90153e9fbf8831911f68f9d6871c0fab857a68800e57b6108.tar.gz",
+      "size": 3829444,
+      "sha256": "de65c7848409f8c90153e9fbf8831911f68f9d6871c0fab857a68800e57b6108",
       "files": [
-        {"path": "LICENSE.qmd-tool", "size": 35149, "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986", "mode": 420},
-        {"path": "LICENSE.rm-xovi-extensions", "size": 35823, "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809", "mode": 420},
-        {"path": "LICENSE.xovi", "size": 7819, "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976", "mode": 420},
-        {"path": "extensions.d/qt-resource-rebuilder.so", "size": 8539328, "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa", "mode": 420},
-        {"path": "exthome/qt-resource-rebuilder/hashtab", "size": 595730, "sha256": "9429ee9841f4dff1d503ca1cea38ef0f93bdb39e5bff6792219ecb23f1eb79fb", "mode": 420},
-        {"path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd", "size": 2876, "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac", "mode": 420},
-        {"path": "qmd-tool", "size": 2031800, "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312", "mode": 493},
-        {"path": "xovi.so", "size": 123620, "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14", "mode": 420}
+        {
+          "path": "LICENSE.qmd-tool",
+          "mode": 420,
+          "size": 35149,
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+        },
+        {
+          "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
+          "size": 35823,
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
+        },
+        {
+          "path": "LICENSE.xovi",
+          "mode": 420,
+          "size": 7819,
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
+        },
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
+          "size": 8539328,
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
+          "size": 595730,
+          "sha256": "9429ee9841f4dff1d503ca1cea38ef0f93bdb39e5bff6792219ecb23f1eb79fb"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
+          "mode": 420,
+          "size": 2978,
+          "sha256": "49c35a85639f0454509cf0a89758fbc95790979bdd4e60cff2c6dbb66bab4280"
+        },
+        {
+          "path": "qmd-tool",
+          "mode": 493,
+          "size": 2031800,
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312"
+        },
+        {
+          "path": "xovi.so",
+          "mode": 420,
+          "size": 123620,
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14"
+        }
       ]
     },
     {
-      "firmware": "20261028104944", "release_version": "3.29.1.0", "channel": "stable", "platform": "rm2", "architecture": "armv7l",
+      "firmware": "20261028104944",
+      "release_version": "3.29.1.0",
+      "channel": "stable",
+      "platform": "rm2",
+      "architecture": "armv7l",
       "xochitl_sha256": "4ab39bdf42503fe8d9e10a31a415b28b9aed6f25bd32788226c02ee23879fd13",
-      "asset": "rmtool-tap-page-turn-rm2-20261028104944-3.29.1.0.tar.gz", "size": 3836762, "sha256": "2186dbcd8d406c4d7d3c9ccdd15b4ed4ef00a96d0006183b9a7df069f05f45e7",
+      "asset": "rmtool-tap-page-turn-rm2-20261028104944-3.29.1.0-sha256-7afcf729125a90a6e51ea9c9339ebd1f172d3eb32c102e834375f115bf46ca7b.tar.gz",
+      "size": 3836785,
+      "sha256": "7afcf729125a90a6e51ea9c9339ebd1f172d3eb32c102e834375f115bf46ca7b",
       "files": [
-        {"path": "LICENSE.qmd-tool", "size": 35149, "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986", "mode": 420},
-        {"path": "LICENSE.rm-xovi-extensions", "size": 35823, "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809", "mode": 420},
-        {"path": "LICENSE.xovi", "size": 7819, "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976", "mode": 420},
-        {"path": "extensions.d/qt-resource-rebuilder.so", "size": 8539328, "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa", "mode": 420},
-        {"path": "exthome/qt-resource-rebuilder/hashtab", "size": 611176, "sha256": "0e17aa5953f43ed8dcd2a52695915731e5df45a469fab50aeb5bddfb0c0c046c", "mode": 420},
-        {"path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd", "size": 2876, "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac", "mode": 420},
-        {"path": "qmd-tool", "size": 2031800, "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312", "mode": 493},
-        {"path": "xovi.so", "size": 123620, "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14", "mode": 420}
+        {
+          "path": "LICENSE.qmd-tool",
+          "mode": 420,
+          "size": 35149,
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+        },
+        {
+          "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
+          "size": 35823,
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
+        },
+        {
+          "path": "LICENSE.xovi",
+          "mode": 420,
+          "size": 7819,
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
+        },
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
+          "size": 8539328,
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
+          "size": 611176,
+          "sha256": "0e17aa5953f43ed8dcd2a52695915731e5df45a469fab50aeb5bddfb0c0c046c"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
+          "mode": 420,
+          "size": 2978,
+          "sha256": "49c35a85639f0454509cf0a89758fbc95790979bdd4e60cff2c6dbb66bab4280"
+        },
+        {
+          "path": "qmd-tool",
+          "mode": 493,
+          "size": 2031800,
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312"
+        },
+        {
+          "path": "xovi.so",
+          "mode": 420,
+          "size": 123620,
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14"
+        }
       ]
     },
     {
@@ -53,18 +191,58 @@
       "platform": "ferrari",
       "architecture": "aarch64",
       "xochitl_sha256": "35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd",
-      "asset": "rmtool-tap-page-turn-ferrari-20261028104944-3.29.1.0.tar.gz",
-      "size": 3851897,
-      "sha256": "b50121b69b3478277e3b2a1561ceac0b4683f47472c1b436179c0e90b6d107eb",
+      "asset": "rmtool-tap-page-turn-ferrari-20261028104944-3.29.1.0-sha256-22e74d8913840f4dd50ff82504155d5b19f47cb4c56aa6a305827093bcfa9313.tar.gz",
+      "size": 3851920,
+      "sha256": "22e74d8913840f4dd50ff82504155d5b19f47cb4c56aa6a305827093bcfa9313",
       "files": [
-        {"path": "LICENSE.qmd-tool", "size": 35149, "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986", "mode": 420},
-        {"path": "LICENSE.rm-xovi-extensions", "size": 35823, "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809", "mode": 420},
-        {"path": "LICENSE.xovi", "size": 7819, "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976", "mode": 420},
-        {"path": "extensions.d/qt-resource-rebuilder.so", "size": 9496456, "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f", "mode": 420},
-        {"path": "exthome/qt-resource-rebuilder/hashtab", "size": 618618, "sha256": "481b73bd4b89d03bffe92da7940d81014595fb24acaa097f43a415c577ad42b0", "mode": 420},
-        {"path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd", "size": 2876, "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac", "mode": 420},
-        {"path": "qmd-tool", "size": 1966264, "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9", "mode": 493},
-        {"path": "xovi.so", "size": 103008, "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446", "mode": 420}
+        {
+          "path": "LICENSE.qmd-tool",
+          "mode": 420,
+          "size": 35149,
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+        },
+        {
+          "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
+          "size": 35823,
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
+        },
+        {
+          "path": "LICENSE.xovi",
+          "mode": 420,
+          "size": 7819,
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
+        },
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
+          "size": 9496456,
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
+          "size": 618618,
+          "sha256": "481b73bd4b89d03bffe92da7940d81014595fb24acaa097f43a415c577ad42b0"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
+          "mode": 420,
+          "size": 2978,
+          "sha256": "49c35a85639f0454509cf0a89758fbc95790979bdd4e60cff2c6dbb66bab4280"
+        },
+        {
+          "path": "qmd-tool",
+          "mode": 493,
+          "size": 1966264,
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
+        },
+        {
+          "path": "xovi.so",
+          "mode": 420,
+          "size": 103008,
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
+        }
       ]
     },
     {
@@ -74,18 +252,58 @@
       "platform": "chiappa",
       "architecture": "aarch64",
       "xochitl_sha256": "9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4",
-      "asset": "rmtool-tap-page-turn-chiappa-20261028104944-3.29.1.0.tar.gz",
-      "size": 3848970,
-      "sha256": "570f8a6f082f9ebc1bb79ddba6389647bdd615ad666720363cb7a442836b9c88",
+      "asset": "rmtool-tap-page-turn-chiappa-20261028104944-3.29.1.0-sha256-492b66de01325cf3e074e7fbc568f5c396130832e5dd4cd69f6e7b1d6b47d6b1.tar.gz",
+      "size": 3848983,
+      "sha256": "492b66de01325cf3e074e7fbc568f5c396130832e5dd4cd69f6e7b1d6b47d6b1",
       "files": [
-        {"path": "LICENSE.qmd-tool", "size": 35149, "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986", "mode": 420},
-        {"path": "LICENSE.rm-xovi-extensions", "size": 35823, "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809", "mode": 420},
-        {"path": "LICENSE.xovi", "size": 7819, "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976", "mode": 420},
-        {"path": "extensions.d/qt-resource-rebuilder.so", "size": 9496456, "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f", "mode": 420},
-        {"path": "exthome/qt-resource-rebuilder/hashtab", "size": 613338, "sha256": "13ecbc377f54f4f8cd34c7d4a82f361296ac0808ac614d6d68955351b72327fb", "mode": 420},
-        {"path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd", "size": 2876, "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac", "mode": 420},
-        {"path": "qmd-tool", "size": 1966264, "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9", "mode": 493},
-        {"path": "xovi.so", "size": 103008, "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446", "mode": 420}
+        {
+          "path": "LICENSE.qmd-tool",
+          "mode": 420,
+          "size": 35149,
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+        },
+        {
+          "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
+          "size": 35823,
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
+        },
+        {
+          "path": "LICENSE.xovi",
+          "mode": 420,
+          "size": 7819,
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
+        },
+        {
+          "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
+          "size": 9496456,
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
+          "size": 613338,
+          "sha256": "13ecbc377f54f4f8cd34c7d4a82f361296ac0808ac614d6d68955351b72327fb"
+        },
+        {
+          "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
+          "mode": 420,
+          "size": 2978,
+          "sha256": "49c35a85639f0454509cf0a89758fbc95790979bdd4e60cff2c6dbb66bab4280"
+        },
+        {
+          "path": "qmd-tool",
+          "mode": 493,
+          "size": 1966264,
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
+        },
+        {
+          "path": "xovi.so",
+          "mode": 420,
+          "size": 103008,
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
+        }
       ]
     },
     {
@@ -95,57 +313,57 @@
       "platform": "chiappa",
       "architecture": "aarch64",
       "xochitl_sha256": "4646e0aef1cef2b3417889073ad5faba9259ae6b41f68326e75ef9a5c520c322",
-      "asset": "rmtool-tap-page-turn-chiappa-20260506100933.tar.gz",
-      "sha256": "d7d9e00962b1535f21b065db4f072eb133888eb6828e490fe2a99f535ef0758e",
-      "size": 3841799,
+      "asset": "rmtool-tap-page-turn-chiappa-20260506100933-sha256-fa178db9e53fcc0557705c6139211c7f521e6242b6af815d6e6d530cda581b39.tar.gz",
+      "sha256": "fa178db9e53fcc0557705c6139211c7f521e6242b6af815d6e6d530cda581b39",
+      "size": 3845265,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420,
           "size": 35149,
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420,
           "size": 35823,
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420,
           "size": 7819,
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420,
           "size": 9496456,
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
-          "sha256": "9533885384ba60d01cd4ccc2f7c3776d1ea66ccfb52b9342971da07c3c9ccf4c",
+          "mode": 420,
           "size": 607024,
-          "mode": 420
+          "sha256": "9533885384ba60d01cd4ccc2f7c3776d1ea66ccfb52b9342971da07c3c9ccf4c"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "size": 3018,
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493,
           "size": 1966264,
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420,
           "size": 103008,
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -156,57 +374,57 @@
       "platform": "ferrari",
       "architecture": "aarch64",
       "xochitl_sha256": "29b9896b07f59636d910d8a740f6562c502f676a1a70f8814459229d25cc5288",
-      "asset": "rmtool-tap-page-turn-ferrari-20260506100933.tar.gz",
-      "sha256": "50744944efe838d1886e20cc86fa47634ad72f3165b3dfe4c2a9dac9de1292fc",
-      "size": 3844435,
+      "asset": "rmtool-tap-page-turn-ferrari-20260506100933-sha256-a7825357d684b64b4689e9b221c80a163534d1c677f0854c4fc7fa2d43d15d8a.tar.gz",
+      "sha256": "a7825357d684b64b4689e9b221c80a163534d1c677f0854c4fc7fa2d43d15d8a",
+      "size": 3848030,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420,
           "size": 35149,
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420,
           "size": 35823,
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420,
           "size": 7819,
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420,
           "size": 9496456,
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
-          "sha256": "260f7874da157a7abab957eab3550ced544cef59a3b4a92545a692a0eb87e2ee",
+          "mode": 420,
           "size": 612388,
-          "mode": 420
+          "sha256": "260f7874da157a7abab957eab3550ced544cef59a3b4a92545a692a0eb87e2ee"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "size": 3018,
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493,
           "size": 1966264,
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420,
           "size": 103008,
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -217,57 +435,57 @@
       "platform": "chiappa",
       "architecture": "aarch64",
       "xochitl_sha256": "227a9bfe928ef5d164359e490d97648ffca40a5de13f07a9eb57a618a403f084",
-      "asset": "rmtool-tap-page-turn-chiappa-20260612085811.tar.gz",
-      "sha256": "40c563528fb36ec4a6b0c306e93f924614760728bc5fe8c2ac463e0c63b9d84a",
-      "size": 3841646,
+      "asset": "rmtool-tap-page-turn-chiappa-20260612085811-sha256-cc278318e7f9d175f78fa96018c82ab1ede1d61cece91143620f99f1fff7cd92.tar.gz",
+      "sha256": "cc278318e7f9d175f78fa96018c82ab1ede1d61cece91143620f99f1fff7cd92",
+      "size": 3845178,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420,
           "size": 35149,
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420,
           "size": 35823,
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420,
           "size": 7819,
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420,
           "size": 9496456,
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
-          "sha256": "814cc0e43517fd8150e0bc6b774df09ee39b5e18c989651cd4015e4ebd2497ca",
+          "mode": 420,
           "size": 607024,
-          "mode": 420
+          "sha256": "814cc0e43517fd8150e0bc6b774df09ee39b5e18c989651cd4015e4ebd2497ca"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "size": 3018,
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493,
           "size": 1966264,
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420,
           "size": 103008,
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -278,57 +496,57 @@
       "platform": "ferrari",
       "architecture": "aarch64",
       "xochitl_sha256": "9749880daa2f10844e77b560ec0ecddd1634d43eb328af637c7026edf3ef120e",
-      "asset": "rmtool-tap-page-turn-ferrari-20260612085811.tar.gz",
-      "sha256": "c1b80d80a09004d2ec483c4886b9d5c4a51283d3640f28a770df489fc796570b",
-      "size": 3844663,
+      "asset": "rmtool-tap-page-turn-ferrari-20260612085811-sha256-adeebd647c6cdc131ac8141ca1ba32bceb2cdec85b02d0ff6d6416ed68f4682c.tar.gz",
+      "sha256": "adeebd647c6cdc131ac8141ca1ba32bceb2cdec85b02d0ff6d6416ed68f4682c",
+      "size": 3848283,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420,
           "size": 35149,
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420,
           "size": 35823,
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420,
           "size": 7819,
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420,
           "size": 9496456,
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
-          "sha256": "38c9625cadbe864c2175c025805bdd3de124109229242eb1fff237df32f2b7f7",
+          "mode": 420,
           "size": 612388,
-          "mode": 420
+          "sha256": "38c9625cadbe864c2175c025805bdd3de124109229242eb1fff237df32f2b7f7"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "size": 3018,
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493,
           "size": 1966264,
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420,
           "size": 103008,
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -339,57 +557,57 @@
       "platform": "rm1",
       "architecture": "armv7l",
       "xochitl_sha256": "28268d44e710738622e576ca9256d14045fd8a18464252f3fb266c7f28d00b1f",
-      "asset": "rmtool-tap-page-turn-rm1-20260612085811.tar.gz",
-      "sha256": "05bc9d776a3056ab46271cfbba72492a75b304f355c43630b6d61e9d1826bd9c",
-      "size": 3828902,
+      "asset": "rmtool-tap-page-turn-rm1-20260612085811-sha256-4ad7ada999c69d83f58c62d5f44aa36db9410ea5413fe0d5df5210a565c308cf.tar.gz",
+      "sha256": "4ad7ada999c69d83f58c62d5f44aa36db9410ea5413fe0d5df5210a565c308cf",
+      "size": 3825694,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420,
           "size": 35149,
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420,
           "size": 35823,
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420,
           "size": 7819,
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
-          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa",
+          "mode": 420,
           "size": 8539328,
-          "mode": 420
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
-          "sha256": "798e729083ceb551b35ff5c52fcb546d2db6292c24724cd16c33362cbdcf778b",
+          "mode": 420,
           "size": 590138,
-          "mode": 420
+          "sha256": "798e729083ceb551b35ff5c52fcb546d2db6292c24724cd16c33362cbdcf778b"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "size": 3018,
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
-          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312",
+          "mode": 493,
           "size": 2031800,
-          "mode": 493
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312"
         },
         {
           "path": "xovi.so",
-          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14",
+          "mode": 420,
           "size": 123620,
-          "mode": 420
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14"
         }
       ]
     },
@@ -400,57 +618,57 @@
       "platform": "rm2",
       "architecture": "armv7l",
       "xochitl_sha256": "87b574fc7ac1a15d502e96458a94a5279a189023bd476758e4aaca9bae13575a",
-      "asset": "rmtool-tap-page-turn-rm2-20260612085811.tar.gz",
-      "sha256": "b57dcc0da706b0b1d9045c2e8c8e5a5c0683d9181d8b37e7b0fc3d5a754de439",
-      "size": 3836281,
+      "asset": "rmtool-tap-page-turn-rm2-20260612085811-sha256-9a68f0420d9324d385c94e851e6c875d78e123bb3f04925d3fd584fa0c1fbe99.tar.gz",
+      "sha256": "9a68f0420d9324d385c94e851e6c875d78e123bb3f04925d3fd584fa0c1fbe99",
+      "size": 3833732,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420,
           "size": 35149,
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420,
           "size": 35823,
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420,
           "size": 7819,
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
-          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa",
+          "mode": 420,
           "size": 8539328,
-          "mode": 420
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
-          "sha256": "8459c69ae9c6c53abac6ff4d0069d0e55756623ed0680c43a8058e116c337f15",
+          "mode": 420,
           "size": 605468,
-          "mode": 420
+          "sha256": "8459c69ae9c6c53abac6ff4d0069d0e55756623ed0680c43a8058e116c337f15"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "size": 3018,
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
-          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312",
+          "mode": 493,
           "size": 2031800,
-          "mode": 493
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312"
         },
         {
           "path": "xovi.so",
-          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14",
+          "mode": 420,
           "size": 123620,
-          "mode": 420
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14"
         }
       ]
     },
@@ -461,57 +679,57 @@
       "platform": "tatsu",
       "architecture": "aarch64",
       "xochitl_sha256": "12ccd2e95a1e8115a959322fc50de3da3243a208652ad40aba62a0cc34b7344d",
-      "asset": "rmtool-tap-page-turn-tatsu-20260612085811.tar.gz",
-      "sha256": "57f8e66b02d632bfebc66d0052ef7e6f0dd58d044585ce6d403d8c4efeb56326",
-      "size": 3839663,
+      "asset": "rmtool-tap-page-turn-tatsu-20260612085811-sha256-d99d30d29e41cdfaa1fd644852a8b8596bbce060dc3e80dec8ac34888960e41a.tar.gz",
+      "sha256": "d99d30d29e41cdfaa1fd644852a8b8596bbce060dc3e80dec8ac34888960e41a",
+      "size": 3842867,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420,
           "size": 35149,
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420,
           "size": 35823,
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420,
           "size": 7819,
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420,
           "size": 9496456,
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
-          "sha256": "f1ea37daa06c195bc44d08392170bbd88875ef075df8c72fc0f947ed5af82495",
+          "mode": 420,
           "size": 602446,
-          "mode": 420
+          "sha256": "f1ea37daa06c195bc44d08392170bbd88875ef075df8c72fc0f947ed5af82495"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "size": 3018,
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493,
           "size": 1966264,
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420,
           "size": 103008,
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -522,57 +740,57 @@
       "platform": "chiappa",
       "architecture": "aarch64",
       "xochitl_sha256": "9e3e0372a15da25b148ac17667feb566014440e079c3e3ee504112d556ad2e10",
-      "asset": "rmtool-tap-page-turn-chiappa-20260629074044.tar.gz",
-      "sha256": "2e34a82eea8aeecf885bea5fc2c437ed3d6b1ac48105642304f353768277dac6",
-      "size": 3848646,
+      "asset": "rmtool-tap-page-turn-chiappa-20260629074044-sha256-708582af77185b00467f7ae31eea30d1be7de4a7e54ab3e3e2d0b4aed7f9eaa1.tar.gz",
+      "sha256": "708582af77185b00467f7ae31eea30d1be7de4a7e54ab3e3e2d0b4aed7f9eaa1",
+      "size": 3851680,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420,
           "size": 35149,
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420,
           "size": 35823,
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420,
           "size": 7819,
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420,
           "size": 9496456,
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
-          "sha256": "ccba810410c5cd2ff79cfb03760bb285a4723e27a6565e7c24d8554a022fe477",
+          "mode": 420,
           "size": 618398,
-          "mode": 420
+          "sha256": "ccba810410c5cd2ff79cfb03760bb285a4723e27a6565e7c24d8554a022fe477"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "size": 3018,
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493,
           "size": 1966264,
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420,
           "size": 103008,
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -583,57 +801,57 @@
       "platform": "ferrari",
       "architecture": "aarch64",
       "xochitl_sha256": "10082aeb857c69c3f404ab189d7403318ba97d0c169e756ae9a5b3532b248a4a",
-      "asset": "rmtool-tap-page-turn-ferrari-20260629074044.tar.gz",
-      "sha256": "dd34a1e8016449cf4980d3eec80ebb0d0d1b46ffa002e02b06a84f310596493c",
-      "size": 3907994,
+      "asset": "rmtool-tap-page-turn-ferrari-20260629074044-sha256-f1bca960300c8e3da2cdbab45847e7b51989c33063f7b8057bfcd535e6e971b0.tar.gz",
+      "sha256": "f1bca960300c8e3da2cdbab45847e7b51989c33063f7b8057bfcd535e6e971b0",
+      "size": 3879025,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420,
           "size": 35149,
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420,
           "size": 35823,
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420,
           "size": 7819,
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420,
           "size": 9496456,
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
-          "sha256": "6c2ff2bc0c3152c87345a57f759dff95ec0940c24b7f8880fd40f4281b01c365",
+          "mode": 420,
           "size": 673884,
-          "mode": 420
+          "sha256": "6c2ff2bc0c3152c87345a57f759dff95ec0940c24b7f8880fd40f4281b01c365"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "sha256": "5e50757fd50a76851c01c2f572b37dbcf87f1d6eb31f0ebe215f6fcab09150b9",
-          "size": 3082,
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493,
           "size": 1966264,
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420,
           "size": 103008,
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -644,57 +862,57 @@
       "platform": "chiappa",
       "architecture": "aarch64",
       "xochitl_sha256": "08171df6296b99d04b3694b337bd0ce911e6a93356955961a37de9dd93a0394d",
-      "asset": "rmtool-tap-page-turn-chiappa-20260702125656.tar.gz",
-      "sha256": "bd75cd5414aa9a74eddf7cd3cb97e6b0273006c787b981dfbbc8099153864c28",
-      "size": 3848653,
+      "asset": "rmtool-tap-page-turn-chiappa-20260702125656-sha256-12e022b525988f267ab9d927d6afc19baee7559a921ceeb7f5f0bddc25e984ff.tar.gz",
+      "sha256": "12e022b525988f267ab9d927d6afc19baee7559a921ceeb7f5f0bddc25e984ff",
+      "size": 3851594,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420,
           "size": 35149,
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420,
           "size": 35823,
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420,
           "size": 7819,
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420,
           "size": 9496456,
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
-          "sha256": "22fac2b1f3a1a80700318404bf13401589449159f793c6bcdc0f7c9b5c1c9b43",
+          "mode": 420,
           "size": 618971,
-          "mode": 420
+          "sha256": "22fac2b1f3a1a80700318404bf13401589449159f793c6bcdc0f7c9b5c1c9b43"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "size": 3018,
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493,
           "size": 1966264,
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420,
           "size": 103008,
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -705,57 +923,57 @@
       "platform": "ferrari",
       "architecture": "aarch64",
       "xochitl_sha256": "49f60572e830f6c4f20d800a56d644cdf53cd65a8e240b2b27106cce55040f89",
-      "asset": "rmtool-tap-page-turn-ferrari-20260702125656.tar.gz",
-      "sha256": "55a173c42223c53cf52250f9066702ec0adb33a0f24a5cdb522327805970ea99",
-      "size": 3852202,
+      "asset": "rmtool-tap-page-turn-ferrari-20260702125656-sha256-5fdffc1129ee852b6f6d97b0dff189113855833178eecc22018d10e4d4b8c3d8.tar.gz",
+      "sha256": "5fdffc1129ee852b6f6d97b0dff189113855833178eecc22018d10e4d4b8c3d8",
+      "size": 3854817,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420,
           "size": 35149,
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420,
           "size": 35823,
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420,
           "size": 7819,
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420,
           "size": 9496456,
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
-          "sha256": "f2e5297de3c5722253a8a4f4a4b1716679b6aaf42f9046b057cb3a1fc07b2f9d",
+          "mode": 420,
           "size": 624212,
-          "mode": 420
+          "sha256": "f2e5297de3c5722253a8a4f4a4b1716679b6aaf42f9046b057cb3a1fc07b2f9d"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "size": 3018,
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493,
           "size": 1966264,
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420,
           "size": 103008,
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -766,57 +984,57 @@
       "platform": "chiappa",
       "architecture": "aarch64",
       "xochitl_sha256": "3a9e18483b73f43016fb25b451e3ece0efba7aa1cc92e080771e138ce6bbca98",
-      "asset": "rmtool-tap-page-turn-chiappa-20260702125656-3.28.0.164.tar.gz",
-      "sha256": "6e22ed06092cdd0c5bd263a305890ff300c8845979e1e617ba7d2b2e43df3c83",
-      "size": 3850220,
+      "asset": "rmtool-tap-page-turn-chiappa-20260702125656-3.28.0.164-sha256-169c08f841fac1a26754160b8ae6f19268d7254f0a4913dddde58156edb24710.tar.gz",
+      "sha256": "169c08f841fac1a26754160b8ae6f19268d7254f0a4913dddde58156edb24710",
+      "size": 3852368,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420,
           "size": 35149,
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420,
           "size": 35823,
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420,
           "size": 7819,
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420,
           "size": 9496456,
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
-          "sha256": "940ecff5a9bd8291a9dc56deba40b997ca70aaa05896163747faa41ee0edf1bd",
+          "mode": 420,
           "size": 619002,
-          "mode": 420
+          "sha256": "940ecff5a9bd8291a9dc56deba40b997ca70aaa05896163747faa41ee0edf1bd"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "size": 3018,
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493,
           "size": 1966264,
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420,
           "size": 103008,
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -827,57 +1045,57 @@
       "platform": "ferrari",
       "architecture": "aarch64",
       "xochitl_sha256": "113bf7ea62ad171ea03c77c1f90e0666bcff163242a22ebca84372533b270c1c",
-      "asset": "rmtool-tap-page-turn-ferrari-20260702125656-3.28.0.164.tar.gz",
-      "sha256": "1249cc883406203915aaa4a2aa90da05e4bb85419ab40d8efd394035421c70cb",
-      "size": 3852856,
+      "asset": "rmtool-tap-page-turn-ferrari-20260702125656-3.28.0.164-sha256-b3b6b2b6ea2e9b3464a1c597439e57f3168111b00fc59a6abcb2f636cb82ee34.tar.gz",
+      "sha256": "b3b6b2b6ea2e9b3464a1c597439e57f3168111b00fc59a6abcb2f636cb82ee34",
+      "size": 3854927,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420,
           "size": 35149,
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420,
           "size": 35823,
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420,
           "size": 7819,
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420,
           "size": 9496456,
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
-          "sha256": "88efa5f438d7297a3d456c7594139fb91960d886cd233087590128817db4ff72",
+          "mode": 420,
           "size": 624243,
-          "mode": 420
+          "sha256": "88efa5f438d7297a3d456c7594139fb91960d886cd233087590128817db4ff72"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "size": 3018,
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493,
           "size": 1966264,
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420,
           "size": 103008,
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -888,57 +1106,57 @@
       "platform": "ferrari",
       "architecture": "aarch64",
       "xochitl_sha256": "8726b4fce55a9154a5014956e5204401ce881d752c1ff3813adb622a68aac2f9",
-      "asset": "rmtool-tap-page-turn-ferrari-20260806095513-3.28.0.166.tar.gz",
-      "sha256": "7a7bdd468a430079cd936c5f240cafb913d053acf57b21faed6579faa4958ba8",
-      "size": 3854652,
+      "asset": "rmtool-tap-page-turn-ferrari-20260806095513-3.28.0.166-sha256-05b0e2c0d8467ca22de0891c5cd70cd283814c1bd3d7105b06e6b5419b0b5fb1.tar.gz",
+      "sha256": "05b0e2c0d8467ca22de0891c5cd70cd283814c1bd3d7105b06e6b5419b0b5fb1",
+      "size": 3854649,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420,
           "size": 35149,
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420,
           "size": 35823,
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420,
           "size": 7819,
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420,
           "size": 9496456,
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
-          "sha256": "014fdc004442c4f0e66fff5dd32e940e4c4e8e9a2f14f36a1f707f25c4032035",
+          "mode": 420,
           "size": 624139,
-          "mode": 420
+          "sha256": "014fdc004442c4f0e66fff5dd32e940e4c4e8e9a2f14f36a1f707f25c4032035"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "size": 3018,
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493,
           "size": 1966264,
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420,
           "size": 103008,
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -949,57 +1167,57 @@
       "platform": "chiappa",
       "architecture": "aarch64",
       "xochitl_sha256": "5748eed3bb804c8d3000e833ba472750428b6a82bc09b2bc7b5cf01847336bc7",
-      "asset": "rmtool-tap-page-turn-chiappa-20260806095513-3.28.0.166.tar.gz",
-      "sha256": "eb96f55bcdac23d73ec91f4429eae51b1a29833bb2f826a3c55422fca4de33b6",
+      "asset": "rmtool-tap-page-turn-chiappa-20260806095513-3.28.0.166-sha256-9f6a8bae863928fcab37685149353d1394746d705ff4513fa481e3904a43f875.tar.gz",
+      "sha256": "9f6a8bae863928fcab37685149353d1394746d705ff4513fa481e3904a43f875",
       "size": 3851678,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420,
           "size": 35149,
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420,
           "size": 35823,
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420,
           "size": 7819,
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420,
           "size": 9496456,
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
-          "sha256": "8a104b5b9c4be82b04609c3c28b7fb131a8ea82f02c76438472a94dcde8ec159",
+          "mode": 420,
           "size": 618898,
-          "mode": 420
+          "sha256": "8a104b5b9c4be82b04609c3c28b7fb131a8ea82f02c76438472a94dcde8ec159"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "size": 3018,
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493,
           "size": 1966264,
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420,
           "size": 103008,
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -1010,57 +1228,57 @@
       "platform": "ferrari",
       "architecture": "aarch64",
       "xochitl_sha256": "43a9d5d0acc5b998264c16586e11b848f3b83d2d63b5fd322b09c0977d94d3d4",
-      "asset": "rmtool-tap-page-turn-ferrari-20260806095513-3.28.0.169.tar.gz",
-      "sha256": "af7f4c68c0474ef7730a34b9a2e70b7576eedef578fd62fa193fb40826901fa9",
-      "size": 3854939,
+      "asset": "rmtool-tap-page-turn-ferrari-20260806095513-3.28.0.169-sha256-b4eca1506095573f28264533eebf19c7f8b2068a667308ce59bfaf3c848ec5ab.tar.gz",
+      "sha256": "b4eca1506095573f28264533eebf19c7f8b2068a667308ce59bfaf3c848ec5ab",
+      "size": 3854938,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420,
           "size": 35149,
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420,
           "size": 35823,
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420,
           "size": 7819,
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420,
           "size": 9496456,
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
-          "sha256": "d2af090d3da8f88f883119ca62b1e3313c0bb0cc1e7584bc1dd6a9b5a10f894d",
+          "mode": 420,
           "size": 624183,
-          "mode": 420
+          "sha256": "d2af090d3da8f88f883119ca62b1e3313c0bb0cc1e7584bc1dd6a9b5a10f894d"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "size": 3018,
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493,
           "size": 1966264,
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420,
           "size": 103008,
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -1071,57 +1289,57 @@
       "platform": "chiappa",
       "architecture": "aarch64",
       "xochitl_sha256": "6361610111c381ce730a8bfcc889bd933ef5fef173563a9156e435233714e7ee",
-      "asset": "rmtool-tap-page-turn-chiappa-20260806095513-3.28.0.169.tar.gz",
-      "sha256": "e883806566dc3948818b3c15eec27e72a10408e3cf5ede150f1de9e13e643f41",
-      "size": 3851514,
+      "asset": "rmtool-tap-page-turn-chiappa-20260806095513-3.28.0.169-sha256-bc3abce70b35738ce9d74623eed3cf44c2d09dccad695773c2d3c2576f3e6f5e.tar.gz",
+      "sha256": "bc3abce70b35738ce9d74623eed3cf44c2d09dccad695773c2d3c2576f3e6f5e",
+      "size": 3851516,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "mode": 420,
           "size": 35149,
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+          "mode": 420,
           "size": 35823,
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
+          "mode": 420,
           "size": 7819,
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
+          "mode": 420,
           "size": 9496456,
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
-          "sha256": "1cb01571664742f3d7d5767cd23498b50effc5e1d077ee3e1058b5f1259301b1",
+          "mode": 420,
           "size": 618942,
-          "mode": 420
+          "sha256": "1cb01571664742f3d7d5767cd23498b50effc5e1d077ee3e1058b5f1259301b1"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "size": 3018,
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
+          "mode": 493,
           "size": 1966264,
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
+          "mode": 420,
           "size": 103008,
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -1132,59 +1350,59 @@
       "architecture": "aarch64",
       "channel": "stable",
       "xochitl_sha256": "b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021",
-      "asset": "rmtool-tap-page-turn-ferrari-20260827113527-3.28.0.172.tar.gz",
-      "size": 3854449,
-      "sha256": "e73dae6d2d532888b24dbc20d4a99db06cd859b74ba39ac0347be8f9789e2e84",
+      "asset": "rmtool-tap-page-turn-ferrari-20260827113527-3.28.0.172-sha256-5398b15c85abf8ada879762a42d730e891d8fc5300b0c703f0437ac8abfcef7c.tar.gz",
+      "size": 3854451,
+      "sha256": "5398b15c85abf8ada879762a42d730e891d8fc5300b0c703f0437ac8abfcef7c",
       "offline_verified": true,
       "device_verified": false,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
+          "mode": 420,
           "size": 35149,
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
           "size": 35823,
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
+          "mode": 420,
           "size": 7819,
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
           "size": 9496456,
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
           "size": 624183,
-          "sha256": "ffd4712a4e59904388a7aaa40e6781cb4c8eaf79b0d8fa0d0004f30a1dc9f8eb",
-          "mode": 420
+          "sha256": "ffd4712a4e59904388a7aaa40e6781cb4c8eaf79b0d8fa0d0004f30a1dc9f8eb"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "size": 3018,
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
+          "mode": 493,
           "size": 1966264,
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
+          "mode": 420,
           "size": 103008,
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -1195,59 +1413,59 @@
       "architecture": "aarch64",
       "channel": "stable",
       "xochitl_sha256": "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4",
-      "asset": "rmtool-tap-page-turn-chiappa-20260827113527-3.28.0.172.tar.gz",
-      "size": 3851917,
-      "sha256": "1cba990bee08b5ca8f8c7d45163d2348476b1a5be3aba69c080c08d835692ce2",
+      "asset": "rmtool-tap-page-turn-chiappa-20260827113527-3.28.0.172-sha256-23034255b37741ff179b05d992b6ef06feeb1c3f264d913886cc3adb7fc8fdb2.tar.gz",
+      "size": 3851923,
+      "sha256": "23034255b37741ff179b05d992b6ef06feeb1c3f264d913886cc3adb7fc8fdb2",
       "offline_verified": true,
       "device_verified": false,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
+          "mode": 420,
           "size": 35149,
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
           "size": 35823,
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
+          "mode": 420,
           "size": 7819,
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
           "size": 9496456,
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
           "size": 618942,
-          "sha256": "d947afca520b16a06efc0e5462d9c4db68928f2b4591ac67d59bc2e1f519c27d",
-          "mode": 420
+          "sha256": "d947afca520b16a06efc0e5462d9c4db68928f2b4591ac67d59bc2e1f519c27d"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "size": 3018,
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
+          "mode": 493,
           "size": 1966264,
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
+          "mode": 420,
           "size": 103008,
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -1258,59 +1476,59 @@
       "architecture": "aarch64",
       "channel": "stable",
       "xochitl_sha256": "fa674d2ca3d8002602ce4b1b92280b96bcdf2cf32b6a42ec62ae178a1fad1fe3",
-      "asset": "rmtool-tap-page-turn-tatsu-20260827113527-3.28.0.172.tar.gz",
-      "size": 3847310,
-      "sha256": "933420d4cd7bc5aa1395bafc2814f6d510425db3a68c4371a7d77d50841290e3",
+      "asset": "rmtool-tap-page-turn-tatsu-20260827113527-3.28.0.172-sha256-b1bd046b94fead93baee93d2afea5bd07dad6570715e95ef973372db369793cf.tar.gz",
+      "size": 3849730,
+      "sha256": "b1bd046b94fead93baee93d2afea5bd07dad6570715e95ef973372db369793cf",
       "offline_verified": true,
       "device_verified": false,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
+          "mode": 420,
           "size": 35149,
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
           "size": 35823,
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
+          "mode": 420,
           "size": 7819,
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
           "size": 9496456,
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
           "size": 614317,
-          "sha256": "e28d716a0d625d6e5444da434ffe4f6e0abd99e7a8c45c44c77a985f540dd50d",
-          "mode": 420
+          "sha256": "e28d716a0d625d6e5444da434ffe4f6e0abd99e7a8c45c44c77a985f540dd50d"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "size": 3018,
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
+          "mode": 493,
           "size": 1966264,
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
+          "mode": 420,
           "size": 103008,
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -1321,59 +1539,59 @@
       "architecture": "armv7l",
       "channel": "stable",
       "xochitl_sha256": "1f4fbb6e14650704b5b036e482da9948e73553178f6116ad464ab072f7b90117",
-      "asset": "rmtool-tap-page-turn-rm1-20260827113527-3.28.0.172.tar.gz",
-      "size": 3834913,
-      "sha256": "cb61fc5e0c2c31462d8838b059eef71b2da55c788027010f183231d084dd61fc",
+      "asset": "rmtool-tap-page-turn-rm1-20260827113527-3.28.0.172-sha256-bd2de38e547bffc7aa710544c34100383dd766995327ee65745d8b4b81dce228.tar.gz",
+      "size": 3832214,
+      "sha256": "bd2de38e547bffc7aa710544c34100383dd766995327ee65745d8b4b81dce228",
       "offline_verified": true,
       "device_verified": false,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
+          "mode": 420,
           "size": 35149,
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
           "size": 35823,
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
+          "mode": 420,
           "size": 7819,
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
           "size": 8539328,
-          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa",
-          "mode": 420
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
           "size": 601282,
-          "sha256": "9fa76d1fb069dd74b09cf7cac3d26dbaf1ba350ac5b273344c2430f3d1b258a9",
-          "mode": 420
+          "sha256": "9fa76d1fb069dd74b09cf7cac3d26dbaf1ba350ac5b273344c2430f3d1b258a9"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "size": 3018,
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
+          "mode": 493,
           "size": 2031800,
-          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312",
-          "mode": 493
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312"
         },
         {
           "path": "xovi.so",
+          "mode": 420,
           "size": 123620,
-          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14",
-          "mode": 420
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14"
         }
       ]
     },
@@ -1384,59 +1602,59 @@
       "architecture": "armv7l",
       "channel": "stable",
       "xochitl_sha256": "071d85beef3ef2d4cc0e11002140b27b82a2cc04a2ed740a5669f591069b77df",
-      "asset": "rmtool-tap-page-turn-rm2-20260827113527-3.28.0.172.tar.gz",
-      "size": 3844168,
-      "sha256": "81c25c914308ed5d8a0b34dd01b421ed15830d73609ff2ec507fe2645dd04ab3",
+      "asset": "rmtool-tap-page-turn-rm2-20260827113527-3.28.0.172-sha256-9fe2d716f8384094b27e5efcc8cfd18cd6139c6f7e4b275fbd5e8559d9dc40b0.tar.gz",
+      "size": 3839779,
+      "sha256": "9fe2d716f8384094b27e5efcc8cfd18cd6139c6f7e4b275fbd5e8559d9dc40b0",
       "offline_verified": true,
       "device_verified": false,
       "files": [
         {
           "path": "LICENSE.qmd-tool",
+          "mode": 420,
           "size": 35149,
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
           "size": 35823,
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
+          "mode": 420,
           "size": 7819,
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
           "size": 8539328,
-          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa",
-          "mode": 420
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
           "size": 616434,
-          "sha256": "f0e559b0d46c28cbaf73c35e9203b02fddfd13c4e8f3198eed05be8ce067bac0",
-          "mode": 420
+          "sha256": "f0e559b0d46c28cbaf73c35e9203b02fddfd13c4e8f3198eed05be8ce067bac0"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "size": 3018,
-          "sha256": "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
-          "mode": 420
+          "mode": 420,
+          "size": 2976,
+          "sha256": "07df9480646d4e26ed173160f6e795c902ada600e296de3b27ac5f3eded9b980"
         },
         {
           "path": "qmd-tool",
+          "mode": 493,
           "size": 2031800,
-          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312",
-          "mode": 493
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312"
         },
         {
           "path": "xovi.so",
+          "mode": 420,
           "size": 123620,
-          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14",
-          "mode": 420
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14"
         }
       ]
     },
@@ -1447,57 +1665,57 @@
       "platform": "ferrari",
       "architecture": "aarch64",
       "xochitl_sha256": "7aa5d67da6850d7021ade5a2232edeb5f34550236eca6f7a102f37f962dd4bd2",
-      "asset": "rmtool-tap-page-turn-ferrari-20261009073202-3.29.0.152.tar.gz",
-      "size": 3851921,
-      "sha256": "9b31a341aa32cc629978eefb230d49ea3b8e2e409352f334d674359cfdf08aee",
+      "asset": "rmtool-tap-page-turn-ferrari-20261009073202-3.29.0.152-sha256-27053c2d160bc06b70b89cf718b45edc6a288dc204bae01b34471949b3f5f683.tar.gz",
+      "size": 3851940,
+      "sha256": "27053c2d160bc06b70b89cf718b45edc6a288dc204bae01b34471949b3f5f683",
       "files": [
         {
           "path": "LICENSE.qmd-tool",
+          "mode": 420,
           "size": 35149,
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
           "size": 35823,
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
+          "mode": 420,
           "size": 7819,
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
           "size": 9496456,
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
           "size": 618502,
-          "sha256": "377187b2197dcfcabaac271ad194bac98fb9fc4994919f250c865a2958f1dbc0",
-          "mode": 420
+          "sha256": "377187b2197dcfcabaac271ad194bac98fb9fc4994919f250c865a2958f1dbc0"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "size": 2876,
-          "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
-          "mode": 420
+          "mode": 420,
+          "size": 2978,
+          "sha256": "49c35a85639f0454509cf0a89758fbc95790979bdd4e60cff2c6dbb66bab4280"
         },
         {
           "path": "qmd-tool",
+          "mode": 493,
           "size": 1966264,
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
+          "mode": 420,
           "size": 103008,
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -1508,57 +1726,57 @@
       "platform": "chiappa",
       "architecture": "aarch64",
       "xochitl_sha256": "09ba8581a50d96c19b360606ee0288b8863faec620036c8eda3b2a0b5cc2d2e2",
-      "asset": "rmtool-tap-page-turn-chiappa-20261009073202-3.29.0.152.tar.gz",
-      "size": 3849311,
-      "sha256": "a39833daeb79cccd0fb2de96c7444a19a3d7aa39d5adcf83a13b34ed0d108e26",
+      "asset": "rmtool-tap-page-turn-chiappa-20261009073202-3.29.0.152-sha256-bdf2706b1dac76a5a2f7a0355977b0eda1b997834da6f6132908451992128cf1.tar.gz",
+      "size": 3849328,
+      "sha256": "bdf2706b1dac76a5a2f7a0355977b0eda1b997834da6f6132908451992128cf1",
       "files": [
         {
           "path": "LICENSE.qmd-tool",
+          "mode": 420,
           "size": 35149,
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
           "size": 35823,
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
+          "mode": 420,
           "size": 7819,
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
           "size": 9496456,
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
           "size": 613222,
-          "sha256": "46391654693fa39ce68386904c9b59f3676b4e3f8bf0163e54c82a7f9ec2b5e4",
-          "mode": 420
+          "sha256": "46391654693fa39ce68386904c9b59f3676b4e3f8bf0163e54c82a7f9ec2b5e4"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "size": 2876,
-          "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
-          "mode": 420
+          "mode": 420,
+          "size": 2978,
+          "sha256": "49c35a85639f0454509cf0a89758fbc95790979bdd4e60cff2c6dbb66bab4280"
         },
         {
           "path": "qmd-tool",
+          "mode": 493,
           "size": 1966264,
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
+          "mode": 420,
           "size": 103008,
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -1569,57 +1787,57 @@
       "platform": "tatsu",
       "architecture": "aarch64",
       "xochitl_sha256": "1bf16b6e7d5355e48479fa832871e98834307da652a06245b5fb86d0bbd7a26c",
-      "asset": "rmtool-tap-page-turn-tatsu-20261009073202-3.29.0.152.tar.gz",
-      "size": 3846857,
-      "sha256": "57efbb833a6919ef4af659ed0c62f23f054560ea434c94a12fac00d15c70ce11",
+      "asset": "rmtool-tap-page-turn-tatsu-20261009073202-3.29.0.152-sha256-2a7691ae145d7d99bf8ad440c5a126e7cd9a5b8ad10f2107049d72131d137ab8.tar.gz",
+      "size": 3846874,
+      "sha256": "2a7691ae145d7d99bf8ad440c5a126e7cd9a5b8ad10f2107049d72131d137ab8",
       "files": [
         {
           "path": "LICENSE.qmd-tool",
+          "mode": 420,
           "size": 35149,
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
           "size": 35823,
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
+          "mode": 420,
           "size": 7819,
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
           "size": 9496456,
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
           "size": 608528,
-          "sha256": "4b2c31794b8d0f3984e47029bc0cb091f827cc0eba1f15d6ed75140ab9b3070f",
-          "mode": 420
+          "sha256": "4b2c31794b8d0f3984e47029bc0cb091f827cc0eba1f15d6ed75140ab9b3070f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "size": 2876,
-          "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
-          "mode": 420
+          "mode": 420,
+          "size": 2978,
+          "sha256": "49c35a85639f0454509cf0a89758fbc95790979bdd4e60cff2c6dbb66bab4280"
         },
         {
           "path": "qmd-tool",
+          "mode": 493,
           "size": 1966264,
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
+          "mode": 420,
           "size": 103008,
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -1630,57 +1848,57 @@
       "platform": "rm1",
       "architecture": "armv7l",
       "xochitl_sha256": "2eb775c3ced943c20ccf6271bb107e745db10aece2dc21e0e4bd8450d98fd23c",
-      "asset": "rmtool-tap-page-turn-rm1-20261009073202-3.29.0.152.tar.gz",
-      "size": 3829576,
-      "sha256": "1bb9b7ff41bf6f67e17a062f878cdd4c9580f6af07e78e83dad29683044543a1",
+      "asset": "rmtool-tap-page-turn-rm1-20261009073202-3.29.0.152-sha256-783206de204607dd332e55aaa42244e57205f3505d1c747ab50c284ea271aea8.tar.gz",
+      "size": 3829593,
+      "sha256": "783206de204607dd332e55aaa42244e57205f3505d1c747ab50c284ea271aea8",
       "files": [
         {
           "path": "LICENSE.qmd-tool",
+          "mode": 420,
           "size": 35149,
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
           "size": 35823,
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
+          "mode": 420,
           "size": 7819,
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
           "size": 8539328,
-          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa",
-          "mode": 420
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
           "size": 595614,
-          "sha256": "ab0fae22a6b5a3c5e6ddc0eede1b1c601808b8a9a6abf18c2fc542b70c209030",
-          "mode": 420
+          "sha256": "ab0fae22a6b5a3c5e6ddc0eede1b1c601808b8a9a6abf18c2fc542b70c209030"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "size": 2876,
-          "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
-          "mode": 420
+          "mode": 420,
+          "size": 2978,
+          "sha256": "49c35a85639f0454509cf0a89758fbc95790979bdd4e60cff2c6dbb66bab4280"
         },
         {
           "path": "qmd-tool",
+          "mode": 493,
           "size": 2031800,
-          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312",
-          "mode": 493
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312"
         },
         {
           "path": "xovi.so",
+          "mode": 420,
           "size": 123620,
-          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14",
-          "mode": 420
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14"
         }
       ]
     },
@@ -1691,57 +1909,57 @@
       "platform": "rm2",
       "architecture": "armv7l",
       "xochitl_sha256": "50a5ed69ab9c60d9f3b1d04b19311562194f6cfee769b17a6ea069d255e47760",
-      "asset": "rmtool-tap-page-turn-rm2-20261009073202-3.29.0.152.tar.gz",
-      "size": 3837107,
-      "sha256": "7d80e67e0fc6ac6f60ce6642bf081e3853be8a0eaff7dceab962f9c021079cdd",
+      "asset": "rmtool-tap-page-turn-rm2-20261009073202-3.29.0.152-sha256-7cf81718302d639a8030cd4731a4b8aac3a5cfc299e54414b2d5c8ecd13e69da.tar.gz",
+      "size": 3837126,
+      "sha256": "7cf81718302d639a8030cd4731a4b8aac3a5cfc299e54414b2d5c8ecd13e69da",
       "files": [
         {
           "path": "LICENSE.qmd-tool",
+          "mode": 420,
           "size": 35149,
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
           "size": 35823,
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
+          "mode": 420,
           "size": 7819,
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
           "size": 8539328,
-          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa",
-          "mode": 420
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
           "size": 611060,
-          "sha256": "27a4d840043902fce44563904d05533bf6b178ff804f4ac0be8d3dab00d3c870",
-          "mode": 420
+          "sha256": "27a4d840043902fce44563904d05533bf6b178ff804f4ac0be8d3dab00d3c870"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "size": 2876,
-          "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
-          "mode": 420
+          "mode": 420,
+          "size": 2978,
+          "sha256": "49c35a85639f0454509cf0a89758fbc95790979bdd4e60cff2c6dbb66bab4280"
         },
         {
           "path": "qmd-tool",
+          "mode": 493,
           "size": 2031800,
-          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312",
-          "mode": 493
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312"
         },
         {
           "path": "xovi.so",
+          "mode": 420,
           "size": 123620,
-          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14",
-          "mode": 420
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14"
         }
       ]
     },
@@ -1752,57 +1970,57 @@
       "platform": "chiappa",
       "architecture": "aarch64",
       "xochitl_sha256": "0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba",
-      "asset": "rmtool-tap-page-turn-chiappa-20261009073202-3.29.0.153.tar.gz",
-      "size": 3849130,
-      "sha256": "ddf1db54e6f5db483a6eebd06cf835d965c45f3c493a12fe67e34fe628f5f85d",
+      "asset": "rmtool-tap-page-turn-chiappa-20261009073202-3.29.0.153-sha256-998f1da8165d883154fc3e4e2a63b8cf393143a28344334f5a9472cf69905df3.tar.gz",
+      "size": 3849147,
+      "sha256": "998f1da8165d883154fc3e4e2a63b8cf393143a28344334f5a9472cf69905df3",
       "files": [
         {
           "path": "LICENSE.qmd-tool",
+          "mode": 420,
           "size": 35149,
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
           "size": 35823,
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
+          "mode": 420,
           "size": 7819,
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
           "size": 9496456,
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
           "size": 613236,
-          "sha256": "dcc74e46b6b306ffe5df1d7c6c6929bfa353e4fcc6c909de36d17bfe8d24ac0c",
-          "mode": 420
+          "sha256": "dcc74e46b6b306ffe5df1d7c6c6929bfa353e4fcc6c909de36d17bfe8d24ac0c"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "size": 2876,
-          "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
-          "mode": 420
+          "mode": 420,
+          "size": 2978,
+          "sha256": "49c35a85639f0454509cf0a89758fbc95790979bdd4e60cff2c6dbb66bab4280"
         },
         {
           "path": "qmd-tool",
+          "mode": 493,
           "size": 1966264,
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
+          "mode": 420,
           "size": 103008,
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -1813,57 +2031,57 @@
       "platform": "ferrari",
       "architecture": "aarch64",
       "xochitl_sha256": "9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4",
-      "asset": "rmtool-tap-page-turn-ferrari-20261009073202-3.29.0.153.tar.gz",
-      "size": 3852339,
-      "sha256": "cbbc51c6a12d6f08effb2319f8333728ca33f7a1aed44e7a41b68f5d88051804",
+      "asset": "rmtool-tap-page-turn-ferrari-20261009073202-3.29.0.153-sha256-38758fb41a7d41270ae7e2cd421908f68ef684954b38a50025b1bac9c358f677.tar.gz",
+      "size": 3852352,
+      "sha256": "38758fb41a7d41270ae7e2cd421908f68ef684954b38a50025b1bac9c358f677",
       "files": [
         {
           "path": "LICENSE.qmd-tool",
+          "mode": 420,
           "size": 35149,
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
           "size": 35823,
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
+          "mode": 420,
           "size": 7819,
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
           "size": 9496456,
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
           "size": 618516,
-          "sha256": "42a1d65d2ca973ad9f45ecdf45d2cdd0773801b18a5cf849513c041c9ddd2c2a",
-          "mode": 420
+          "sha256": "42a1d65d2ca973ad9f45ecdf45d2cdd0773801b18a5cf849513c041c9ddd2c2a"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "size": 2876,
-          "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
-          "mode": 420
+          "mode": 420,
+          "size": 2978,
+          "sha256": "49c35a85639f0454509cf0a89758fbc95790979bdd4e60cff2c6dbb66bab4280"
         },
         {
           "path": "qmd-tool",
+          "mode": 493,
           "size": 1966264,
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
+          "mode": 420,
           "size": 103008,
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -1874,57 +2092,57 @@
       "platform": "tatsu",
       "architecture": "aarch64",
       "xochitl_sha256": "3735105b7e6b8a1d8ea42c9eabe6079c0bd1c99a546ab1a9fc7870263909ce39",
-      "asset": "rmtool-tap-page-turn-tatsu-20261009073202-3.29.0.153.tar.gz",
-      "size": 3846538,
-      "sha256": "007657fe027fe357324054c4c8f996aa4c80e17854e2959054cb7ee203ed1b58",
+      "asset": "rmtool-tap-page-turn-tatsu-20261009073202-3.29.0.153-sha256-5a313be2089e999cf3739bfbfb75c0aaf25d85343fd885310a70fe6956d43235.tar.gz",
+      "size": 3846552,
+      "sha256": "5a313be2089e999cf3739bfbfb75c0aaf25d85343fd885310a70fe6956d43235",
       "files": [
         {
           "path": "LICENSE.qmd-tool",
+          "mode": 420,
           "size": 35149,
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
           "size": 35823,
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
+          "mode": 420,
           "size": 7819,
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
           "size": 9496456,
-          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f",
-          "mode": 420
+          "sha256": "6726f561557406f36347e43fc2b44a88deef4fb273d2ece88f48f427dad8800f"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
           "size": 608542,
-          "sha256": "dc217eb13f15099073b3efae5bc3cb14b2f48a72c02cf35a9fe4e636e9e5fce8",
-          "mode": 420
+          "sha256": "dc217eb13f15099073b3efae5bc3cb14b2f48a72c02cf35a9fe4e636e9e5fce8"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "size": 2876,
-          "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
-          "mode": 420
+          "mode": 420,
+          "size": 2978,
+          "sha256": "49c35a85639f0454509cf0a89758fbc95790979bdd4e60cff2c6dbb66bab4280"
         },
         {
           "path": "qmd-tool",
+          "mode": 493,
           "size": 1966264,
-          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9",
-          "mode": 493
+          "sha256": "656f54a2937c584fc02c150cedfda8e7992add1747f577e906eccaeed2f209b9"
         },
         {
           "path": "xovi.so",
+          "mode": 420,
           "size": 103008,
-          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446",
-          "mode": 420
+          "sha256": "d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446"
         }
       ]
     },
@@ -1935,57 +2153,57 @@
       "platform": "rm1",
       "architecture": "armv7l",
       "xochitl_sha256": "0c68cf7b049fb87929b5978494a1205bc558f239f77758821c67524133a3f54b",
-      "asset": "rmtool-tap-page-turn-rm1-20261009073202-3.29.0.153.tar.gz",
-      "size": 3829349,
-      "sha256": "7332ecce5361265199c4c48f6f3c7ef09f32cf8315bd41064ae88b6bd1d9db58",
+      "asset": "rmtool-tap-page-turn-rm1-20261009073202-3.29.0.153-sha256-1428d802c3b4078d82ef20b02aad6cffe09a6448ba0ded6bc63b029b78ccab20.tar.gz",
+      "size": 3829361,
+      "sha256": "1428d802c3b4078d82ef20b02aad6cffe09a6448ba0ded6bc63b029b78ccab20",
       "files": [
         {
           "path": "LICENSE.qmd-tool",
+          "mode": 420,
           "size": 35149,
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
           "size": 35823,
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
+          "mode": 420,
           "size": 7819,
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
           "size": 8539328,
-          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa",
-          "mode": 420
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
           "size": 595628,
-          "sha256": "efee6bcdee1866d350c380c860ab17e3b110994d2ada0d02fff004f08715b589",
-          "mode": 420
+          "sha256": "efee6bcdee1866d350c380c860ab17e3b110994d2ada0d02fff004f08715b589"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "size": 2876,
-          "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
-          "mode": 420
+          "mode": 420,
+          "size": 2978,
+          "sha256": "49c35a85639f0454509cf0a89758fbc95790979bdd4e60cff2c6dbb66bab4280"
         },
         {
           "path": "qmd-tool",
+          "mode": 493,
           "size": 2031800,
-          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312",
-          "mode": 493
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312"
         },
         {
           "path": "xovi.so",
+          "mode": 420,
           "size": 123620,
-          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14",
-          "mode": 420
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14"
         }
       ]
     },
@@ -1996,57 +2214,57 @@
       "platform": "rm2",
       "architecture": "armv7l",
       "xochitl_sha256": "53547bc30584b9057d5b05ada6c5fb2df3561c3a097c1c2b1aae527d5ddd2e26",
-      "asset": "rmtool-tap-page-turn-rm2-20261009073202-3.29.0.153.tar.gz",
-      "size": 3837122,
-      "sha256": "ae47ebb131be3ce2d16ad01d63cdc5c1a9f377ec4f116e135af4ca123f194052",
+      "asset": "rmtool-tap-page-turn-rm2-20261009073202-3.29.0.153-sha256-1030cc80eec00435fac9123ac2ef864e2117feea028fdcd0b34e9263c4a9cd8a.tar.gz",
+      "size": 3837140,
+      "sha256": "1030cc80eec00435fac9123ac2ef864e2117feea028fdcd0b34e9263c4a9cd8a",
       "files": [
         {
           "path": "LICENSE.qmd-tool",
+          "mode": 420,
           "size": 35149,
-          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-          "mode": 420
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
         },
         {
           "path": "LICENSE.rm-xovi-extensions",
+          "mode": 420,
           "size": 35823,
-          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-          "mode": 420
+          "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
         },
         {
           "path": "LICENSE.xovi",
+          "mode": 420,
           "size": 7819,
-          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976",
-          "mode": 420
+          "sha256": "99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976"
         },
         {
           "path": "extensions.d/qt-resource-rebuilder.so",
+          "mode": 420,
           "size": 8539328,
-          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa",
-          "mode": 420
+          "sha256": "d96530ecd74bbe15ed1efc686c125db24578379fc0e0706ec70d4c53a856e0aa"
         },
         {
           "path": "exthome/qt-resource-rebuilder/hashtab",
+          "mode": 420,
           "size": 611074,
-          "sha256": "84d31a7c7b63d27f0e37cd9b2a5f26fdd1f0278e0bbf3a12a211d48d267ed276",
-          "mode": 420
+          "sha256": "84d31a7c7b63d27f0e37cd9b2a5f26fdd1f0278e0bbf3a12a211d48d267ed276"
         },
         {
           "path": "exthome/qt-resource-rebuilder/tap-page-turn.qmd",
-          "size": 2876,
-          "sha256": "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
-          "mode": 420
+          "mode": 420,
+          "size": 2978,
+          "sha256": "49c35a85639f0454509cf0a89758fbc95790979bdd4e60cff2c6dbb66bab4280"
         },
         {
           "path": "qmd-tool",
+          "mode": 493,
           "size": 2031800,
-          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312",
-          "mode": 493
+          "sha256": "039074438b028908957514e6bf9fd0cc15ea1d072999e43020fd87e41f841312"
         },
         {
           "path": "xovi.so",
+          "mode": 420,
           "size": 123620,
-          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14",
-          "mode": 420
+          "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14"
         }
       ]
     }

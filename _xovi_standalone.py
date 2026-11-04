@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import logging
 import os
@@ -18,6 +19,8 @@ from pathlib import Path, PurePosixPath
 from typing import Iterable, Mapping, Optional
 
 import _device_storage as storage
+
+RUNTIME_MOVES_PATH = "/run/rmtool-xovi-runtime-moves"
 
 @dataclass(frozen=True)
 class StandaloneLayout:
@@ -1039,7 +1042,12 @@ def _active(ssh_client, layout: StandaloneLayout = SHARED_LAYOUT) -> bool:
         f"grep -Fq '{layout.remote_base}/xovi.so' /proc/$pid/maps 2>/dev/null"
     )
     _stdout, _stderr, code = ssh_client.exec_command(command)
-    return code == 0
+    if code == 0:
+        return True
+    if not ssh_client.file_exists(RUNTIME_MOVES_PATH):
+        return False
+    from _plugin_recovery import historical_mapping_active
+    return historical_mapping_active(ssh_client, "xovi.so")
 
 
 def has_shared_artifacts(ssh_client) -> bool:
@@ -1412,14 +1420,11 @@ def _assert_receipt_sidecars(ssh_client, states: Mapping[str, SharedFeatureState
     for state in states.values():
         for sidecar in state.spec.sidecars:
             if not state.enabled:
-                if _remote_entry_exists(ssh_client, sidecar.remote_path):
-                    raise RuntimeError(
-                        f"共享 Xovi 已停用功能仍残留伴随进程 {sidecar.remote_path}。"
-                    )
-                continue
+                if not _remote_entry_exists(ssh_client, sidecar.remote_path):
+                    continue
             path = shlex.quote(sidecar.remote_path)
             metadata = ssh_client.exec_checked(
-                f"stat -c '%f|%u|%g|%s|%h' {path}; [ ! -L {path} ]"
+                f"stat -c '%f|%u|%g|%s|%h' {path} && [ ! -L {path} ]"
             ).strip().split("|")
             if metadata != [
                 f"{0o100000 | sidecar.mode:x}",
@@ -1440,6 +1445,7 @@ def inspect_shared(
     *,
     check_lower: bool = False,
     trusted_alternatives: Optional[Mapping[str, Iterable[SharedFeatureSpec]]] = None,
+    published_only: bool = False,
 ) -> SharedInspection:
     assert_feature_layout(runtime, trusted.values())
     current = ssh_client.file_exists(SHARED_LAYOUT.remote_base)
@@ -1455,7 +1461,63 @@ def inspect_shared(
         check_lower=check_lower,
         expected_dropin=None,
         trusted_alternatives=trusted_alternatives,
+        published_only=published_only,
     )
+
+
+class _ReadOnlyInspectionSnapshot:
+    """Reuse file observations within one inspection, never across operations."""
+
+    def __init__(self, ssh):
+        self.ssh = ssh
+        self.results = {}
+
+    def __getattr__(self, name):
+        return getattr(self.ssh, name)
+
+    def file_exists(self, path):
+        key = ("exists", path)
+        if key not in self.results:
+            self.results[key] = self.ssh.file_exists(path)
+        return self.results[key]
+
+    def open_remote(self, path, mode="r"):
+        if mode not in ("r", "rb"):
+            raise RuntimeError("检测快照不允许写入设备。")
+        key = ("file", path)
+        if key not in self.results:
+            with self.ssh.open_remote(path, mode) as remote:
+                data = remote.read(1024 * 1024 + 1)
+            if len(data) > 1024 * 1024:
+                raise RuntimeError("共享插件检测文件超过允许大小。")
+            self.results[key] = data
+        data = self.results[key]
+        return io.BytesIO(data) if isinstance(data, bytes) else io.StringIO(data)
+
+    def _execute(self, method, command):
+        # Process identity, maps and temporary mount checks must stay live.
+        cacheable = (command.startswith(("stat -c ", "sha256sum ", "find -P ", "[ ! -L ", "[ -e ", "test "))
+                     and not any(word in command for word in ("/proc/", "systemctl", "mount ", "rm ", "mv ", "cp ", "chmod ")))
+        if not cacheable:
+            return getattr(self.ssh, method)(command)
+        key = (method, command)
+        if key not in self.results:
+            self.results[key] = getattr(self.ssh, method)(command)
+        return self.results[key]
+
+    def exec_checked(self, command):
+        return self._execute("exec_checked", command)
+
+    def exec_command(self, command, **kwargs):
+        from _ssh import quick_exec
+        return quick_exec(self.ssh, command, **kwargs)
+
+
+def firmware_residue_detail(ssh_client, identity):
+    if read_shared_identity(ssh_client) == (identity.firmware, identity.platform, identity.architecture, identity.xochitl_sha256):
+        return ""
+    return ("共享插件标记属于其他固件，请先在固件管理检测并迁移共享插件；不要单独重装。"
+            "文档上传也可临时手动开启设备的 USB 网页界面，使用原生导入。")
 
 
 def inspect_shared_revisions(
@@ -1476,11 +1538,17 @@ def inspect_shared_revisions(
         options = [("", current)]
         seen = {current}
         for reason, predecessor in predecessors:
+            same_package = predecessor.package_id == current.package_id
+            if not same_package and feature_id == "appload":
+                import _appload
+                import _tap_page_turn as tap
+                identity = tap.DeviceIdentity(runtime.firmware, runtime.platform, runtime.architecture, runtime.xochitl_sha256)
+                same_package = predecessor in tuple(spec for _reason, spec in _appload.published_predecessors(identity, current))
             if (
                 not reason
                 or predecessor in seen
                 or predecessor.feature_id != feature_id
-                or predecessor.package_id != current.package_id
+                or not same_package
                 or predecessor.runtime_path != current.runtime_path
             ):
                 raise RuntimeError("共享 Xovi 前代功能规格无效。")
@@ -1489,8 +1557,9 @@ def inspect_shared_revisions(
         choices.append((feature_id, tuple(options)))
 
     current_error: Optional[RuntimeError] = None
-    combinations = product(*(options for _feature_id, options in choices))
-    for combination in combinations:
+    snapshot = _ReadOnlyInspectionSnapshot(ssh_client)
+    combinations = tuple(product(*(options for _feature_id, options in choices)))
+    for published_only, combination in product((True, False), combinations):
         candidate = dict(trusted)
         selected = {}
         for (feature_id, _options), (reason, spec) in zip(
@@ -1501,11 +1570,12 @@ def inspect_shared_revisions(
                 selected[feature_id] = reason
         try:
             inspection = inspect_shared(
-                ssh_client,
+                snapshot,
                 runtime,
                 candidate,
                 check_lower=check_lower,
                 trusted_alternatives=trusted_alternatives,
+                published_only=published_only,
             )
         except RuntimeError as exc:
             if current_error is None:
@@ -1706,6 +1776,7 @@ def _inspect_shared(
     expected_dropin: Optional[bool],
     tolerate_legacy_templates: bool = False,
     trusted_alternatives: Optional[Mapping[str, Iterable[SharedFeatureSpec]]] = None,
+    published_only: bool = False,
 ) -> SharedInspection:
     artifacts = has_shared_artifacts(ssh_client)
     if not artifacts:
@@ -1748,7 +1819,7 @@ def _inspect_shared(
         and not _receipt_matches_any_trusted(
             states, trusted, trusted_alternatives
         )
-        and not _managed_receipt_is_known(marker)
+        and (published_only or not _managed_receipt_is_known(marker))
     ):
         raise RuntimeError(
             "共享 Xovi 本地测试版没有当前电脑的完成安装登记。"
@@ -1942,7 +2013,7 @@ def _check_lower_dropins(ssh_client, expected: Mapping[str, Optional[str]]) -> N
                 f"[ \"$(stat -c '%f %u %g' {lower})\" = '81a4 0 0' ] && "
                 f"[ \"$(sha256sum {lower} | awk '{{print $1}}')\" = {shlex.quote(digest)} ]"
             )
-    script = " && ".join(checks) or ":"
+    script = "\n".join("{ " + check + "; } || exit 1" for check in checks) or ":"
     ssh_client.exec_checked(f"""set -eu
 MOUNT_DIR={shlex.quote(mount_dir)}
 cleanup() {{ umount "$MOUNT_DIR" 2>/dev/null || true; rmdir "$MOUNT_DIR" 2>/dev/null || true; }}
@@ -2242,7 +2313,59 @@ def shared_transaction_script(
     retain_backup: bool = False,
     layout: StandaloneLayout = SHARED_LAYOUT,
     controls_only: bool = False,
+    stop_units: Iterable[str] = (),
+    pinyin_stage: str | None = None,
 ) -> str:
+    external_commit = external_restore = external_cleanup = ""
+    external_flags = ""
+    if pinyin_stage is not None:
+        external = "/home/root/.local/share/rmtool/pinyin-input"
+        if not re.fullmatch(re.escape(external) + r"\.staging-[0-9a-f]{32}", pinyin_stage):
+            raise ValueError("拼音暂存路径不属于本次受控安装。")
+        external_backup = external + ".backup-" + token
+        external_flags = f'''PINYIN_BASE={shlex.quote(external)}
+PINYIN_STAGE={shlex.quote(pinyin_stage)}
+PINYIN_BACKUP={shlex.quote(external_backup)}
+PINYIN_OLD_MOVED=0
+PINYIN_NEW_MOVED=0'''
+        external_commit = '''
+{ [ -d "$PINYIN_STAGE" ] && [ ! -L "$PINYIN_STAGE" ] &&
+  [ ! -e "$PINYIN_BACKUP" ] && [ ! -L "$PINYIN_BACKUP" ] && [ ! -L "$PINYIN_BASE" ]; } || exit 1
+if [ -e "$PINYIN_BASE" ]; then mv "$PINYIN_BASE" "$PINYIN_BACKUP"; PINYIN_OLD_MOVED=1; fi
+mv "$PINYIN_STAGE" "$PINYIN_BASE"
+PINYIN_NEW_MOVED=1
+'''
+        external_restore = '''
+        if [ "$PINYIN_NEW_MOVED" -eq 1 ]; then rm -rf "$PINYIN_BASE" || ROLLBACK_OK=0; fi
+        if [ "$PINYIN_OLD_MOVED" -eq 1 ] && ! mv "$PINYIN_BACKUP" "$PINYIN_BASE"; then
+            ROLLBACK_OK=0
+            echo "pinyin service rollback incomplete; recovery kept at $PINYIN_BACKUP" >&2
+        fi
+'''
+        external_cleanup = ':' if retain_backup else 'rm -rf "$PINYIN_BACKUP"'
+    stop_units = tuple(stop_units)
+    if any(unit != "rmtool-pinyin-input.service" for unit in stop_units):
+        raise ValueError("共享事务只能管理已验证的拼音服务。")
+    stop_sidecars = ""
+    restore_sidecars = ""
+    if stop_units:
+        stop_sidecars = '''
+for unit in ''' + " ".join(shlex.quote(unit) for unit in stop_units) + '''; do
+    state=$(systemctl show "$unit" -p ActiveState --value)
+    case "$state" in
+        active) STOPPED_UNITS="$STOPPED_UNITS $unit" ;;
+        inactive|failed) continue ;;
+        *) echo "sidecar service state is uncertain" >&2; exit 1 ;;
+    esac
+    systemctl stop "$unit"
+    [ "$(systemctl show "$unit" -p ActiveState --value)" = inactive ] || exit 1
+done
+'''
+        restore_sidecars = '''
+        if [ "$ROLLBACK_OK" -eq 1 ] && [ "$ROOT_RELEASED" -eq 1 ]; then
+            for unit in $STOPPED_UNITS; do systemctl start "$unit" || ROLLBACK_OK=0; done
+        fi
+'''
     layouts = tuple(legacy_layouts)
     if controls_only and (layouts or remove_base or not retain_backup or not enable_dropin):
         raise ValueError("启动配置修复不能同时迁移布局、删除主体或丢弃备份。")
@@ -2283,7 +2406,8 @@ def shared_transaction_script(
 
     base_flags = tuple(f"MOVED_BASE_{index}" for index in range(len(bases)))
     base_backup = "\n".join(
-        f'if [ -e {shlex.quote(base)} ]; then mv {shlex.quote(base)} {shlex.quote(backup)}; {flag}=1; fi'
+        f'if [ -e {shlex.quote(base)} ]; then record_runtime_move {shlex.quote(base)} {shlex.quote(backup)}; '
+        f'mv {shlex.quote(base)} {shlex.quote(backup)}; {flag}=1; fi'
         for base, backup, flag in zip(bases, base_backups, base_flags)
     )
     base_restore = "\n".join(
@@ -2361,7 +2485,39 @@ ROOT_RELEASED=1
 ROLLBACK_OK=1
 ROOT_MOUNT_FOUND=0
 ROOT_WAS_RW=0
+STOPPED_UNITS=
+{external_flags}
 {chr(10).join(flag + '=0' for flag in base_flags)}
+
+record_runtime_move() {{
+    # Keep exact transaction provenance only for the currently running reader.
+    pid=$(systemctl show xochitl -p MainPID --value 2>/dev/null || true)
+    case "$pid" in ''|*[!0-9]*|0) return 0 ;; esac
+    boot=$(cat /proc/sys/kernel/random/boot_id)
+    start=$(awk '{{print $22}}' "/proc/$pid/stat")
+    case "$start" in ''|*[!0-9]*) return 1 ;; esac
+    process="$boot:$pid:$start"
+    proof={shlex.quote(RUNTIME_MOVES_PATH)}
+    temporary="$proof.tmp-{token}"
+    {{ [ -d /run ] && [ ! -L /run ] && [ "$(stat -c '%u:%g' /run)" = 0:0 ] &&
+       [ $((0$(stat -c %a /run) & 0022)) -eq 0 ]; }} || return 1
+    {{ [ ! -e "$temporary" ] && [ ! -L "$temporary" ]; }} || return 1
+    if [ -e "$proof" ] || [ -L "$proof" ]; then
+        {{ [ -f "$proof" ] && [ ! -L "$proof" ] &&
+           [ "$(stat -c '%a:%u:%g:%h' "$proof")" = 600:0:0:1 ] &&
+           [ "$(stat -c %s "$proof")" -le 65536 ]; }} || return 1
+    fi
+    (
+        umask 077
+        set -C
+        {{
+            if [ -f "$proof" ]; then awk -F '|' -v process="$process" '$1 == process' "$proof"; fi
+            printf '%s|%s|%s\n' "$process" "$1" "$2"
+        }} > "$temporary"
+    ) || return 1
+    if [ "$(stat -c %s "$temporary")" -gt 65536 ]; then rm -f "$temporary"; return 1; fi
+    mv -f "$temporary" "$proof"
+}}
 
 while read -r _source mountpoint _type options _rest; do
     if [ "$mountpoint" = / ]; then
@@ -2432,6 +2588,8 @@ rollback() {{
         if [ "$ROOT_RELEASED" -eq 1 ]; then
             systemctl daemon-reload 2>/dev/null || ROLLBACK_OK=0
         fi
+        {external_restore}
+        {restore_sidecars}
     fi
     rm -rf "$STAGE" || ROLLBACK_OK=0
     if [ "$ROLLBACK_OK" -eq 1 ] && [ "$ROOT_RELEASED" -eq 1 ]; then
@@ -2456,6 +2614,8 @@ mount_root_rw
 unmount_root
 DROPINS_SNAPSHOTTED=1
 
+{stop_sidecars}
+{external_commit}
 {base_backup}
 {stage_commit}
 
@@ -2469,6 +2629,7 @@ unmount_root
 systemctl daemon-reload
 
 COMMITTED=1
+{external_cleanup}
 {commit_cleanup}
 trap - EXIT HUP INT PIPE TERM
 """
@@ -2839,6 +3000,11 @@ def replace_shared_features(
                 previous_sources,
                 stage,
             )
+            stop_units = {
+                sidecar.unit_name for fid, old in inspection.states.items()
+                if old.enabled and (fid not in target_states or not target_states[fid].enabled)
+                for sidecar in old.spec.sidecars if sidecar.unit_name
+            }
             script = shared_transaction_script(
                 stage,
                 token,
@@ -2846,6 +3012,7 @@ def replace_shared_features(
                 enable_dropin=bool(enabled),
                 remove_base=remove_base_when_empty and not enabled,
                 layout=layout,
+                stop_units=sorted(stop_units),
             )
             _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
             ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
@@ -2954,6 +3121,7 @@ def _shared_enable_plan(
     inspection: SharedInspection | None = None,
     check_lower: bool = True,
     additional_features: Iterable[str] = (),
+    replace_sidecars: bool = False,
 ) -> SharedEnablePlan | SharedInspection:
     additional_features = frozenset(additional_features)
     if feature.feature_id in additional_features:
@@ -2990,6 +3158,10 @@ def _shared_enable_plan(
         if feature_id in trusted
     })
     shared_exists = has_shared_artifacts(ssh_client)
+    if not shared_exists:
+        import _tap_page_turn as tap
+        if detail := tap._external_xovi_conflict_detail(ssh_client):
+            raise RuntimeError(detail)
     if inspection is None:
         inspection = (
             inspect_shared(ssh_client, runtime, trusted, check_lower=check_lower)
@@ -3009,9 +3181,10 @@ def _shared_enable_plan(
     installed_state = inspection.states.get(feature.feature_id)
     if installed_state is not None and installed_state.spec != feature:
         if feature.feature_id not in inspection.receipt_features and (
-            installed_state.spec.feature_id != feature.feature_id
+            installed_state.spec != trusted.get(feature.feature_id)
+            and (installed_state.spec.feature_id != feature.feature_id
             or installed_state.spec.package_id != feature.package_id
-            or installed_state.spec.runtime_path != feature.runtime_path
+            or installed_state.spec.runtime_path != feature.runtime_path)
         ):
             raise RuntimeError("共享 Xovi 旧版功能替换规则无效。")
     if (
@@ -3021,6 +3194,7 @@ def _shared_enable_plan(
         and inspection.layout == layout
         and not inspection.launcher_update_available
         and not additional_features
+        and not replace_sidecars
     ):
         return inspection
     current = _process_token(ssh_client)
@@ -3102,7 +3276,10 @@ def _enable_shared_locked(
     legacy_specs: Iterable[LegacyStandaloneSpec],
     *,
     additional_roots: Mapping[str, str | Path] | None = None,
+    pinyin_stage: str | None = None,
 ) -> SharedInspection:
+    if pinyin_stage is not None and feature.feature_id != "pinyin-input":
+        raise ValueError("拼音暂存服务不能由其他功能替换。")
     additional_roots = dict(additional_roots or {})
     plan = _shared_enable_plan(
         ssh_client,
@@ -3111,6 +3288,7 @@ def _enable_shared_locked(
         trusted,
         legacy_specs,
         additional_features=additional_roots,
+        replace_sidecars=pinyin_stage is not None,
     )
     if isinstance(plan, SharedInspection):
         return plan
@@ -3144,7 +3322,10 @@ def _enable_shared_locked(
         if inspection.states and inspection.layout != layout:
             migrated_layouts.append(inspection.layout)
         script = shared_transaction_script(
-            stage, token, migrated_layouts, enable_dropin=True, layout=layout
+            stage, token, migrated_layouts, enable_dropin=True, layout=layout,
+            retain_backup=pinyin_stage is not None,
+            pinyin_stage=pinyin_stage,
+            stop_units=("rmtool-pinyin-input.service",) if pinyin_stage else (),
         )
         _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
         ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
@@ -3159,7 +3340,25 @@ def _enable_shared_locked(
             ssh_client.exec_checked(f"rm -f {shlex.quote(remote_script)}")
         except Exception:
             logging.exception("Could not remove shared Xovi transaction script")
-    return inspect_shared(ssh_client, runtime, target_trusted)
+    try:
+        result = inspect_shared(ssh_client, runtime, target_trusted)
+    except Exception as exc:
+        if pinyin_stage is not None:
+            backup = f"{posixpath.dirname(layout.remote_base)}/.xovi-dropins-{token}"
+            service_backup = "/home/root/.local/share/rmtool/pinyin-input.backup-" + token
+            raise RuntimeError(
+                f"拼音安装已提交，但最终复核未完成；请保留诊断，勿自动重试。"
+                f"恢复备份：{backup}；{service_backup}。原始错误：{exc}"
+            ) from exc
+        raise
+    if pinyin_stage is not None:
+        backup = f"{posixpath.dirname(layout.remote_base)}/.xovi-dropins-{token}"
+        service_backup = "/home/root/.local/share/rmtool/pinyin-input.backup-" + token
+        try:
+            ssh_client.exec_checked(f"rm -rf -- {shlex.quote(backup)} {shlex.quote(service_backup)}")
+        except Exception:
+            logging.warning("Verified Pinyin install retained transaction backups: %s, %s", backup, service_backup, exc_info=True)
+    return result
 
 
 def disable_shared(
@@ -3310,6 +3509,8 @@ def _disable_shared_locked(
             migrated_layouts,
             enable_dropin=bool(enabled),
             layout=layout,
+            stop_units=tuple(sidecar.unit_name for sidecar in state.spec.sidecars
+                             if state.enabled and sidecar.unit_name),
         )
         _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
         ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")

@@ -1,5 +1,6 @@
 """KOReader book file management: detection, directory resolution, file ops."""
 
+import base64
 import hashlib
 import json
 import logging
@@ -34,6 +35,10 @@ SDR_SUFFIX = ".sdr"
 MANAGED_MARKER = posixpath.join(APPLOAD_INSTALL_DIR, ".rmtool-install.json")
 PRESERVED_INSTALL_DIR = "/home/root/.local/share/rmtool/koreader-preserved"
 LEGACY_BACKUP_DIR = "/home/root/.local/share/rmtool/koreader-legacy-backup"
+PROTECTED_LIBRARY_PATHS = (
+    XOCHITL_ROOT, "/home/root/.local/share/rmtool", "/data/rmtool",
+    "/home/root/xovi", OFFICIAL_INSTALL_DIR, TOLTEC_INSTALL_DIR,
+)
 
 MIGRATED_USER_PATHS = (
     "settings.reader.lua",
@@ -258,7 +263,15 @@ def get_managed_status(ssh_client: SSHClientWrapper) -> ManagedStatus:
             ssh_client, posixpath.join(APPLOAD_INSTALL_DIR, "git-rev")
         ).strip()
         if version != asset.version:
-            raise RuntimeError("KOReader 版本文件与管理标记不一致")
+            return ManagedStatus(
+                ManagedState.REPAIRABLE, identity, asset, version,
+                "KOReader 已自行更新，可重新安装固定官方版本修复；完整旧目录将保留",
+            )
+        if not _test_path(ssh_client, "f", posixpath.join(APPLOAD_INSTALL_DIR, OFFICIAL_INDEX)):
+            return ManagedStatus(
+                ManagedState.REPAIRABLE, identity, asset, version,
+                "官方文件索引缺失，请重新安装修复；完整旧目录将保留，不会猜测删除未知文件",
+            )
         required_executables = ("koreader.sh", "luajit", "fbink")
         if not all(
             _test_path(
@@ -415,7 +428,7 @@ def _rollback_payload(
     backup: str,
 ) -> None:
     ssh_client.exec_checked(
-        f"rm -rf {shlex.quote(target)}; "
+        f"set -e; rm -rf {shlex.quote(target)}; "
         f"if [ -d {shlex.quote(backup)} ]; then "
         f"mv {shlex.quote(backup)} {shlex.quote(target)}; fi"
     )
@@ -513,7 +526,7 @@ def install_managed(
             migration_mode = (
                 "allowlist" if current.state in legacy_states else "user-files"
             )
-            ssh_client.exec_checked(
+            swap_result = ssh_client.exec_checked(
                 f"""
 set -eu
 TARGET={shlex.quote(APPLOAD_INSTALL_DIR)}
@@ -524,6 +537,7 @@ ARCHIVE={shlex.quote(remote_archive)}
 BACKUP={shlex.quote(backup)}
 LIST={shlex.quote(lists)}
 MIGRATION={migration_mode}
+KEEP_COMPLETE={int(current.state in legacy_states or bool(current.version and current.version != asset.version))}
 {_USER_DATA_SHELL}
 mkdir -p "$STAGE"
 tar -xzf "$ARCHIVE" -C "$STAGE"
@@ -532,8 +546,10 @@ if [ -d "$TARGET" ]; then
     SOURCE="$TARGET"
     # Without the official index, old program files cannot be told apart
     # from user data; only migrate the allowlist in that case.
-    [ -f "$TARGET/{OFFICIAL_INDEX}" ] && [ ! -L "$TARGET/{OFFICIAL_INDEX}" ] ||
+    if [ ! -f "$TARGET/{OFFICIAL_INDEX}" ] || [ -L "$TARGET/{OFFICIAL_INDEX}" ]; then
         MIGRATION=allowlist
+        KEEP_COMPLETE=1
+    fi
 elif [ -d "$PRESERVED" ]; then
     SOURCE="$PRESERVED"
 fi
@@ -558,8 +574,8 @@ elif [ -n "$SOURCE" ]; then
     rm -f "$LIST"
 fi
 chown -R root:root "$STAGE/koreader"
-[ -f "$STAGE/koreader/koreader.sh" ] && [ ! -L "$STAGE/koreader/koreader.sh" ]
-[ -f "$STAGE/koreader/external.manifest.json" ] && [ ! -L "$STAGE/koreader/external.manifest.json" ]
+{{ [ -f "$STAGE/koreader/koreader.sh" ] && [ ! -L "$STAGE/koreader/koreader.sh" ]; }} || exit 1
+{{ [ -f "$STAGE/koreader/external.manifest.json" ] && [ ! -L "$STAGE/koreader/external.manifest.json" ]; }} || exit 1
 [ "$(cat "$STAGE/koreader/git-rev")" = {shlex.quote(asset.version)} ]
 for item in {executable_paths}; do [ -x "$STAGE/$item" ] || {{ echo "non-executable official file: $item" >&2; exit 1; }}; done
 for directory in /home/root/xovi /home/root/xovi/exthome "$TARGET_PARENT"; do
@@ -579,7 +595,7 @@ HAD_TARGET=0
 SWAPPING=0
 rollback_swap() {{
     result=$?
-    trap - EXIT HUP INT TERM
+    trap - EXIT HUP INT PIPE TERM
     if [ "$result" -ne 0 ]; then
         if [ -d "$BACKUP" ]; then
             rm -rf "$TARGET" && mv "$BACKUP" "$TARGET"
@@ -592,12 +608,15 @@ rollback_swap() {{
 trap rollback_swap EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
+trap 'exit 141' PIPE
 trap 'exit 143' TERM
 if [ -d "$TARGET" ]; then mv "$TARGET" "$BACKUP"; fi
 SWAPPING=1
 mv "$STAGE/koreader" "$TARGET"
 rmdir "$STAGE"
-trap - EXIT HUP INT TERM
+trap - EXIT HUP INT PIPE TERM
+if [ "$KEEP_COMPLETE" -eq 1 ]; then echo rmtool-koreader-keep-complete-backup; fi
+if [ "$SOURCE" = "$PRESERVED" ]; then echo rmtool-koreader-used-preserved; fi
 """.strip()
             )
             committed = True
@@ -619,9 +638,14 @@ trap - EXIT HUP INT TERM
                 legacies,
             )
             try:
+                retained = "rmtool-koreader-keep-complete-backup" in swap_result.splitlines()
+                cleanup_paths = [] if retained else [backup]
+                if "rmtool-koreader-used-preserved" in swap_result.splitlines():
+                    cleanup_paths.append(PRESERVED_INSTALL_DIR)
+                if retained:
+                    logging.warning("KOReader complete recovery retained at %s", rollback_backup)
                 ssh_client.exec_checked(
-                    f"rm -rf {shlex.quote(backup)} "
-                    f"{shlex.quote(PRESERVED_INSTALL_DIR)}; "
+                    ("rm -rf " + " ".join(map(shlex.quote, cleanup_paths)) + "; " if cleanup_paths else "") +
                     f"rm -f {shlex.quote(remote_archive)}"
                 )
             except Exception:
@@ -703,7 +727,6 @@ def uninstall_managed(ssh_client: SSHClientWrapper) -> ManagedStatus:
     backup_q = shlex.quote(backup)
     preserved_stage_q = shlex.quote(preserved_stage)
     lists = shlex.quote(f"/home/root/.cache/rmtool/koreader-files-{token}")
-    migration_paths = " ".join(shlex.quote(path) for path in MIGRATED_USER_PATHS)
     ssh_client.exec_checked(
         f"""
 set -eu
@@ -738,11 +761,15 @@ fi
     echo "KOReader preserved-data directory already exists" >&2
     exit 1
 }}
+{{ [ -f "$TARGET/{OFFICIAL_INDEX}" ] && [ ! -L "$TARGET/{OFFICIAL_INDEX}" ]; }} || {{
+    echo "KOReader official file index missing; repair before uninstall; all files retained" >&2
+    exit 1
+}}
 rm -rf "$BACKUP" "$STAGE"
 mv "$TARGET" "$BACKUP"
 rollback() {{
     rc=$?
-    trap - EXIT HUP INT TERM
+    trap - EXIT HUP INT PIPE TERM
     if [ "$rc" -ne 0 ]; then
         # Put every moved user file back before restoring the install, and
         # keep the backup if that is not possible.
@@ -759,19 +786,13 @@ rollback() {{
     rm -f "$LIST" "$LIST".*
     exit "$rc"
 }}
-trap rollback EXIT HUP INT TERM
+trap rollback EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 141' PIPE
+trap 'exit 143' TERM
 mkdir "$STAGE"
-# Everything except the official program files is user data.  Without the
-# official index, only the allowlisted user data can be identified.
-if [ -f "$BACKUP/{OFFICIAL_INDEX}" ] && [ ! -L "$BACKUP/{OFFICIAL_INDEX}" ]; then
-    list_user_files "$BACKUP" "$LIST" "$BACKUP/{OFFICIAL_INDEX}" || exit 1
-else
-    : > "$LIST"
-    for item in {migration_paths}; do
-        [ -e "$BACKUP/$item" ] || continue
-        ( cd "$BACKUP" && find "./$item" ! -type d ) >> "$LIST" || exit 1
-    done
-fi
+list_user_files "$BACKUP" "$LIST" "$BACKUP/{OFFICIAL_INDEX}" || exit 1
 move_user_files "$BACKUP" "$LIST" "$STAGE" || exit 1
 if find -P "$STAGE" -mindepth 1 -print -quit | grep -q .; then
     mv "$STAGE" "$PRESERVED"
@@ -779,16 +800,16 @@ else
     rm -rf "$STAGE"
 fi
 rm -f "$LIST" "$LIST".*
-trap - EXIT HUP INT TERM
+trap - EXIT HUP INT PIPE TERM
 """.strip()
     )
     try:
-        shared.remove_shared_features(
-            ssh_client,
-            runtime,
-            _appload.KOREADER_FEATURE_ID,
-            trusted,
-        )
+        if shared.has_shared_artifacts(ssh_client):
+            inspection = shared.inspect_shared(ssh_client, runtime, trusted)
+            if _appload.KOREADER_FEATURE_ID in inspection.states:
+                shared.remove_shared_features(
+                    ssh_client, runtime, trusted, (_appload.KOREADER_FEATURE_ID,),
+                )
     except Exception:
         try:
             ssh_client.exec_checked(
@@ -823,7 +844,8 @@ def _test_path(ssh_client: SSHClientWrapper, flag: str, path: str) -> bool:
 
 def is_forbidden_path(path: str) -> bool:
     normalized = posixpath.normpath(path)
-    return normalized == XOCHITL_ROOT or normalized.startswith(XOCHITL_ROOT + "/")
+    return any(normalized == root or normalized.startswith(root + "/")
+               for root in PROTECTED_LIBRARY_PATHS)
 
 
 def _ensure_safe_path(path: str) -> None:
@@ -957,7 +979,31 @@ def list_directory(
     """List one directory; folders first, dotfiles and .sdr dirs hidden."""
     canonical_dir = _canonical_library_path(ssh_client, remote_dir, library_root)
     entries: List[KOReaderEntry] = []
-    for attr in ssh_client.listdir_attr(canonical_dir):
+    try:
+        attributes = ssh_client.listdir_attr(canonical_dir)
+    except UnicodeDecodeError:
+        # Invalid byte names cannot be represented safely in Qt; never rename them.
+        output, error, code = quick_exec(
+            ssh_client,
+            f"find {shlex.quote(canonical_dir)} -mindepth 1 -maxdepth 1 -print0 | base64",
+        )
+        if code or error.strip() or len(output) > 4 * 1024 * 1024:
+            raise RuntimeError("无法安全读取书库目录，请检查文件名编码")
+        paths = base64.b64decode("".join(output.split()), validate=True).split(b"\0")
+        attributes = []
+        with ssh_client.sftp_session() as sftp:
+            for raw in filter(None, paths):
+                try:
+                    path = raw.decode("utf-8")
+                except UnicodeDecodeError:
+                    logging.warning("Skipping a non-UTF-8 KOReader filename")
+                    continue
+                if posixpath.dirname(path) != canonical_dir:
+                    raise RuntimeError("书库目录返回了不安全的文件路径")
+                attribute = sftp.lstat(path)
+                attribute.filename = posixpath.basename(path)
+                attributes.append(attribute)
+    for attr in attributes:
         name = attr.filename
         if name.startswith("."):
             continue
@@ -1065,9 +1111,10 @@ def delete_entry(
     library_root: str,
 ) -> None:
     """Delete a book file (with its ``.sdr`` sidecar) or a whole folder."""
-    remote_path = posixpath.normpath(remote_path)
-    _ensure_writable(ssh_client, remote_path, library_root)
-    sdr_path = remote_path + SDR_SUFFIX
+    remote_path = _ensure_writable(ssh_client, remote_path, library_root)
+    if any(root.startswith(remote_path.rstrip("/") + "/") for root in PROTECTED_LIBRARY_PATHS):
+        raise RuntimeError(f"禁止删除包含系统文档、程序或状态的目录：{remote_path}")
+    sdr_path = posixpath.splitext(remote_path)[0] + SDR_SUFFIX
     has_sidecar = not is_dir and _test_path(ssh_client, "d", sdr_path)
     if has_sidecar:
         _canonical_library_path(ssh_client, sdr_path, library_root)

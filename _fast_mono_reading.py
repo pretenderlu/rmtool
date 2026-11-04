@@ -6,7 +6,6 @@ import hashlib
 import json
 import logging
 import posixpath
-import re
 import shlex
 import tempfile
 import uuid
@@ -226,7 +225,7 @@ _PAYLOAD_PATHS = _RUNTIME_PATHS | {
     "LICENSE.rm-xovi-extensions",
     "LICENSE.xovi",
 }
-_ASSET_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.tar\.gz")
+_ASSET_RE = _plugin_packages.ASSET_RE
 _STANDALONE_LAYOUT = _xovi_standalone.StandaloneLayout(
     remote_base=REMOTE_BASE,
     dropin_name=DROPIN_NAME,
@@ -385,7 +384,7 @@ def parse_manifest(
         expected_asset = _expected_asset_name(
             platform, firmware, release_version
         )
-        if asset != expected_asset:
+        if not _plugin_packages.asset_name_matches(asset, expected_asset, digest):
             raise RuntimeError("快速黑白资源包文件名与本地白名单不一致。")
         identities.add(identity)
         assets.add(asset)
@@ -1410,18 +1409,7 @@ def disable(
                 tolerate_legacy_templates=True,
             )
         if identity != current_identity:
-            _xovi_standalone.remove_shared_firmware_residue(
-                ssh_client,
-                runtime,
-                installed_trusted,
-                (
-                    current_identity.firmware,
-                    current_identity.platform,
-                    current_identity.architecture,
-                    current_identity.xochitl_sha256,
-                ),
-                tolerate_legacy_templates=True,
-            )
+            raise RuntimeError("检测到跨固件共享插件残留，请到固件管理迁移或设备维护处理；快速黑白不会清理其他插件。")
         else:
             _xovi_standalone.disable_shared(
                 ssh_client,

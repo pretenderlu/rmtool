@@ -1,7 +1,4 @@
-/* Exact 3.29.0.152 layout, verified in both color-device xochitl binaries. */
-#define EXPECTED_FIRMWARE "20261009073202"
-#define MOVE_XOCHITL_SHA256 "09ba8581a50d96c19b360606ee0288b8863faec620036c8eda3b2a0b5cc2d2e2"
-#define PAPER_PRO_XOCHITL_SHA256 "7aa5d67da6850d7021ade5a2232edeb5f34550236eca6f7a102f37f962dd4bd2"
+/* Shared 3.29 layout; identities stay release-specific even with equal ABI. */
 
 static const uint8_t TARGET_PATTERN[] = {
     0x3f,0x23,0x03,0xd5,0xfd,0x7b,0xbb,0xa9,0xfd,0x03,0x00,0x91,

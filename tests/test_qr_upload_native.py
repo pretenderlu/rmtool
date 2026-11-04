@@ -21,7 +21,7 @@ class QrUploadNativeTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("qr_receiver_builder", ROOT / "build.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        with tempfile.TemporaryDirectory(dir=ROOT.parent) as temporary:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
             output = Path(temporary) / "receiver"
             def run(command, **kwargs):
                 if "build" in command:
@@ -33,7 +33,8 @@ class QrUploadNativeTests(unittest.TestCase):
                     struct.pack_into("<H", data, 18, 40 if kwargs['env']['GOARCH'] == 'arm' else 183)
                     path.write_bytes(data)
             argv = ["build.py", "--go", "go", "--output", os.path.relpath(output)]
-            with patch("sys.argv", argv), patch.object(module.subprocess, "run", side_effect=run), patch("builtins.print"):
+            with (patch("sys.argv", argv), patch.object(module.subprocess, "run", side_effect=run),
+                  patch.object(module, "verify_tool", return_value=Path("go")), patch("builtins.print")):
                 module.main()
             self.assertEqual(len(list(output.iterdir())), 2)
 
@@ -116,6 +117,7 @@ class QrUploadNativeTests(unittest.TestCase):
                             "--qmd-tool", "qmd-tool", "--qmldiff", "qmldiff"]
                     message = "compiler boundary" if case == "valid" else "exact verified|architecture"
                     with (patch("sys.argv", argv), patch.object(module.control, "select_package", return_value=fake_carrier),
+                          patch.object(module, "verify_tool"),
                           patch.object(module, "run", side_effect=RuntimeError("compiler boundary")) as compile_step):
                         with self.assertRaisesRegex(RuntimeError, message):
                             module.main()

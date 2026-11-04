@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import _https
+from _device_actions import QUICK_COMMAND_TIMEOUT
 from _ssh import SSHClientWrapper
 
 BUCKET = "https://remarkable-software.s3.us-east-2.amazonaws.com/"
@@ -375,12 +376,22 @@ if [ -d /sys/devices/platform/lpgpr ]; then
     esac
     test "$(cat /sys/devices/platform/lpgpr/swu_applied)" = 0
     test "$(cat /sys/devices/platform/lpgpr/swu_recovery)" = 0
+    for key in roota_errcnt rootb_errcnt; do
+        test "$(cat /sys/devices/platform/lpgpr/$key)" = 0 || {
+            echo 'A/B 错误计数非零；请保留日志，保存文档后用电源键重启并重新检测。' >&2
+            exit 1
+        }
+    done
     test "$(rootdev --active)" = "$(rootdev --next-boot)"
     inactive=$(rootdev --inactive)
     case "$inactive" in /dev/mmcblk0p2|/dev/mmcblk0p3) ;; *) exit 1;; esac
     if fuser "$inactive" >/dev/null 2>&1; then exit 1; else test "$?" = 1; fi
 fi
 '''
+
+# BusyBox -f matches argv, including the interpreter of a shell script.
+WRITER_PATTERN = r"^([^[:space:]]*/)?swupdate-from-image-file([[:space:]]|$)|^([^[:space:]]*/)?(bash|sh)[[:space:]]+([^[:space:]]*/)?swupdate-from-image-file([[:space:]]|$)"
+NATIVE_PATTERN = r"^([^[:space:]]*/)?swupdate([[:space:]]|$)|" + WRITER_PATTERN
 
 POWER_PROBE = r'''read_power_state() {
     battery=unknown
@@ -432,7 +443,8 @@ printf 'tmpfree='; df -Pk /tmp | awk 'END {print $4}'
 printf 'engine='; systemctl show update-engine.service -p ActiveState --value
 printf 'engine_file='; systemctl show update-engine.service -p UnitFileState --value
 printf 'writer='
-if pgrep -f '^/usr/sbin/swupdate-from-image-file ' >/dev/null; then echo busy; else r=$?; [ "$r" = 1 ]; echo idle; fi
+''' + f'''if pgrep -f {shlex.quote(WRITER_PATTERN)} >/dev/null; then echo busy; else r=$?; [ "$r" = 1 ]; echo idle; fi
+''' + r'''
 printf 'holders='
 inactive=$(rootdev --inactive)
 case "$inactive" in /dev/mmcblk0p2|/dev/mmcblk0p3) ;; *) exit 1;; esac
@@ -490,10 +502,10 @@ def parse_state(text):
     return DeviceState(values, platforms[0], active, "a" if values["boot"] == "1" else "b")
 
 
-def assert_idle(state, *, writing=False, image=None, check_plugin_lock=True):
+def assert_idle(state, *, writing=False, image=None, check_plugin_lock=True, staged=False):
     v = state.values
     if state.pending or any(v[k] != "0" for k in ("roota_errcnt", "rootb_errcnt", "swu_status", "swu_recovery")):
-        raise RuntimeError("存在待应用更新、失败状态或 A/B 错误计数；不会自动清零。")
+        raise RuntimeError("存在待应用更新、失败状态或 A/B 错误计数；不会自动清零。请保留日志，保存文档后用电源键重启并重新检测。")
     if v["writer"] != "idle" or v["holders"] != "idle":
         raise RuntimeError("原生更新器或分区占用状态非空闲，拒绝操作。")
     if check_plugin_lock and v["shared_lock"] != "idle":
@@ -507,7 +519,7 @@ def assert_idle(state, *, writing=False, image=None, check_plugin_lock=True):
             raise RuntimeError("SWU 硬件平台与设备不匹配。")
         if version_key(image.version) < (3, 22, 0, 0):
             raise RuntimeError("新 A/B 架构禁止回退到 3.22 之前的固件。")
-        if int(v["free"]) * 1024 < image.size + 128 * 1024**2:
+        if int(v["free"]) * 1024 < (0 if staged else image.size) + 128 * 1024**2:
             raise RuntimeError("设备固件暂存空间不足。")
         if int(v["tmpfree"]) * 1024 < image.unpacked_size + 128 * 1024**2:
             raise RuntimeError("原生解包所需 /tmp 空间不足。")
@@ -627,6 +639,9 @@ def _record_completion(ssh, directory, metadata, boot_id):
     temporary = directory + "/completed-" + uuid.uuid4().hex + ".tmp"
     data = json.dumps(dict(metadata, completed_boot_id=boot_id)).encode("utf-8")
     try:
+        if metadata.get("kind") == "install":
+            marker = BASE + "/unsafe-" + metadata["target"]
+            ssh.exec_checked(f"set -eu; test ! -L {marker}; if [ -e {marker} ]; then rmdir {marker}; sync; fi")
         _write_remote(ssh, temporary, data)
         ssh.exec_checked(f"set -eu; test \"$(cat {BASE}/current)\" = {metadata['job']}; "
                          f"chmod 600 {temporary}; mv -f {temporary} {directory}/completed.json; sync")
@@ -645,7 +660,7 @@ def _record_completion(ssh, directory, metadata, boot_id):
 
 
 LOCK_PATH = "/tmp/rmtool-xovi-standalone.lock"
-RELEASE_HINT = "可在“固件管理”页刷新状态；设备状态正常时可以解除锁定。"
+RELEASE_HINT = "可在“固件管理”页刷新状态；确认失败且无写入者时可以解除锁定。结果不明时保留任务；请导出日志，保存文档后用电源键重启并重新检测。"
 
 
 def _archive_transaction(ssh, current, record, *, directory=None, boot_id="", remove_image=False):
@@ -679,12 +694,16 @@ def _archive_transaction(ssh, current, record, *, directory=None, boot_id="", re
 
 
 # Any rmtool firmware unit still running, or any native swupdate writer.
-JOBS_RUNNING_PROBE = (
-    f"systemctl list-units --all --plain --no-legend --no-pager '{UNIT}-*' | "
-    "awk '$3 == \"activating\" || $3 == \"deactivating\" || $4 == \"start\" || $4 == \"running\" "
-    "{ found = 1 } END { exit !found }' && echo busy || "
-    "{ if pgrep -x swupdate >/dev/null; then echo busy; else echo idle; fi; }"
-)
+JOBS_RUNNING_PROBE = f'''set -eu
+units=$(systemctl list-units --all --plain --no-legend --no-pager '{UNIT}-*')
+if printf '%s\\n' "$units" | awk '$3 == "activating" || $3 == "deactivating" || $4 == "start" || $4 == "running" {{ found = 1 }} END {{ exit !found }}'; then
+    echo busy
+elif pgrep -f {shlex.quote(NATIVE_PATTERN)} >/dev/null; then
+    echo busy
+else
+    r=$?; test "$r" = 1; echo idle
+fi
+'''
 
 
 def _assert_no_job_running(ssh):
@@ -708,17 +727,15 @@ def _release_aborted(ssh, job, directory, metadata, boot_id):
 
 
 def release_transaction(ssh, token, *, confirmed=False):
-    """Explicitly release a failed or uncertain job once the device is verifiably idle.
-
-    Never resets counters or boot flags. A pending update, a switched next-boot
-    partition, A/B error counters or an active writer keep the lock in place.
-    """
+    """Archive a proven failed job, never admit a new write or clear OEM flags."""
     if not confirmed:
         raise RuntimeError("解除固件锁定尚未明确确认。")
     with firmware_session(ssh, token):
         status, message = query_transaction(ssh)
         if status not in ("failed", "unknown"):
             raise RuntimeError("当前固件状态不需要解除锁定：" + message)
+        if status == "unknown":
+            raise RuntimeError("固件结果不明，任务和锁定已保留。请导出日志，保存文档后用电源键重启并重新检测。")
         if ssh.exec_checked(f"if [ -e {BASE}/current ] || [ -L {BASE}/current ]; then echo yes; else echo no; fi").strip() == "no":
             raise RuntimeError("固件事务记录已变化，请刷新后重试。")
         ssh.exec_checked(f"set -eu; test ! -L {BASE}; test -d {BASE}; test ! -L {BASE}/current; test -f {BASE}/current")
@@ -733,19 +750,32 @@ def release_transaction(ssh, token, *, confirmed=False):
             try:
                 ssh.exec_checked(f"set -eu; test ! -L {candidate}; test -d {candidate}")
                 loaded = json.loads(_remote_text(ssh, candidate + "/job.json"))
-                if loaded.get("job") == current:
+                if (loaded.get("job") == current and loaded.get("target") in ("a", "b")
+                        and loaded.get("kind") in ("install", "switch")
+                        and loaded.get("platform") in ("chiappa", "ferrari")):
                     directory, metadata = candidate, loaded
             except (RuntimeError, OSError, ValueError):
                 logging.warning("Releasing firmware job without readable metadata", exc_info=True)
+        if metadata is None:
+            raise RuntimeError("无法验证失败任务的目标分区；任务和锁定已保留。")
         _assert_no_job_running(ssh)
         state = parse_state(ssh.exec_checked(PROBE))
-        # Same gate as starting a new job, except for the lock this job holds.
-        assert_idle(state, check_plugin_lock=False)
+        # Stock 09-swupdate-args: 3=FAILED, 7=in progress; never source its resets.
+        if (state.pending or state.values["swu_status"] not in ("0", "3")
+                or state.values["swu_recovery"] != "0"
+                or state.values["writer"] != "idle" or state.values["holders"] != "idle"
+                or metadata["platform"] != state.platform or metadata["target"] == state.active):
+            raise RuntimeError("设备仍有待应用更新、写入者或启动风险，不能解除锁定。请导出日志，保存文档后用电源键重启并重新检测。")
         boot_id = _remote_text(ssh, "/proc/sys/kernel/random/boot_id", 64).strip()
+        marker = BASE + "/unsafe-" + metadata["target"]
+        ssh.exec_checked(f"set -eu; test ! -L {BASE}; test \"$(stat -c '%u:%a' {BASE})\" = 0:700; "
+                         f"if [ ! -e {marker} ] && [ ! -L {marker} ]; then mkdir -m 700 {marker}; fi; sync")
         record = dict(metadata or {}, released=status, released_reason=message, released_boot_id=boot_id)
         _archive_transaction(ssh, current, record, directory=directory, boot_id=boot_id, remove_image=True)
         state, _transaction = inspect_device(ssh)
         result = "已解除固件锁定，任务日志已保留。备用分区内容可能不完整，请不要切换到备用分区；需要时请重新安装固件。"
+        if ssh.firmware_guard_reason:
+            result += "\n系统失败状态或 A/B 计数仍未清除，新写入和其他设备操作继续锁定；请保存文档后用电源键重启并重新检测。"
         if state.values["shared_lock"] != "idle":
             result += "\n插件事务锁仍在（无法确认归属），请保存文档后重启设备再继续操作。"
         if state.values["engine_file"] == "masked-runtime":
@@ -783,7 +813,7 @@ def reboot_for_plugin_recovery(ssh):
             if transaction[0] not in ("none", "completed"):
                 raise RuntimeError(transaction[1])
             ssh.exec_checked(GUARD_PROBE)
-        ssh.exec_checked("systemctl reboot")
+        ssh.exec_checked("systemctl reboot", timeout=QUICK_COMMAND_TIMEOUT)
 
 
 class FirmwareSSHClientWrapper(SSHClientWrapper):
@@ -907,6 +937,10 @@ def _inspect_slot(ssh, state, *, require_clean):
     target = "b" if state.active == "a" else "a"
     with firmware_session(ssh):
         assert_idle(state)
+        marker = BASE + "/unsafe-" + target
+        ssh.exec_checked(f"set -eu; test ! -L {BASE}; "
+                         f"if [ -e {marker} ] || [ -L {marker} ]; then "
+                         "echo '备用分区曾写入失败或结果不明，重新安装成功前禁止切换。' >&2; exit 1; fi")
         result = key_values(ssh.exec_checked(isolated_slot_command(
             target, require_clean=require_clean
         )))
@@ -996,7 +1030,7 @@ def _lock_and_revalidate(ssh, plan):
         # The lock was acquired above by this session, not inherited from an
         # unknown owner. Normalize only this local snapshot for preflight.
         state.values["shared_lock"] = "idle"
-        assert_idle(state, writing=True, image=plan.image)
+        assert_idle(state, writing=True, image=plan.image, staged=plan.image is not None)
         if not same_device_state(state, plan.state):
             raise RuntimeError("暂存期间设备状态已变化，请重新确认。")
         if plan.slot is not None and inspect_slot(ssh, state) != plan.slot:
@@ -1112,6 +1146,7 @@ def installation_script(job, plan):
     directory = BASE + "/" + job
     path = directory + "/image.swu"
     active = plan.state.values["root"]
+    marker = BASE + "/unsafe-" + ("b" if plan.state.active == "a" else "a")
     # No trap stops the native writer. The result is written only after its
     # exit; power loss or missing final record remains explicitly uncertain.
     return f'''#!/bin/bash
@@ -1145,6 +1180,10 @@ echo '{plan.image.sha256}  {path}' | sha256sum -c -
 {native_check_command(path, plan.state.platform, plan.state.active)}
 {POWER_GUARD}require_safe_power /sys/class/power_supply
 # Everything above only reads; a failure there is reported as "aborted".
+test ! -L {marker}
+if [ ! -e {marker} ]; then mkdir -m 700 {marker}; fi
+test -d {marker}
+sync
 WRITE_STARTED=1
 # Use the same native engine without sourcing conf.d (which resets counters).
 # Native extraction stages archive filenames before preinstall scripts.
@@ -1154,18 +1193,26 @@ test "$(cat {LPGPR}/swu_status)" = 1
 grep -Fx 'version={plan.image.version}' {directory}/target.tmp
 mv {directory}/target.tmp {directory}/target
 sync
+rmdir {marker}
+sync
 '''
 
 
 def _points_to(ssh, job):
-    command = f"if [ \"$(cat {BASE}/current 2>/dev/null)\" = {job} ]; then echo yes; else echo no; fi"
-    return ssh.exec_checked(command).strip() == "yes"
+    command = (f"set -eu; if [ -e {BASE}/current ] || [ -L {BASE}/current ]; then "
+               f"test ! -L {BASE}/current; current=$(cat {BASE}/current); "
+               f"if [ \"$current\" = {job} ]; then echo yes; else echo no; fi; else echo no; fi")
+    result = ssh.exec_checked(command).strip()
+    if result not in ("yes", "no"):
+        raise RuntimeError("无法确认固件提交指针，保留任务和锁定。")
+    return result == "yes"
 
 
 def _commit_job(ssh, plan, job, committed, guard_reason):
     """Take the shared lock and atomically point `current` at *job*."""
     _lock_and_revalidate(ssh, plan)
     ssh.firmware_guard_reason = guard_reason
+    committed["value"] = True
     try:
         # preflight allowed a new job, so a temporary pointer is an uncommitted leftover.
         ssh.exec_checked(f"rm -f {BASE}/current.tmp")
@@ -1174,13 +1221,16 @@ def _commit_job(ssh, plan, job, committed, guard_reason):
         # completed or released earlier job may be replaced.
         if query_transaction(ssh)[0] not in ("none", "completed"):
             raise RuntimeError("设备上已有其他固件任务，请刷新后重试。")
+        # An absent acknowledgement does not prove the pointer stayed unchanged.
         ssh.exec_checked(f"sync {BASE}/current.tmp && mv {BASE}/current.tmp {BASE}/current && sync")
     except Exception:
         # Unlock only when the device proves that the pointer was not committed.
         try:
             if not _points_to(ssh, job):
                 ssh.exec_checked(f"rm -f {BASE}/current.tmp; rmdir {LOCK_PATH}")
-                ssh.firmware_guard_reason = ""
+                transaction = query_transaction(ssh)
+                ssh.firmware_guard_reason = "" if transaction[0] in ("none", "completed") else _guard_message(transaction)
+                committed["value"] = transaction[0] not in ("none", "completed")
         except Exception:
             logging.warning("Could not verify uncommitted firmware job %s", job, exc_info=True)
         raise
@@ -1189,6 +1239,7 @@ def _commit_job(ssh, plan, job, committed, guard_reason):
 
 def _start_job(ssh, job, committed, command, uncertain, started):
     """Start the detached unit; withdraw or report a job that never wrote anything."""
+    committed["submitted"] = True
     try:
         ssh.exec_checked(command)
         return started
@@ -1236,16 +1287,35 @@ def _start_job(ssh, job, committed, command, uncertain, started):
     return status if status[0] in ("failed", "success", "running") else uncertain
 
 
+@contextmanager
+def _job_stage(ssh, committed):
+    job = uuid.uuid4().hex
+    directory = BASE + "/" + job
+    # A successful exclusive mkdir is the ownership proof; never sweep old jobs.
+    ssh.exec_checked(f"set -eu; test ! -L {BASE}; if [ -e {BASE} ]; then test -d {BASE}; "
+                     f"test \"$(stat -c '%u:%a' {BASE})\" = 0:700; else mkdir -m 700 {BASE}; fi; mkdir -m 700 {directory}")
+    try:
+        yield job
+    finally:
+        if not committed["value"] and not committed.get("submitted", False):
+            try:
+                ssh.exec_checked(f"set -eu; test ! -L {BASE}; test ! -L {directory}; "
+                                 f"test \"$(stat -c '%u:%a' {BASE})\" = 0:700; "
+                                 f"test \"$(stat -c '%u:%a' {directory})\" = 0:700; "
+                                 f"if [ -e {BASE}/current ] || [ -L {BASE}/current ]; then "
+                                 f"test ! -L {BASE}/current; test \"$(cat {BASE}/current)\" != {job}; fi; "
+                                 f"rm -rf -- {directory}")
+            except Exception:
+                logging.warning("Unable to clean unsubmitted firmware stage %s", job, exc_info=True)
+
+
 def start_install(ssh, plan, *, confirmed=False, downgrade_confirmed=False, progress=None):
     if not confirmed or (plan.downgrade and not downgrade_confirmed):
         raise RuntimeError("安装或降级尚未明确确认。")
     with firmware_session(ssh, plan.token):
-        with _prepared_operation(ssh, plan) as (_current, committed):
-            job = uuid.uuid4().hex
+        with (_prepared_operation(ssh, plan) as (_current, committed),
+              _job_stage(ssh, committed) as job):
             directory = BASE + "/" + job
-            # Never follow pre-existing transaction roots/locks or overwrite a job.
-            ssh.exec_checked(f"set -eu; test ! -L {BASE}; if [ -e {BASE} ]; then test -d {BASE}; "
-                             f"test \"$(stat -c '%u:%a' {BASE})\" = 0:700; else mkdir -m 700 {BASE}; fi; mkdir -m 700 {directory}")
             with ssh.sftp_session() as sftp:
                 sftp.put(str(plan.image.path), directory + "/image.tmp", callback=progress)
             ssh.exec_checked(f"echo '{plan.image.sha256}  {directory}/image.tmp' | sha256sum -c - && "
@@ -1276,14 +1346,11 @@ def switch_slot(ssh, plan, *, confirmed=False, downgrade_confirmed=False):
     if not confirmed or plan.slot is None or (plan.downgrade and not downgrade_confirmed):
         raise RuntimeError("切换或降级尚未明确确认。")
     with firmware_session(ssh, plan.token):
-        with _prepared_operation(ssh, plan, switch=True) as (_current, committed):
-            job = uuid.uuid4().hex
+        with (_prepared_operation(ssh, plan, switch=True) as (_current, committed),
+              _job_stage(ssh, committed) as job):
             directory = BASE + "/" + job
             target_slot = "b" if plan.state.active == "a" else "a"
             target = plan.state.values[target_slot]
-            ssh.exec_checked(f"set -eu; test ! -L {BASE}; if [ -e {BASE} ]; then "
-                             f"test -d {BASE}; test \"$(stat -c '%u:%a' {BASE})\" = 0:700; "
-                             f"else mkdir -m 700 {BASE}; fi; mkdir -m 700 {directory}")
             metadata = {"job": job, "kind": "switch", "version": plan.slot["version"], "platform": plan.state.platform,
                         "target": target_slot, "boot_id": _remote_text(ssh, "/proc/sys/kernel/random/boot_id", 64).strip()}
             _write_remote(ssh, directory + "/job.json", json.dumps(metadata).encode())
@@ -1348,5 +1415,5 @@ def reboot_after_success(ssh, token, *, confirmed=False):
         contents = key_values(ssh.exec_checked(isolated_slot_command(target)))
         if contents != key_values(_remote_text(ssh, directory + "/target")):
             raise RuntimeError("目标分区健康状态或内容已变化，拒绝重启。")
-        ssh.exec_checked("systemctl reboot")
+        ssh.exec_checked("systemctl reboot", timeout=QUICK_COMMAND_TIMEOUT)
         ssh.close()

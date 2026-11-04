@@ -74,7 +74,7 @@ class _FileSnapshot:
     mode: int | None = None
 
 
-def _snapshot_file(ssh, path: str, limit: int) -> _FileSnapshot:
+def _file_mode(ssh, path: str) -> int | None:
     allowed_modes = {
         CONFIG_PATH: {"600", "644"},
         MARKER_PATH: {"600"},
@@ -91,11 +91,17 @@ def _snapshot_file(ssh, path: str, limit: int) -> _FileSnapshot:
     if code:
         raise RuntimeError(f"设备文件状态无法确认：{path}")
     if kind == "missing":
-        return _FileSnapshot(None)
+        return None
     prefix = "regular:0:0:"
     if not kind.startswith(prefix) or kind[len(prefix):] not in allowed_modes:
         raise RuntimeError(f"设备文件状态无法确认：{path}")
-    mode = int(kind[len(prefix):], 8)
+    return int(kind[len(prefix):], 8)
+
+
+def _snapshot_file(ssh, path: str, limit: int) -> _FileSnapshot:
+    mode = _file_mode(ssh, path)
+    if mode is None:
+        return _FileSnapshot(None)
     with ssh.open_remote(path, "rb") as remote:
         data = remote.read(limit + 1)
     if isinstance(data, str):
@@ -110,7 +116,25 @@ def _read_limited(ssh, path: str, limit: int) -> bytes | None:
 
 
 def _same_snapshot(ssh, path: str, limit: int, expected: _FileSnapshot) -> bool:
+    if path == MANAGED_IMAGE_PATH:
+        digest = _image_digest(ssh)
+        if expected.data is None:
+            return digest is None
+        return expected.mode == 0o644 and digest == hashlib.sha256(expected.data).hexdigest()
     return _snapshot_file(ssh, path, limit) == expected
+
+
+def _image_digest(ssh) -> str | None:
+    if _file_mode(ssh, MANAGED_IMAGE_PATH) is None:
+        return None
+    path = shlex.quote(MANAGED_IMAGE_PATH)
+    output = ssh.exec_checked(
+        f'test "$(wc -c < {path})" -le {MAX_IMAGE_BYTES} && sha256sum {path}'
+    ).strip()
+    digest = output.split(maxsplit=1)[0] if output else ""
+    if len(output.splitlines()) != 1 or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+        raise RuntimeError("设备返回的休眠壁纸 SHA-256 无效。")
+    return digest
 
 
 def _require_snapshot(ssh, path: str, limit: int, expected: _FileSnapshot) -> None:
@@ -200,8 +224,8 @@ def _parse_marker(data: bytes) -> dict:
         raise RuntimeError("休眠壁纸状态记录损坏，已停止修改。") from exc
     if (
         not isinstance(marker, dict)
-        or set(marker)
-        != {"schema_version", "managed_path", "image_sha256", "previous"}
+        or not {"schema_version", "managed_path", "image_sha256", "previous"} <= set(marker)
+        or set(marker) - {"schema_version", "managed_path", "image_sha256", "previous", "identity", "transaction"}
         or marker.get("schema_version") != 2
         or marker.get("managed_path") != MANAGED_IMAGE_PATH
         or not isinstance(marker.get("image_sha256"), str)
@@ -231,6 +255,28 @@ def _parse_marker(data: bytes) -> dict:
     ):
         raise RuntimeError("休眠壁纸状态记录格式无效，已停止修改。")
     previous = marker["previous"]
+    identity = marker.get("identity")
+    if identity is not None and (
+        not isinstance(identity, list) or len(identity) != 4
+        or any(not isinstance(value, str) for value in identity)
+        or tap.DeviceIdentity(*identity) not in SUPPORTED_IDENTITIES
+    ):
+        raise RuntimeError("休眠壁纸安装身份记录无效。")
+    transaction = marker.get("transaction")
+    if transaction is not None:
+        if (
+            not isinstance(transaction, dict)
+            or set(transaction) != {"previous_image_sha256", "identity"}
+            or not isinstance(transaction["identity"], list)
+            or len(transaction["identity"]) != 4
+            or any(not isinstance(value, str) for value in transaction["identity"])
+            or (transaction["previous_image_sha256"] is not None and (
+                not isinstance(transaction["previous_image_sha256"], str)
+                or len(transaction["previous_image_sha256"]) != 64
+                or any(c not in "0123456789abcdef" for c in transaction["previous_image_sha256"])
+            ))
+        ):
+            raise RuntimeError("休眠壁纸事务记录无效。")
     if previous["key_present"]:
         line = previous["line"]
         if "\n" in line or "\r" in line or "=" not in line:
@@ -244,13 +290,22 @@ def _parse_marker(data: bytes) -> dict:
 def get_status(ssh) -> SleepWallpaperStatus:
     identity = tap.get_device_identity(ssh)
     if identity not in SUPPORTED_IDENTITIES:
+        try:
+            marker = _read_limited(ssh, MARKER_PATH, MAX_MARKER_BYTES)
+        except RuntimeError as exc:
+            return SleepWallpaperStatus(False, broken=True, detail=str(exc))
+        if marker is not None:
+            return SleepWallpaperStatus(
+                False, broken=True,
+                detail="发现旧固件的用户分区休眠壁纸记录；请显式恢复，不要回退上传到根分区。",
+            )
         return SleepWallpaperStatus(False, detail="当前设备或固件尚未完成实机验证。")
     config = _read_limited(ssh, CONFIG_PATH, MAX_CONFIG_BYTES) or b""
     _index, value, _line = _general_sleep_line(config)
     marker_data = _read_limited(ssh, MARKER_PATH, MAX_MARKER_BYTES)
-    image = _read_limited(ssh, MANAGED_IMAGE_PATH, MAX_IMAGE_BYTES)
+    image_digest = _image_digest(ssh)
     if marker_data is None:
-        if value == MANAGED_IMAGE_PATH or image is not None:
+        if value == MANAGED_IMAGE_PATH or image_digest is not None:
             return SleepWallpaperStatus(
                 True, broken=True, detail="发现来源不明的用户分区休眠壁纸状态。"
             )
@@ -261,10 +316,11 @@ def get_status(ssh) -> SleepWallpaperStatus:
         return SleepWallpaperStatus(True, broken=True, detail=str(exc))
     if (
         value != MANAGED_IMAGE_PATH
-        or image is None
-        or hashlib.sha256(image).hexdigest() != marker["image_sha256"]
+        or image_digest != marker["image_sha256"]
     ):
         return SleepWallpaperStatus(True, broken=True, detail="用户分区休眠壁纸状态不完整。")
+    if "transaction" in marker:
+        return SleepWallpaperStatus(True, broken=True, detail="休眠壁纸事务未完成，请显式恢复后重试。")
     return SleepWallpaperStatus(True, enabled=True)
 
 
@@ -296,14 +352,15 @@ def _atomic_write(
             f"chmod {mode:o} {shlex.quote(remote_tmp)} && mv -f "
             f"{shlex.quote(remote_tmp)} {shlex.quote(path)}"
         )
-        written = _snapshot_file(
+        written = _same_snapshot(
             ssh,
             path,
             MAX_CONFIG_BYTES if path == CONFIG_PATH else (
                 MAX_MARKER_BYTES if path == MARKER_PATH else MAX_IMAGE_BYTES
             ),
+            _FileSnapshot(data, mode),
         )
-        if written != _FileSnapshot(data, mode):
+        if not written:
             raise RuntimeError("休眠壁纸文件写入后校验失败。")
     finally:
         if os.path.exists(local_tmp):
@@ -336,20 +393,19 @@ def _restore_snapshot(
     errors = []
     for path, original in snapshot.items():
         try:
-            current = _snapshot_file(ssh, path, limits[path])
-            if current == original:
+            if _same_snapshot(ssh, path, limits[path], original):
                 continue
-            if current != desired[path]:
+            if not _same_snapshot(ssh, path, limits[path], desired[path]):
                 raise RuntimeError("回滚期间检测到设备文件被其他程序修改。")
             if original.data is None:
-                _remove_file(ssh, path, limits[path], expected=current)
+                _remove_file(ssh, path, limits[path], expected=desired[path])
             else:
                 _atomic_write(
                     ssh,
                     path,
                     original.data,
                     original.mode or 0o600,
-                    expected=current,
+                    expected=desired[path],
                 )
         except Exception as exc:
             logging.exception("Sleep wallpaper rollback path failed: %s", path)
@@ -362,7 +418,8 @@ def enable(ssh, image: bytes, *, take_over: bool = False) -> None:
     if not image or len(image) > MAX_IMAGE_BYTES:
         raise RuntimeError("休眠壁纸图片为空或过大。")
     with ssh.operation_session():
-        if tap.get_device_identity(ssh) not in SUPPORTED_IDENTITIES:
+        identity = tap.get_device_identity(ssh)
+        if identity not in SUPPORTED_IDENTITIES:
             raise RuntimeError("当前设备或固件尚未完成用户分区休眠壁纸验证。")
         snapshot = {
             CONFIG_PATH: _snapshot_file(ssh, CONFIG_PATH, MAX_CONFIG_BYTES),
@@ -376,6 +433,8 @@ def enable(ssh, image: bytes, *, take_over: bool = False) -> None:
         marker_data = snapshot[MARKER_PATH].data
         if marker_data is not None:
             marker = _parse_marker(marker_data)
+            if "transaction" in marker:
+                raise RuntimeError("休眠壁纸事务未完成，请显式恢复后重试。")
             current_image = snapshot[MANAGED_IMAGE_PATH].data
             if (
                 value != MANAGED_IMAGE_PATH
@@ -399,6 +458,7 @@ def enable(ssh, image: bytes, *, take_over: bool = False) -> None:
                     "config_mode": snapshot[CONFIG_PATH].mode,
                 },
             }
+        marker["identity"] = [identity.firmware, identity.platform, identity.architecture, identity.xochitl_sha256]
         marker["image_sha256"] = hashlib.sha256(image).hexdigest()
         marker_bytes = (json.dumps(marker, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
         desired = {
@@ -408,7 +468,17 @@ def enable(ssh, image: bytes, *, take_over: bool = False) -> None:
             MANAGED_IMAGE_PATH: _FileSnapshot(image, 0o644),
             MARKER_PATH: _FileSnapshot(marker_bytes, 0o600),
         }
+        pending = dict(marker)
+        pending["transaction"] = {
+            "previous_image_sha256": hashlib.sha256(snapshot[MANAGED_IMAGE_PATH].data).hexdigest()
+            if snapshot[MANAGED_IMAGE_PATH].data is not None else None,
+            "identity": [identity.firmware, identity.platform, identity.architecture, identity.xochitl_sha256],
+        }
+        pending_snapshot = _FileSnapshot((json.dumps(pending, sort_keys=True) + "\n").encode("utf-8"), 0o600)
         try:
+            _atomic_write(ssh, MARKER_PATH, pending_snapshot.data, 0o600,
+                          expected=snapshot[MARKER_PATH])
+            ssh.exec_checked("sync")
             _atomic_write(
                 ssh,
                 MANAGED_IMAGE_PATH,
@@ -428,20 +498,26 @@ def enable(ssh, image: bytes, *, take_over: bool = False) -> None:
                 MARKER_PATH,
                 marker_bytes,
                 0o600,
-                expected=snapshot[MARKER_PATH],
+                expected=pending_snapshot,
             )
         except Exception:
             try:
-                _restore_snapshot(ssh, snapshot, desired)
+                # Either pending or committed marker may be visible after a lost response.
+                active_marker = _snapshot_file(ssh, MARKER_PATH, MAX_MARKER_BYTES)
+                rollback_desired = dict(desired)
+                if active_marker == pending_snapshot:
+                    rollback_desired[MARKER_PATH] = pending_snapshot
+                _restore_snapshot(ssh, snapshot, rollback_desired)
             except Exception as rollback_exc:
                 logging.exception("Sleep wallpaper rollback failed")
                 raise RuntimeError("休眠壁纸修改失败，且自动回滚未完成；请导出诊断日志。") from rollback_exc
             raise
 
 
-def disable(ssh) -> None:
+def disable(ssh, *, _recover: bool = False) -> None:
     with ssh.operation_session():
-        if tap.get_device_identity(ssh) not in SUPPORTED_IDENTITIES:
+        identity = tap.get_device_identity(ssh)
+        if identity not in SUPPORTED_IDENTITIES and not _recover:
             raise RuntimeError("当前设备或固件尚未完成用户分区休眠壁纸验证。")
         snapshot = {
             CONFIG_PATH: _snapshot_file(ssh, CONFIG_PATH, MAX_CONFIG_BYTES),
@@ -453,16 +529,30 @@ def disable(ssh) -> None:
         if snapshot[MARKER_PATH].data is None:
             raise RuntimeError("没有可停用的用户分区休眠壁纸状态。")
         marker = _parse_marker(snapshot[MARKER_PATH].data)
+        if _recover and identity not in SUPPORTED_IDENTITIES:
+            import _native_chinese as native
+            if native.select_package(native._trusted_catalog(), identity) is None:
+                raise RuntimeError("当前设备身份不在精确恢复白名单中。")
+            recorded = marker.get("identity") or marker.get("transaction", {}).get("identity")
+            if recorded is None or (identity.platform, identity.architecture) != (recorded[1], recorded[2]):
+                raise RuntimeError("休眠壁纸事务不属于当前设备平台。")
         config = snapshot[CONFIG_PATH].data or b""
         _index, value, _line = _general_sleep_line(config)
         current_image = snapshot[MANAGED_IMAGE_PATH].data
+        previous = marker["previous"]
+        previous_value = previous["line"].split("=", 1)[1].strip() if previous["key_present"] else None
+        known_hashes = {marker["image_sha256"]}
+        if _recover:
+            known_hashes.add(marker.get("transaction", {}).get("previous_image_sha256"))
         if (
+            (not _recover and (
             value != MANAGED_IMAGE_PATH
             or current_image is None
-            or hashlib.sha256(current_image).hexdigest() != marker["image_sha256"]
+            ))
+            or (_recover and value not in (MANAGED_IMAGE_PATH, previous_value))
+            or (current_image is not None and hashlib.sha256(current_image).hexdigest() not in known_hashes)
         ):
             raise RuntimeError("用户分区休眠壁纸状态与设备配置不一致。")
-        previous = marker["previous"]
         restored = _set_sleep_line(
             config,
             None,
@@ -503,16 +593,13 @@ def disable(ssh) -> None:
                 )
             _remove_file(
                 ssh,
-                MARKER_PATH,
-                MAX_MARKER_BYTES,
-                expected=snapshot[MARKER_PATH],
-            )
-            _remove_file(
-                ssh,
                 MANAGED_IMAGE_PATH,
                 MAX_IMAGE_BYTES,
                 expected=snapshot[MANAGED_IMAGE_PATH],
             )
+            ssh.exec_checked("sync")
+            _remove_file(ssh, MARKER_PATH, MAX_MARKER_BYTES,
+                         expected=snapshot[MARKER_PATH])
         except Exception:
             try:
                 _restore_snapshot(ssh, snapshot, desired)
@@ -520,3 +607,8 @@ def disable(ssh) -> None:
                 logging.exception("Sleep wallpaper rollback failed")
                 raise RuntimeError("停用失败，且自动回滚未完成；请导出诊断日志。") from rollback_exc
             raise
+
+
+def recover(ssh) -> None:
+    """Explicitly retire a proven interrupted transaction, preserving unrelated keys."""
+    disable(ssh, _recover=True)

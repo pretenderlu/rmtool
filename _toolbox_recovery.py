@@ -53,6 +53,7 @@ class CapacityRecoverySection(QtWidgets.QWidget):
         self.execute_button.clicked.connect(self._execute)
         self.diagnostics_button.clicked.connect(self._show_diagnostics)
         self.home_only_checkbox.toggled.connect(self._update_buttons)
+        self.feature_combo.currentIndexChanged.connect(self._feature_changed)
         self.ssh_client.connection_changed.connect(self._on_connection_changed)
         self._update_buttons()
 
@@ -86,6 +87,7 @@ class CapacityRecoverySection(QtWidgets.QWidget):
     def _current_intent(self) -> bool:
         return (
             self._intent is not None
+            and self._intent.feature_id == self.feature_combo.currentData()
             and self.ssh_client.is_connected()
             and getattr(self.ssh_client, "_client", None) is self._intent.client
         )
@@ -93,6 +95,7 @@ class CapacityRecoverySection(QtWidgets.QWidget):
     def _update_buttons(self, *_args):
         connected = self.ssh_client.is_connected()
         self.detect_button.setEnabled(connected and not self._busy)
+        self.feature_combo.setEnabled(not self._busy)
         self.execute_button.setEnabled(
             self._current_intent()
             and not self._busy
@@ -100,9 +103,19 @@ class CapacityRecoverySection(QtWidgets.QWidget):
             and self.home_only_checkbox.isChecked()
         )
 
+    def _feature_changed(self):
+        self._intent = None
+        self._plan = None
+        self._status = None
+        self.home_only_checkbox.setChecked(False)
+        self.home_only_checkbox.setVisible(False)
+        self.capacity_label.clear()
+        self._update_buttons()
+
     def open_intent(self, intent, error) -> None:
         if self._busy:
             return
+        self.feature_combo.setCurrentIndex(self.feature_combo.findData(intent.feature_id))
         self._intent = intent
         self._plan = None
         self._status = None

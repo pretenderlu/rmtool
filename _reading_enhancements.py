@@ -35,7 +35,7 @@ PACKAGE_REVISION = 13
 MAX_MANIFEST_BYTES = tap.MAX_MANIFEST_BYTES
 MAX_PACKAGE_BYTES = tap.MAX_PACKAGE_BYTES
 MAX_UNPACKED_BYTES = tap.MAX_UNPACKED_BYTES
-_ASSET_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.tar\.gz")
+_ASSET_RE = _plugin_packages.ASSET_RE
 _REQUIRED_PATHS = {
     *shared._COMMON_ARCHIVE_PATHS,
     QMD_PAYLOAD_PATH,
@@ -282,7 +282,7 @@ ALLOWED_TARGETS = {
     ("ferrari", "20261009073202", "aarch64", "7aa5d67da6850d7021ade5a2232edeb5f34550236eca6f7a102f37f962dd4bd2"): ("3.29.0.152", "beta", True, False),
     ("chiappa", "20261009073202", "aarch64", "09ba8581a50d96c19b360606ee0288b8863faec620036c8eda3b2a0b5cc2d2e2"): ("3.29.0.152", "beta", True, False),
     ("ferrari", "20260827113527", "aarch64", "b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021"): ("3.28.0.172", "stable", True, False),
-    ("chiappa", "20260827113527", "aarch64", "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"): ("3.28.0.172", "stable", True, True),
+    ("chiappa", "20260827113527", "aarch64", "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"): ("3.28.0.172", "stable", True, False),
     (
         "ferrari",
         "20260506100933",
@@ -306,7 +306,7 @@ ALLOWED_TARGETS = {
         "20260612085811",
         "aarch64",
         "227a9bfe928ef5d164359e490d97648ffca40a5de13f07a9eb57a618a403f084",
-    ): ("3.27.3.0", "stable", True, True),
+    ): ("3.27.3.0", "stable", True, False),
     (
         "ferrari",
         "20260629074044",
@@ -516,7 +516,7 @@ def parse_manifest(
         expected = ALLOWED_TARGETS.get((platform, firmware, architecture, xochitl_sha))
         if expected != (release_version, channel, offline_verified, device_verified):
             raise RuntimeError("阅读增强清单身份或验证级别不在本地信任清单中。")
-        if asset != _expected_asset_name(platform, firmware, release_version):
+        if not _plugin_packages.asset_name_matches(asset, _expected_asset_name(platform, firmware, release_version), digest):
             raise RuntimeError("阅读增强资源包文件名与本地信任清单不一致。")
         urls = entry.get("urls")
         expected_urls = {f"{base}/{asset}" for base in REMOTE_BASE_URLS}
@@ -773,43 +773,15 @@ def _legacy_specs_for_identity(identity, current=()):
 
 def _inspection_for_migration(ssh_client, runtime, trusted, package):
     """Accept current trust plus narrowly recognized predecessor payloads."""
-    predecessors = _known_shared_predecessor_specs(
-        package, trusted[FEATURE_ID]
-    )
-    revision_map = {}
-    try:
-        import _fast_mono_reading as fast
-
-        fast_package = fast.select_package(fast._trusted_catalog(), DeviceIdentity(
-            package.firmware,
-            package.platform,
-            package.architecture,
-            package.xochitl_sha256,
-        ))
-        if fast_package is not None and "fast-mono-reading" in trusted:
-            predecessors_for_fast = fast._known_shared_predecessor_specs(fast_package)
-            revisions = {
-                f"fast-mono-reading-revision-{revision}": predecessor
-                for revision, predecessor in predecessors_for_fast
-            }
-        else:
-            revisions = {}
-        if revisions:
-            revision_map["fast-mono-reading"] = tuple(revisions.items())
-    except Exception:
-        # Fast-reading predecessor trust is optional for targets where its
-        # catalog has no historical revision record; current reading trust
-        # remains fail-closed below.
-        pass
+    revision_map = tap._published_feature_revisions(DeviceIdentity(
+        package.firmware, package.platform, package.architecture, package.xochitl_sha256,
+    ), trusted)
     try:
         inspection, installed, selected = shared.inspect_shared_revisions(
             ssh_client,
             runtime,
             trusted,
-            {
-                **({FEATURE_ID: tuple(predecessors)} if predecessors else {}),
-                **revision_map,
-            },
+            revision_map,
             check_lower=True,
         )
         return inspection, installed, selected
@@ -939,23 +911,23 @@ def get_status(
             )
             if FEATURE_ID in residue.states:
                 return ReadingEnhancementsStatus(
-                    ReadingEnhancementsState.REPAIR_AVAILABLE,
+                    ReadingEnhancementsState.BROKEN,
                     identity,
                     package,
                     available,
                     "已验证为同一 rmtool 信源的固件升级残留；请在固件管理中迁移共享插件，"
                     "不要单独重装这一项。",
-                    True,
-                    True,
+                    False,
+                    False,
                 )
             return ReadingEnhancementsStatus(
-                ReadingEnhancementsState.MIGRATION_AVAILABLE,
+                ReadingEnhancementsState.BROKEN,
                 identity,
                 package,
                 available,
                 "已验证为同一 rmtool 信源的其他共享插件固件升级残留；请在固件管理中统一迁移。",
-                True,
-                True,
+                False,
+                False,
             )
         inspection, installed_trusted, selected_predecessors = _inspection_for_migration(
             ssh_client, runtime, trusted, package

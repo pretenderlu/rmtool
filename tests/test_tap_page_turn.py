@@ -389,7 +389,10 @@ class TapPageTurnTests(unittest.TestCase):
         self.assertIn("文件存在不代表插件正在加载", detail)
         self.assertNotIn(tap.VELLUM_UNINSTALL_COMMAND, detail)
         self.assertNotIn("管理器文件：", detail)
-        ssh.exec_checked.assert_not_called()
+        self.assertFalse(any(
+            command.args[0].startswith(("rm ", "mv ", "cp ", "chmod ", "mount "))
+            for command in ssh.exec_checked.call_args_list
+        ))
         ssh.transfer_file.assert_not_called()
 
     def test_both_historical_rmtool_vellum_packages_must_be_removed_first(self):

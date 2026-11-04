@@ -14,7 +14,7 @@ rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, a
 classic offline-verified tap-to-turn plugin for Paper Pure, reMarkable 1,
 and reMarkable 2, plus a one-click read-only diagnostic bundle for support. Device operations do not depend on reMarkable cloud services. Release builds include baseline trusted manifests for these firmware-specific features, enabling offline support discovery and verified cache reuse. Payloads are not bundled and still require a network download or an existing validated cache.
 
-The current release is [v1.21.3](https://github.com/pretenderlu/rmtool/releases/tag/v1.21.3). It fixes inactive legacy Xovi files incorrectly blocking installation or maintenance of managed reading, note, and other plugins, while preserving external plugins and KOReader data. See the [release notes](docs/releases/v1.21.3.md) and the device, firmware and verification matrix below.
+The current release is [v1.21.4](https://github.com/pretenderlu/rmtool/releases/tag/v1.21.4). It improves plugin installation, migration and recovery after interruptions; strengthens font, localization and firmware safety; and fixes tap-to-turn, Pinyin input and document export issues while improving stability. See the [release notes](docs/releases/v1.21.4.md) and the device, firmware and verification matrix below.
 
 [QR transfer](qr-upload/README.md) supports all five models on stable 3.29.1.0 and 3.29.0.153, and Paper Pro Move on 3.28.0.172; other firmware is not supported. It provides phone-to-tablet PDF/EPUB uploads over trusted Wi-Fi, up to 200 MB per file, without a computer after installation. It uses unencrypted local HTTP and requires a trusted network. Move phone uploads on .172 and USB/Wi-Fi desktop native imports on .153 passed hardware tests. The user confirmed Paper Pro .153 plugin migration and installation; phone uploads on newly supported models still need individual hardware tests. See the [compatibility notes](docs/device-firmware-support.md).
 
@@ -200,7 +200,7 @@ Open the KOReader page, connect the device, and click **Check Status**. Installa
 
 ### Wallpaper notes
 
-Before each upload, the target file is copied to `.backup` in the same directory; another upload overwrites that backup. When uploading the suspend wallpaper `suspended.png`, rmtool can replace existing `carousel/*.png` files with transparent images so firmware 3.27 carousel artwork does not cover the custom wallpaper. The original carousel images are preserved once in `carousel/.backup/`, a subdirectory ignored by the firmware, and disabling the option restores them. Legacy adjacent backups are migrated into that subdirectory.
+Before the first upload, the target file is copied to `.backup` in the same directory; subsequent uploads preserve that original backup. When uploading the suspend wallpaper `suspended.png`, rmtool can replace existing `carousel/*.png` files with transparent images so firmware 3.27 carousel artwork does not cover the custom wallpaper. The original carousel images are preserved once in `carousel/.backup/`, a subdirectory ignored by the firmware, and disabling the option restores them. Legacy adjacent backups are migrated into that subdirectory.
 
 ### Legacy French-slot localization (compatibility reference)
 

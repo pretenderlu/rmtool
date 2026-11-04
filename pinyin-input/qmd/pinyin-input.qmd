@@ -9,6 +9,10 @@ AFFECT [[2328484894988065446]]
 
             property string pinyinBuffer: ""
             property var candidates: []
+            property string candidateQuery: ""
+            property int _querySerial: 0
+            property var _pendingCommit: null
+            property string _charQueue: ""
             property int pageIdx: 0
             readonly property int pageSize: 5
             readonly property int pageCount: Math.max(1, Math.ceil(candidates.length / pageSize))
@@ -23,10 +27,11 @@ AFFECT [[2328484894988065446]]
             // 零宽空格占位符状态：anchorIdx 是占位符所在位置
             property bool hasAnchor: false
             property int anchorIdx: 0
-            property bool _kbdDumped: false
             // long-poll 链状态: true 时表示 /pop-all-chars-blocking xhr 在挂,
             // 阻止 charPoller fallback 重复发起。响应到达后 chain 立即重发。
             property bool _charXhrActive: false
+            property int _charRetryDelay: 250
+            property double _charRetryAt: 0
             // 英文标点 → 中文标点映射 (chinese_mode 启用时生效)。
             // ,. 在 buffer 非空时作翻页, buffer 空时按本表转换。其他标点直接转。
             readonly property var _punctMap: ({
@@ -162,22 +167,15 @@ AFFECT [[2328484894988065446]]
                     ctrl.setCursorIndex(anchorIdx + 1)
                     hasAnchor = true
                     pinyinIME.intercepting = false
+                    pinyinIME._drainChars()
                 })
-            }
-
-            // 重新放置占位符（退格后 buffer 还有内容时调用）
-            function replaceAnchor(ctrl) {
-                hasAnchor = false
-                placeAnchor(ctrl)
             }
 
             // 删除占位符（选词前调用）
             function removeAnchor(ctrl) {
                 if (!hasAnchor) return
-                intercepting = true
-                ctrl.deleteText(1, 0)
+                if (ctrl.textCursorIndex === anchorIdx + 1) ctrl.deleteText(1, 0)
                 hasAnchor = false
-                intercepting = false
             }
 
             // ── 50ms 轮询字符队列 ────────────────────────────────────────────
@@ -190,9 +188,11 @@ AFFECT [[2328484894988065446]]
                 context: Qt.ApplicationShortcut
                 enabled: pinyinIME.useDirectCommit && pinyinIME.pinyinBuffer !== ""
                 onActivated: {
-                    console.warn("XOVI-PINYIN: Shortcut Enter captured, buffer=" + pinyinIME.pinyinBuffer)
                     var ctrl = pinyinIME.focusTarget ? pinyinIME.focusTarget.controller : null
-                    if (ctrl) pinyinIME.commitBufferRaw(ctrl)
+                    if (ctrl) {
+                        pinyinIME._charQueue += "\r"
+                        pinyinIME._drainChars()
+                    }
                 }
             }
 
@@ -203,10 +203,12 @@ AFFECT [[2328484894988065446]]
             // 错误 / 服务重启时把链拉回来)。
             function _pollChars() {
                 if (pinyinIME._charXhrActive) return
+                if (Date.now() < pinyinIME._charRetryAt) return
                 if (pinyinIME.intercepting) return
                 if (!pinyinIME.active || !pinyinIME.useDirectCommit || !pinyinIME.isChineseMode) return
                 var ctrl = pinyinIME.focusTarget ? pinyinIME.focusTarget.controller : null
                 if (!ctrl) return
+                var target = pinyinIME.focusTarget
 
                 pinyinIME._charXhrActive = true
                 var xhr = new XMLHttpRequest()
@@ -214,82 +216,78 @@ AFFECT [[2328484894988065446]]
                 xhr.onreadystatechange = function() {
                     if (xhr.readyState !== 4) return
                     pinyinIME._charXhrActive = false
-                    var chars = (xhr.status === 200) ? xhr.responseText : ""
-                    if (chars) {
-                        pinyinIME.refreshCursorPosition()
-                        pinyinIME.intercepting = true
-                        var changed = false
-                        for (var j = 0; j < chars.length; j++) {
-                            var ch = chars[j]
-                            if (ch === "\b") {
-                                if (pinyinIME.pinyinBuffer.length > 0) {
-                                    pinyinIME.pinyinBuffer = pinyinIME.pinyinBuffer.slice(0, -1)
-                                    changed = true
-                                    if (pinyinIME.pinyinBuffer === "") {
-                                        pinyinIME.hasAnchor = false
-                                        pinyinIME.clearState()
-                                        changed = false
-                                    }
-                                }
-                            } else if (/[a-zA-Z]/.test(ch)) {
-                                var wasEmpty = pinyinIME.pinyinBuffer === ""
-                                pinyinIME.pinyinBuffer += ch
-                                changed = true
-                                if (wasEmpty) {
-                                    pinyinIME.setMode("pinyin_active", true)
-                                    pinyinIME.placeAnchor(ctrl)
-                                }
-                            } else if (ch === " " && pinyinIME.pinyinBuffer !== "") {
-                                pinyinIME.commitFirst(ctrl)
-                                changed = false
-                            } else if ((ch === "\r" || ch === "\n") && pinyinIME.pinyinBuffer !== "") {
-                                pinyinIME.commitBufferRaw(ctrl)
-                                changed = false
-                            } else if (/[1-9]/.test(ch) && pinyinIME.pinyinBuffer !== "") {
-                                // 数字 1-9 直接选当前页第 N 个候选
-                                var pageStart = pinyinIME.pageIdx * pinyinIME.pageSize
-                                var selIdx = pageStart + (parseInt(ch) - 1)
-                                if (selIdx < pinyinIME.candidates.length) {
-                                    pinyinIME.selectCandidate(selIdx)
-                                }
-                                changed = false
-                            } else if (ch === "," && pinyinIME.pinyinBuffer !== "") {
-                                // buffer 非空: , 上一页
-                                if (pinyinIME.pageIdx > 0) pinyinIME.pageIdx -= 1
-                                changed = false
-                            } else if (ch === "." && pinyinIME.pinyinBuffer !== "") {
-                                // buffer 非空: . 下一页
-                                if (pinyinIME.pageIdx < pinyinIME.pageCount - 1) pinyinIME.pageIdx += 1
-                                changed = false
-                            } else if (pinyinIME._punctMap[ch] !== undefined) {
-                                // 中文模式 + 标点: buffer 非空时 commit 第一候选+插中文标点,
-                                // buffer 空时直接插中文标点。
-                                var cnP = pinyinIME._punctMap[ch]
-                                if (pinyinIME.pinyinBuffer !== "") {
-                                    var extra2 = cnP
-                                    pinyinIME.commitFirst(ctrl)
-                                    Qt.callLater(function() { pinyinIME.insertToDoc(ctrl, extra2) })
-                                    changed = false
-                                } else {
-                                    pinyinIME.insertToDoc(ctrl, cnP)
-                                }
-                            } else if (pinyinIME.pinyinBuffer !== "") {
-                                var extra = ch
-                                pinyinIME.commitFirst(ctrl)
-                                Qt.callLater(function() { pinyinIME.insertToDoc(ctrl, extra) })
-                                changed = false
-                            } else {
-                                pinyinIME.insertToDoc(ctrl, ch)
-                            }
-                        }
-                        pinyinIME.intercepting = false
-                        if (changed && pinyinIME.pinyinBuffer !== "") pinyinIME.fetchCandidates()
+                    if (xhr.status !== 200) {
+                        pinyinIME._retryCharsLater()
+                        return
+                    }
+                    pinyinIME._charRetryDelay = 250
+                    pinyinIME._charRetryAt = 0
+                    if (xhr.responseText && pinyinIME.focusTarget === target && pinyinIME.active && pinyinIME.useDirectCommit) {
+                        pinyinIME._charQueue += xhr.responseText
+                        pinyinIME._drainChars()
                     }
                     // chain — Qt.callLater 避免栈深递归 + 让 QML 事件循环处理一轮再发
                     Qt.callLater(pinyinIME._pollChars)
                 }
-                xhr.open("GET", "http://127.0.0.1:19876/pop-all-chars-blocking")
-                xhr.send()
+                try {
+                    xhr.open("GET", "http://127.0.0.1:19876/pop-all-chars-blocking")
+                    xhr.send()
+                } catch(e) { pinyinIME._retryCharsLater() }
+            }
+
+            function _retryCharsLater() {
+                _charXhrActive = false
+                _charRetryAt = Date.now() + _charRetryDelay
+                _charRetryDelay = Math.min(4000, _charRetryDelay * 2)
+            }
+
+            // Resume only after both the query and deferred controller cursor update finish.
+            function _drainChars() {
+                if (intercepting || _pendingCommit || !_charQueue || !active || !useDirectCommit || !isChineseMode) return
+                var ctrl = focusTarget ? focusTarget.controller : null
+                if (!ctrl) return
+                refreshCursorPosition()
+                var ch = _charQueue[0]
+                _charQueue = _charQueue.slice(1)
+                if (ch === "\b") {
+                    if (pinyinBuffer) {
+                        pinyinBuffer = pinyinBuffer.slice(0, -1)
+                        if (pinyinBuffer) fetchCandidates()
+                        else {
+                            intercepting = true
+                            removeAnchor(ctrl)
+                            clearState(true)
+                            intercepting = false
+                        }
+                    }
+                } else if (/[a-zA-Z]/.test(ch)) {
+                    var wasEmpty = !pinyinBuffer
+                    pinyinBuffer += ch
+                    if (wasEmpty) {
+                        setMode("pinyin_active", true)
+                        placeAnchor(ctrl)
+                    }
+                    fetchCandidates()
+                } else if (ch === " " && pinyinBuffer) {
+                    commitFirst(ctrl)
+                } else if ((ch === "\r" || ch === "\n") && pinyinBuffer) {
+                    commitBufferRaw(ctrl)
+                } else if (/[1-9]/.test(ch) && pinyinBuffer) {
+                    var digit = parseInt(ch, 10)
+                    if (digit <= pageSize) {
+                        var page = candidateQuery === pinyinBuffer ? pageIdx : 0
+                        _startCommit(ctrl, page * pageSize + digit - 1, "", 0)
+                    }
+                } else if (ch === "," && pinyinBuffer) {
+                    if (pageIdx > 0) pageIdx -= 1
+                } else if (ch === "." && pinyinBuffer) {
+                    if (pageIdx < pageCount - 1) pageIdx += 1
+                } else {
+                    var extra = _punctMap[ch] !== undefined ? _punctMap[ch] : ch
+                    if (pinyinBuffer) commitFirst(ctrl, extra)
+                    else insertToDoc(ctrl, extra)
+                }
+                Qt.callLater(pinyinIME._drainChars)
             }
 
             Timer {
@@ -310,29 +308,12 @@ AFFECT [[2328484894988065446]]
                     if (!pinyinIME.hasAnchor || pinyinIME.pinyinBuffer === "") return
                     var ctrl = pinyinIME.focusTarget ? pinyinIME.focusTarget.controller : null
                     if (!ctrl) return
-                    var newIdx = ctrl.textCursorIndex
-
-                    // 光标退到占位符位置或更前 → 占位符被退格键删掉了
-                    if (newIdx <= pinyinIME.anchorIdx) {
-                        pinyinIME.hasAnchor = false
-                        pinyinIME.pinyinBuffer = pinyinIME.pinyinBuffer.slice(0, -1)
-                        if (pinyinIME.pinyinBuffer === "") {
-                            pinyinIME.clearState()
-                        } else {
-                            // 重新放置占位符供下次退格使用
-                            pinyinIME.anchorIdx = newIdx
-                            pinyinIME.replaceAnchor(ctrl)
-                            pinyinIME.fetchCandidates()
-                        }
-                    } else if (newIdx > pinyinIME.anchorIdx + 1) {
-                        // PPM 虚拟 Enter 键：既不走 setCommitString 也不走 processKeyEvent，
-                        // 直接让 SceneView 插入一个换行（cursor 从 anchorIdx+1 前移到 anchorIdx+2）。
-                        // 我们监控不到 Enter 事件本身，但能监控到它的副作用 —— cursor 前移。
-                        // 触发到这里说明 Enter 按下了，把 buffer 以英文上屏（保留换行作为副作用）。
-                        var diff = newIdx - pinyinIME.anchorIdx
-                        console.warn("XOVI-PINYIN: forward (Enter) detected, diff=" + diff + " buffer=" + pinyinIME.pinyinBuffer)
-                        pinyinIME.commitBufferAfterEnter(ctrl, newIdx)
-                    }
+                    if (ctrl.textCursorIndex === pinyinIME.anchorIdx + 1) return
+                    // shortcut: preserve composition on motion until a verified controller text/selection API can distinguish edits.
+                    pinyinIME.hasAnchor = false
+                    pinyinIME._querySerial += 1
+                    var pending = pinyinIME._cancelCommit()
+                    if (pending) pinyinIME._charQueue = pending.suffix + pinyinIME._charQueue
                 }
             }
 
@@ -382,7 +363,6 @@ AFFECT [[2328484894988065446]]
                             return
                         }
                         pinyinIME.activateForCurrentFocus()
-                        Qt.callLater(pinyinIME.dumpKbdOnce)
                     } else {
                         // 虚拟键盘隐藏：先试着切到物理键盘的 direct mode（记事本场景）
                         if (pinyinIME.enterDirectModeIfApplicable()) return
@@ -434,7 +414,7 @@ AFFECT [[2328484894988065446]]
                 property string lastText: ""
 
                 onTriggered: {
-                    if (pinyinIME.intercepting) return
+                    if (pinyinIME.intercepting || pinyinIME._pendingCommit) return
                     var t = pinyinIME.focusTarget ? pinyinIME.focusTarget.text : ""
                     if (t.length > lastText.length) {
                         var added = t.substring(lastText.length)
@@ -468,6 +448,7 @@ AFFECT [[2328484894988065446]]
             }
 
             function fetchCandidates() {
+                _querySerial += 1
                 if (pinyinBuffer === "") {
                     candidates = []
                     showBar = false
@@ -490,24 +471,103 @@ AFFECT [[2328484894988065446]]
 
             function _doFetchCandidates() {
                 if (pinyinBuffer === "") return
+                var query = pinyinBuffer
+                var target = focusTarget
+                var serial = ++_querySerial
+                _queryCandidates(query, function(result) {
+                    if (serial !== pinyinIME._querySerial || query !== pinyinIME.pinyinBuffer || target !== pinyinIME.focusTarget || pinyinIME._pendingCommit) return
+                    pinyinIME.candidates = result
+                    pinyinIME.candidateQuery = query
+                    pinyinIME.pageIdx = 0
+                })
+            }
+
+            function _queryCandidates(query, done) {
                 var xhr = new XMLHttpRequest()
-                xhr.timeout = 500
                 xhr.onreadystatechange = function() {
-                    if (xhr.readyState === 4 && xhr.status === 200) {
+                    if (xhr.readyState !== 4) return
+                    var result = []
+                    if (xhr.status === 200) {
                         try {
                             var r = JSON.parse(xhr.responseText)
-                            pinyinIME.candidates = Array.isArray(r) ? r : []
-                            pinyinIME.pageIdx = 0
+                            if (Array.isArray(r) && r.every(function(value) { return typeof value === "string" && value.length > 0 })) result = r
                         } catch(e) {}
                     }
+                    done(result)
                 }
-                // 词库按小写索引；查询统一小写化，但 buffer 仍保留原大小写供回车原样上屏
-                xhr.open("GET", "http://127.0.0.1:19876/candidates?pinyin=" + encodeURIComponent(pinyinBuffer.toLowerCase()))
-                xhr.send()
+                try {
+                    xhr.open("GET", "http://127.0.0.1:19876/candidates?pinyin=" + encodeURIComponent(query.toLowerCase()))
+                    xhr.send()
+                } catch(e) { done([]) }
+                return xhr
+            }
+
+            Timer {
+                id: commitTimeout
+                interval: 700
+                repeat: false
+                onTriggered: pinyinIME._completeCommit([], pinyinIME._pendingCommit)
+            }
+
+            function _startCommit(ctrl, idx, suffix, extraLen) {
+                if (_pendingCommit || !pinyinBuffer || !focusTarget) return
+                var pending = {
+                    query: pinyinBuffer, target: focusTarget, direct: useDirectCommit,
+                    ctrl: ctrl, idx: idx, suffix: suffix,
+                    position: useDirectCommit ? ctrl.textCursorIndex : focusTarget.cursorPosition,
+                    text: useDirectCommit ? "" : focusTarget.text, extraLen: extraLen
+                }
+                _pendingCommit = pending
+                _querySerial += 1
+                candidatesDebounce.stop()
+                if (candidateQuery === pending.query) {
+                    _completeCommit(candidates, pending)
+                } else {
+                    commitTimeout.start()
+                    pending.xhr = _queryCandidates(pending.query, function(result) { pinyinIME._completeCommit(result, pending) })
+                }
+            }
+
+            function _completeCommit(result, pending) {
+                if (!pending || _pendingCommit !== pending) return
+                _cancelCommit()
+                if (focusTarget !== pending.target || pinyinBuffer !== pending.query || useDirectCommit !== pending.direct) return
+                var chosen = result.length ? result[pending.idx] : pending.query
+                if (chosen === undefined) {
+                    Qt.callLater(pinyinIME._drainChars)
+                    return
+                }
+                if (pending.direct) {
+                    if (pending.ctrl.textCursorIndex !== pending.position) {
+                        hasAnchor = false
+                        _charQueue = pending.suffix + _charQueue
+                        return
+                    }
+                    commitDirect(pending.ctrl, chosen + pending.suffix)
+                } else {
+                    var target = pending.target
+                    var start = pending.position - pending.query.length - pending.extraLen
+                    var end = start + pending.query.length
+                    var t = target.text
+                    // Native TextInput may keep receiving characters while the request is pending.
+                    if (start >= 0 && pending.text.slice(start, end) === pending.query &&
+                            t.slice(0, end) === pending.text.slice(0, end) && target.cursorPosition >= end) {
+                        var pos = target.cursorPosition
+                        intercepting = true
+                        target.text = t.slice(0, start) + chosen + t.slice(end)
+                        target.cursorPosition = pos + chosen.length - pending.query.length
+                        textWatcher.lastText = pending.text.slice(0, start) + chosen + pending.text.slice(end)
+                        intercepting = false
+                    } else {
+                        textWatcher.lastText = target.text
+                    }
+                    clearState(true)
+                }
             }
 
             function insertToDoc(ctrl, text) {
                 if (!text || !ctrl) return
+                intercepting = true
                 try {
                     var startIdx = ctrl.textCursorIndex
                     ctrl.beginInputMethodTransaction()
@@ -515,33 +575,41 @@ AFFECT [[2328484894988065446]]
                     ctrl.commitInputMethod()
                     ctrl.clearComposeRange()
                     ctrl.endInputMethodTransaction()
-                    Qt.callLater(function() { ctrl.setCursorIndex(startIdx + text.length) })
+                    Qt.callLater(function() {
+                        ctrl.setCursorIndex(startIdx + text.length)
+                        pinyinIME.intercepting = false
+                        pinyinIME._drainChars()
+                    })
                 } catch(e) {
-                    console.warn("XOVI-PINYIN: insertToDoc FAIL: " + e)
+                    intercepting = false
+                    console.warn("XOVI-PINYIN: insertToDoc failed")
                 }
             }
 
             function commitDirect(ctrl, chosen) {
                 intercepting = true
-                // 先删占位符，再插汉字
-                removeAnchor(ctrl)
-                var startIdx = ctrl.textCursorIndex
-                ctrl.beginInputMethodTransaction()
-                ctrl.replaceComposeText(chosen, true)
-                ctrl.commitInputMethod()
-                ctrl.clearComposeRange()
-                ctrl.endInputMethodTransaction()
-                Qt.callLater(function() {
-                    ctrl.setCursorIndex(startIdx + chosen.length)
-                    pinyinIME.intercepting = false
-                })
-                clearState()
-                console.warn("XOVI-PINYIN: committed: " + chosen)
+                try {
+                    removeAnchor(ctrl)
+                    var startIdx = ctrl.textCursorIndex
+                    ctrl.beginInputMethodTransaction()
+                    ctrl.replaceComposeText(chosen, true)
+                    ctrl.commitInputMethod()
+                    ctrl.clearComposeRange()
+                    ctrl.endInputMethodTransaction()
+                    Qt.callLater(function() {
+                        ctrl.setCursorIndex(startIdx + chosen.length)
+                        pinyinIME.intercepting = false
+                        pinyinIME._drainChars()
+                    })
+                    clearState(true)
+                } catch(e) {
+                    intercepting = false
+                    console.warn("XOVI-PINYIN: commit failed")
+                }
             }
 
-            function commitFirst(ctrl) {
-                if (candidates.length > 0) commitDirect(ctrl, candidates[0])
-                else clearState()
+            function commitFirst(ctrl, suffix) {
+                _startCommit(ctrl, 0, suffix || "", 0)
             }
 
             // 回车：buffer 原文（保留大小写）以英文上屏，不查候选词
@@ -551,93 +619,38 @@ AFFECT [[2328484894988065446]]
                 commitDirect(ctrl, raw)
             }
 
-            // PPM 虚拟 Enter 键走不到 setCommitString / processKeyEvent，只能靠
-            // onTextCursorIndexChanged 事后侦测。触发时状态：
-            //   [...content][U+200B @ anchorIdx][\n @ anchorIdx+1][cursor @ anchorIdx+2]
-            // 目标：把 U+200B 和 \n 都删掉，再把 buffer 以英文上屏。
-            // 结构性换行可能 deleteText 删不掉（历史踩坑），若删不掉就把 buffer 插
-            // 在换行后面，至少字母不丢。
-            function commitBufferAfterEnter(ctrl, newIdx) {
-                var raw = pinyinIME.pinyinBuffer
-                if (!raw) { pinyinIME.clearState(); return }
-                pinyinIME.intercepting = true
-                var anchor = pinyinIME.anchorIdx
-                console.warn("XOVI-PINYIN: enter-cleanup begin newIdx=" + newIdx + " anchor=" + anchor + " pos=" + ctrl.textCursorIndex)
-                // 结构性换行 deleteText(1,0) 删不掉（v57 实测 before==after）。
-                // 改用 selectTextRange([anchor, newIdx)) 圈住 [U+200B, \n]，
-                // 然后走 IM transaction 用 replaceComposeText 替换掉整段选区。
-                try {
-                    ctrl.selectTextRange(anchor, newIdx)
-                    console.warn("XOVI-PINYIN: after selectTextRange pos=" + ctrl.textCursorIndex)
-                } catch(e) {
-                    console.warn("XOVI-PINYIN: selectTextRange FAIL: " + e)
-                }
-                ctrl.beginInputMethodTransaction()
-                ctrl.replaceComposeText(raw, true)
-                ctrl.commitInputMethod()
-                ctrl.clearComposeRange()
-                ctrl.endInputMethodTransaction()
-                Qt.callLater(function() {
-                    // selectTextRange 替换完成后光标会停在选区起点，显式移到 buffer 末尾
-                    ctrl.setCursorIndex(anchor + raw.length)
-                    console.warn("XOVI-PINYIN: enter-cleanup end pos=" + ctrl.textCursorIndex)
-                    pinyinIME.intercepting = false
-                })
-                pinyinIME.hasAnchor = false
-                pinyinIME.clearState()
-                console.warn("XOVI-PINYIN: commit after enter: " + raw)
-            }
-
             function selectCandidate(idx) {
-                if (idx >= candidates.length) return
-                var chosen = candidates[idx]
+                var pageStart = pageIdx * pageSize
+                if (idx < pageStart || idx >= pageStart + pageSize || idx >= candidates.length) return
                 var ctrl = focusTarget ? focusTarget.controller : null
-                console.warn("XOVI-PINYIN: selectCandidate " + idx + "=" + chosen)
-                if (useDirectCommit && ctrl) {
-                    commitDirect(ctrl, chosen)
-                    return
-                }
-                intercepting = true
-                var t = focusTarget.text
-                var pos = focusTarget.cursorPosition
-                var before = t.substring(0, pos - pinyinBuffer.length)
-                var after = t.substring(pos)
-                focusTarget.text = before + chosen + after
-                focusTarget.cursorPosition = before.length + chosen.length
-                textWatcher.lastText = focusTarget.text
-                intercepting = false
-                clearState()
+                _startCommit(ctrl, candidateQuery === pinyinBuffer ? idx : idx - pageStart, "", 0)
             }
 
             function commitTextMode(extraLen) {
                 if (!focusTarget) return
-                if (candidates.length > 0) {
-                    var chosen = candidates[0]
-                    intercepting = true
-                    var t = focusTarget.text
-                    var pos = focusTarget.cursorPosition
-                    var pinyinStart = pos - pinyinBuffer.length - extraLen
-                    var before = t.substring(0, pinyinStart)
-                    var trigger = t.substring(pinyinStart + pinyinBuffer.length, pos)
-                    var after = t.substring(pos)
-                    focusTarget.text = before + chosen + trigger + after
-                    focusTarget.cursorPosition = before.length + chosen.length + trigger.length
-                    textWatcher.lastText = focusTarget.text
-                    intercepting = false
-                    clearState()
-                } else {
-                    textWatcher.lastText = focusTarget.text
-                    clearState()
-                }
+                _startCommit(null, 0, "", extraLen)
             }
 
-            function clearState() {
+            function clearState(keepQueue) {
+                _querySerial += 1
+                candidatesDebounce.stop()
+                _cancelCommit()
+                if (!keepQueue) _charQueue = ""
                 pinyinBuffer = ""
                 candidates = []
+                candidateQuery = ""
                 pageIdx = 0
                 showBar = false
                 hasAnchor = false
                 setMode("pinyin_active", false)
+            }
+
+            function _cancelCommit() {
+                var pending = _pendingCommit
+                _pendingCommit = null
+                commitTimeout.stop()
+                if (pending && pending.xhr) pending.xhr.abort()
+                return pending
             }
 
             function findFormatMenu(item, depth) {
@@ -651,52 +664,12 @@ AFFECT [[2328484894988065446]]
                 return null
             }
 
-            function dumpTree(item, depth) {
-                if (!item || depth > 3) return
-                console.warn("XOVI-TREE: " + "  ".repeat(depth) + item.toString() + " y=" + item.y + " h=" + item.height)
-                for (var i = 0; i < item.children.length; i++)
-                    dumpTree(item.children[i], depth + 1)
-            }
-
-            // 诊断：完整 dump 虚拟键盘树，找 Enter 按钮
-            function dumpKbdDeep(item, depth) {
-                if (!item || depth > 12) return
-                var s = item.toString()
-                var info = "[" + depth + "] " + s
-                if (item.objectName) info += " n=" + item.objectName
-                if (item.text !== undefined && item.text !== null && item.text !== "") info += " t=" + JSON.stringify(item.text)
-                if (item.key !== undefined) info += " key=0x" + item.key.toString(16)
-                if (item.keyType !== undefined) info += " keyType=" + item.keyType
-                if (item.label !== undefined && item.label !== "") info += " label=" + JSON.stringify(item.label)
-                if (typeof item.x === "number" && item.width > 0) info += " xy=" + item.x + "," + item.y + " wh=" + item.width + "x" + item.height
-                console.warn("XOVI-KBD " + info)
-                for (var i = 0; i < item.children.length; i++)
-                    dumpKbdDeep(item.children[i], depth + 1)
-            }
-            function dumpKbdOnce() {
-                if (pinyinIME._kbdDumped) return
-                var wins = Qt.application ? Qt.application.allWindows : null
-                if (!wins || wins.length === 0) {
-                    var w = pinyinIME.Window.window
-                    if (w) wins = [w]
-                    else return
-                }
-                pinyinIME._kbdDumped = true
-                console.warn("XOVI-KBD === " + wins.length + " windows ===")
-                for (var wi = 0; wi < wins.length; wi++) {
-                    var w2 = wins[wi]
-                    console.warn("XOVI-KBD --- win#" + wi + " " + w2 + " w=" + w2.width + " h=" + w2.height + " visible=" + w2.visible)
-                    if (w2.contentItem) dumpKbdDeep(w2.contentItem, 0)
-                }
-            }
-
             // 按当前焦点判断 text / direct mode,置好 active/useDirectCommit/focusTarget,
             // 并把候选栏 reparent 到键盘 overlay(避免被虚拟键盘遮挡)。
             // 同时被 onLocaleChanged(英文→中文) 和 onVisibleChanged(visible=true) 调用;
             // 两条路径过去只有 onVisibleChanged 做完整初始化,切换语言这条就会漏 nudgeToolbar。
             function activateForCurrentFocus() {
                 var item = pinyinIME.Window.window.activeFocusItem
-                console.warn("XOVI-PINYIN: activateForCurrentFocus focus=" + item)
                 if (item && item.text !== undefined) {
                     pinyinIME.focusTarget = item
                     pinyinIME.useDirectCommit = false
@@ -712,7 +685,7 @@ AFFECT [[2328484894988065446]]
                     if (item && item.controller) ctrlConn.target = item.controller
                     // direct mode：字母改道到候选栏
                     pinyinIME.setMode("chinese", true)
-                    console.warn("XOVI-PINYIN: direct mode, ctrl=" + (item ? item.controller : null))
+                    console.warn("XOVI-PINYIN: direct mode")
                 }
                 Qt.callLater(pinyinIME.nudgeToolbar)
             }

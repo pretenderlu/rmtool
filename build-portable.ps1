@@ -88,20 +88,6 @@ $commonArguments = @(
     "--windowed",
     "--icon", (Join-Path $root "assets\rmtool-icon.ico"),
     "--collect-data", "certifi",
-    "--add-data", "$(Join-Path $root 'assets\fonts');assets\fonts",
-    "--add-data", "$(Join-Path $root 'assets\device_frames');assets\device_frames",
-    "--add-data", "$(Join-Path $root 'assets\rmtool-icon.ico');assets",
-    "--add-data", "$(Join-Path $root 'translations\manifest.json');translations",
-    "--add-data", "$(Join-Path $root 'tap-page-turn\manifest.json');tap-page-turn",
-    "--add-data", "$(Join-Path $root 'fast-mono-reading\manifest.json');fast-mono-reading",
-    "--add-data", "$(Join-Path $root 'native-chinese\manifest.json');native-chinese",
-    "--add-data", "$(Join-Path $root 'pinyin-input\manifest.json');pinyin-input",
-    "--add-data", "$(Join-Path $root 'reading-enhancements\manifest.json');reading-enhancements",
-    "--add-data", "$(Join-Path $root 'note-enhancements\manifest.json');note-enhancements",
-    "--add-data", "$(Join-Path $root 'weread-app\manifest.json');weread-app",
-    "--add-data", "$(Join-Path $root 'weread-launcher\manifest.json');weread-launcher",
-    "--add-data", "$(Join-Path $root 'qr-upload\manifest.json');qr-upload",
-    "--add-data", "$(Join-Path $root 'native-import\manifest.json');native-import",
     "--distpath", (Join-Path $root "dist"),
     "--specpath", (Join-Path $root "build")
 )
@@ -115,7 +101,7 @@ $portableArguments = $commonArguments + @(
     $entryPoint
 )
 
-& $python -m PyInstaller @portableArguments
+& $python (Join-Path $root "tools\build_app.py") @portableArguments
 if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller failed to build the portable folder with exit code $LASTEXITCODE."
 }
@@ -130,15 +116,12 @@ if (-not (Test-Path -LiteralPath $executable) -or
 }
 
 function Invoke-HttpsSmokeTest([string]$Path) {
-    # Runs the packaged executable once to prove the frozen runtime and its CA
-    # bundle work. Needs network access; set RMTOOL_SKIP_SMOKE_TEST=1 to skip
-    # it for offline local builds (the release workflow always runs it).
-    if ($env:RMTOOL_SKIP_SMOKE_TEST -eq "1") {
-        Write-Host "Skipping HTTPS smoke test for $Path (RMTOOL_SKIP_SMOKE_TEST=1)."
-        return
-    }
+    # Offline resource loading is mandatory; only network probes may be skipped.
+    $checks = @("--bundle-self-test")
+    if ($env:RMTOOL_SKIP_SMOKE_TEST -ne "1") { $checks += "--https-smoke-test" }
+    foreach ($check in $checks) {
     # The executables use the GUI subsystem, so wait explicitly for the exit code.
-    $process = Start-Process -FilePath $Path -ArgumentList "--https-smoke-test" -PassThru -NoNewWindow
+    $process = Start-Process -FilePath $Path -ArgumentList $check -PassThru -WindowStyle Hidden
     # Reading Handle keeps it open; otherwise ExitCode can be empty after exit.
     $null = $process.Handle
     if (-not $process.WaitForExit(180000)) {
@@ -149,6 +132,7 @@ function Invoke-HttpsSmokeTest([string]$Path) {
         throw "HTTPS smoke test failed for $Path with exit code $($process.ExitCode)."
     }
     Write-Host "HTTPS smoke test passed: $Path"
+    }
 }
 
 Invoke-HttpsSmokeTest $executable
@@ -162,7 +146,7 @@ $oneFileArguments = $commonArguments + @(
     $entryPoint
 )
 
-& $python -m PyInstaller @oneFileArguments
+& $python (Join-Path $root "tools\build_app.py") @oneFileArguments
 if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller failed to build the single-file executable with exit code $LASTEXITCODE."
 }

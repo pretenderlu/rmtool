@@ -105,6 +105,8 @@ class FirmwareRegressionTests(unittest.TestCase):
     def test_status_refresh_bypasses_only_fixed_probe_and_pins_connection(self):
         ssh = firmware.FirmwareSSHClientWrapper()
         token = object()
+        ssh._client = token
+        self.addCleanup(setattr, ssh, "_client", None)
         ssh.firmware_guard_reason = "pending firmware"
         page = FirmwareTab(ssh)
         self.addCleanup(page.deleteLater)

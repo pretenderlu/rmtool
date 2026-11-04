@@ -216,7 +216,7 @@ class FirmwareTab(QtWidgets.QWidget):
         connected = self.ssh_client.is_connected()
         safe = self.transaction[0] in ("none", "completed")
         # Only offered after a refresh has shown the device state.
-        releasable = self.state is not None and self.transaction[0] in ("failed", "unknown")
+        releasable = self.state is not None and self.transaction[0] == "failed"
         for key, button in self.buttons.items():
             enabled = not self.busy
             if key in ("refresh", "restore", "install", "switch", "reboot", "restore_plugins", "release"):
@@ -230,6 +230,8 @@ class FirmwareTab(QtWidgets.QWidget):
                 enabled &= safe
             if key == "install":
                 enabled &= self.image is not None
+            if key == "switch":
+                enabled &= self.standby_slot is not None and not self.standby_error
             if key == "download":
                 enabled &= self.releases.currentData() is not None
             if key == "reboot":
@@ -268,13 +270,27 @@ class FirmwareTab(QtWidgets.QWidget):
     def _run(self, function, done, *, device=False, progress=False):
         if self.busy:
             return
-        token = self.ssh_client.ensure_client() if device else None
+        token = self._session_token() if device else None
         self.busy = True
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)
         self._update()
-        worker = _rmtool.Worker(lambda: function(lambda done, total: worker.signals.progress.emit(
-            min(100, int(done * 100 / max(total, 1))), 100))) if progress else _rmtool.Worker(function)
+
+        def execute():
+            def invoke():
+                if progress:
+                    return function(lambda done, total: worker.signals.progress.emit(
+                        min(100, int(done * 100 / max(total, 1))), 100))
+                return function()
+
+            if device:
+                with self.ssh_client._transport_lock:
+                    if token is None or self.ssh_client.ensure_client() is not token:
+                        raise RuntimeError("连接已变化，请重新检测并确认。")
+                    return invoke()
+            return invoke()
+
+        worker = _rmtool.Worker(execute)
         self.worker = worker
 
         def finish(result):
@@ -283,9 +299,7 @@ class FirmwareTab(QtWidgets.QWidget):
             self.busy = False
             self.worker = None
             self.progress.setVisible(False)
-            if device and getattr(self.ssh_client, "firmware_guard_reason", ""):
-                self.transaction = ("unknown", "请查询进度")
-            if not device or (self.ssh_client.is_connected() and self.ssh_client._client is token):
+            if not device or self._session_token() is token:
                 done(result)
             self._update()
 
@@ -295,15 +309,21 @@ class FirmwareTab(QtWidgets.QWidget):
             self.busy = False
             self.worker = None
             self.progress.setVisible(False)
-            if device and getattr(self.ssh_client, "firmware_guard_reason", ""):
-                self.transaction = ("unknown", "请查询进度")
             self._update()
+            current = self._session_token() if device else None
+            if device and current is not None and current is not token:
+                return
             show_error(self, "固件管理", str(exc))
 
         worker.signals.finished.connect(finish)
         worker.signals.error.connect(fail)
         worker.signals.progress.connect(self._progress)
         QtCore.QThreadPool.globalInstance().start(worker)
+
+    def _session_token(self):
+        # Snapshot only: transport validation happens inside the worker session.
+        with self.ssh_client._state_lock:
+            return self.ssh_client._client
 
     def _progress(self, done, total):
         self.progress.setRange(0, total)
@@ -413,7 +433,7 @@ class FirmwareTab(QtWidgets.QWidget):
         self._update()
 
     def refresh(self):
-        token = self.ssh_client.ensure_client()
+        token = self._session_token()
 
         def inspect():
             with firmware.firmware_session(self.ssh_client, token):
@@ -444,7 +464,7 @@ class FirmwareTab(QtWidgets.QWidget):
         self._run(inspect, self._device_loaded, device=True)
 
     def restore(self):
-        token = self.ssh_client.ensure_client()
+        token = self._session_token()
         if ask_confirmation(self, "固件管理", "恢复 rmtool 暂停前的自动更新状态？"):
             self._run(
                 lambda: firmware.prepare_updater(self.ssh_client, token, confirmed=True, restore=True),
@@ -512,12 +532,13 @@ class FirmwareTab(QtWidgets.QWidget):
             )
 
     def release_lock(self):
-        token = self.ssh_client.ensure_client()
-        detail = ("rmtool 会先确认设备没有待应用的更新、下次启动分区没有切换、A/B 错误计数为 0，"
-                  "且没有进程在写入备用分区；任一条件不满足都不会解除。\n"
+        token = self._session_token()
+        detail = ("rmtool 只归档已确认失败的任务；结果不明时保留任务和锁定。\n"
+                  "会确认没有待应用更新、下次启动分区没有切换且没有写入者。\n"
                   "不会清零计数或修改启动设置。任务日志会保留，暂存的固件镜像会删除以释放空间。\n"
-                  "解除后备用分区内容可能不完整，请不要切换到备用分区；需要时重新安装固件。")
-        if not ask_confirmation(self, "解除固件锁定", "上次固件操作失败或结果不明。确认设备状态正常后解除锁定？",
+                  "失败目标分区禁止切换，直到重新安装成功。系统失败状态或 A/B 计数仍会阻止新写入；"
+                  "请保存文档后用电源键重启并重新检测。")
+        if not ask_confirmation(self, "解除固件锁定", "上次固件操作已确认失败。检查设备状态并归档失败任务？",
                                 detail=detail, danger=True):
             return
 
@@ -539,5 +560,5 @@ class FirmwareTab(QtWidgets.QWidget):
             self._reboot_device()
 
     def _reboot_device(self):
-        token = self.ssh_client.ensure_client()
+        token = self._session_token()
         self._run(lambda: firmware.reboot_after_success(self.ssh_client, token, confirmed=True), lambda _: None, device=True)

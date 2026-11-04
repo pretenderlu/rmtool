@@ -74,9 +74,12 @@ class FakeSleepSSH:
         if self.unsafe_directory and self.unsafe_directory in command:
             raise RuntimeError("unsafe directory")
         args = shlex.split(command)
-        if args[0] == "sha256sum":
-            data = self.files[args[1]]
-            return hashlib.sha256(data).hexdigest() + "  " + args[1]
+        if "sha256sum" in args:
+            path = args[args.index("sha256sum") + 1]
+            data = self.files[path]
+            if args[0] == "test" and len(data) > sleep.MAX_IMAGE_BYTES:
+                raise RuntimeError("image too large")
+            return hashlib.sha256(data).hexdigest() + "  " + path
         if "mv" in args:
             if args[0] == "chmod":
                 self.modes[args[2]] = int(args[1], 8)

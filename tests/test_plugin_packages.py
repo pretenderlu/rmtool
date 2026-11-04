@@ -1,6 +1,9 @@
 import hashlib
+import importlib
+import inspect
 import io
 import json
+import re
 import tarfile
 import tempfile
 import unittest
@@ -32,6 +35,36 @@ def _package(files):
 
 
 class FieldValidationTests(unittest.TestCase):
+    def test_content_names_bind_the_complete_digest_but_accept_legacy_names(self):
+        for legacy in ("resource.tar.gz", "translation.qm"):
+            actual = pp.content_asset_name(legacy, "a" * 64)
+            self.assertTrue(pp.asset_name_matches(actual, legacy, "a" * 64))
+            self.assertFalse(pp.asset_name_matches(actual, legacy, "b" * 64))
+            self.assertTrue(pp.asset_name_matches(legacy, legacy, "a" * 64))
+        for digest in ("a" * 16, "G" * 64, "../file"):
+            with self.assertRaises(ValueError):
+                pp.content_asset_name("resource.tar.gz", digest)
+
+    def test_all_plugin_parsers_accept_bound_names_and_reject_wrong_name_digest(self):
+        for name in ("tap_page_turn", "fast_mono_reading", "native_chinese", "pinyin_input",
+                     "reading_enhancements", "note_enhancements", "weread_launcher", "qr_upload", "native_import_control"):
+            module = importlib.import_module("_" + name)
+            with self.subTest(feature=name):
+                document = json.loads(module.BUNDLED_MANIFEST.read_bytes())
+                entry = document["packages"][0]
+                legacy = re.sub(r"-sha256-[0-9a-f]{64}(?=\.tar\.gz$)", "", entry["asset"])
+                entry["asset"] = pp.content_asset_name(legacy, entry["sha256"])
+                if "urls" in entry:
+                    entry["urls"] = [url.rsplit("/", 1)[0] + "/" + entry["asset"] for url in entry["urls"]]
+                kwargs = {"require_local_match": False} if "require_local_match" in inspect.signature(module.parse_manifest).parameters else {}
+                module.parse_manifest(json.dumps(document).encode(), **kwargs)
+                wrong = pp.content_asset_name(legacy, "0" * 64)
+                if "urls" in entry:
+                    entry["urls"] = [url.replace(entry["asset"], wrong) for url in entry["urls"]]
+                entry["asset"] = wrong
+                with self.assertRaises(RuntimeError):
+                    module.parse_manifest(json.dumps(document).encode(), **kwargs)
+
     def test_label_is_used_in_messages(self):
         with self.assertRaisesRegex(RuntimeError, "阅读增强清单字段 firmware 无效"):
             pp.required_string({"firmware": "x"}, "firmware", pp.FIRMWARE_RE, "阅读增强")

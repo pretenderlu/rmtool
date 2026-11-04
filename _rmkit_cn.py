@@ -209,6 +209,7 @@ class FontRecoveryStatus:
     directories: tuple[str, ...] = ()
     fingerprint: str = ""
     mounts: tuple[str, ...] = ()
+    owner: str = ""
 
 
 @dataclass(frozen=True)
@@ -674,6 +675,7 @@ class LocalizationState(Enum):
     NOT_INSTALLED = "not_installed"
     INSTALLED_NOT_ENABLED = "installed_not_enabled"
     ENABLED = "enabled"
+    RECOVERY_REQUIRED = "recovery_required"
 
 
 @dataclass(frozen=True)
@@ -687,6 +689,7 @@ class LocalizationStatus:
     available_packages: Optional[tuple[TranslationPackage, ...]] = field(
         default=None, compare=False, repr=False
     )
+    detail: str = ""
 
 
 _SECTION_RE = re.compile(r"^[ \t]*\[[^\]\r\n]+\][ \t]*(?:\r?\n)?$")
@@ -863,6 +866,8 @@ def upload_font(
         try:
             ssh_client.transfer_file(str(path), remote_temp_path)
             ssh_client.exec_checked(f"chmod 0644 {shlex.quote(remote_temp_path)}")
+            if _remote_sha256(ssh_client, remote_temp_path) != hashlib.sha256(path.read_bytes()).hexdigest():
+                raise RuntimeError("字体上传后校验失败，未替换现有字体。")
             if fontconfig_local_path and fontconfig_remote_path:
                 fontconfig_dir = posixpath.dirname(fontconfig_remote_path)
                 ssh_client.exec_checked(f"mkdir -p {shlex.quote(fontconfig_dir)}")
@@ -870,6 +875,8 @@ def upload_font(
                 ssh_client.exec_checked(
                     f"chmod 0644 {shlex.quote(fontconfig_temp_path)}"
                 )
+                if _remote_sha256(ssh_client, fontconfig_temp_path) != hashlib.sha256(Path(fontconfig_local_path).read_bytes()).hexdigest():
+                    raise RuntimeError("字体配置上传后校验失败，未替换现有配置。")
                 cache_paths.append(fontconfig_dir)
             ssh_client.exec_checked(
                 f"mv -f {shlex.quote(remote_temp_path)} {shlex.quote(remote_path)}"
@@ -971,6 +978,17 @@ def get_font_recovery_status(ssh_client) -> FontRecoveryStatus:
                 if (not stat.S_ISDIR(entry.st_mode) or entry.st_uid != 0
                         or entry.st_gid != 0 or entry.st_mode & 0o022):
                     raise RuntimeError(f"字体恢复目录不可信：{path}")
+            try:
+                marker = _read_limited_regular_bytes(sftp, FONT_MARKER_PATH, 5 * 1024 * 1024)
+            except FileNotFoundError:
+                marker = None
+            if marker is not None:
+                owner = _font_marker_owner(ssh_client)
+                if owner is not None and json.loads(marker).get("phase") == "installing":
+                    return FontRecoveryStatus(
+                        "managed", "检测到未完成的托管字体安装，请先还原字体事务。",
+                        fingerprint=hashlib.sha256(marker).hexdigest(), owner=owner,
+                    )
             entries = sftp.listdir_attr(BACKUP_DIR)
             for entry in entries:
                 name = entry.filename
@@ -2366,7 +2384,9 @@ def _epub_font_index_data(slots: tuple[EpubFontSlot, ...]) -> bytes:
     ).encode("utf-8")
 
 
-def _epub_font_index_from_bytes(sftp, data: bytes) -> tuple[EpubFontSlot, ...]:
+def _epub_font_index_from_bytes(
+    sftp, data: bytes, *, validate_targets: bool = True
+) -> tuple[EpubFontSlot, ...]:
     try:
         document = json.loads(data.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -2392,9 +2412,10 @@ def _epub_font_index_from_bytes(sftp, data: bytes) -> tuple[EpubFontSlot, ...]:
             raise RuntimeError("EPUB 字体索引包含非规范字体路径。")
         directory, filename = posixpath.dirname(target), posixpath.basename(target)
         _user_font_path(directory, filename)
-        _require_trusted_epub_font(
-            sftp, target, "EPUB 字体索引引用的字体状态不可信。"
-        )
+        if validate_targets:
+            _require_trusted_epub_font(
+                sftp, target, "EPUB 字体索引引用的字体状态不可信。"
+            )
         _validated_epub_font_label(label)
         if target in targets:
             raise RuntimeError("EPUB 字体索引重复引用同一个字体文件。")
@@ -2403,14 +2424,16 @@ def _epub_font_index_from_bytes(sftp, data: bytes) -> tuple[EpubFontSlot, ...]:
     return tuple(slots)
 
 
-def _epub_font_index_from_sftp(sftp) -> Optional[tuple[EpubFontSlot, ...]]:
+def _epub_font_index_from_sftp(
+    sftp, *, validate_targets: bool = True
+) -> Optional[tuple[EpubFontSlot, ...]]:
     try:
         data = _read_limited_regular_bytes(
             sftp, EPUB_FONT_INDEX_PATH, EPUB_FONT_INDEX_MAX_BYTES
         )
     except IOError:
         return None
-    return _epub_font_index_from_bytes(sftp, data)
+    return _epub_font_index_from_bytes(sftp, data, validate_targets=validate_targets)
 
 
 def _legacy_epub_font_entries_from_sftp(sftp) -> tuple[EpubFontSlot, ...]:
@@ -2505,7 +2528,7 @@ def _write_epub_font_index_locked(
             except IOError:
                 before_data = None
             current = (
-                _epub_font_index_from_bytes(sftp, before_data)
+                _epub_font_index_from_bytes(sftp, before_data, validate_targets=False)
                 if before_data is not None
                 else _legacy_epub_font_entries_from_sftp(sftp)
             )
@@ -2575,7 +2598,7 @@ def _epub_font_slots(
 
 
 def _epub_font_slot_targets_from_sftp(sftp) -> tuple[str, ...]:
-    indexed = _epub_font_index_from_sftp(sftp)
+    indexed = _epub_font_index_from_sftp(sftp, validate_targets=False)
     slots = (
         indexed
         if indexed is not None
@@ -2585,7 +2608,8 @@ def _epub_font_slot_targets_from_sftp(sftp) -> tuple[str, ...]:
 
 
 def _epub_font_slot_targets(ssh_client) -> tuple[str, ...]:
-    return tuple(slot.target_path for slot in _epub_font_slots(ssh_client))
+    with ssh_client.sftp_session() as sftp:
+        return _epub_font_slot_targets_from_sftp(sftp)
 
 
 def _epub_font_slot_target(ssh_client, slot_number: int = 1) -> str:
@@ -2624,8 +2648,15 @@ def get_epub_font_slot_status(ssh_client) -> EpubFontSlotStatus:
             "当前设备仍可上传字体和设置系统字体。",
         )
     try:
-        slots = _epub_font_slots(ssh_client, migrate_legacy=True)
+        slots = _epub_font_slots(ssh_client)
     except Exception as exc:
+        try:
+            with ssh_client.sftp_session() as sftp:
+                slots = _epub_font_index_from_sftp(sftp, validate_targets=False)
+            if slots is not None:
+                return EpubFontSlotStatus("stale", str(exc), slots=slots)
+        except Exception:
+            pass
         return EpubFontSlotStatus("invalid", str(exc))
     return _epub_font_ready_status(
         f"当前 EPUB 字体菜单有 {len(slots)} 项。",
@@ -2703,7 +2734,9 @@ def remove_epub_font_slot(
 ) -> EpubFontSlotStatus:
     """Remove one assigned EPUB font and compact the remaining order."""
     with ssh_client.operation_session():
-        status = _require_epub_font_slot_support(ssh_client)
+        status = get_epub_font_slot_status(ssh_client)
+        if not status.supported and status.state != "stale":
+            raise RuntimeError(status.detail)
         _directory, remote_path = _user_font_path(remote_dir, filename)
         assigned = status.slots
         selected_slot = next(
@@ -2724,6 +2757,32 @@ def remove_epub_font_slot(
             f"已移除 EPUB 字体第 {selected_slot.number} 项，后续字体顺序已前移。",
             updated_slots,
         )
+
+
+def repair_epub_font_index(ssh_client) -> EpubFontSlotStatus:
+    """Explicitly drop only invalid references; never modify the referenced files."""
+    with ssh_client.operation_session():
+        status = get_epub_font_slot_status(ssh_client)
+        if status.state != "stale":
+            raise RuntimeError(status.detail)
+        desired = []
+        with ssh_client.sftp_session() as sftp:
+            data = _read_limited_regular_bytes(sftp, EPUB_FONT_INDEX_PATH, EPUB_FONT_INDEX_MAX_BYTES)
+            if _epub_font_index_from_bytes(sftp, data, validate_targets=False) != status.slots:
+                raise RuntimeError("EPUB 字体索引已变化，请重新检测。")
+            for slot in status.slots:
+                try:
+                    _require_trusted_epub_font(sftp, slot.target_path, "字体不可信")
+                except RuntimeError:
+                    continue
+                desired.append(slot)
+        evidence = f"{EPUB_FONT_INDEX_PATH}.recovery-{os.urandom(6).hex()}"
+        _write_remote_bytes(ssh_client, evidence, data)
+        if _remote_sha256(ssh_client, evidence) != hashlib.sha256(data).hexdigest():
+            raise RuntimeError("EPUB 字体索引恢复证据校验失败。")
+        _flush_remote_writes(ssh_client)
+        updated = _write_epub_font_index(ssh_client, status.slots, tuple(desired))
+        return _epub_font_ready_status("失效引用已移除，原索引已保留恢复副本。", updated)
 
 
 def list_user_fonts(
@@ -3401,7 +3460,11 @@ def has_localization_cjk_font(ssh_client) -> bool:
 
 
 def _remote_sha256(ssh_client, path: str) -> str:
-    return hashlib.sha256(_read_bytes(ssh_client, path)).hexdigest()
+    output = ssh_client.exec_checked(f"sha256sum {shlex.quote(path)}").strip()
+    digest = output.split(maxsplit=1)[0] if output else ""
+    if not re.fullmatch(r"[0-9a-f]{64}", digest) or len(output.splitlines()) != 1:
+        raise RuntimeError("设备返回的文件 SHA-256 无效。")
+    return digest
 
 
 def _remote_file_size(ssh_client, path: str) -> int:
@@ -3488,7 +3551,7 @@ def _remove_own_managed_font(ssh_client) -> bool:
     if owner is not None and owner != FONT_OWNER_RMKIT:
         logging.info("Keeping managed font installed by %s", owner)
         return False
-    return _remove_managed_font(ssh_client)
+    return _remove_managed_font(ssh_client, expected_owner=FONT_OWNER_RMKIT)
 
 
 def _write_font_marker(
@@ -3498,6 +3561,9 @@ def _write_font_marker(
     had_fontconfig: bool,
     system_backup_state: Optional[dict[str, Optional[str]]] = None,
     owner: str = FONT_OWNER_RMKIT,
+    *,
+    install_before: Optional[dict] = None,
+    fontconfig_sha256: Optional[str] = None,
 ) -> None:
     if owner not in _FONT_OWNERS:
         raise ValueError("invalid managed font owner")
@@ -3509,6 +3575,11 @@ def _write_font_marker(
     }
     if system_backup_state is not None:
         marker_data["system_mirror_before_localization"] = system_backup_state
+    if fontconfig_sha256 is not None:
+        marker_data["fontconfig_sha256"] = fontconfig_sha256
+    if install_before is not None:
+        marker_data["phase"] = "installing"
+        marker_data["install_before"] = install_before
     marker = json.dumps(marker_data, separators=(",", ":")).encode("ascii")
     with tempfile.NamedTemporaryFile(delete=False) as marker_file:
         marker_file.write(marker)
@@ -3518,6 +3589,8 @@ def _write_font_marker(
         ssh_client.transfer_file(local_marker_path, f"{FONT_MARKER_PATH}.tmp")
         ssh_client.exec_checked(f"chmod 0644 {FONT_MARKER_PATH}.tmp")
         ssh_client.exec_checked(f"mv -f {FONT_MARKER_PATH}.tmp {FONT_MARKER_PATH}")
+        if _read_bytes(ssh_client, FONT_MARKER_PATH) != marker:
+            raise RuntimeError("汉化字体事务记录写入后内容不一致。")
         if _font_marker(ssh_client) != (path, digest, had_fontconfig):
             raise RuntimeError("汉化字体标记写入后校验失败，已停止操作。")
         if system_backup_state is not None:
@@ -3553,6 +3626,25 @@ def _validate_font_rollback(ssh_client) -> None:
 
 
 def _restore_fontconfig(ssh_client, had_fontconfig: bool) -> None:
+    marker = _font_marker(ssh_client)
+    if not marker or not _file_exists(ssh_client, FONTCONFIG_FILE):
+        return
+    current = _read_bytes(ssh_client, FONTCONFIG_FILE)
+    document = json.loads(_read_bytes(ssh_client, FONT_MARKER_PATH))
+    expected = document.get("fontconfig_sha256")
+    if expected is None:
+        try:
+            root = ElementTree.fromstring(current.decode("utf-8"))
+            family = root.findtext("./match/edit[@name='family']/string", "")
+            if not family.startswith("rmtool UI Font (") or not family.endswith(")"):
+                return
+            generated = fontconfig_override(family[len("rmtool UI Font ("):-1], marker[0]).encode("utf-8")
+            if current.replace(b"\r\n", b"\n") != generated:
+                return
+        except (ElementTree.ParseError, UnicodeDecodeError, RuntimeError):
+            return
+    elif hashlib.sha256(current).hexdigest() != expected:
+        return
     if had_fontconfig:
         if not _file_exists(ssh_client, FONTCONFIG_BACKUP_PATH):
             raise RuntimeError("汉化字体配置备份不完整，已停止操作。")
@@ -3587,40 +3679,14 @@ def _flush_remote_writes(ssh_client) -> None:
     ssh_client.exec_checked("sync")
 
 
-def _discard_stale_localization_state(ssh_client) -> None:
-    """Drop unusable translation state without guessing font ownership.
-
-    Only called when the on-device carrier is verified stock, so these
-    translation backups hold nothing of value. Managed font state is removed
-    only when its marker is valid enough to restore the exact prior Fontconfig.
-    A malformed marker is removed alone; its font and backup claims cannot be
-    trusted.
-    """
-    if _file_exists(ssh_client, FONT_MARKER_PATH):
-        if _font_marker(ssh_client):
-            # Native Chinese relies on its fallback font independently.
-            _remove_own_managed_font(ssh_client)
-        else:
-            ssh_client.exec_checked(
-                f"rm -f {FONT_MARKER_PATH} {FONT_MARKER_PATH}.tmp"
-            )
-
-    translation_paths = [
-        BACKUP_READY_PATH,
-        BACKUP_CONFIG_PATH,
-        BACKUP_QM_PATH,
-    ]
-    targets = translation_paths + [f"{path}.tmp" for path in translation_paths]
-    ssh_client.exec_checked("rm -f " + " ".join(targets))
-    _flush_remote_writes(ssh_client)
-
-
-def _remove_managed_font(ssh_client) -> bool:
+def _remove_managed_font(ssh_client, *, expected_owner: Optional[str] = None) -> bool:
     if not _file_exists(ssh_client, FONT_MARKER_PATH):
         return False
     marker = _font_marker(ssh_client)
     if not marker:
         raise RuntimeError("汉化字体标记无效，已停止操作。")
+    if expected_owner is not None and _font_marker_owner(ssh_client) != expected_owner:
+        raise RuntimeError("托管字体归属已变化，拒绝回滚其他功能的字体。")
     path, digest, had_fontconfig = marker
     system_backup_state = _system_font_backup_state(ssh_client)
     _restore_fontconfig(ssh_client, had_fontconfig)
@@ -3642,6 +3708,26 @@ def _remove_managed_font(ssh_client) -> bool:
     return removed
 
 
+def _persist_font_install_system_snapshot(ssh_client, files) -> dict:
+    state = {}
+    for index, remote in enumerate(SYSTEM_FONT_STATE_PATHS):
+        data = files[remote]
+        state[remote] = hashlib.sha256(data).hexdigest() if data is not None else None
+        if data is not None:
+            backup = f"{BACKUP_DIR}/font-install-system-{index}"
+            _write_remote_bytes(ssh_client, backup, data)
+            if _remote_sha256(ssh_client, backup) != state[remote]:
+                raise RuntimeError("字体事务快照校验失败。")
+    return state
+
+
+def _cleanup_font_install_snapshots(ssh_client) -> None:
+    ssh_client.exec_checked("rm -f " + " ".join(
+        f"{BACKUP_DIR}/font-install-system-{index}"
+        for index in range(len(SYSTEM_FONT_STATE_PATHS))
+    ))
+
+
 def _install_managed_font(
     ssh_client,
     local_path: str,
@@ -3651,6 +3737,14 @@ def _install_managed_font(
     lock_screen_support: bool = True,
     owner: str = FONT_OWNER_RMKIT,
 ) -> None:
+    if owner not in _FONT_OWNERS:
+        raise ValueError("invalid managed font owner")
+    if _file_exists(ssh_client, FONT_MARKER_PATH):
+        if _font_marker_owner(ssh_client) != owner:
+            raise RuntimeError("托管字体归属其他功能或标记无效，请先恢复原功能。")
+        document = json.loads(_read_bytes(ssh_client, FONT_MARKER_PATH))
+        if document.get("phase") == "installing":
+            raise RuntimeError("上次字体安装未完成，请先还原字体事务。")
     path = _validate_font_file(local_path)
     font_data = path.read_bytes()
     digest = hashlib.sha256(font_data).hexdigest()
@@ -3685,6 +3779,9 @@ def _install_managed_font(
     current_fontconfig = (
         _read_bytes(ssh_client, FONTCONFIG_FILE) if had_current_fontconfig else None
     )
+    if (current_fontconfig is not None and len(current_fontconfig) > 2 * 1024 * 1024
+            or previous_marker is not None and len(previous_marker) > 65536):
+        raise RuntimeError("字体恢复状态过大，未修改设备。")
     if previous:
         had_original_fontconfig = previous[2]
     else:
@@ -3718,10 +3815,16 @@ def _install_managed_font(
         )
 
     with tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", delete=False
+        mode="w", encoding="utf-8", newline="\n", delete=False
     ) as config_file:
         config_file.write(override)
         local_config_path = config_file.name
+    install_before = {
+        "fontconfig": current_fontconfig.hex() if current_fontconfig is not None else None,
+        "marker": previous_marker.hex() if previous_marker is not None else None,
+        "target_sha256": _remote_sha256(ssh_client, target) if _file_exists(ssh_client, target) else None,
+        "system": None,
+    }
     try:
         existing_system_backup_state = (
             _system_font_backup_state(ssh_client)
@@ -3735,6 +3838,12 @@ def _install_managed_font(
                 if created_system_backups
                 else existing_system_backup_state
             )
+        _write_font_marker(
+            ssh_client, target, digest, had_original_fontconfig, system_backup_state,
+            owner, install_before=install_before,
+            fontconfig_sha256=hashlib.sha256(override.encode("utf-8")).hexdigest(),
+        )
+        _flush_remote_writes(ssh_client)
         upload_font(
             ssh_client,
             str(path),
@@ -3749,6 +3858,25 @@ def _install_managed_font(
         if not has_cjk_font(ssh_client):
             raise RuntimeError("所选字体不能作为支持简体中文的主界面字体，已撤销上传。")
         if mirror_plan is not None:
+            system_before = _persist_font_install_system_snapshot(ssh_client, mirror_plan.previous_files)
+            system_target = SYSTEM_FONT_PATHS[mirror_plan.extension]
+            family = _scan_font_family(ssh_client, target)
+            system_config = fontconfig_override(family, system_target).replace(
+                "<!-- ponytail: user-level UI font override; restore the prior file to undo. -->",
+                "<!-- rmtool system UI font; owner: localization -->",
+            ).encode("utf-8")
+            install_before["system"] = system_before
+            install_before["system_desired"] = {
+                remote: (hashlib.sha256(system_config).hexdigest() if remote == SYSTEM_FONTCONFIG_FILE
+                         else digest if remote == system_target else None)
+                for remote in SYSTEM_FONT_STATE_PATHS
+            }
+            _write_font_marker(
+                ssh_client, target, digest, had_original_fontconfig, system_backup_state,
+                owner, install_before=install_before,
+                fontconfig_sha256=hashlib.sha256(override.encode("utf-8")).hexdigest(),
+            )
+            _flush_remote_writes(ssh_client)
             _install_system_font_mirror(
                 ssh_client,
                 mirror_plan,
@@ -3757,6 +3885,16 @@ def _install_managed_font(
             )
             system_mirror_installed = True
         else:
+            system_before = _system_font_snapshot(ssh_client)
+            if any(data is not None for data in system_before.values()):
+                install_before["system"] = _persist_font_install_system_snapshot(ssh_client, system_before)
+                install_before["system_desired"] = dict.fromkeys(SYSTEM_FONT_STATE_PATHS)
+                _write_font_marker(
+                    ssh_client, target, digest, had_original_fontconfig, system_backup_state,
+                    owner, install_before=install_before,
+                    fontconfig_sha256=hashlib.sha256(override.encode("utf-8")).hexdigest(),
+                )
+                _flush_remote_writes(ssh_client)
             system_mirror_previous_files = _clear_system_font_mirror(ssh_client)
         _write_font_marker(
             ssh_client,
@@ -3765,6 +3903,7 @@ def _install_managed_font(
             had_original_fontconfig,
             system_backup_state,
             owner,
+            fontconfig_sha256=hashlib.sha256(override.encode("utf-8")).hexdigest(),
         )
         if (
             previous
@@ -3779,7 +3918,33 @@ def _install_managed_font(
             ssh_client.exec_checked(
                 f"rm -f {font_rollback_path} {font_rollback_path}.tmp"
             )
+        _flush_remote_writes(ssh_client)
+        try:
+            _cleanup_font_install_snapshots(ssh_client)
+        except Exception:
+            logging.exception("Could not clean committed font-install snapshots")
     except Exception as install_error:
+        observed_config = (
+            _read_bytes(ssh_client, FONTCONFIG_FILE)
+            if _file_exists(ssh_client, FONTCONFIG_FILE) else None
+        )
+        observed_digest = (
+            _remote_sha256(ssh_client, target) if _file_exists(ssh_client, target) else None
+        )
+        if (
+            observed_config not in (current_fontconfig, override.encode("utf-8"))
+            or observed_digest not in (None, digest, install_before["target_sha256"])
+        ):
+            raise RuntimeError(
+                f"{install_error}；字体状态被其他程序修改，未覆盖新状态，已保留事务证据。"
+            ) from install_error
+        if install_before["system"] is not None:
+            for remote in SYSTEM_FONT_STATE_PATHS:
+                observed = _remote_sha256(ssh_client, remote) if _file_exists(ssh_client, remote) else None
+                if observed not in (install_before["system"][remote], install_before["system_desired"][remote]):
+                    raise RuntimeError(
+                        f"{install_error}；系统字体状态已变化，已保留事务证据。"
+                    ) from install_error
         rollback_errors = []
 
         def rollback(description, action):
@@ -3878,9 +4043,89 @@ def _install_managed_font(
                 f"{install_error}；字体回滚未完整，已保留恢复数据："
                 + "；".join(rollback_errors)
             ) from install_error
+        _cleanup_font_install_snapshots(ssh_client)
         raise
     finally:
         Path(local_config_path).unlink(missing_ok=True)
+
+
+def recover_managed_font(
+    ssh_client, *, expected_owner: str, expected_fingerprint: Optional[str] = None
+) -> None:
+    """Restore an interrupted install only from its persisted, bounded snapshot."""
+    with ssh_client.operation_session():
+        marker = _font_marker(ssh_client)
+        if marker is None or _font_marker_owner(ssh_client) != expected_owner:
+            raise RuntimeError("字体事务归属无法确认，未修改设备。")
+        with ssh_client.sftp_session() as sftp:
+            marker_bytes = _read_limited_regular_bytes(sftp, FONT_MARKER_PATH, 5 * 1024 * 1024)
+        if expected_fingerprint is not None and hashlib.sha256(marker_bytes).hexdigest() != expected_fingerprint:
+            raise RuntimeError("字体事务在确认后发生变化，请重新检测。")
+        document = json.loads(marker_bytes)
+        if document.get("phase") != "installing":
+            raise RuntimeError("没有待恢复的字体安装事务。")
+        before = document.get("install_before")
+        try:
+            config = bytes.fromhex(before["fontconfig"]) if before["fontconfig"] is not None else None
+            old_marker = bytes.fromhex(before["marker"]) if before["marker"] is not None else None
+            old_digest = before["target_sha256"]
+            if old_marker is not None and len(old_marker) > 65536:
+                raise ValueError("oversized marker")
+            if config is not None and len(config) > 2 * 1024 * 1024:
+                raise ValueError("oversized config")
+            if old_digest is not None and not re.fullmatch(r"[0-9a-f]{64}", old_digest):
+                raise ValueError("invalid target hash")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError("字体事务快照无效，已保留恢复证据。") from exc
+        target, digest, _had_config = marker
+        current = _read_bytes(ssh_client, FONTCONFIG_FILE) if _file_exists(ssh_client, FONTCONFIG_FILE) else None
+        if current != config and (current is None or hashlib.sha256(current).hexdigest() != document.get("fontconfig_sha256")):
+            raise RuntimeError("字体配置已被其他程序修改，已保留恢复证据。")
+        current_digest = _remote_sha256(ssh_client, target) if _file_exists(ssh_client, target) else None
+        if current_digest not in (None, digest, old_digest):
+            raise RuntimeError("字体文件已被其他程序修改，已保留恢复证据。")
+        rollback = target + ".rmtool-rollback"
+        if old_digest is not None and current_digest != old_digest:
+            if not _file_exists(ssh_client, rollback) or _remote_sha256(ssh_client, rollback) != old_digest:
+                raise RuntimeError("原字体快照缺失，已保留恢复证据。")
+        system_files = None
+        if before.get("system") is not None:
+            if set(before["system"]) != set(SYSTEM_FONT_STATE_PATHS) or set(before.get("system_desired", {})) != set(SYSTEM_FONT_STATE_PATHS):
+                raise RuntimeError("系统字体事务快照无效。")
+            system_files = {}
+            for index, remote in enumerate(SYSTEM_FONT_STATE_PATHS):
+                saved = before["system"][remote]
+                with ssh_client.sftp_session() as sftp:
+                    data = None if saved is None else _read_limited_regular_bytes(
+                        sftp, f"{BACKUP_DIR}/font-install-system-{index}", 64 * 1024 * 1024
+                    )
+                if data is not None and hashlib.sha256(data).hexdigest() != saved:
+                    raise RuntimeError("系统字体事务快照哈希不符。")
+                actual = _remote_sha256(ssh_client, remote) if _file_exists(ssh_client, remote) else None
+                if actual not in (saved, before["system_desired"][remote]):
+                    raise RuntimeError("系统字体已被其他程序修改，已保留恢复证据。")
+                system_files[remote] = data
+        if system_files is not None:
+            _restore_system_font_mirror(ssh_client, system_files, os.urandom(6).hex())
+        if current != config:
+            if config is None:
+                ssh_client.exec_checked(f"rm -f {FONTCONFIG_FILE}")
+            else:
+                _write_remote_bytes(ssh_client, FONTCONFIG_FILE, config)
+        if old_digest is None:
+            if current_digest == digest:
+                _remove_matching_font(ssh_client, target, digest)
+        elif current_digest != old_digest:
+            ssh_client.exec_checked(f"cp -p {rollback} {target}.tmp")
+            ssh_client.exec_checked(f"mv -f {target}.tmp {target}")
+        refresh_font_cache(ssh_client, FONT_DIR, FONTCONFIG_DIR)
+        _flush_remote_writes(ssh_client)
+        if old_marker is None:
+            ssh_client.exec_checked(f"rm -f {FONT_MARKER_PATH}")
+        else:
+            _write_remote_bytes(ssh_client, FONT_MARKER_PATH, old_marker)
+        _flush_remote_writes(ssh_client)
+        _cleanup_font_install_snapshots(ssh_client)
 
 
 def install_bundled_fallback_font(
@@ -3925,7 +4170,7 @@ def install_bundled_fallback_font(
         )
     if verification_error is not None:
         try:
-            _remove_managed_font(ssh_client)
+            _remove_managed_font(ssh_client, expected_owner=FONT_OWNER_NATIVE_CHINESE)
         except Exception as rollback_exc:
             raise RuntimeError(
                 f"{verification_error}；自动回滚未完成：{rollback_exc}"
@@ -3936,7 +4181,7 @@ def install_bundled_fallback_font(
 def _qm_sha256(ssh_client, path: str) -> str:
     if not _file_exists(ssh_client, path):
         raise RuntimeError("法语载体文件不存在，已停止操作。")
-    return hashlib.sha256(_read_bytes(ssh_client, path)).hexdigest()
+    return _remote_sha256(ssh_client, path)
 
 
 def _qm_kind(
@@ -4034,35 +4279,29 @@ def get_localization_status(
     if firmware != package.firmware:
         return LocalizationStatus(LocalizationState.INCOMPATIBLE, firmware)
 
-    carrier = _qm_kind(ssh_client, package=package)
-    managed = _file_exists(ssh_client, BACKUP_READY_PATH)
-    if managed:
-        try:
-            _validate_backup(ssh_client, package)
-        except RuntimeError:
-            if carrier != "stock":
-                raise
-            # The carrier is verified stock, so a backup that fails
-            # validation is stale (left by an older firmware) or was
-            # zeroed by a hard power-off. It can never be restored
-            # from; drop it so the next enable rebuilds a fresh one.
-            logging.warning(
-                "Discarding unusable localization backup; carrier is verified stock"
-            )
-            _discard_stale_localization_state(ssh_client)
-            managed = False
-    elif carrier == "localized":
-        raise RuntimeError("检测到中文载体，但缺少可还原的备份，已停止操作。")
     try:
-        _validate_font_rollback(ssh_client)
-    except RuntimeError:
-        if carrier != "stock":
-            raise
-        logging.warning(
-            "Discarding unusable localization font state; carrier is verified stock"
+        carrier = _qm_kind(ssh_client, package=package)
+    except RuntimeError as exc:
+        return LocalizationStatus(
+            LocalizationState.RECOVERY_REQUIRED, firmware, package=package,
+            detail=f"{exc} 保留现有数据；请使用还原操作核验备份。",
         )
-        _discard_stale_localization_state(ssh_client)
-        managed = False
+    managed = _file_exists(ssh_client, BACKUP_READY_PATH)
+    try:
+        if managed:
+            _validate_backup(ssh_client, package)
+        elif carrier == "localized":
+            raise RuntimeError("检测到中文载体，但缺少可还原的备份。")
+        _validate_font_rollback(ssh_client)
+        if _file_exists(ssh_client, FONT_MARKER_PATH):
+            marker = json.loads(_read_bytes(ssh_client, FONT_MARKER_PATH))
+            if marker.get("phase") == "installing":
+                raise RuntimeError("上次字体安装未完成。")
+    except RuntimeError as exc:
+        return LocalizationStatus(
+            LocalizationState.RECOVERY_REQUIRED, firmware, package=package,
+            detail=f"{exc} 检测未修改设备；请使用还原操作恢复。",
+        )
     config = _read_bytes(ssh_client, CONFIG_PATH).decode("utf-8", "surrogateescape")
     if carrier == "localized" and _general_language(config) == CARRIER_LANGUAGE:
         state = LocalizationState.ENABLED
@@ -4087,7 +4326,22 @@ def get_cloud_localization_status(
             firmware,
             available_packages=(),
         )
-    package = _select_translation_package(ssh_client, root_package)
+    try:
+        package = _select_translation_package(ssh_client, root_package)
+    except RuntimeError as selection_error:
+        import _tap_page_turn as tap
+
+        try:
+            identity = tap.get_device_identity(ssh_client)
+        except Exception:
+            raise selection_error
+        matches = [candidate for candidate in (root_package, *root_package.variants)
+                   if candidate.platform.casefold() == identity.platform.casefold()
+                   and candidate.firmware == identity.firmware
+                   and candidate.xochitl_sha256 == identity.xochitl_sha256]
+        if len(matches) != 1:
+            raise selection_error
+        package = matches[0]
     if package.platform:
         platform = package.platform.casefold()
         available_packages = tuple(
@@ -4129,11 +4383,8 @@ def _prepare_backup(
     return True
 
 
-def _restore_from_backup(ssh_client) -> None:
-    ssh_client.exec_checked(
-        f"cp -p {BACKUP_CONFIG_PATH} {CONFIG_PATH}.tmp"
-    )
-    ssh_client.exec_checked(f"mv -f {CONFIG_PATH}.tmp {CONFIG_PATH}")
+def _restore_from_backup(ssh_client, original_config: bytes) -> None:
+    _write_remote_bytes(ssh_client, CONFIG_PATH, original_config)
     if _file_exists(ssh_client, BACKUP_QM_PATH):
         ssh_client.exec_checked(f"cp -p {BACKUP_QM_PATH} {QM_PATH}.tmp")
         ssh_client.exec_checked(f"mv -f {QM_PATH}.tmp {QM_PATH}")
@@ -4157,6 +4408,8 @@ def enable_localization(
     try:
         firmware = _require_supported(ssh_client, package)
         current = get_localization_status(ssh_client, package)
+        if current.state is LocalizationState.RECOVERY_REQUIRED:
+            raise RuntimeError(current.detail)
         if current.state is LocalizationState.ENABLED and current.has_cjk_font:
             return current
 
@@ -4206,7 +4459,7 @@ def enable_localization(
                     ssh_client.exec_checked(
                         f"rm -f {QM_PATH}.tmp {CONFIG_PATH}.tmp"
                     )
-                    _restore_from_backup(ssh_client)
+                    _restore_from_backup(ssh_client, original_config)
                     translation_rollback_complete = True
                     raise
         finally:
@@ -4220,7 +4473,7 @@ def enable_localization(
         font_rollback_complete = True
         if installed_font:
             try:
-                _remove_managed_font(ssh_client)
+                _remove_managed_font(ssh_client, expected_owner=FONT_OWNER_RMKIT)
             except Exception:
                 font_rollback_complete = False
                 logging.exception("Could not roll back the managed localization font")
@@ -4253,18 +4506,72 @@ def enable_cloud_localization(
     )
 
 
+def _recover_localization(ssh_client, package: TranslationPackage) -> LocalizationStatus:
+    with ssh_client.operation_session():
+        _require_supported(ssh_client, package)
+        stock = _qm_kind(ssh_client, package=package) == "stock"
+        if not stock:
+            _validate_backup(ssh_client, package)
+        recovery = f"{BACKUP_DIR}/recovery-{os.urandom(6).hex()}"
+        ssh_client.exec_checked(f"mkdir -p {recovery}")
+        for path in (BACKUP_READY_PATH, BACKUP_CONFIG_PATH, BACKUP_QM_PATH,
+                     FONT_MARKER_PATH, FONTCONFIG_BACKUP_PATH):
+            if _file_exists(ssh_client, path):
+                destination = f"{recovery}/{posixpath.basename(path)}"
+                ssh_client.exec_checked(f"cp -p {path} {destination}")
+                if _remote_sha256(ssh_client, path) != _remote_sha256(ssh_client, destination):
+                    raise RuntimeError("恢复证据备份校验失败，未清理原状态。")
+        _flush_remote_writes(ssh_client)
+        retained_font = False
+        if _file_exists(ssh_client, FONT_MARKER_PATH) and _font_marker_owner(ssh_client) == FONT_OWNER_RMKIT:
+            document = json.loads(_read_bytes(ssh_client, FONT_MARKER_PATH))
+            if document.get("phase") == "installing":
+                recover_managed_font(ssh_client, expected_owner=FONT_OWNER_RMKIT)
+            else:
+                try:
+                    _validate_font_rollback(ssh_client)
+                except RuntimeError:
+                    retained_font = True
+                else:
+                    _remove_own_managed_font(ssh_client)
+        if not stock:
+            # Restore only the carrier verified for this exact package.
+            _stop_xochitl(ssh_client)
+            with remount_rw(ssh_client):
+                ssh_client.exec_checked(f"cp -p {BACKUP_QM_PATH} {QM_PATH}.tmp")
+                ssh_client.exec_checked(f"mv -f {QM_PATH}.tmp {QM_PATH}")
+        if _file_exists(ssh_client, BACKUP_CONFIG_PATH):
+            saved = _read_bytes(ssh_client, BACKUP_CONFIG_PATH)
+            if saved:
+                current = _read_bytes(ssh_client, CONFIG_PATH)
+                text = current.decode("utf-8", "surrogateescape")
+                if _general_language(text) == CARRIER_LANGUAGE:
+                    language = _general_language(saved.decode("utf-8", "surrogateescape"))
+                    _write_remote_bytes(ssh_client, CONFIG_PATH, set_language_config(text, language).encode("utf-8", "surrogateescape"))
+        _flush_remote_writes(ssh_client)
+        # Font state is independent: stale/foreign claims remain in the evidence archive.
+        if _file_exists(ssh_client, FONT_MARKER_PATH) and _font_marker_owner(ssh_client) != FONT_OWNER_NATIVE_CHINESE:
+            ssh_client.exec_checked(f"rm -f {FONT_MARKER_PATH}")
+        ssh_client.exec_checked(f"rm -f {BACKUP_READY_PATH} {BACKUP_CONFIG_PATH} {BACKUP_QM_PATH}")
+        _flush_remote_writes(ssh_client)
+        return replace(
+            get_localization_status(ssh_client, package),
+            detail=f"恢复证据保存在 {recovery}。"
+            + ("无法验证的字体配置已保留，未猜测原状态。" if retained_font else "")
+            + ("原语言记录缺失或为空时保留当前语言。"),
+        )
+
+
 def restore_localization(
     ssh_client, package: Optional[TranslationPackage] = None
 ) -> LocalizationStatus:
     """Restore the carrier catalog and original language, without restart."""
     package = package or _default_translation_package()
     _require_supported(ssh_client, package)
-    if not _file_exists(ssh_client, BACKUP_READY_PATH):
-        return get_localization_status(ssh_client, package)
     status = get_localization_status(ssh_client, package)
+    if status.state is LocalizationState.RECOVERY_REQUIRED:
+        return _recover_localization(ssh_client, package)
     if not _file_exists(ssh_client, BACKUP_READY_PATH):
-        # Status detection discarded a stale backup; the carrier is
-        # already stock, so there is nothing left to restore.
         return status
 
     _stop_xochitl(ssh_client)
@@ -4274,8 +4581,9 @@ def restore_localization(
     current_config = _read_bytes(ssh_client, CONFIG_PATH).decode(
         "utf-8", "surrogateescape"
     )
-    restored_config = set_language_config(
-        current_config, _general_language(backup_config)
+    restored_config = (
+        set_language_config(current_config, _general_language(backup_config))
+        if _general_language(current_config) == CARRIER_LANGUAGE else current_config
     ).encode("utf-8", "surrogateescape")
 
     with tempfile.NamedTemporaryFile(delete=False) as config_file:

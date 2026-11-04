@@ -3,12 +3,53 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.error import HTTPError
 from unittest.mock import patch
 
 from tools import publish_resources as publisher
 
 
 class PublishResourcesTests(unittest.TestCase):
+    def test_immutable_public_precheck_never_treats_mismatch_or_network_error_as_absence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            payload = Path(temp) / "payload"
+            payload.write_bytes(b"new bytes")
+            with patch.object(publisher, "_request_bytes", return_value=b"old bytes"):
+                with self.assertRaisesRegex(RuntimeError, "Immutable resource"):
+                    publisher._public_matches(payload, "payload")
+            for failure in (OSError("offline"), HTTPError("url", 403, "denied", {}, None)):
+                with patch.object(publisher, "_request_bytes", side_effect=failure):
+                    with self.assertRaises((OSError, HTTPError)):
+                        publisher._public_matches(payload, "payload")
+            with patch.object(publisher, "_request_bytes", side_effect=HTTPError("url", 404, "absent", {}, None)):
+                self.assertFalse(publisher._public_matches(payload, "payload"))
+
+    def test_conflicting_payload_aborts_before_any_upload_or_manifest_write(self):
+        with tempfile.TemporaryDirectory() as temp:
+            resource, release = self.make_localization(Path(temp))
+            bundle = publisher._validate_localization(resource, release)
+            from unittest.mock import Mock
+            client = Mock()
+            with patch.object(publisher, "_request_bytes", return_value=b"old bytes"):
+                with self.assertRaisesRegex(RuntimeError, "Immutable resource"):
+                    publisher.publish_bundles((bundle,), client)
+            client.upload_file.assert_not_called()
+            client.put_object.assert_not_called()
+
+    def test_download_preserves_unreferenced_historical_release_assets(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            resource, release = self.make_localization(root)
+            contents = {path.name: path.read_bytes() for path in release.iterdir()}
+            assets = [(name, "https://github.com/" + name, len(data)) for name, data in contents.items()]
+            assets.append(("old-version.qm", "https://github.com/old-version.qm", 3))
+            with patch.dict(publisher.RESOURCES, {"localization": resource}, clear=True), patch.object(
+                publisher, "_github_release_assets", return_value=assets
+            ), patch.object(publisher, "_request_bytes", side_effect=lambda url, **_kw: contents[url.rsplit("/", 1)[1]]) as fetch:
+                publisher.download_releases(root / "download")
+            self.assertEqual(fetch.call_count, 2)
+            self.assertEqual({path.name for path in (root / "download/localization").iterdir()}, set(contents))
+
     def make_localization(self, root: Path):
         payload = b"localized"
         manifest = json.dumps(

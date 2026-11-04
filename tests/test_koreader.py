@@ -1,3 +1,4 @@
+import base64
 import io
 import os
 import posixpath
@@ -289,6 +290,7 @@ class DetectionTests(unittest.TestCase):
 
     def test_missing_bridge_is_repairable_instead_of_broken(self):
         ssh = FakeSSH()
+        ssh.add_file(posixpath.join(_koreader.APPLOAD_INSTALL_DIR, _koreader.OFFICIAL_INDEX), b"index")
         ssh.add_file(_koreader.MANAGED_MARKER, b"marker")
         ssh.add_file(
             posixpath.join(_koreader.APPLOAD_INSTALL_DIR, "git-rev"), b"v1"
@@ -319,6 +321,20 @@ class DetectionTests(unittest.TestCase):
 
         self.assertEqual(status.state, _koreader.ManagedState.REPAIRABLE)
         self.assertIn("启动入口未启用", status.detail)
+
+    def test_managed_ota_version_is_repairable_not_an_unknown_install(self):
+        ssh = FakeSSH()
+        ssh.add_file(_koreader.MANAGED_MARKER, b"marker")
+        ssh.add_file(posixpath.join(_koreader.APPLOAD_INSTALL_DIR, "git-rev"), b"newer-ota")
+        identity = SimpleNamespace(architecture="aarch64")
+        asset = SimpleNamespace(version="v1")
+        with mock.patch.object(_koreader.tap, "get_device_identity", return_value=identity), mock.patch.object(
+            _koreader._appload, "koreader_asset", return_value=asset
+        ), mock.patch.object(_koreader, "_read_managed_marker", return_value=True):
+            status = _koreader.get_managed_status(ssh)
+        self.assertEqual(status.state, _koreader.ManagedState.REPAIRABLE)
+        self.assertEqual(status.version, "newer-ota")
+        self.assertIn("完整旧目录", status.detail)
 
     def test_install_requires_explicit_external_migration(self):
         ssh = FakeSSH()
@@ -401,17 +417,19 @@ class DetectionTests(unittest.TestCase):
                 "_trusted_shared_context",
                 return_value=(runtime, trusted, ()),
             ),
-            mock.patch.object(_koreader.shared, "remove_shared_features") as remove,
+            mock.patch.object(_koreader.shared, "has_shared_artifacts", return_value=True),
+            mock.patch.object(_koreader.shared, "inspect_shared", return_value=SimpleNamespace(states={"koreader": object()})),
+            mock.patch.object(_koreader.shared, "remove_shared_features", autospec=True) as remove,
         ):
             result = _koreader.uninstall_managed(ssh)
         self.assertIs(result, removed)
         remove.assert_called_once_with(
-            ssh, runtime, "koreader", trusted
+            ssh, runtime, trusted, ("koreader",)
         )
         transaction = ssh.exec_checked.call_args_list[0].args[0]
         self.assertIn('mv "$TARGET" "$BACKUP"', transaction)
         self.assertIn('rm -rf "$BACKUP"', transaction)
-        self.assertIn("settings.reader.lua", transaction)
+        self.assertIn("official file index missing", transaction)
 
     def test_payload_archive_restores_official_unix_modes(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -635,6 +653,24 @@ class StartDirectoryTests(unittest.TestCase):
 
 
 class ListDirectoryTests(unittest.TestCase):
+    def test_invalid_byte_name_does_not_hide_valid_books_or_get_rewritten(self):
+        ssh = FakeSSH()
+        ssh.add_dir("/books")
+        names = b"/books/valid.epub\0/books/bad-\xff.epub\0"
+        attribute = SimpleNamespace(st_mode=stat.S_IFREG | 0o644, st_size=3, st_mtime=MTIME)
+        sftp = mock.Mock()
+        sftp.lstat.return_value = attribute
+        with (
+            mock.patch.object(ssh, "listdir_attr", side_effect=UnicodeDecodeError("utf8", b"\xff", 0, 1, "bad")),
+            mock.patch.object(ssh, "exec_command", return_value=(base64.b64encode(names).decode(), "", 0)),
+            mock.patch.object(ssh, "sftp_session") as session,
+        ):
+            session.return_value.__enter__.return_value = sftp
+            entries = _koreader.list_directory(ssh, "/books", "/books")
+        self.assertEqual([entry.name for entry in entries], ["valid.epub"])
+        sftp.lstat.assert_called_once_with("/books/valid.epub")
+        sftp.rename.assert_not_called()
+
     def test_folders_first_and_sidecars_hidden(self):
         ssh = FakeSSH()
         ssh.add_dir("/books/novels")
@@ -824,19 +860,31 @@ class LocalDownloadPathTests(unittest.TestCase):
 
 
 class DeleteTests(unittest.TestCase):
+    def test_delete_cannot_remove_protected_tree_ancestors(self):
+        ssh = FakeSSH()
+        ssh.install_official()
+        for path in ("/home/root/.local/share/remarkable", "/home/root/.local",
+                     "/home/root", "/home/root/xovi", "/home/root/.local/share/rmtool"):
+            with self.subTest(path=path):
+                ssh.add_dir(path)
+                before = list(ssh.commands)
+                with self.assertRaises(RuntimeError):
+                    _koreader.delete_entry(ssh, path, True, "/home/root")
+                self.assertFalse(any(cmd.startswith("rm ") for cmd in ssh.commands[len(before):]))
+
     def test_delete_file_removes_sdr_sidecar(self):
         ssh = FakeSSH()
         ssh.install_official()
         ssh.add_file("/books/book.epub")
-        ssh.add_dir("/books/book.epub.sdr")
-        ssh.add_file("/books/book.epub.sdr/metadata.lua")
+        ssh.add_dir("/books/book.sdr")
+        ssh.add_file("/books/book.sdr/metadata.lua")
         _koreader.delete_entry(
             ssh, "/books/book.epub", is_dir=False, library_root="/books"
         )
         self.assertNotIn("/books/book.epub", ssh.files)
-        self.assertNotIn("/books/book.epub.sdr", ssh.dirs)
+        self.assertNotIn("/books/book.sdr", ssh.dirs)
         self.assertIn("rm -f -- /books/book.epub", ssh.commands)
-        self.assertIn("rm -rf -- /books/book.epub.sdr", ssh.commands)
+        self.assertIn("rm -rf -- /books/book.sdr", ssh.commands)
 
     def test_delete_file_without_sidecar(self):
         ssh = FakeSSH()
@@ -908,7 +956,7 @@ class DeleteTests(unittest.TestCase):
         ssh.install_official()
         ssh.add_file("/books/book.epub")
         ssh.add_dir("/etc/sidecar")
-        ssh.add_symlink("/books/book.epub.sdr", "/etc/sidecar")
+        ssh.add_symlink("/books/book.sdr", "/etc/sidecar")
         with self.assertRaisesRegex(RuntimeError, "KOReader"):
             _koreader.delete_entry(
                 ssh, "/books/book.epub", is_dir=False, library_root="/books"
@@ -1280,10 +1328,10 @@ class TabDeleteTests(TabTestBase):
     def test_perform_delete_calls_backend(self):
         self.ssh.install_official()
         self.ssh.add_file("/books/a.epub")
-        self.ssh.add_dir("/books/a.epub.sdr")
+        self.ssh.add_dir("/books/a.sdr")
         self.tab._perform_delete([self.entry("a.epub")], "/books")
         self.assertNotIn("/books/a.epub", self.ssh.files)
-        self.assertNotIn("/books/a.epub.sdr", self.ssh.dirs)
+        self.assertNotIn("/books/a.sdr", self.ssh.dirs)
 
 
 class TabUploadTests(TabTestBase):

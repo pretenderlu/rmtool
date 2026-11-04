@@ -51,7 +51,8 @@ class PackageDownloadError(RuntimeError):
             f"无法自动下载并校验{feature_label}资源包（{asset}），"
             "已依次尝试以下镜像均未成功：\n"
             f"{mirror_lines}\n"
-            "可手动下载任一地址的文件，然后选择“手动加载资源包”完成校验和安装。"
+            "请先升级到最新版 rmtool，以取得仍可用且校验匹配的资源地址；"
+            "也可手动下载任一地址的匹配文件，再选择“手动加载资源包”。不要跳过校验。"
         )
 
 

@@ -55,7 +55,7 @@ class HighlightSnapTests(unittest.TestCase):
             self.assertNotIn(beta_hash, COMMITTED.read_bytes())
 
     def test_source_fails_closed_and_has_exact_verified_identity(self):
-        source = SOURCE.read_text(encoding="utf-8")
+        source = SOURCE.read_text(encoding="utf-8") + SOURCE.with_name("highlight_identity.h").read_text(encoding="utf-8")
         for marker in (
             'EXPECTED_FIRMWARE "20260827113527"',
             'MOVE_XOCHITL_SHA256 "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"',

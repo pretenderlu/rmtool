@@ -55,9 +55,12 @@ jobs:
             name="${item%%:*}"
             tag="${item#*:}"
             mkdir -p "$RUNNER_TEMP/releases/$name"
-            gh release download "$tag" \
-              --repo "$GITHUB_REPOSITORY" \
-              --dir "$RUNNER_TEMP/releases/$name"
+            while IFS= read -r asset; do
+              gh release download "$tag" \
+                --repo "$GITHUB_REPOSITORY" \
+                --pattern "$asset" \
+                --dir "$RUNNER_TEMP/releases/$name"
+            done < <(python tools/publish_resources.py names --resource "$name")
           done
 
       - name: Verify manifests and release payloads

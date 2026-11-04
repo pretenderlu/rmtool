@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "host": "windows-amd64",
+  "python": "3.12",
+  "zlib": "1.3.1",
+  "trees": {
+    "zig-lib": "527b6e2185242f04ff119239eb540dfc8b4ed2413a9b5fd24f9f62e259e0a241",
+    "qt-include": "c00e5d14f82852c4f3d2e18e605d23cd83224e67df2f046d62f08a8ff79e20a2",
+    "qt-bin": "6b48fcc7799702e6839cbaedd9e3e343f73f7da63f1a62f07a688dfa9924b335",
+    "go-src": "20247bf264d70f51ba94582632d400e624adfcfe894c956c11fd713c409c7e2d",
+    "go-tools": "d003a3ffac561fd064c98726f5bfcb9bd2bf3f13c68d9e5c1552e95292b88f9e"
+  },
+  "tools": {
+    "go": "7d828191ba32519a9c9361789ab647486236ed45c660889196c7770a8ff1985c",
+    "7z": "94205cfc054dd3bbeb978905bc619a65b3f04e9e73bb2717841110b6f46d962e",
+    "zig": "086ce9d47ba42f33a514e1a6e04eb1d4a8fa1d75e0868e0213caad447c91e864",
+    "moc": "ff1612f7d8106cee10ee5a9bd92cb6e98455c6d0c9bcfb44aaebf5cede6d46b9",
+    "rcc": "80a47c3dafd62bec3997ff8a31afd289451fb22d666c673c6e4c3dd59f7055fb",
+    "qmd-tool": "9fe82d97982bceb68f843d23d642407bfb9f5ae2e20ad46a3c772019e6817b56",
+    "qmldiff": "4cf151dddfb2354184dc2637707eab3c2f014c547e93292bb062cc0202dc64aa",
+    "lconvert": "707af8e9963027ef2cff9ac03ab538d46c22cb78d9486c8bf1d66fb814d2aae8",
+    "lrelease": "c59d5a5f9cf51cef2fbee80bcd22cf53b7453943bcf520b39d2e768fd639d8ee",
+    "lupdate": "0090a7415a8116f458d35904154e265ac1706699d64d99f3b7a764081ddc46e8"
+  }
+}

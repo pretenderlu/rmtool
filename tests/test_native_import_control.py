@@ -114,10 +114,12 @@ class NativeControlTests(unittest.TestCase):
             with (self.subTest(expected=expected), patch.object(tap, "get_device_identity", return_value=self.identity),
                   patch.object(tap, "_xochitl_process_token", return_value="now"),
                   patch.object(shared, "has_shared_artifacts", return_value=True),
+                  patch.object(shared, "read_shared_identity", return_value=(self.identity.firmware, self.identity.platform, self.identity.architecture, self.identity.xochitl_sha256)),
                   patch.object(control, "_inspect", return_value=(inspection, {}, {}))):
                 self.assertEqual(control.get_status(Mock(), self.catalog).state, expected)
         with (patch.object(tap, "get_device_identity", return_value=self.identity),
               patch.object(shared, "has_shared_artifacts", return_value=True),
+              patch.object(shared, "read_shared_identity", return_value=(self.identity.firmware, self.identity.platform, self.identity.architecture, self.identity.xochitl_sha256)),
               patch.object(control, "_inspect", side_effect=RuntimeError("modified"))):
             self.assertEqual(control.get_status(Mock(), self.catalog).detail, "modified")
 
@@ -130,6 +132,7 @@ class NativeControlTests(unittest.TestCase):
                       patch.object(tap, "get_device_identity", return_value=self.identity),
                       patch.object(tap, "_xochitl_process_token", return_value="now"),
                       patch.object(shared, "has_shared_artifacts", return_value=True),
+                      patch.object(shared, "read_shared_identity", return_value=(self.identity.firmware, self.identity.platform, self.identity.architecture, self.identity.xochitl_sha256)),
                       patch.object(control, "_inspect", return_value=(inspection, {}, {}))):
                     expected = f"{layout.remote_base}/{control.HELPER_PAYLOAD_PATH}" if enabled and token != "now" and active else None
                     self.assertEqual(control.loaded_helper(Mock()), expected)
@@ -142,6 +145,7 @@ class NativeControlTests(unittest.TestCase):
         with (patch.object(tap, "get_device_identity", return_value=identity),
               patch.object(tap, "_xochitl_process_token", return_value="now"),
               patch.object(shared, "has_shared_artifacts", return_value=True),
+              patch.object(shared, "read_shared_identity", return_value=(identity.firmware, identity.platform, identity.architecture, identity.xochitl_sha256)),
               patch.object(control, "_inspect", return_value=(inspection, {}, {}))):
             self.assertEqual(control.loaded_helper(Mock()), f"{inspection.layout.remote_base}/{qr.RECEIVER_PAYLOAD_PATH}")
             with patch.object(control, "_inspect", side_effect=RuntimeError("untrusted")):
@@ -268,8 +272,10 @@ class NativeControlTests(unittest.TestCase):
         macos = (root / ".github/workflows/release.yml").read_text()
         assets = (root / ".github/workflows/sync-feature-assets.yml").read_text()
         self.assertIn("native-import\\manifest.json", windows)
-        self.assertIn("--add-data", windows)
-        self.assertIn('--add-data "$root/native-import/manifest.json:native-import"', macos)
+        import _bundle_resources
+        self.assertIn("tools\\build_app.py", windows)
+        self.assertIn("tools/build_app.py", macos)
+        self.assertIn("native-import/manifest.json", _bundle_resources.MANIFESTS)
         self.assertIn("native-import:native-import-assets", assets)
         self.assertIn("--resource native-import", assets)
         self.assertNotIn("rmtool-native-import.so", windows + macos)
@@ -279,7 +285,7 @@ class NativeControlTests(unittest.TestCase):
         enabled = control.NativeImportStatus(control.NativeImportState.ENABLED, self.identity, self.package)
         absent = replace(enabled, state=control.NativeImportState.NOT_INSTALLED)
         with (patch.object(control, "get_status", side_effect=[enabled, absent]),
-              patch.object(control, "_assert_stopped"), patch.object(control, "_inspect"),
+              patch.object(control, "_assert_stopped"), patch.object(control, "_inspect", return_value=(shared.SharedInspection({}, False, False), self.trusted, {})),
               patch.object(shared, "remove_shared_features") as remove):
             self.assertEqual(control.uninstall(ssh, self.catalog), absent)
             remove.assert_called_once_with(ssh, self.runtime, self.trusted, (control.FEATURE_ID,))

@@ -19,6 +19,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets, sip
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
 from _ssh import SSHClientWrapper, remount_rw, require_connection
 import _sleep_wallpaper
+import _screen_preview
 import rmtool as _rmtool  # late-bound access to avoid circular import
 
 _LEGACY_WALLPAPER_PATHS = {
@@ -61,6 +62,7 @@ _DEVICE_FRAME_PROFILES = {
     ),
 }
 _MAX_COVER_WALL_ITEMS = 12
+_RASTER_FORMATS = ("PNG", "JPEG", "BMP", "WEBP")
 _COVER_WALL_LAYOUTS = (
     ("hero_obi", "F / 主书腰封"),
     ("poster_wall", "G / 满格海报墙"),
@@ -91,7 +93,7 @@ def _is_transparent_placeholder(data: bytes) -> bool:
     render as an empty card, so the preview shows a note instead.
     """
     try:
-        with Image.open(BytesIO(data)) as image:
+        with Image.open(BytesIO(data), formats=_RASTER_FORMATS) as image:
             if image.width * image.height > 4:
                 return False
             alpha_extrema = image.convert("RGBA").getextrema()[3]
@@ -149,11 +151,19 @@ def _usable_cover_data(data: Optional[bytes]) -> Optional[bytes]:
     if not data:
         return None
     try:
-        with Image.open(BytesIO(data)) as image:
+        with Image.open(BytesIO(data), formats=_RASTER_FORMATS) as image:
             image.verify()
         return data
     except Exception:
         return None
+
+
+def _image_pixmap(image: Image.Image) -> QtGui.QPixmap:
+    rgba = image.convert("RGBA")
+    data = rgba.tobytes()
+    return QtGui.QPixmap.fromImage(QtGui.QImage(
+        data, rgba.width, rgba.height, rgba.width * 4, QtGui.QImage.Format_RGBA8888,
+    ))
 
 
 def _fit_cover_wall_text(
@@ -307,8 +317,8 @@ def compose_cover_wallpaper(
     cover_digest = hashlib.sha256()
     for cover in covers:
         try:
-            with Image.open(BytesIO(cover)) as image:
-                decoded.append(image.convert("RGB"))
+            with Image.open(BytesIO(cover), formats=_RASTER_FORMATS) as image:
+                decoded.append(ImageOps.exif_transpose(image).convert("RGB"))
             cover_digest.update(len(cover).to_bytes(8, "big"))
             cover_digest.update(cover)
         except Exception:
@@ -680,9 +690,13 @@ class _CoverWallDialog(QtWidgets.QDialog):
 
             name_item = QtWidgets.QTableWidgetItem(entry.item.name)
             if entry.cover:
-                image = QtGui.QImage.fromData(entry.cover)
-                if not image.isNull():
-                    name_item.setIcon(QtGui.QIcon(QtGui.QPixmap.fromImage(image)))
+                try:
+                    with Image.open(BytesIO(entry.cover), formats=_RASTER_FORMATS) as image:
+                        thumbnail = ImageOps.exif_transpose(image)
+                        thumbnail.thumbnail((88, 112), Image.LANCZOS)
+                        name_item.setIcon(QtGui.QIcon(_image_pixmap(thumbnail)))
+                except (OSError, ValueError):
+                    logging.warning("Unable to decode cover thumbnail")
             else:
                 name_item.setText(f"{entry.item.name}（无可用封面）")
                 name_item.setForeground(QtGui.QBrush(QtGui.QColor("#888888")))
@@ -746,6 +760,12 @@ class WallpaperTab(QtWidgets.QWidget):
         self.device_profile = "reMarkable Paper Pro"
         self.image_path: Optional[str] = None
         self._cached_source_image: Optional[Image.Image] = None
+        self._preview_source_image: Optional[Image.Image] = None
+        self._cover_wall_source = None
+        self._preview_timer = QtCore.QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(40)
+        self._preview_timer.timeout.connect(self._render_preview)
         self.current_resolution: Tuple[int, int] = _rmtool.DEVICE_PROFILES["reMarkable Paper Pro"]
         self._unavailable_wallpaper_paths: Set[str] = set()
         self._carousel_blank_active = False
@@ -871,6 +891,15 @@ class WallpaperTab(QtWidgets.QWidget):
         )
         self.user_partition_sleep_checkbox.setEnabled(False)
         variants_section_layout.addWidget(self.user_partition_sleep_checkbox)
+        self.sleep_status_label = QtWidgets.QLabel()
+        self.sleep_status_label.setWordWrap(True)
+        self.sleep_recovery_button = QtWidgets.QPushButton("恢复休眠壁纸状态")
+        self.sleep_recovery_button.clicked.connect(self._recover_user_partition_sleep)
+        self.sleep_status_label.hide()
+        self.sleep_recovery_button.hide()
+        self._sleep_restore_busy = False
+        variants_section_layout.addWidget(self.sleep_status_label)
+        variants_section_layout.addWidget(self.sleep_recovery_button)
 
         self.target_label = QtWidgets.QLabel()
 
@@ -966,8 +995,8 @@ class WallpaperTab(QtWidgets.QWidget):
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         self.orientation_combo.currentIndexChanged.connect(self._on_orientation_changed)
         self.frame_preview_checkbox.toggled.connect(self._render_preview)
-        self.offset_x_slider.valueChanged.connect(self._render_preview)
-        self.offset_y_slider.valueChanged.connect(self._render_preview)
+        self.offset_x_slider.valueChanged.connect(self._schedule_preview)
+        self.offset_y_slider.valueChanged.connect(self._schedule_preview)
         self.variant_group.buttonClicked.connect(self._on_variant_selected)
         self.blank_carousel_checkbox.toggled.connect(self._on_blank_carousel_toggled)
         self.user_partition_sleep_checkbox.toggled.connect(
@@ -1028,6 +1057,7 @@ class WallpaperTab(QtWidgets.QWidget):
             self._carousel_blank_active = False
             self._sleep_user_status = _sleep_wallpaper.SleepWallpaperStatus(False)
             self._sleep_user_requested = False
+            self._sleep_restore_busy = False
         self._sync_blank_carousel_checkbox()
         self._sync_user_partition_sleep_checkbox()
         if not connected:
@@ -1058,8 +1088,64 @@ class WallpaperTab(QtWidgets.QWidget):
         self.user_partition_sleep_checkbox.setVisible(selected)
         self.user_partition_sleep_checkbox.setEnabled(
             selected and self.ssh_client.is_connected() and status.supported and not status.broken
+            and not self._sleep_restore_busy
         )
         self.user_partition_sleep_checkbox.blockSignals(False)
+        self.sleep_status_label.setText(status.detail)
+        self.sleep_status_label.setVisible(selected and bool(status.detail))
+        self.sleep_recovery_button.setVisible(selected and status.broken)
+        self.sleep_recovery_button.setEnabled(
+            self.ssh_client.is_connected() and not self._sleep_restore_busy
+        )
+
+    @require_connection
+    def _recover_user_partition_sleep(self) -> None:
+        if self._sleep_restore_busy or not self._sleep_user_status.broken:
+            return
+        if not ask_confirmation(
+            self, _rmtool.APP_NAME,
+            "将核验记录，只恢复 rmtool 管理的休眠壁纸设置，不覆盖其他配置或未知图片。是否继续？",
+        ):
+            return
+        generation = self._connection_generation
+        client = getattr(self.ssh_client, "_client", None)
+        self._sleep_restore_busy = True
+        self._sync_user_partition_sleep_checkbox()
+        self._update_upload_button_state()
+
+        def execute():
+            with self.ssh_client.operation_session():
+                if generation != self._connection_generation or client is not getattr(self.ssh_client, "_client", None):
+                    raise RuntimeError("设备连接已变化，请重新扫描。")
+                _sleep_wallpaper.recover(self.ssh_client)
+                return _sleep_wallpaper.get_status(self.ssh_client)
+
+        def on_finished(status):
+            if sip.isdeleted(self):
+                return
+            if generation != self._connection_generation or client is not getattr(self.ssh_client, "_client", None):
+                return
+            self._sleep_restore_busy = False
+            self._sleep_user_status = status
+            self._sleep_user_requested = False
+            self._sync_user_partition_sleep_checkbox()
+            self._update_target_label()
+            self._update_upload_button_state()
+            show_info(self, _rmtool.APP_NAME, "休眠壁纸状态已恢复。请手动重启设备后生效。")
+
+        def on_error(exc):
+            if sip.isdeleted(self):
+                return
+            if generation != self._connection_generation or client is not getattr(self.ssh_client, "_client", None):
+                return
+            self._sleep_restore_busy = False
+            self._sync_user_partition_sleep_checkbox()
+            show_error(self, _rmtool.APP_NAME, f"休眠壁纸恢复失败，恢复记录已保留：{exc}")
+
+        worker = _rmtool.Worker(execute)
+        worker.signals.finished.connect(on_finished)
+        worker.signals.error.connect(on_error)
+        self.thread_pool.start(worker)
 
     def _on_user_partition_sleep_toggled(self, checked: bool) -> None:
         self._sleep_user_requested = checked
@@ -1067,12 +1153,15 @@ class WallpaperTab(QtWidgets.QWidget):
             self._update_target_label()
             self._update_upload_button_state()
             return
-        self.user_partition_sleep_checkbox.setEnabled(False)
+        self._sleep_restore_busy = True
+        self._sync_user_partition_sleep_checkbox()
+        self._update_upload_button_state()
         worker = _rmtool.Worker(_sleep_wallpaper.disable, self.ssh_client)
 
         def on_finished(_result):
             if sip.isdeleted(self):
                 return
+            self._sleep_restore_busy = False
             self._sleep_user_status = _sleep_wallpaper.SleepWallpaperStatus(True)
             self._sleep_user_requested = False
             self._sync_user_partition_sleep_checkbox()
@@ -1085,8 +1174,15 @@ class WallpaperTab(QtWidgets.QWidget):
                 logging.error("Sleep wallpaper disable failed after tab close: %s", exc)
                 return
             logging.error("Sleep wallpaper disable failed: %s", exc)
+            self._sleep_restore_busy = False
             self._sleep_user_requested = False
+            self._sleep_user_status = _sleep_wallpaper.SleepWallpaperStatus(
+                self._sleep_user_status.supported, broken=True,
+                detail="停用结果尚未确认，请重新扫描或恢复休眠壁纸状态。",
+            )
             self._sync_user_partition_sleep_checkbox()
+            self._update_target_label()
+            self._update_upload_button_state()
             show_error(self, _rmtool.APP_NAME, f"停用用户分区休眠壁纸失败：{exc}")
 
         worker.signals.finished.connect(on_finished)
@@ -1149,7 +1245,7 @@ class WallpaperTab(QtWidgets.QWidget):
         """
         try:
             entries = self.ssh_client.listdir_attr(_CAROUSEL_DIR)
-        except Exception:
+        except FileNotFoundError:
             return
         legacy = [
             entry.filename
@@ -1158,11 +1254,12 @@ class WallpaperTab(QtWidgets.QWidget):
         ]
         if not legacy:
             return
-        self.ssh_client.exec_checked(f"mkdir -p {_CAROUSEL_BACKUP_DIR}")
+        self.ssh_client.exec_checked(f"mkdir -p {shlex.quote(_CAROUSEL_BACKUP_DIR)}")
         for filename in legacy:
             original = filename[: -len(_CAROUSEL_BACKUP_SUFFIX)]
             self.ssh_client.exec_checked(
-                f"mv {_CAROUSEL_DIR}/{filename} {_CAROUSEL_BACKUP_DIR}/{original}"
+                f"mv {shlex.quote(_CAROUSEL_DIR + '/' + filename)} "
+                f"{shlex.quote(_CAROUSEL_BACKUP_DIR + '/' + original)}"
             )
         logging.info("Migrated %d legacy carousel backup(s)", len(legacy))
 
@@ -1216,7 +1313,7 @@ class WallpaperTab(QtWidgets.QWidget):
             self._migrate_legacy_carousel_backups()
             try:
                 entries = self.ssh_client.listdir_attr(_CAROUSEL_BACKUP_DIR)
-            except Exception:
+            except FileNotFoundError:
                 return 0
             backups = [
                 entry.filename
@@ -1336,7 +1433,11 @@ class WallpaperTab(QtWidgets.QWidget):
         # still rotates in. Detect both so the checkbox reflects reality.
         try:
             backup_entries = self.ssh_client.listdir_attr(_CAROUSEL_BACKUP_DIR)
+        except FileNotFoundError:
+            backup_entries = []
         except Exception:
+            logging.warning("Could not inspect carousel backups", exc_info=True)
+            complete = False
             backup_entries = []
         if any(
             getattr(entry, "filename", "").lower().endswith(".png")
@@ -1365,7 +1466,7 @@ class WallpaperTab(QtWidgets.QWidget):
         except Exception as exc:
             logging.info("User-partition sleep wallpaper status unavailable: %s", exc)
             self._sleep_user_status = _sleep_wallpaper.SleepWallpaperStatus(
-                False, detail=str(exc)
+                False, broken=True, detail=str(exc)
             )
 
         return _WallpaperResourceScan(
@@ -1441,22 +1542,14 @@ class WallpaperTab(QtWidgets.QWidget):
                 if button:
                     button.setToolTip(placeholder_tooltip)
                 continue
-            pixmap = QtGui.QPixmap()
-            if pixmap.loadFromData(data):
-                preview.setPixmap(pixmap)
-            else:
-                try:
-                    with Image.open(BytesIO(data)) as image:
-                        buffer = BytesIO()
-                        image.convert("RGB").save(buffer, format="PNG")
-                    if pixmap.loadFromData(buffer.getvalue(), "PNG"):
-                        preview.setPixmap(pixmap)
-                    else:
-                        preview.clear_preview()
-                        preview.setText("无预览")
-                except Exception:
-                    preview.clear_preview()
-                    preview.setText("无预览")
+            try:
+                with Image.open(BytesIO(data), formats=_RASTER_FORMATS) as image:
+                    image = ImageOps.exif_transpose(image)
+                    image.thumbnail((800, 800), Image.LANCZOS)
+                    preview.setPixmap(_image_pixmap(image))
+            except Exception:
+                preview.clear_preview()
+                preview.setText("无预览")
         # The checkbox state follows the device: originals backed up, or the
         # carousel files themselves are transparent placeholders (legacy
         # devices blanked before backups existed).
@@ -1529,6 +1622,9 @@ class WallpaperTab(QtWidgets.QWidget):
         return normalized not in self._unavailable_wallpaper_paths
 
     def _update_upload_button_state(self) -> None:
+        if self._is_sleep_target() and (self._sleep_user_status.broken or self._sleep_restore_busy):
+            self.upload_button.setEnabled(False)
+            return
         user_partition = (
             self._is_sleep_target()
             and self.user_partition_sleep_checkbox.isChecked()
@@ -1545,6 +1641,9 @@ class WallpaperTab(QtWidgets.QWidget):
 
     def _update_target_label(self) -> None:
         remote_path = self._configured_wallpaper_path()
+        if self._is_sleep_target() and self._sleep_user_status.broken:
+            self.target_label.setText("目标壁纸：休眠壁纸（请先重新扫描或恢复状态）")
+            return
         if self._is_sleep_target() and self.user_partition_sleep_checkbox.isChecked():
             self.target_label.setText("目标壁纸：休眠壁纸（用户分区管理）")
             return
@@ -1587,9 +1686,9 @@ class WallpaperTab(QtWidgets.QWidget):
             return
 
         dialog = _CoverWallDialog(entries, self)
-        if dialog.exec_() != QtWidgets.QDialog.Accepted:
-            return
         try:
+            if dialog.exec_() != QtWidgets.QDialog.Accepted:
+                return
             self._apply_cover_wall(
                 dialog.selected_entries(),
                 dialog.title_edit.text(),
@@ -1599,6 +1698,8 @@ class WallpaperTab(QtWidgets.QWidget):
         except Exception as exc:
             logging.exception("Unable to compose cover wall")
             show_error(self, _rmtool.APP_NAME, f"生成封面墙失败：{exc}")
+        finally:
+            dialog.deleteLater()
 
     def _on_cover_wall_entries_error(self, exc: Exception) -> None:
         self._close_cover_wall_progress()
@@ -1621,13 +1722,17 @@ class WallpaperTab(QtWidgets.QWidget):
         layout: str = "hero_obi",
     ) -> None:
         covers = [entry.cover for entry in entries if entry.cover]
+        resolution = self.current_resolution
+        monochrome = self.device_profile in _MONOCHROME_DEVICE_PROFILES
+        scale = min(1, 800 / max(resolution))
+        preview_resolution = tuple(max(1, round(value * scale)) for value in resolution)
         generated = compose_cover_wallpaper(
             covers,
-            self.current_resolution,
+            preview_resolution,
             title,
             subtitle,
             layout=layout,
-            monochrome=self.device_profile in _MONOCHROME_DEVICE_PROFILES,
+            monochrome=monochrome,
         )
         pad_index = self.mode_combo.findData("pad")
         if pad_index >= 0:
@@ -1636,10 +1741,16 @@ class WallpaperTab(QtWidgets.QWidget):
         self.offset_y_slider.setValue(0)
         self.image_path = None
         self._set_source_image(generated, f"已生成封面墙：{len(covers)} 本文档")
+        self._cover_wall_source = (covers, resolution, title, subtitle, layout, monochrome)
 
     def _set_source_image(self, image: Image.Image, description: str) -> None:
         previous = self._cached_source_image
+        self._cover_wall_source = None
         self._cached_source_image = image
+        if self._preview_source_image is not None:
+            self._preview_source_image.close()
+        self._preview_source_image = image.copy()
+        self._preview_source_image.thumbnail((800, 800), Image.LANCZOS)
         if previous is not None and previous is not image:
             try:
                 previous.close()
@@ -1651,12 +1762,17 @@ class WallpaperTab(QtWidgets.QWidget):
 
     def _select_image(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "选择图片", "", "图片文件 (*.png *.jpg *.jpeg *.bmp)"
+            self, "选择图片", "", "图片文件 (*.png *.jpg *.jpeg *.bmp *.webp)"
         )
         if not path:
             return
-        with Image.open(path) as image:
-            source = image.convert("RGB")
+        try:
+            with Image.open(path, formats=_RASTER_FORMATS) as image:
+                source = ImageOps.exif_transpose(image).convert("RGB")
+        except Exception as exc:
+            logging.error("Unable to load wallpaper image: %s", exc)
+            show_error(self, _rmtool.APP_NAME, f"无法读取图片，请选择 PNG/JPEG/BMP/WebP 文件：{exc}")
+            return
         self.image_path = path
         self._set_source_image(source, f"选择的图片：{path}")
 
@@ -1670,13 +1786,17 @@ class WallpaperTab(QtWidgets.QWidget):
         self._update_resolution()
         self._render_preview()
 
+    def _schedule_preview(self):
+        self._preview_timer.start()
+
     def _render_preview(self):
+        self._preview_timer.stop()
         if self._cached_source_image is None:
             self.preview_label.clear_preview()
             self.preview_label.setText("请选择图片以生成预览")
             return
         try:
-            processed = self._process_image()
+            processed = self._process_image(preview=True)
         except Exception as exc:
             logging.exception("Unable to render wallpaper preview")
             self.preview_label.clear_preview()
@@ -1695,8 +1815,9 @@ class WallpaperTab(QtWidgets.QWidget):
                             "assets",
                             "device_frames",
                             frame_filename,
-                        )
+                        ), formats=("PNG",),
                     ) as frame:
+                        frame.thumbnail((800, 800), Image.LANCZOS)
                         preview = compose_device_frame_preview(
                             processed,
                             frame,
@@ -1709,18 +1830,22 @@ class WallpaperTab(QtWidgets.QWidget):
                         self.device_profile,
                         exc_info=True,
                     )
-        buffer = BytesIO()
-        preview.save(buffer, format="PNG")
-        pixmap = QtGui.QPixmap()
-        if not pixmap.loadFromData(buffer.getvalue(), "PNG"):
-            raise RuntimeError("无法加载图片预览数据")
-        self.preview_label.setPixmap(pixmap)
+        self.preview_label.setPixmap(_image_pixmap(preview))
 
-    def _process_image(self) -> Image.Image:
+    def _process_image(self, *, preview=False) -> Image.Image:
         if self._cached_source_image is None:
             raise RuntimeError("未选择图片")
         img = self._cached_source_image
+        if not preview and self._cover_wall_source is not None:
+            covers, resolution, title, subtitle, layout, monochrome = self._cover_wall_source
+            img = compose_cover_wallpaper(
+                covers, resolution, title, subtitle, layout=layout, monochrome=monochrome,
+            )
         target_w, target_h = self.current_resolution
+        if preview:
+            img = self._preview_source_image or img
+            scale = min(1, 800 / max(target_w, target_h))
+            target_w, target_h = max(1, round(target_w * scale)), max(1, round(target_h * scale))
         mode = self.mode_combo.currentData()
         if mode == "pad":
             image = img.copy()
@@ -1735,26 +1860,19 @@ class WallpaperTab(QtWidgets.QWidget):
         if mode == "stretch":
             return img.resize((target_w, target_h), Image.LANCZOS)
 
-        scale = max(target_w / img.width, target_h / img.height)
-        new_size = (int(img.width * scale), int(img.height * scale))
-        resized = img.resize(new_size, Image.LANCZOS)
-        range_x = max(new_size[0] - target_w, 0)
-        range_y = max(new_size[1] - target_h, 0)
         norm_x = (self.offset_x_slider.value() + 100) / 200
         norm_y = (self.offset_y_slider.value() + 100) / 200
-        left = int(range_x * norm_x)
-        top = int(range_y * norm_y)
-        box = (
-            left,
-            top,
-            left + target_w,
-            top + target_h,
+        return ImageOps.fit(
+            img, (target_w, target_h), method=Image.LANCZOS,
+            centering=(norm_x, norm_y),
         )
-        return resized.crop(box)
 
     @require_connection
     def _upload_wallpaper(self):
         if self._cached_source_image is None:
+            return
+        if self._is_sleep_target() and (self._sleep_user_status.broken or self._sleep_restore_busy):
+            show_warning(self, _rmtool.APP_NAME, self._sleep_user_status.detail or "请先恢复休眠壁纸状态。")
             return
         wallpaper_path = self._configured_wallpaper_path()
         use_user_partition = (
@@ -1835,7 +1953,14 @@ class WallpaperTab(QtWidgets.QWidget):
             self._close_wallpaper_progress(temp_path)
             logging.exception("Wallpaper upload failed")
             self._sleep_user_requested = False
+            if use_user_partition:
+                self._sleep_user_status = _sleep_wallpaper.SleepWallpaperStatus(
+                    self._sleep_user_status.supported, broken=True,
+                    detail="用户分区上传未完成，结果尚未确认；请重新扫描或恢复状态，禁止自动回退到根分区。",
+                )
             self._sync_user_partition_sleep_checkbox()
+            self._update_target_label()
+            self._update_upload_button_state()
             show_error(self, _rmtool.APP_NAME, f"上传壁纸失败：{exc}")
 
         worker.signals.finished.connect(on_finished)
@@ -1849,20 +1974,30 @@ class WallpaperTab(QtWidgets.QWidget):
         use_user_partition: bool = False,
         take_over: bool = False,
     ):
-        if use_user_partition:
-            _sleep_wallpaper.enable(
-                self.ssh_client, Path(temp_path).read_bytes(), take_over=take_over
+        with self.ssh_client.operation_session():
+            machine, _error, code = self.ssh_client.exec_command(
+                "cat /sys/devices/soc0/machine 2>/dev/null || "
+                "tr -d '\\0' < /proc/device-tree/model 2>/dev/null"
             )
-            return True
-        with self.ssh_client.operation_session(), remount_rw(self.ssh_client):
-            backup = wallpaper_path + ".backup"
-            if posixpath.dirname(wallpaper_path) == _CAROUSEL_DIR:
-                backup = f"{_CAROUSEL_BACKUP_DIR}/{posixpath.basename(wallpaper_path)}"
-            replacement = (temp_path, wallpaper_path, backup)
-            if wallpaper_path.endswith("suspended.png"):
-                self._blank_carousel_overlays_locked(replacement)
-            else:
-                self._replace_wallpaper_files_locked([replacement])
+            detected = _screen_preview._profile_for_machine(machine.strip()) if code == 0 else None
+            label = detected.label if detected is not None else ""
+            expected = label if label.startswith("reMarkable") else "reMarkable " + label
+            if not label or expected != self.device_profile:
+                raise RuntimeError("设备型号无法核对或与所选型号不一致，请重新选择设备后上传壁纸。")
+            if use_user_partition:
+                _sleep_wallpaper.enable(
+                    self.ssh_client, Path(temp_path).read_bytes(), take_over=take_over
+                )
+                return True
+            with remount_rw(self.ssh_client):
+                backup = wallpaper_path + ".backup"
+                if posixpath.dirname(wallpaper_path) == _CAROUSEL_DIR:
+                    backup = f"{_CAROUSEL_BACKUP_DIR}/{posixpath.basename(wallpaper_path)}"
+                replacement = (temp_path, wallpaper_path, backup)
+                if wallpaper_path.endswith("suspended.png"):
+                    self._blank_carousel_overlays_locked(replacement)
+                else:
+                    self._replace_wallpaper_files_locked([replacement])
         return False
 
     def _replace_wallpaper_files_locked(self, replacements):
@@ -1875,11 +2010,8 @@ class WallpaperTab(QtWidgets.QWidget):
         preserve = set()
 
         def digest(remote):
-            hasher = hashlib.sha256()
-            with ssh.open_remote(remote, "rb") as source:
-                for chunk in iter(lambda: source.read(65536), b""):
-                    hasher.update(chunk)
-            return hasher.digest()
+            import _xovi_standalone
+            return bytes.fromhex(_xovi_standalone._remote_sha256(ssh, remote))
 
         try:
             for local, remote, backup in replacements:

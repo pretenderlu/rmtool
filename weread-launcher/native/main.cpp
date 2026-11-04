@@ -1,4 +1,5 @@
 #include "WeReadLauncher.h"
+#include "TrustedFileCache.h"
 
 #include <QCryptographicHash>
 #include <QFile>
@@ -44,15 +45,36 @@ constexpr TrustedFile kTrustedFiles[] = {
     {kUnit, "5ae39c435f1f47e34f2805b6eb8c0cbdeca398ff22d99c7a572321380547b185", false},
 };
 
-QString verify(const TrustedFile &trusted)
+TrustedFileIdentity fileIdentity(const struct stat &metadata)
 {
+    return {static_cast<std::uint64_t>(metadata.st_dev), static_cast<std::uint64_t>(metadata.st_ino),
+            static_cast<std::uint64_t>(metadata.st_size), static_cast<std::uint64_t>(metadata.st_mtim.tv_sec),
+            static_cast<std::uint64_t>(metadata.st_mtim.tv_nsec), static_cast<std::uint64_t>(metadata.st_ctim.tv_sec),
+            static_cast<std::uint64_t>(metadata.st_ctim.tv_nsec), metadata.st_mode, metadata.st_uid, metadata.st_gid};
+}
+
+QString verify(const TrustedFile &trusted, bool force = false)
+{
+    static TrustedFileCache cache[4];
+    TrustedFileCache *entry = nullptr;
+    for (unsigned i = 0; i < sizeof(kTrustedFiles) / sizeof(*kTrustedFiles); ++i) {
+        if (std::strcmp(trusted.path, kTrustedFiles[i].path) == 0
+            && std::strcmp(trusted.sha256, kTrustedFiles[i].sha256) == 0) entry = &cache[i];
+    }
+    if (std::strcmp(trusted.path, kFastShim) == 0
+        && std::strcmp(trusted.sha256, RMTOOL_WEREAD_FAST_SHA256) == 0) entry = &cache[3];
     QFileInfo info(QString::fromUtf8(trusted.path));
-    if (!info.exists() || !info.isFile() || info.isSymLink() || info.ownerId() != 0) {
+    struct stat metadata {};
+    if (::lstat(trusted.path, &metadata) != 0 || !S_ISREG(metadata.st_mode)
+        || !info.exists() || !info.isFile() || info.isSymLink() || info.ownerId() != 0) {
         return QStringLiteral("未检测到兼容的微信读书官方安装");
     }
     if (trusted.executable && !info.isExecutable()) {
         return QStringLiteral("微信读书官方启动文件不可执行");
     }
+    const auto identity = fileIdentity(metadata);
+    if (entry && !entry->needsHash(identity, force)) return {};
+    if (entry) entry->verified = false;
     QFile file(info.filePath());
     if (!file.open(QIODevice::ReadOnly)) {
         return QStringLiteral("无法读取微信读书官方安装");
@@ -61,6 +83,14 @@ QString verify(const TrustedFile &trusted)
     if (!hash.addData(&file)
         || hash.result().toHex() != QByteArray::fromRawData(trusted.sha256, 64)) {
         return QStringLiteral("微信读书官方安装版本不受支持");
+    }
+    struct stat after {};
+    if (::fstat(file.handle(), &after) != 0 || !(identity == fileIdentity(after))) {
+        return QStringLiteral("无法读取微信读书官方安装");
+    }
+    if (entry) {
+        entry->identity = identity;
+        entry->verified = true;
     }
     return {};
 }
@@ -148,10 +178,10 @@ bool clearStartupGuard(QString *error)
 }
 }
 
-QString WeReadLauncher::validateInstallation() const
+QString WeReadLauncher::validateInstallation(bool force) const
 {
     for (const auto &trusted : kTrustedFiles) {
-        const QString error = verify(trusted);
+        const QString error = verify(trusted, force);
         if (!error.isEmpty()) {
             return error;
         }
@@ -169,9 +199,9 @@ QString WeReadLauncher::unavailableReason() const
     return validateInstallation();
 }
 
-QString WeReadLauncher::validateFastMode() const
+QString WeReadLauncher::validateFastMode(bool force) const
 {
-    return verify({kFastShim, RMTOOL_WEREAD_FAST_SHA256, false});
+    return verify({kFastShim, RMTOOL_WEREAD_FAST_SHA256, false}, force);
 }
 
 bool WeReadLauncher::launch(int mode, int refreshPages)
@@ -182,11 +212,11 @@ bool WeReadLauncher::launch(int mode, int refreshPages)
         m_lastError = QStringLiteral("微信读书启动参数无效");
         return false;
     }
-    m_lastError = validateInstallation();
+    m_lastError = validateInstallation(true);
     if (!m_lastError.isEmpty()) {
         return false;
     }
-    if (mode != kModeNormal && !validateFastMode().isEmpty()) {
+    if (mode != kModeNormal && !validateFastMode(true).isEmpty()) {
         m_lastError = QStringLiteral("微信读书快刷模块不可用，请使用普通模式");
         return false;
     }

@@ -74,9 +74,10 @@ def enable_wifi_ssh(ssh_client: SSHClientWrapper) -> None:
 
 
 def reboot(ssh_client: SSHClientWrapper) -> None:
-    # Use exec_command rather than exec_checked: the connection may drop
-    # before the command reports a status.
-    ssh_client.exec_command("reboot")
+    # A dropped acknowledgement remains unknown, not a proven successful reboot.
+    _stdout, stderr, code = ssh_client.exec_command("reboot", timeout=QUICK_COMMAND_TIMEOUT)
+    if code:
+        raise RuntimeError("重启命令未成功：" + (stderr.strip() or str(code)))
 
 
 def increase_brightness(ssh_client: SSHClientWrapper) -> None:

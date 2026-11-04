@@ -9,10 +9,12 @@ import stat
 import tempfile
 import zipfile
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import paramiko
+from PIL import Image
 from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
@@ -240,6 +242,11 @@ class DocumentsTab(QtWidgets.QWidget):
             item = self._document_for_row(row)
             visible = bool(item) and (not text or text in item.name.lower())
             self.table.setRowHidden(row, not visible)
+            if not visible:
+                self.table.selectionModel().select(
+                    self.table.model().index(row, 0),
+                    QtCore.QItemSelectionModel.Deselect | QtCore.QItemSelectionModel.Rows,
+                )
 
         selected = self._selected_document()
         if selected:
@@ -307,6 +314,8 @@ class DocumentsTab(QtWidgets.QWidget):
         rows = sorted({index.row() for index in self.table.selectionModel().selectedRows()})
         documents = []
         for row in rows:
+            if self.table.isRowHidden(row):
+                continue
             item = self._document_for_row(row)
             if item is not None:
                 documents.append(item)
@@ -365,7 +374,7 @@ class DocumentsTab(QtWidgets.QWidget):
         self._preview_cover = None
 
     # -- Progress helpers ------------------------------------------------------
-    def _show_progress_dialog(self, title: str, text: str) -> None:
+    def _show_progress_dialog(self, title: str, text: str) -> QtWidgets.QProgressDialog:
         if self._active_progress:
             self._active_progress.close()
             self._active_progress.deleteLater()
@@ -380,10 +389,11 @@ class DocumentsTab(QtWidgets.QWidget):
         dialog.show()
         self._active_progress = dialog
         self._progress_label_base = text
+        return dialog
 
-    def _update_progress_dialog(self, current: int, total: int) -> None:
-        dialog = self._active_progress
-        if not dialog:
+    def _update_progress_dialog(self, current: int, total: int, dialog=None) -> None:
+        dialog = self._active_progress if dialog is None else dialog
+        if dialog is None or dialog is not self._active_progress or sip.isdeleted(dialog):
             return
         if total <= 0:
             dialog.setRange(0, 0)
@@ -394,7 +404,9 @@ class DocumentsTab(QtWidgets.QWidget):
         dialog.setValue(int(ratio * 1000))
         dialog.setLabelText(f"{self._progress_label_base}\n已完成 {ratio * 100:.1f}%")
 
-    def _close_progress_dialog(self) -> None:
+    def _close_progress_dialog(self, dialog=None) -> None:
+        if dialog is not None and dialog is not self._active_progress:
+            return
         if self._active_progress:
             self._active_progress.close()
             self._active_progress.deleteLater()
@@ -609,12 +621,12 @@ class DocumentsTab(QtWidgets.QWidget):
             if sip.isdeleted(self):
                 return
             if is_current():
-                self._update_progress_dialog(current, total)
+                self._update_progress_dialog(current, total, progress)
 
         def on_status(text):
             if sip.isdeleted(self):
                 return
-            if is_current() and self._active_progress:
+            if is_current() and self._active_progress is progress:
                 self._progress_label_base = text
                 self._active_progress.setLabelText(text)
                 if text.startswith("等待设备"):
@@ -627,17 +639,20 @@ class DocumentsTab(QtWidgets.QWidget):
                 self._upload_active = False
                 self.upload_button.setEnabled(self._connected)
                 self.native_transfer_button.setEnabled(self._connected)
-                self._on_upload_finished(count)
+                self._on_upload_finished(count, progress)
 
         def on_error(exc):
             if sip.isdeleted(self):
                 logging.error("Document upload failed after tab close: %s", exc)
                 return
-            if is_current():
+            with self.ssh_client._state_lock:
+                current_client = self.ssh_client._client
+            if (client is not None and self._connection_generation <= generation + 1
+                    and (current_client is None or current_client is client)):
                 self._upload_active = False
                 self.upload_button.setEnabled(self._connected)
                 self.native_transfer_button.setEnabled(self._connected)
-                self._close_progress_dialog()
+                self._close_progress_dialog(progress)
                 self._on_error(exc)
                 self.refresh()
 
@@ -648,11 +663,11 @@ class DocumentsTab(QtWidgets.QWidget):
         self._upload_active = True
         self.upload_button.setEnabled(False)
         self.native_transfer_button.setEnabled(False)
-        self._show_progress_dialog("导入文档", "正在检查设备原生导入服务…")
+        progress = self._show_progress_dialog("导入文档", "正在检查设备原生导入服务…")
         self.thread_pool.start(worker)
 
-    def _on_upload_finished(self, count: int) -> None:
-        self._close_progress_dialog()
+    def _on_upload_finished(self, count: int, progress=None) -> None:
+        self._close_progress_dialog(progress)
         self.status_message.emit("success", f"设备已接收 {count} 个文档，无需重启；转换由系统完成。", 5000)
         self.refresh()
 
@@ -748,7 +763,10 @@ class DocumentsTab(QtWidgets.QWidget):
             progress_text = f'正在删除「{items[0].name}」…'
             success_text = "文档已删除。"
         else:
-            confirm_text = f"确定要删除选中的 {len(items)} 个文档吗？此操作不可撤销。"
+            names = "、".join(item.name for item in items[:5])
+            confirm_text = f"确定要删除选中的 {len(items)} 个文档吗？\n{names}" + (
+                "等" if len(items) > 5 else ""
+            ) + "\n此操作不可撤销。"
             progress_text = f"正在删除 {len(items)} 个文档…"
             success_text = f"已删除 {len(items)} 个文档。"
         if not ask_confirmation(
@@ -776,7 +794,7 @@ class DocumentsTab(QtWidgets.QWidget):
                 return
             if connection_generation != self._connection_generation:
                 return
-            self._close_progress_dialog()
+            self._close_progress_dialog(progress)
             self.status_message.emit("success", success_text, 3000)
             show_info(self, _rmtool.APP_NAME, success_text)
             self.refresh()
@@ -789,18 +807,13 @@ class DocumentsTab(QtWidgets.QWidget):
                 return
             if connection_generation != self._connection_generation:
                 return
-            self._close_progress_dialog()
+            self._close_progress_dialog(progress)
             self._on_error(exc)
 
         worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
-        self._show_progress_dialog("删除文档", progress_text)
+        progress = self._show_progress_dialog("删除文档", progress_text)
         self.thread_pool.start(worker)
-
-    def _perform_delete(self, item: _rmtool.DocumentItem):
-        with self.ssh_client._state_lock:
-            client = self.ssh_client._client
-        self._perform_delete_documents([item], self._connection_generation, client)
 
     def _perform_delete_documents(
         self, items: List[_rmtool.DocumentItem], connection_generation: int, client
@@ -854,13 +867,18 @@ class DocumentsTab(QtWidgets.QWidget):
                 # raise RuntimeError (and abort the process on macOS).
                 logging.error("Thumbnail scan failed after tab close: %s", exc)
                 return
-            self._close_progress_dialog()
+            self._close_progress_dialog(progress)
             self._set_thumbnail_cleanup_running(False)
             self._on_error(exc)
 
-        worker.signals.finished.connect(self._on_orphan_thumbnail_scan_finished)
+        def on_finished(scan):
+            if sip.isdeleted(self):
+                return
+            self._on_orphan_thumbnail_scan_finished(scan, progress)
+
+        worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
-        self._show_progress_dialog("清理缩略图", "正在扫描失效缩略图…")
+        progress = self._show_progress_dialog("清理缩略图", "正在扫描失效缩略图…")
         self.thread_pool.start(worker)
 
     def _scan_orphan_thumbnails(self) -> _OrphanThumbnailScan:
@@ -891,8 +909,8 @@ class DocumentsTab(QtWidgets.QWidget):
             total_bytes=total_bytes,
         )
 
-    def _on_orphan_thumbnail_scan_finished(self, scan: _OrphanThumbnailScan) -> None:
-        self._close_progress_dialog()
+    def _on_orphan_thumbnail_scan_finished(self, scan: _OrphanThumbnailScan, progress=None) -> None:
+        self._close_progress_dialog(progress)
         if not scan.candidate_ids:
             self._set_thumbnail_cleanup_running(False)
             show_info(self, _rmtool.APP_NAME, "没有发现需要清理的失效缩略图。")
@@ -920,7 +938,7 @@ class DocumentsTab(QtWidgets.QWidget):
             if sip.isdeleted(self):
                 # Worker outlived the tab; nothing safe left to update.
                 return
-            self._close_progress_dialog()
+            self._close_progress_dialog(progress)
             self._set_thumbnail_cleanup_running(False)
             success_text = f"已删除 {deleted_count} 个失效缩略图目录。"
             self.status_message.emit("success", success_text, 3000)
@@ -932,13 +950,13 @@ class DocumentsTab(QtWidgets.QWidget):
                 # raise RuntimeError (and abort the process on macOS).
                 logging.error("Thumbnail cleanup failed after tab close: %s", exc)
                 return
-            self._close_progress_dialog()
+            self._close_progress_dialog(progress)
             self._set_thumbnail_cleanup_running(False)
             self._on_error(exc)
 
         worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
-        self._show_progress_dialog("清理缩略图", "正在删除失效缩略图…")
+        progress = self._show_progress_dialog("清理缩略图", "正在删除失效缩略图…")
         self.thread_pool.start(worker)
 
     def _delete_orphan_thumbnails(self, scan: _OrphanThumbnailScan) -> int:
@@ -987,7 +1005,7 @@ class DocumentsTab(QtWidgets.QWidget):
             if sip.isdeleted(self):
                 # Worker outlived the tab; nothing safe left to update.
                 return
-            self._close_progress_dialog()
+            self._close_progress_dialog(progress)
             self.status_message.emit("success", f"笔记已导出为 PDF：{save_path}", 4000)
             show_info(
                 self, _rmtool.APP_NAME, f"笔记已导出为 PDF：\n{save_path}"
@@ -999,17 +1017,19 @@ class DocumentsTab(QtWidgets.QWidget):
                 # raise RuntimeError (and abort the process on macOS).
                 logging.error("PDF export failed after tab close: %s", exc)
                 return
-            self._close_progress_dialog()
+            self._close_progress_dialog(progress)
             self._on_error(exc)
 
         worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
-        self._show_progress_dialog("导出 PDF", f'正在渲染「{item.name}」…')
+        progress = self._show_progress_dialog("导出 PDF", f'正在渲染「{item.name}」…')
         self.thread_pool.start(worker)
 
     def _perform_export(self, item: _rmtool.DocumentItem, save_path: str):
         from rmrl import render_notebook_to_pdf
 
+        if not _rmtool.is_document_identifier(item.identifier):
+            raise RuntimeError("文档标识无效，已停止导出。")
         tmpdir = tempfile.mkdtemp()
         try:
             # Download every source that may contain handwritten note strokes.
@@ -1059,8 +1079,16 @@ class DocumentsTab(QtWidgets.QWidget):
             self._set_preview_placeholder("暂无可用预览")
             return
         self._preview_cover = cover
-        image = QtGui.QImage.fromData(cover)
-        if image.isNull():
+        try:
+            with Image.open(BytesIO(cover), formats=("PNG", "JPEG", "BMP", "WEBP")) as source:
+                source.thumbnail((1600, 1600))
+                rgba = source.convert("RGBA")
+                data = rgba.tobytes()
+                image = QtGui.QImage(
+                    data, rgba.width, rgba.height, rgba.width * 4,
+                    QtGui.QImage.Format_RGBA8888,
+                ).copy()
+        except (OSError, ValueError, Image.DecompressionBombError):
             self.preview_image.clear_preview()
             self.preview_image.setText("无法解析预览图像")
         else:

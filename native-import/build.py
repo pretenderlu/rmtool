@@ -2,7 +2,6 @@
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -17,6 +16,7 @@ import _native_import_control as control
 import _plugin_packages as packages
 import _tap_page_turn as tap
 import _xovi_standalone as shared
+from tools.native_build import check_no_build_paths, go_environment, prefix_maps, verify_archive_runtime, verify_tool
 
 
 def digest(data):
@@ -31,7 +31,8 @@ def run(command, *, cwd=None, env=None, warning=False):
 
 
 def build_helpers(go, output):
-    env = {**os.environ, "CGO_ENABLED": "0", "GOTOOLCHAIN": "local", "GOWORK": "off", "GOFLAGS": ""}
+    go = verify_tool("go", go)
+    env = go_environment()
     for key in ("GOOS", "GOARCH", "GOARM", "GOARM64"):
         env.pop(key, None)
     with tempfile.TemporaryDirectory() as temporary:
@@ -51,6 +52,12 @@ def build_helpers(go, output):
                 target_env["GOARM"] = "7"
             run([go, "build", "-trimpath", "-buildvcs=false", "-ldflags=-s -w", "-o",
                  output / f"rmtool-native-import-{architecture}", *common, "platform_linux.go"], cwd=work, env=target_env)
+            binary = output / f"rmtool-native-import-{architecture}"
+            first = binary.read_bytes()
+            run([go, "build", "-trimpath", "-buildvcs=false", "-ldflags=-s -w", "-o",
+                 binary, *common, "platform_linux.go"], cwd=work, env=target_env)
+            if binary.read_bytes() != first:
+                raise RuntimeError("Non-deterministic native-import helper")
 
 
 def build_bridge(args, architecture, output):
@@ -66,10 +73,11 @@ def build_bridge(args, architecture, output):
              f"-Wl,--version-script,{ROOT / 'native-import/native/exports.map'}",
              "-Wl,--allow-shlib-undefined", "-DQT_NO_DEBUG", "-DRMTOOL_NATIVE_IMPORT_STANDALONE",
              "-DImportControl=NativeImportControl",
-             f"-ffile-prefix-map={work}=native-import-generated", f"-fmacro-prefix-map={work}=native-import-generated",
+             *prefix_maps((work, "native-import-generated"), (args.qt_host, "qt"), (args.zig.parent, "zig")),
              "-I", include, "-I", include / "QtCore", "-I", include / "QtQml", "-I", include / "QtNetwork",
              "-I", shared_source, "-I", work, ROOT / "native-import/native/main.cpp",
              shared_source / "ImportControl.cpp", "-o", output])
+        check_no_build_paths(output, work, args.qt_host, args.zig.parent)
 
 
 def stock_libraries(args, platform, release, output):
@@ -110,6 +118,8 @@ def check_elf(path, architecture, ELFFile, *, hard_float=False):
 
 
 def check_bridge(bridge, libraries, architecture, ELFFile):
+    if not libraries.is_dir():
+        raise RuntimeError(f"Missing exact stock library directory: {libraries}")
     imports = {name for name, section, binding in check_elf(bridge, architecture, ELFFile, hard_float=True)
                if name and section == "SHN_UNDEF" and binding != "STB_WEAK"}
     exports = set()
@@ -144,6 +154,10 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--release", choices=sorted({item[0] for item in control.ALLOWED_TARGETS.values()}))
     args = parser.parse_args()
+    verify_archive_runtime()
+    for name, path in (("go", args.go), ("zig", args.zig), ("7z", args.seven_zip), ("moc", args.qt_host / "bin/moc.exe"),
+                       ("qmd-tool", args.qmd_tool), ("qmldiff", args.qmldiff)):
+        verify_tool(name, path)
     args.output = args.output.resolve()
     if not args.output.is_relative_to(ROOT / "build"):
         raise RuntimeError("Output must remain below the repository build directory")
@@ -156,6 +170,10 @@ def main():
     for architecture in ("aarch64", "armv7l"):
         bridges[architecture] = args.output / f"rmtool-native-import-{architecture}.so"
         build_bridge(args, architecture, bridges[architecture])
+        first = bridges[architecture].read_bytes()
+        build_bridge(args, architecture, bridges[architecture])
+        if bridges[architecture].read_bytes() != first:
+            raise RuntimeError("Non-deterministic native-import bridge")
     entries, checks = [], []
     for identity, verification in control.ALLOWED_TARGETS.items():
         platform, firmware, architecture, stock = identity
@@ -227,7 +245,9 @@ def main():
                           control.BRIDGE_PAYLOAD_PATH: (bridges[architecture].read_bytes(), 0o644),
                           control.HELPER_PAYLOAD_PATH: (helper.read_bytes(), 0o755)})
         packed = tap._gzip_member(tap._tar_member(files, apk_checksums=False, include_directories=False))
-        asset = control._expected_asset_name(platform, firmware, release)
+        if packed != tap._gzip_member(tap._tar_member(files, apk_checksums=False, include_directories=False)):
+            raise RuntimeError("Non-deterministic native-import archive")
+        asset = packages.content_asset_name(control._expected_asset_name(platform, firmware, release), digest(packed))
         packages.write_atomic(args.output / asset, packed)
         entries.append(dict(firmware=firmware, release_version=release, channel=channel, platform=platform,
             architecture=architecture, xochitl_sha256=stock, asset=asset, sha256=digest(packed), size=len(packed),
@@ -237,7 +257,7 @@ def main():
         checks.append(dict(platform=platform, release=release, architecture=architecture, imports=imports,
             bridge_bytes=bridges[architecture].stat().st_size, helper_bytes=helper.stat().st_size,
             stock_xochitl=stock, swu_sha256=provenance["sha256"], address=address,
-            webui_sha256=digest(webui)))
+            webui_sha256=digest(webui), network_path=network_path, network_sha256=digest((libraries / network_path).read_bytes())))
         print(f"PASS {platform}/{release}: {imports} ABI imports; native controller replayed", flush=True)
     if len({check["webui_sha256"] for check in checks}) != 1:
         raise RuntimeError("Native web-import implementations differ; review each protocol before packaging")
@@ -262,6 +282,8 @@ def main():
     packages.write_atomic(control.BUNDLED_MANIFEST, manifest)
     control._trusted_catalog.cache_clear()
     packages.write_atomic(args.output / "validation.json", (json.dumps(checks, indent=2) + "\n").encode())
+    if args.release:
+        packages.write_atomic(args.output / f"validation-{args.release}.json", (json.dumps(checks, indent=2) + "\n").encode())
     print(f"{len(entries)} exact native-transfer packages built and cached; no publication or device deployment", flush=True)
 
 

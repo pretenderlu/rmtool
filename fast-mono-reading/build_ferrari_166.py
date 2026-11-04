@@ -15,6 +15,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 import _fast_mono_reading as fast
 import _tap_page_turn as tap
+import _plugin_packages as packages
 
 
 TARGET_IDENTITY = (
@@ -108,7 +109,7 @@ def _build(
         fast.ALLOWED_TARGETS[TARGET_IDENTITY]
     )
     platform, firmware, architecture, xochitl_sha256 = TARGET_IDENTITY
-    asset = fast._expected_asset_name(platform, firmware, release_version)
+    asset = packages.content_asset_name(fast._expected_asset_name(platform, firmware, release_version), sha256(archive))
     entry = {
         "firmware": firmware,
         "release_version": release_version,

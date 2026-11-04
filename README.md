@@ -13,7 +13,7 @@
 rmtool 通过本地 root SSH 管理 reMarkable Paper Pro、Paper Pro Move、Paper Pure、reMarkable 1 和 reMarkable 2，提供多设备连接、仪表盘、壁纸、文档、KOReader 书库管理、字体、时间、设备控制、原生界面中文、离线拼音输入，以及彩色设备按固件精确匹配的阅读增强和笔记增强，Paper Pure、reMarkable 1 和
 reMarkable 2 的经典离线验证点击翻页插件，以及一键只读诊断日志导出。设备操作不依赖 reMarkable 云服务；发布包内置这些固件功能的基础可信清单，可离线识别支持情况并复用已验证缓存。固件专用载荷不会打包进应用，仍需联网下载或使用已有的有效缓存。
 
-当前发布版为 [v1.21.3](https://github.com/pretenderlu/rmtool/releases/tag/v1.21.3)。修复未加载的旧 Xovi 文件导致阅读增强、笔记增强等托管插件被误判并阻止安装或维护的问题，保留外部插件及 KOReader 数据，详见[更新日志](docs/releases/v1.21.3.md)。各功能的设备、固件覆盖和验证情况见下方支持表。
+当前发布版为 [v1.21.4](https://github.com/pretenderlu/rmtool/releases/tag/v1.21.4)。改善插件安装、迁移与中断恢复，加强字体、汉化和固件操作安全，修复点击翻页、拼音输入及文档导出问题并改善稳定性，详见[更新日志](docs/releases/v1.21.4.md)。各功能的设备、固件覆盖和验证情况见下方支持表。
 
 [扫码传输](qr-upload/README.md)适配五款设备的 3.29.1.0 和 3.29.0.153，以及 Paper Pro Move 3.28.0.172，其他固件暂不支持。同一可信 Wi-Fi 下由手机直传 PDF/EPUB，单文件最多 200 MB，安装后不需要电脑在线。使用不加密的局域网 HTTP，仅适合可信网络。Move .172 手机上传与 .153 USB/Wi-Fi 桌面原生导入已实测；Paper Pro .153 插件迁移、安装已由用户确认，新增机型的手机扫码上传仍需分别实测，详见[兼容性核对表](docs/device-firmware-support.md)。
 
@@ -192,7 +192,7 @@ Paper Pure、reMarkable 1 和 reMarkable 2 也已覆盖该正式版的原生中�
 
 ### 壁纸注意事项
 
-每次上传前，目标文件会复制为同目录的 `.backup`；再次上传会覆盖该备份。上传休眠壁纸 `suspended.png` 时，可让程序把设备现有 `carousel/*.png` 替换为透明图片，避免固件 3.27 的轮播插图遮挡自定义壁纸。轮播原图会首次备份到固件不会读取的 `carousel/.backup/` 子目录；关闭该选项时会从备份恢复，旧版本遗留在原图旁的备份也会迁移到该子目录。
+首次上传前，目标文件会复制为同目录的 `.backup`；再次上传不会覆盖这份原始备份。上传休眠壁纸 `suspended.png` 时，可让程序把设备现有 `carousel/*.png` 替换为透明图片，避免固件 3.27 的轮播插图遮挡自定义壁纸。轮播原图会首次备份到固件不会读取的 `carousel/.backup/` 子目录；关闭该选项时会从备份恢复，旧版本遗留在原图旁的备份也会迁移到该子目录。
 
 ### 历史法语槽位汉化（兼容资料）
 

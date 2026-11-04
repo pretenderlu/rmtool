@@ -8,6 +8,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from build_172 import FEATURES, FEATURES_BY_PLATFORM, FIRMWARE, RELEASE, ROOT, TARGETS, tap, verified
+from _plugin_packages import asset_name_matches
+import _native_chinese as native
 
 
 def verify_candidate(path, entry, feature):
@@ -18,7 +20,9 @@ def verify_candidate(path, entry, feature):
             or entry["architecture"] != architecture or entry["channel"] != "stable"
             or entry["offline_verified"] is not True or entry["device_verified"] is not False):
         raise RuntimeError("Candidate identity/verification mismatch")
-    if entry["asset"] != f"rmtool-{feature}-{platform}-{FIRMWARE}-{RELEASE}.tar.gz":
+    legacy = (native.EXPECTED_ASSETS[(FIRMWARE, platform, architecture, xochitl)]
+              if feature == "native-chinese" else f"rmtool-{feature}-{platform}-{FIRMWARE}-{RELEASE}.tar.gz")
+    if not asset_name_matches(entry["asset"], legacy, entry["sha256"]):
         raise RuntimeError("Unexpected candidate asset name")
     data = verified(path, entry["size"], entry["sha256"])
     files = entry["files"]

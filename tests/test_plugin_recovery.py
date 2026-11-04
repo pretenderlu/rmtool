@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import re
 import shlex
 import stat
 import tempfile
@@ -134,6 +135,26 @@ class Device:
 
     def exec_checked(self, command):
         self.events.append(command)
+        if command.startswith("set -eu\nMOUNT_DIR=/tmp/rmtool-xovi-check-"):
+            absent = re.findall(r"\[ ! -e \$MOUNT_DIR([^ ]+) \]", command)
+            for path in absent:
+                if path in self.entries:
+                    raise RuntimeError("unexpected lower drop-in: " + path)
+            checked = re.findall(r"\[ -f \$MOUNT_DIR([^ ]+) \].*? = ([0-9a-f]{64}) \]", command)
+            for path, digest in checked:
+                e = self.entries.get(path)
+                if e is None or path in self.symlinks or (e.mode, e.uid, e.gid, e.digest) != (0o100644, 0, 0, digest):
+                    raise RuntimeError("modified lower drop-in: " + path)
+            if not absent and not checked:
+                raise AssertionError(command)
+            return ""
+        if command.startswith("set -eu\nMOUNT_DIR=/tmp/rmtool-xovi-residue-check-"):
+            return "\n".join(path for path in self.entries if path == DROPIN)
+        if command.startswith("cat /proc/") and command.endswith("/maps"):
+            return self.maps
+        if command.startswith("stat -Lc '%i|%s'"):
+            item = self.entries[shlex.split(command)[3]]
+            return f"{item.inode}|{item.size}"
         if command == "systemctl show xochitl -p FragmentPath -p DropInPaths":
             return self.loader_config
         if command == shared.storage.SYSTEM_SPACE_COMMAND:
@@ -328,6 +349,56 @@ class RecoveryInspectionTests(unittest.TestCase):
         self.assertEqual(report.state, recovery.RecoveryState.NOT_NEEDED, report.detail)
         self.assertFalse(report.can_cleanup)
 
+    def moved_runtime(self):
+        self.device = Device(package=next(p for p in recovery.migration.reading._trusted_catalog()
+            if p.platform == "chiappa" and p.release_version == "3.29.1.0"))
+        self.device.install({"appload": shared.SharedFeatureState(self.device.trusted["appload"], True, TOKEN)})
+        destination = BASE + ".backup-" + "a" * 32
+        proof = f"{TOKEN}|{BASE}|{destination}\n".encode()
+        self.device.add(shared.RUNTIME_MOVES_PATH, proof, 0o100600)
+        self.device.add(tap.SHARED_XOVI_LIBRARY, b"external library not loaded")
+        files = {item.path: item for item in self.device.runtime.files}
+        files.update({item.runtime_path: item for item in self.device.trusted["appload"].files})
+        lines = []
+        for address, relative, inode in (("1-2", "xovi.so", 71), ("3-4", "extensions.d/appload.so", 72)):
+            spec = files[relative]
+            path = f"/proc/778/map_files/{address}"
+            self.device.add(path, digest=spec.sha256, size=spec.size)
+            self.device.entries[path].inode = inode
+            lines.append(f"{address} r-xp 0 0:0 {inode} {destination}/{relative} (deleted)")
+        self.device.maps = "\n".join(lines)
+        return destination
+
+    def test_transaction_mapping_requires_provenance_and_actual_trusted_bytes(self):
+        self.moved_runtime()
+        inspection = shared.inspect_shared(self.device, self.device.runtime, self.device.trusted)
+        self.assertTrue(inspection.active)
+        import _appload
+        self.assertTrue(_appload._extension_active(self.device, self.device.identity))
+        report = self.inspect()
+        self.assertEqual(report.state, recovery.RecoveryState.NOT_NEEDED, report.detail)
+
+    def test_backup_name_alone_never_authorizes_a_mapping(self):
+        for corruption in ("no-proof", "wrong-process", "unsafe-proof", "unknown-hash", "wrong-inode", "unknown-token"):
+            with self.subTest(corruption=corruption):
+                destination = self.moved_runtime()
+                if corruption == "no-proof":
+                    del self.device.entries[shared.RUNTIME_MOVES_PATH]
+                elif corruption == "wrong-process":
+                    self.device.add(shared.RUNTIME_MOVES_PATH,
+                        f"{TOKEN.replace(':778:', ':779:')}|{BASE}|{destination}\n".encode(), 0o100600)
+                elif corruption == "unsafe-proof":
+                    self.device.entries[shared.RUNTIME_MOVES_PATH].mode = 0o100666
+                elif corruption == "unknown-hash":
+                    self.device.entries["/proc/778/map_files/1-2"].digest = "0" * 64
+                elif corruption == "wrong-inode":
+                    self.device.entries["/proc/778/map_files/1-2"].inode = 999
+                else:
+                    self.device.maps = self.device.maps.replace("a" * 32, "b" * 32)
+                self.assertTrue(tap._external_xovi_conflict_detail(self.device))
+                self.assertFalse(any(event.startswith(("mkdir", "rm ", "rmdir", "mount "))
+                                     for event in self.device.events))
+
     def test_interrupted_lock_is_read_only_and_offers_restart_not_deletion(self):
         self.device.add(shared._OPERATION_LOCK, mode=stat.S_IFDIR | 0o700)
         result = self.inspect()
@@ -367,6 +438,16 @@ class RecoveryInspectionTests(unittest.TestCase):
         installed = shared.inspect_shared(self.device, self.device.runtime, self.device.trusted)
         self.assertTrue(installed.launcher_update_available)
 
+    def test_appload_startup_guard_can_repair_controls_without_rebuilding_app(self):
+        self.device = Device(package=next(p for p in recovery.migration.reading._trusted_catalog()
+            if p.platform == "chiappa" and p.release_version == "3.29.1.0"))
+        self.device.install({"appload": shared.SharedFeatureState(
+            self.device.trusted["appload"], True, TOKEN)})
+        self.device.add(BASE + "/startup.pending", mode=0o100600)
+        report, plan = recovery._inspect(self.device)
+        self.assertTrue(report.can_repair, report.detail)
+        self.assertTrue(plan.controls_only)
+
     def test_low_space_control_repair_requires_exact_healthy_payload(self):
         self.device.add(BASE + "/startup.pending", mode=0o100600)
         self.device.free_kib = 26 * 1024
@@ -387,7 +468,10 @@ class RecoveryInspectionTests(unittest.TestCase):
     def test_reported_move_previous_template_hashes_remain_exact(self):
         device = Device(package=next(p for p in recovery.pinyin._trusted_catalog()
             if p.platform == "chiappa" and p.release_version == "3.28.0.172"))
-        enabled = tuple(device.trusted[fid] for fid in ("native-chinese", "weread-launcher"))
+        enabled = (
+            device.trusted["native-chinese"],
+            tap._published_payload_predecessor(device.identity, device.trusted["weread-launcher"]),
+        )
         self.assertEqual(hashlib.sha256(shared.shared_launcher(
             device.runtime, enabled, clean_stop_guard=False).encode()).hexdigest(),
             "e37aa9c3d60067a3f05eac8241739b21e17292189772d1f54bfcba515df94f0a")

@@ -16,6 +16,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 import _fast_mono_reading as fast
 import _tap_page_turn as tap
+import _plugin_packages as packages
 
 
 BASE_QMD_PATH = "exthome/qt-resource-rebuilder/tap-page-turn.qmd"
@@ -162,7 +163,7 @@ def build_archive(
         (base.platform, base.firmware, base.architecture, base.xochitl_sha256)
     ]
     release_version, channel, offline_verified, device_verified = policy
-    asset = _asset_name(base)
+    asset = packages.content_asset_name(_asset_name(base), sha256(archive))
     entry = {
         "firmware": base.firmware,
         "release_version": release_version,

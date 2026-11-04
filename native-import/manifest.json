@@ -8,12 +8,12 @@
       "platform": "ferrari",
       "architecture": "aarch64",
       "xochitl_sha256": "b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021",
-      "asset": "rmtool-native-import-ferrari-20260827113527-3.28.0.172.tar.gz",
-      "sha256": "d0cf3cd611790315cd1a4822210cfb80af8686a804caceb77f58d8e3fe44ee06",
-      "size": 4935873,
+      "asset": "rmtool-native-import-ferrari-20260827113527-3.28.0.172-sha256-5f7e729c769c884c4c731484ff29cc5b58eb494c8c65ea13acce624573abff63.tar.gz",
+      "sha256": "5f7e729c769c884c4c731484ff29cc5b58eb494c8c65ea13acce624573abff63",
+      "size": 4936110,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-ferrari-20260827113527-3.28.0.172.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-ferrari-20260827113527-3.28.0.172.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-ferrari-20260827113527-3.28.0.172-sha256-5f7e729c769c884c4c731484ff29cc5b58eb494c8c65ea13acce624573abff63.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-ferrari-20260827113527-3.28.0.172-sha256-5f7e729c769c884c4c731484ff29cc5b58eb494c8c65ea13acce624573abff63.tar.gz"
       ],
       "package_revision": 1,
       "offline_verified": true,
@@ -47,7 +47,7 @@
           "path": "helpers/rmtool-native-import",
           "mode": 493,
           "size": 2621600,
-          "sha256": "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd"
+          "sha256": "b527507c260f7a1ea104bf56d8727b03162eb49390f5e725973392ec93d95768"
         },
         {
           "path": "qmd-tool",
@@ -70,12 +70,12 @@
       "platform": "chiappa",
       "architecture": "aarch64",
       "xochitl_sha256": "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4",
-      "asset": "rmtool-native-import-chiappa-20260827113527-3.28.0.172.tar.gz",
-      "sha256": "27b192b28a032870097a72bc21833d98f9b3e00e7150139efdaf45fb3666e84b",
-      "size": 4934536,
+      "asset": "rmtool-native-import-chiappa-20260827113527-3.28.0.172-sha256-ac634dec8096663e714e372d922c23d9be9600e5b0f9d4412b863f372f9df7e5.tar.gz",
+      "sha256": "ac634dec8096663e714e372d922c23d9be9600e5b0f9d4412b863f372f9df7e5",
+      "size": 4934619,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-chiappa-20260827113527-3.28.0.172.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-chiappa-20260827113527-3.28.0.172.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-chiappa-20260827113527-3.28.0.172-sha256-ac634dec8096663e714e372d922c23d9be9600e5b0f9d4412b863f372f9df7e5.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-chiappa-20260827113527-3.28.0.172-sha256-ac634dec8096663e714e372d922c23d9be9600e5b0f9d4412b863f372f9df7e5.tar.gz"
       ],
       "package_revision": 1,
       "offline_verified": true,
@@ -109,7 +109,7 @@
           "path": "helpers/rmtool-native-import",
           "mode": 493,
           "size": 2621600,
-          "sha256": "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd"
+          "sha256": "b527507c260f7a1ea104bf56d8727b03162eb49390f5e725973392ec93d95768"
         },
         {
           "path": "qmd-tool",
@@ -132,12 +132,12 @@
       "platform": "tatsu",
       "architecture": "aarch64",
       "xochitl_sha256": "fa674d2ca3d8002602ce4b1b92280b96bcdf2cf32b6a42ec62ae178a1fad1fe3",
-      "asset": "rmtool-native-import-tatsu-20260827113527-3.28.0.172.tar.gz",
-      "sha256": "b1511a0f872cfc3df9329ab65c70d41dfa105446fcfa2ad05604abce4d9bba51",
-      "size": 4933498,
+      "asset": "rmtool-native-import-tatsu-20260827113527-3.28.0.172-sha256-cfa811d72cc3ab4aa7081c9619c3210167c3fb91451cdad2a718c0a0e706bcbc.tar.gz",
+      "sha256": "cfa811d72cc3ab4aa7081c9619c3210167c3fb91451cdad2a718c0a0e706bcbc",
+      "size": 4933609,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-tatsu-20260827113527-3.28.0.172.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-tatsu-20260827113527-3.28.0.172.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-tatsu-20260827113527-3.28.0.172-sha256-cfa811d72cc3ab4aa7081c9619c3210167c3fb91451cdad2a718c0a0e706bcbc.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-tatsu-20260827113527-3.28.0.172-sha256-cfa811d72cc3ab4aa7081c9619c3210167c3fb91451cdad2a718c0a0e706bcbc.tar.gz"
       ],
       "package_revision": 1,
       "offline_verified": true,
@@ -171,7 +171,7 @@
           "path": "helpers/rmtool-native-import",
           "mode": 493,
           "size": 2621600,
-          "sha256": "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd"
+          "sha256": "b527507c260f7a1ea104bf56d8727b03162eb49390f5e725973392ec93d95768"
         },
         {
           "path": "qmd-tool",
@@ -194,12 +194,12 @@
       "platform": "rm1",
       "architecture": "armv7l",
       "xochitl_sha256": "1f4fbb6e14650704b5b036e482da9948e73553178f6116ad464ab072f7b90117",
-      "asset": "rmtool-native-import-rm1-20260827113527-3.28.0.172.tar.gz",
-      "sha256": "11f878d3694d767440b5776cbd0612fd06ef7ad1efd6b0183ca3896f33b51a7a",
-      "size": 4936935,
+      "asset": "rmtool-native-import-rm1-20260827113527-3.28.0.172-sha256-4abec0aa0a2792afd4e27c13b6d7afae63f19c88d7d5c0a7af02401b33cf2f1d.tar.gz",
+      "sha256": "4abec0aa0a2792afd4e27c13b6d7afae63f19c88d7d5c0a7af02401b33cf2f1d",
+      "size": 4937262,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-rm1-20260827113527-3.28.0.172.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-rm1-20260827113527-3.28.0.172.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-rm1-20260827113527-3.28.0.172-sha256-4abec0aa0a2792afd4e27c13b6d7afae63f19c88d7d5c0a7af02401b33cf2f1d.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-rm1-20260827113527-3.28.0.172-sha256-4abec0aa0a2792afd4e27c13b6d7afae63f19c88d7d5c0a7af02401b33cf2f1d.tar.gz"
       ],
       "package_revision": 1,
       "offline_verified": true,
@@ -233,7 +233,7 @@
           "path": "helpers/rmtool-native-import",
           "mode": 493,
           "size": 2621600,
-          "sha256": "50ab23b8e68f375e4871eedcde110b5c0a54e8a5a929f5e3865f10bb50343797"
+          "sha256": "35893315d509662bca9fd83e25b306bb9a25bf9e35e899078e469ca6da76415e"
         },
         {
           "path": "qmd-tool",
@@ -256,12 +256,12 @@
       "platform": "rm2",
       "architecture": "armv7l",
       "xochitl_sha256": "071d85beef3ef2d4cc0e11002140b27b82a2cc04a2ed740a5669f591069b77df",
-      "asset": "rmtool-native-import-rm2-20260827113527-3.28.0.172.tar.gz",
-      "sha256": "72de0596df16f43a7548ed06bec0731d845fb2b340eb4a5c5515b8834f317fcd",
-      "size": 4943861,
+      "asset": "rmtool-native-import-rm2-20260827113527-3.28.0.172-sha256-0bc7ba56dd7daeac7c54f410ae60d822df1823b678c00a751d0fbf8c42ad7d2b.tar.gz",
+      "sha256": "0bc7ba56dd7daeac7c54f410ae60d822df1823b678c00a751d0fbf8c42ad7d2b",
+      "size": 4944084,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-rm2-20260827113527-3.28.0.172.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-rm2-20260827113527-3.28.0.172.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-rm2-20260827113527-3.28.0.172-sha256-0bc7ba56dd7daeac7c54f410ae60d822df1823b678c00a751d0fbf8c42ad7d2b.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-rm2-20260827113527-3.28.0.172-sha256-0bc7ba56dd7daeac7c54f410ae60d822df1823b678c00a751d0fbf8c42ad7d2b.tar.gz"
       ],
       "package_revision": 1,
       "offline_verified": true,
@@ -295,7 +295,7 @@
           "path": "helpers/rmtool-native-import",
           "mode": 493,
           "size": 2621600,
-          "sha256": "50ab23b8e68f375e4871eedcde110b5c0a54e8a5a929f5e3865f10bb50343797"
+          "sha256": "35893315d509662bca9fd83e25b306bb9a25bf9e35e899078e469ca6da76415e"
         },
         {
           "path": "qmd-tool",
@@ -318,12 +318,12 @@
       "platform": "chiappa",
       "architecture": "aarch64",
       "xochitl_sha256": "0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba",
-      "asset": "rmtool-native-import-chiappa-20261009073202-3.29.0.153.tar.gz",
-      "sha256": "19932d53310713e7ad73552186b543e960e56af72b5b6f5cde27310d3f875d28",
-      "size": 4933045,
+      "asset": "rmtool-native-import-chiappa-20261009073202-3.29.0.153-sha256-4b445541ff07c6df7d1f4430778a1c383ba3f4ae0a4bfa572ede402e559436ab.tar.gz",
+      "sha256": "4b445541ff07c6df7d1f4430778a1c383ba3f4ae0a4bfa572ede402e559436ab",
+      "size": 4933156,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-chiappa-20261009073202-3.29.0.153.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-chiappa-20261009073202-3.29.0.153.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-chiappa-20261009073202-3.29.0.153-sha256-4b445541ff07c6df7d1f4430778a1c383ba3f4ae0a4bfa572ede402e559436ab.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-chiappa-20261009073202-3.29.0.153-sha256-4b445541ff07c6df7d1f4430778a1c383ba3f4ae0a4bfa572ede402e559436ab.tar.gz"
       ],
       "package_revision": 1,
       "offline_verified": true,
@@ -357,7 +357,7 @@
           "path": "helpers/rmtool-native-import",
           "mode": 493,
           "size": 2621600,
-          "sha256": "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd"
+          "sha256": "b527507c260f7a1ea104bf56d8727b03162eb49390f5e725973392ec93d95768"
         },
         {
           "path": "qmd-tool",
@@ -380,12 +380,12 @@
       "platform": "ferrari",
       "architecture": "aarch64",
       "xochitl_sha256": "9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4",
-      "asset": "rmtool-native-import-ferrari-20261009073202-3.29.0.153.tar.gz",
-      "sha256": "8e5be40ffbe67037465f4b8b8ef0500b0492da925f37b3d5c91d1c62da47352e",
-      "size": 4934407,
+      "asset": "rmtool-native-import-ferrari-20261009073202-3.29.0.153-sha256-2509850bba89e60b26b197c8e36df4601cbb05016b6138e77ff76ea35889fbc2.tar.gz",
+      "sha256": "2509850bba89e60b26b197c8e36df4601cbb05016b6138e77ff76ea35889fbc2",
+      "size": 4934596,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-ferrari-20261009073202-3.29.0.153.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-ferrari-20261009073202-3.29.0.153.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-ferrari-20261009073202-3.29.0.153-sha256-2509850bba89e60b26b197c8e36df4601cbb05016b6138e77ff76ea35889fbc2.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-ferrari-20261009073202-3.29.0.153-sha256-2509850bba89e60b26b197c8e36df4601cbb05016b6138e77ff76ea35889fbc2.tar.gz"
       ],
       "package_revision": 1,
       "offline_verified": true,
@@ -419,7 +419,7 @@
           "path": "helpers/rmtool-native-import",
           "mode": 493,
           "size": 2621600,
-          "sha256": "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd"
+          "sha256": "b527507c260f7a1ea104bf56d8727b03162eb49390f5e725973392ec93d95768"
         },
         {
           "path": "qmd-tool",
@@ -442,12 +442,12 @@
       "platform": "tatsu",
       "architecture": "aarch64",
       "xochitl_sha256": "3735105b7e6b8a1d8ea42c9eabe6079c0bd1c99a546ab1a9fc7870263909ce39",
-      "asset": "rmtool-native-import-tatsu-20261009073202-3.29.0.153.tar.gz",
-      "sha256": "4d26bfa5254646f6d776dec862d0fd4c0961fc4b51813947fe512075ed4148db",
-      "size": 4929701,
+      "asset": "rmtool-native-import-tatsu-20261009073202-3.29.0.153-sha256-8e6130fec573f373e57ceae1364dde884a97f608dedc094554db0eb1271fb8cb.tar.gz",
+      "sha256": "8e6130fec573f373e57ceae1364dde884a97f608dedc094554db0eb1271fb8cb",
+      "size": 4930095,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-tatsu-20261009073202-3.29.0.153.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-tatsu-20261009073202-3.29.0.153.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-tatsu-20261009073202-3.29.0.153-sha256-8e6130fec573f373e57ceae1364dde884a97f608dedc094554db0eb1271fb8cb.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-tatsu-20261009073202-3.29.0.153-sha256-8e6130fec573f373e57ceae1364dde884a97f608dedc094554db0eb1271fb8cb.tar.gz"
       ],
       "package_revision": 1,
       "offline_verified": true,
@@ -481,7 +481,7 @@
           "path": "helpers/rmtool-native-import",
           "mode": 493,
           "size": 2621600,
-          "sha256": "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd"
+          "sha256": "b527507c260f7a1ea104bf56d8727b03162eb49390f5e725973392ec93d95768"
         },
         {
           "path": "qmd-tool",
@@ -504,12 +504,12 @@
       "platform": "rm1",
       "architecture": "armv7l",
       "xochitl_sha256": "0c68cf7b049fb87929b5978494a1205bc558f239f77758821c67524133a3f54b",
-      "asset": "rmtool-native-import-rm1-20261009073202-3.29.0.153.tar.gz",
-      "sha256": "24f7e0e5f38d10600597ca4effc7dc462bf1411cba987ab50237f1e13cd45879",
-      "size": 4934053,
+      "asset": "rmtool-native-import-rm1-20261009073202-3.29.0.153-sha256-f50e8610013b0a033eebe81caa674d7ed9cd47127050d3c54d6dd5d7ab9e753d.tar.gz",
+      "sha256": "f50e8610013b0a033eebe81caa674d7ed9cd47127050d3c54d6dd5d7ab9e753d",
+      "size": 4934345,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-rm1-20261009073202-3.29.0.153.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-rm1-20261009073202-3.29.0.153.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-rm1-20261009073202-3.29.0.153-sha256-f50e8610013b0a033eebe81caa674d7ed9cd47127050d3c54d6dd5d7ab9e753d.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-rm1-20261009073202-3.29.0.153-sha256-f50e8610013b0a033eebe81caa674d7ed9cd47127050d3c54d6dd5d7ab9e753d.tar.gz"
       ],
       "package_revision": 1,
       "offline_verified": true,
@@ -543,7 +543,7 @@
           "path": "helpers/rmtool-native-import",
           "mode": 493,
           "size": 2621600,
-          "sha256": "50ab23b8e68f375e4871eedcde110b5c0a54e8a5a929f5e3865f10bb50343797"
+          "sha256": "35893315d509662bca9fd83e25b306bb9a25bf9e35e899078e469ca6da76415e"
         },
         {
           "path": "qmd-tool",
@@ -566,12 +566,12 @@
       "platform": "rm2",
       "architecture": "armv7l",
       "xochitl_sha256": "53547bc30584b9057d5b05ada6c5fb2df3561c3a097c1c2b1aae527d5ddd2e26",
-      "asset": "rmtool-native-import-rm2-20261009073202-3.29.0.153.tar.gz",
-      "sha256": "57471f2602efde549608304aadabc6c30773d9bd7fadcf8f388ee5dab138c430",
-      "size": 4942260,
+      "asset": "rmtool-native-import-rm2-20261009073202-3.29.0.153-sha256-5f2da35ebb67b966bc9009526cc34c0b713c18ce03b8e47279b2f9b69af07428.tar.gz",
+      "sha256": "5f2da35ebb67b966bc9009526cc34c0b713c18ce03b8e47279b2f9b69af07428",
+      "size": 4942493,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-rm2-20261009073202-3.29.0.153.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-rm2-20261009073202-3.29.0.153.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-rm2-20261009073202-3.29.0.153-sha256-5f2da35ebb67b966bc9009526cc34c0b713c18ce03b8e47279b2f9b69af07428.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-rm2-20261009073202-3.29.0.153-sha256-5f2da35ebb67b966bc9009526cc34c0b713c18ce03b8e47279b2f9b69af07428.tar.gz"
       ],
       "package_revision": 1,
       "offline_verified": true,
@@ -605,7 +605,7 @@
           "path": "helpers/rmtool-native-import",
           "mode": 493,
           "size": 2621600,
-          "sha256": "50ab23b8e68f375e4871eedcde110b5c0a54e8a5a929f5e3865f10bb50343797"
+          "sha256": "35893315d509662bca9fd83e25b306bb9a25bf9e35e899078e469ca6da76415e"
         },
         {
           "path": "qmd-tool",
@@ -628,12 +628,12 @@
       "platform": "ferrari",
       "architecture": "aarch64",
       "xochitl_sha256": "35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd",
-      "asset": "rmtool-native-import-ferrari-20261028104944-3.29.1.0.tar.gz",
-      "sha256": "1a8928128e686e01febec8b2f5fb778f4066d1ccb5a191d008529cddd797a6ff",
-      "size": 4934657,
+      "asset": "rmtool-native-import-ferrari-20261028104944-3.29.1.0-sha256-83f44908237c0c9aa688efa0961046ccd32b23e517ad318ca0313396b3fc180c.tar.gz",
+      "sha256": "83f44908237c0c9aa688efa0961046ccd32b23e517ad318ca0313396b3fc180c",
+      "size": 4934788,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-ferrari-20261028104944-3.29.1.0.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-ferrari-20261028104944-3.29.1.0.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-ferrari-20261028104944-3.29.1.0-sha256-83f44908237c0c9aa688efa0961046ccd32b23e517ad318ca0313396b3fc180c.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-ferrari-20261028104944-3.29.1.0-sha256-83f44908237c0c9aa688efa0961046ccd32b23e517ad318ca0313396b3fc180c.tar.gz"
       ],
       "package_revision": 1,
       "offline_verified": true,
@@ -667,7 +667,7 @@
           "path": "helpers/rmtool-native-import",
           "mode": 493,
           "size": 2621600,
-          "sha256": "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd"
+          "sha256": "b527507c260f7a1ea104bf56d8727b03162eb49390f5e725973392ec93d95768"
         },
         {
           "path": "qmd-tool",
@@ -690,12 +690,12 @@
       "platform": "chiappa",
       "architecture": "aarch64",
       "xochitl_sha256": "9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4",
-      "asset": "rmtool-native-import-chiappa-20261028104944-3.29.1.0.tar.gz",
-      "sha256": "5fadfff073b8d2b35c1a0d3fcaf6d474de0877856e29b4359489414321c66204",
-      "size": 4932908,
+      "asset": "rmtool-native-import-chiappa-20261028104944-3.29.1.0-sha256-64ae4504023fa5217fdd27f91e01c6a37d272241655ca8e332153ae72be7693b.tar.gz",
+      "sha256": "64ae4504023fa5217fdd27f91e01c6a37d272241655ca8e332153ae72be7693b",
+      "size": 4933188,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-chiappa-20261028104944-3.29.1.0.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-chiappa-20261028104944-3.29.1.0.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-chiappa-20261028104944-3.29.1.0-sha256-64ae4504023fa5217fdd27f91e01c6a37d272241655ca8e332153ae72be7693b.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-chiappa-20261028104944-3.29.1.0-sha256-64ae4504023fa5217fdd27f91e01c6a37d272241655ca8e332153ae72be7693b.tar.gz"
       ],
       "package_revision": 1,
       "offline_verified": true,
@@ -729,7 +729,7 @@
           "path": "helpers/rmtool-native-import",
           "mode": 493,
           "size": 2621600,
-          "sha256": "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd"
+          "sha256": "b527507c260f7a1ea104bf56d8727b03162eb49390f5e725973392ec93d95768"
         },
         {
           "path": "qmd-tool",
@@ -752,12 +752,12 @@
       "platform": "tatsu",
       "architecture": "aarch64",
       "xochitl_sha256": "c464f2ee5f03468834cb117672ebaaabb1e322cdab8510bbdc2f663886334531",
-      "asset": "rmtool-native-import-tatsu-20261028104944-3.29.1.0.tar.gz",
-      "sha256": "a6dc77c6af308cfb9b389d2505b78f3413991536ab42fe3241a2700c97951e7e",
-      "size": 4927758,
+      "asset": "rmtool-native-import-tatsu-20261028104944-3.29.1.0-sha256-82c08894771e94e1ebfeac00932805526880e27d1cacae9bd8f670a028460ca7.tar.gz",
+      "sha256": "82c08894771e94e1ebfeac00932805526880e27d1cacae9bd8f670a028460ca7",
+      "size": 4927991,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-tatsu-20261028104944-3.29.1.0.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-tatsu-20261028104944-3.29.1.0.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-tatsu-20261028104944-3.29.1.0-sha256-82c08894771e94e1ebfeac00932805526880e27d1cacae9bd8f670a028460ca7.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-tatsu-20261028104944-3.29.1.0-sha256-82c08894771e94e1ebfeac00932805526880e27d1cacae9bd8f670a028460ca7.tar.gz"
       ],
       "package_revision": 1,
       "offline_verified": true,
@@ -791,7 +791,7 @@
           "path": "helpers/rmtool-native-import",
           "mode": 493,
           "size": 2621600,
-          "sha256": "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd"
+          "sha256": "b527507c260f7a1ea104bf56d8727b03162eb49390f5e725973392ec93d95768"
         },
         {
           "path": "qmd-tool",
@@ -814,12 +814,12 @@
       "platform": "rm1",
       "architecture": "armv7l",
       "xochitl_sha256": "2bc210bd4e05b709ea15d7e4f357b816505a40fb1838c02f6b60040ea3c87690",
-      "asset": "rmtool-native-import-rm1-20261028104944-3.29.1.0.tar.gz",
-      "sha256": "cf5b47cd6d7f179b560986438204bdf5f6bf47b716d3d7cca09aadd5b26af78a",
-      "size": 4934128,
+      "asset": "rmtool-native-import-rm1-20261028104944-3.29.1.0-sha256-fd72ace5774b1f341c47c8ec73f5d0f39067772dc0af9811de7c3d9157dd4e19.tar.gz",
+      "sha256": "fd72ace5774b1f341c47c8ec73f5d0f39067772dc0af9811de7c3d9157dd4e19",
+      "size": 4934336,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-rm1-20261028104944-3.29.1.0.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-rm1-20261028104944-3.29.1.0.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-rm1-20261028104944-3.29.1.0-sha256-fd72ace5774b1f341c47c8ec73f5d0f39067772dc0af9811de7c3d9157dd4e19.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-rm1-20261028104944-3.29.1.0-sha256-fd72ace5774b1f341c47c8ec73f5d0f39067772dc0af9811de7c3d9157dd4e19.tar.gz"
       ],
       "package_revision": 1,
       "offline_verified": true,
@@ -853,7 +853,7 @@
           "path": "helpers/rmtool-native-import",
           "mode": 493,
           "size": 2621600,
-          "sha256": "50ab23b8e68f375e4871eedcde110b5c0a54e8a5a929f5e3865f10bb50343797"
+          "sha256": "35893315d509662bca9fd83e25b306bb9a25bf9e35e899078e469ca6da76415e"
         },
         {
           "path": "qmd-tool",
@@ -876,12 +876,12 @@
       "platform": "rm2",
       "architecture": "armv7l",
       "xochitl_sha256": "4ab39bdf42503fe8d9e10a31a415b28b9aed6f25bd32788226c02ee23879fd13",
-      "asset": "rmtool-native-import-rm2-20261028104944-3.29.1.0.tar.gz",
-      "sha256": "3a0634ac54aa8f95ba28cfed5b98ac3c9c0dfc2a6a64a7f9944f36c551c35602",
-      "size": 4942174,
+      "asset": "rmtool-native-import-rm2-20261028104944-3.29.1.0-sha256-e1816ba7a66f9eb26579ed8c78371741b047840d5b089ee7c51ed8b11305845a.tar.gz",
+      "sha256": "e1816ba7a66f9eb26579ed8c78371741b047840d5b089ee7c51ed8b11305845a",
+      "size": 4942253,
       "urls": [
-        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-rm2-20261028104944-3.29.1.0.tar.gz",
-        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-rm2-20261028104944-3.29.1.0.tar.gz"
+        "https://github.com/pretenderlu/rmtool/releases/download/native-import-assets/rmtool-native-import-rm2-20261028104944-3.29.1.0-sha256-e1816ba7a66f9eb26579ed8c78371741b047840d5b089ee7c51ed8b11305845a.tar.gz",
+        "https://rmtool-localization-1254761827.cos.ap-shanghai.myqcloud.com/native-import/rmtool-native-import-rm2-20261028104944-3.29.1.0-sha256-e1816ba7a66f9eb26579ed8c78371741b047840d5b089ee7c51ed8b11305845a.tar.gz"
       ],
       "package_revision": 1,
       "offline_verified": true,
@@ -915,7 +915,7 @@
           "path": "helpers/rmtool-native-import",
           "mode": 493,
           "size": 2621600,
-          "sha256": "50ab23b8e68f375e4871eedcde110b5c0a54e8a5a929f5e3865f10bb50343797"
+          "sha256": "35893315d509662bca9fd83e25b306bb9a25bf9e35e899078e469ca6da76415e"
         },
         {
           "path": "qmd-tool",

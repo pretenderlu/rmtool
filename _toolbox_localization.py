@@ -170,6 +170,7 @@ class RmkitCnSection(QtWidgets.QWidget):
             in (
                 _rmkit_cn.LocalizationState.ENABLED,
                 _rmkit_cn.LocalizationState.INSTALLED_NOT_ENABLED,
+                _rmkit_cn.LocalizationState.RECOVERY_REQUIRED,
             )
         )
         package_available = bool(
@@ -243,9 +244,15 @@ class RmkitCnSection(QtWidgets.QWidget):
                 "已发现中文翻译，但当前未启用"
             ),
             _rmkit_cn.LocalizationState.ENABLED: "中文翻译已启用",
+            _rmkit_cn.LocalizationState.RECOVERY_REQUIRED: "检测到待恢复的汉化状态",
         }
         message = messages[status.state]
-        if status.state is not _rmkit_cn.LocalizationState.INCOMPATIBLE:
+        if status.detail:
+            message += f"；{status.detail}"
+        if status.state not in (
+            _rmkit_cn.LocalizationState.INCOMPATIBLE,
+            _rmkit_cn.LocalizationState.RECOVERY_REQUIRED,
+        ):
             font_status = (
                 "已检测到简体中文字体"
                 if status.has_cjk_font
@@ -492,7 +499,9 @@ class RmkitCnSection(QtWidgets.QWidget):
         if not _ui.ask_confirmation(
             self,
             _rmtool.APP_NAME,
-            "将停止原生界面并恢复汉化前的配置与翻译文件。完成后不会自动重启设备，是否继续？",
+            "将核验并还原可确认归属的汉化状态，只恢复语言键并保留其他设置。"
+            "旧固件或损坏备份将先保留恢复证据；原语言记录缺失时不猜测语言。"
+            "必要时停止原生界面，不会自动重启设备，是否继续？",
             confirm_text="还原",
             cancel_text="取消",
         ):
@@ -833,8 +842,8 @@ class NativeChineseSection(QtWidgets.QWidget):
         if residue:
             title = "清理旧固件原生中文残留"
             confirmation = (
-                "固件升级后，旧共享 Xovi 已不再载入。将先把 zh_CN 安全改为 en，"
-                "再删除经内置清单验证的整套旧共享状态；旧固件的其他 rmtool Xovi "
+                "固件升级后，旧共享 Xovi 已不再载入。将删除经内置清单验证的整套旧共享状态，"
+                "成功后再把选中的 zh_CN 改为 en；旧固件的其他 rmtool Xovi "
                 "功能也会一并移除。本次不会重启设备，是否继续？"
             )
             confirm_text = "清理残留"
@@ -846,8 +855,8 @@ class NativeChineseSection(QtWidgets.QWidget):
         else:
             title = _rmtool.APP_NAME
             confirmation = (
-                "将停用原生简体中文。如果当前选中 zh_CN，rmtool 会先把"
-                "[General] language 安全改为 en，再移除该功能的 QMD、扩展和翻译目录。"
+                "将先核验并停用原生简体中文的 QMD、扩展和翻译目录，"
+                "成功后才把当前选中的 [General] language=zh_CN 改为 en。"
                 "其他共享 Xovi 功能会保留。操作不会重启设备，是否继续？"
             )
             confirm_text = "停用原生中文"

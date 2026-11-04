@@ -10,6 +10,7 @@ import _fast_mono_reading as fast
 import _reading_enhancements as reading
 import _tap_page_turn as tap
 import _xovi_standalone as shared
+from _plugin_packages import content_asset_name
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -81,10 +82,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                 for item in self.catalog
                 if item.device_verified
             },
-            {
-                ("chiappa", "3.27.3.0", "20260612085811"),
-                ("chiappa", "3.28.0.172", "20260827113527"),
-            },
+            set(),
         )
         for package in self.catalog:
             self.assertEqual(
@@ -99,9 +97,9 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
             )
             self.assertEqual(
                 package.asset,
-                reading._expected_asset_name(
+                content_asset_name(reading._expected_asset_name(
                     package.platform, package.firmware, package.release_version
-                ),
+                ), package.sha256),
             )
             self.assertEqual(
                 set(package.urls),
@@ -171,9 +169,10 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
             / "reading-enhancements/native/rmtool-highlight-snap.so"
         ).read_bytes()
         for package in carrying:
-            if package.release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0"):
+            if package.release_version.startswith("3.29."):
+                suffix = "3.29" if package.release_version == "3.29.0.152" else package.release_version
                 payload = (Path(__file__).resolve().parents[1] /
-                           "reading-enhancements/native/rmtool-highlight-snap-3.29.so").read_bytes()
+                           f"reading-enhancements/native/rmtool-highlight-snap-{suffix}.so").read_bytes()
             else:
                 payload = extension
             spec = package.file(reading.HIGHLIGHT_EXTENSION_PATH)

@@ -42,7 +42,7 @@ FIRMWARE_RE = re.compile(r"[0-9]{14}")
 VERSION_RE = re.compile(r"[0-9]+(?:\.[0-9]+){2,3}")
 PLATFORM_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 ARCH_RE = re.compile(r"[a-z0-9_][a-z0-9_-]{0,31}")
-ASSET_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.tar\.gz")
+ASSET_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.tar\.gz")
 
 DEFAULT_LABEL = "点击翻页"
 
@@ -58,6 +58,19 @@ class PayloadFile:
 
 
 # -- Field validation ---------------------------------------------------------
+def content_asset_name(legacy: str, digest: str) -> str:
+    if not SHA256_RE.fullmatch(digest):
+        raise ValueError("资源名称需要完整 SHA-256。")
+    suffix = ".tar.gz" if legacy.endswith(".tar.gz") else ".qm"
+    if not legacy.endswith(suffix) or "/" in legacy or "\\" in legacy:
+        raise ValueError("资源名称不是受支持的文件名。")
+    return legacy[:-len(suffix)] + "-sha256-" + digest + suffix
+
+
+def asset_name_matches(actual: str, legacy: str, digest: str) -> bool:
+    return actual == legacy or actual == content_asset_name(legacy, digest)
+
+
 def safe_relative_path(value: object, label: str = DEFAULT_LABEL) -> str:
     if not isinstance(value, str) or not value or "\\" in value:
         raise RuntimeError(f"{label}资源路径无效。")

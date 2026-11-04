@@ -47,11 +47,12 @@ class Beta329Tests(unittest.TestCase):
                         rightPageRequested: function() {events.push("next");}
                     };
                     function reset() {events.push("reset");}
+                    function touchClicked() {events.push("touch");}
                     function click(pos) {
                 ''' + match.group() + '\nevents.push("stock");\n}')
                 self.assertFalse(result.isError(), result.toString())
                 for direction, linked, expected in (
-                    (-1, False, ['reset', 'previous']), (1, False, ['reset', 'next']),
+                    (-1, False, ['touch', 'reset', 'previous']), (1, False, ['touch', 'reset', 'next']),
                     (0, False, ['stock']), (-1, True, ['stock']), (1, True, ['stock']),
                 ):
                     result = engine.evaluate(f'direction={direction}; linkPressed={str(linked).lower()}; events=[]; click({{}}); events;')
@@ -248,7 +249,7 @@ class Beta329Tests(unittest.TestCase):
                     self.assertEqual(package.channel, 'stable')
                     self.assertEqual(
                         getattr(package, 'device_verified', False),
-                        module is weread and platform == 'chiappa',
+                        False,
                     )
                 self.assertIsNotNone(appload.app_asset(identity))
                 self.assertIsNotNone(appload.koreader_asset(identity))

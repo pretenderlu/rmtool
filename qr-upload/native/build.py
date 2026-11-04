@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 import _native_import_control as control
 import _qr_upload as qr
 import _tap_page_turn as tap
+from tools.native_build import check_no_build_paths, prefix_maps, verify_tool
 
 
 def run(command):
@@ -32,11 +33,12 @@ def main():
     parser.add_argument("--qmd-tool", type=Path, required=True)
     parser.add_argument("--qmldiff", type=Path, required=True)
     parser.add_argument("--target", type=Path, required=True)
+    parser.add_argument("--identity", type=Path, help="Exact manifest identity when the resource tree has no identity.json")
     parser.add_argument("--receiver", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     hashtab = args.target / "hashtab"
-    record = json.loads((args.target / "identity.json").read_text(encoding="utf-8"))
+    record = json.loads((args.identity or args.target / "identity.json").read_text(encoding="utf-8"))
     identity = tap.DeviceIdentity(*(record[k] for k in ("firmware", "platform", "architecture", "xochitl_sha256")))
     key = (identity.platform, identity.firmware, identity.architecture, identity.xochitl_sha256)
     carrier = control.select_package(control._trusted_catalog(), identity)
@@ -49,6 +51,9 @@ def main():
     elf_header = b"\x7fELF" + bytes((2 if identity.architecture == "aarch64" else 1, 1))
     if len(receiver) < 20 or receiver[:6] != elf_header or struct.unpack_from("<H", receiver, 18)[0] != machine:
         raise RuntimeError("Receiver architecture differs from the target")
+    for name, path in (("zig", args.zig), ("moc", args.qt_host / "bin/moc.exe"),
+                       ("qmd-tool", args.qmd_tool), ("qmldiff", args.qmldiff)):
+        verify_tool(name, path)
     here = Path(__file__).resolve().parent
     args.output.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256(receiver).hexdigest()
@@ -59,10 +64,11 @@ def main():
         include = args.qt_host / "include"
         bridge = args.output / "rmtool-qr-upload.so"
         run([args.zig, "c++", "-target", target, "-std=c++17", "-shared", "-fPIC",
-             "-O2", "-Wl,--allow-shlib-undefined", f'-DRMTOOL_QR_RECEIVER_SHA256="{digest}"',
-             f"-ffile-prefix-map={work}=qr-upload-generated", f"-fmacro-prefix-map={work}=qr-upload-generated",
+             "-O2", "-s", "-Wl,--allow-shlib-undefined", f'-DRMTOOL_QR_RECEIVER_SHA256="{digest}"',
+             *prefix_maps((work, "qr-upload-generated"), (args.qt_host, "qt"), (args.zig.parent, "zig")),
              "-I", include, "-I", include / "QtCore", "-I", include / "QtQml", "-I", include / "QtNetwork", "-I", work,
              here / "main.cpp", here / "ImportControl.cpp", "-o", bridge])
+        check_no_build_paths(bridge, work, args.qt_host, args.zig.parent)
         compiled = run([args.qmd_tool, "hash", "-hashtab", hashtab, here / "qr-upload-3.28.qmd"])
         qmd = args.output / "rmtool-qr-upload.qmd"
         qmd.write_bytes(compiled)

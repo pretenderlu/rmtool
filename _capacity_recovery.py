@@ -245,6 +245,15 @@ def _post_cleanup_result(
     )
 
 
+def _font_reclaim_refusal(ssh_client, context, snapshot) -> str:
+    partition, _available = storage.system_free_bytes(ssh_client)
+    if context.partition != partition:
+        return "锁屏字体不在空间不足的目标分区，未生成清理方案。"
+    if snapshot.size < context.shortfall:
+        return "可回收的锁屏字体空间不足以继续原安装，未生成清理方案。"
+    return ""
+
+
 def scan(ssh_client, intent: OriginalIntent) -> CapacityPlan | CapacityResult:
     try:
         _validate_intent(ssh_client, intent)
@@ -259,6 +268,9 @@ def scan(ssh_client, intent: OriginalIntent) -> CapacityPlan | CapacityResult:
         return CapacityResult("preflight_failed", "无法确认完整共享安装目标，已停止。", context)
     try:
         snapshot = _rmkit_cn.inspect_home_only_font(ssh_client)
+        refusal = _font_reclaim_refusal(ssh_client, context, snapshot)
+        if refusal:
+            return CapacityResult("no_candidate", refusal, context)
     except Exception as exc:
         return CapacityResult(
             "no_candidate",
@@ -286,6 +298,9 @@ def execute(ssh_client, plan: CapacityPlan) -> CapacityResult:
             snapshot = _rmkit_cn.inspect_home_only_font(ssh_client)
             if snapshot != plan.home_only.snapshot:
                 raise RuntimeError("字体状态已变化，请重新检测。")
+            refusal = _font_reclaim_refusal(ssh_client, context, snapshot)
+            if refusal:
+                return CapacityResult("no_candidate", refusal, context)
         except Exception as exc:
             return CapacityResult("state_drift", str(exc), context)
         try:

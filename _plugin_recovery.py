@@ -92,7 +92,7 @@ class _CleanupPlan:
 def _published_predecessors(identity, trusted):
     # This existing aggregator calls the feature-owned published definitions,
     # including multi-file Pinyin/Chinese revisions. No marker-supplied digests.
-    return migration.note._peer_revisions(identity, trusted)
+    return tap._published_feature_revisions(identity, trusted)
 
 
 def _unique_object(pairs):
@@ -304,10 +304,83 @@ def _external_loaders(ssh_client, layout=shared.SHARED_LAYOUT):
     for line in maps.splitlines():
         if any(name in line.lower() for name in ("xovi", "qt-resource-rebuilder", "appload")):
             fields = line.split(None, 5)
-            if len(fields) < 6 or not fields[5].startswith(layout.remote_base + "/"):
+            if len(fields) < 6 or (
+                (not fields[5].startswith(layout.remote_base + "/") or fields[5].endswith(" (deleted)"))
+                and not _verified_moved_mapping(ssh_client, fields, process_token)
+            ):
                 raise RuntimeError("xochitl 正在加载未知外部插件，拒绝自动修复。")
     if shared._process_token(ssh_client, allow_stopped=True) != process_token:
         raise RuntimeError("核对外部插件期间 xochitl 进程发生变化，请重新检测。")
+
+
+def _verified_moved_mapping(ssh_client, fields, process_token):
+    """Require transaction provenance and trusted bytes, never a backup glob."""
+    proof = shared.RUNTIME_MOVES_PATH
+    if len(fields) != 6 or not shared._remote_entry_exists(ssh_client, proof):
+        return False
+    if not re.fullmatch(r"[0-9a-f]+-[0-9a-f]+", fields[0]) or not fields[4].isdigit():
+        return False
+    _ancestors(ssh_client, proof)
+    mode, size = _metadata(ssh_client, proof)
+    if not stat.S_ISREG(mode) or stat.S_IMODE(mode) != 0o600 or size > 65536:
+        raise RuntimeError("运行库事务来源记录类型、权限或大小不安全。")
+    with ssh_client.open_remote(proof, "r") as remote:
+        data = remote.read(65537)
+    if len(data) != size:
+        raise RuntimeError("运行库事务来源记录读取期间发生变化。")
+    text = data.decode("ascii") if isinstance(data, bytes) else data
+    path = fields[5].removesuffix(" (deleted)")
+    bases = (shared.SHARED_LAYOUT.remote_base, shared.LEGACY_SHARED_LAYOUT.remote_base)
+    for line in text.splitlines():
+        record = line.split("|")
+        if len(record) != 3:
+            raise RuntimeError("运行库事务来源记录无效。")
+        token, source, destination = record
+        if token != process_token or source not in bases:
+            continue
+        ordinary = re.fullmatch(re.escape(source) + r"\.backup-[0-9a-f]{32}", destination)
+        retained = any(re.fullmatch(re.escape(str(PurePosixPath(base).parent))
+            + r"/\.xovi-dropins-[0-9a-f]{32}/base-[01]", destination) for base in bases)
+        if not (ordinary or retained) or not path.startswith(destination + "/"):
+            continue
+        relative = path[len(destination) + 1:]
+        if not relative.endswith(".so") or str(PurePosixPath(relative)) != relative or ".." in PurePosixPath(relative).parts:
+            return False
+        identity = tap.DeviceIdentity(*shared.read_shared_identity(ssh_client))
+        contexts = tuple((runtime, trusted) for runtime, trusted in _trusted_cleanup_contexts(identity)
+                         if runtime.platform == identity.platform and runtime.architecture == identity.architecture)
+        _files, _dirs, _core, specifications, _dropins = _cleanup_trust_data(contexts)
+        candidates = specifications.get(relative, ())
+        if not candidates:
+            return False
+        pid = process_token.split(":")[1]
+        backing = f"/proc/{pid}/map_files/{fields[0]}"
+        metadata = ssh_client.exec_checked(f"stat -Lc '%i|%s' {shlex.quote(backing)}").strip().split("|")
+        if len(metadata) != 2 or metadata[0] != fields[4] or not metadata[1].isdigit():
+            return False
+        digest = shared._remote_sha256(ssh_client, backing)
+        if ssh_client.exec_checked(f"stat -Lc '%i|%s' {shlex.quote(backing)}").strip().split("|") != metadata:
+            return False
+        return any(digest == sha and int(metadata[1]) == length for sha, length, _mode in candidates)
+    return False
+
+
+def historical_mapping_active(ssh_client, relative):
+    if not ssh_client.file_exists(shared.RUNTIME_MOVES_PATH):
+        return False
+    token = shared._process_token(ssh_client, allow_stopped=True)
+    pid = token.split(":")[1]
+    if pid == "0":
+        return False
+    maps = ssh_client.exec_checked(f"cat /proc/{pid}/maps")
+    found = False
+    for line in maps.splitlines():
+        fields = line.split(None, 5)
+        if len(fields) == 6 and fields[5].removesuffix(" (deleted)").endswith("/" + relative):
+            found = _verified_moved_mapping(ssh_client, fields, token) or found
+    if shared._process_token(ssh_client, allow_stopped=True) != token:
+        raise RuntimeError("检查运行库期间 xochitl 进程发生变化。")
+    return found
 
 
 def _assert_no_symlink_chain(ssh_client, path):
@@ -590,10 +663,8 @@ trap - EXIT HUP INT PIPE TERM
 def _incomplete_forbidden_paths():
     paths = {
         tap.VELLUM_ROOT,
-        tap.SHARED_XOVI_BASE,
         tap.SHARED_XOVI_LIBRARY,
         tap.SHARED_QRR_LIBRARY,
-        tap.SHARED_QRR_HOME,
         tap.SHARED_APPLOAD_LIBRARY,
         tap.REMOTE_BASE,
         migration.fast.REMOTE_BASE,
@@ -635,10 +706,11 @@ def _inspect_incomplete(ssh_client):
     if not visible_artifacts:
         return RecoveryReport(RecoveryState.NOT_NEEDED, "未检测到共享 Xovi 残留，无需清理。"), None
     identity = tap.get_device_identity(ssh_client)
-    layout = shared.SHARED_LAYOUT
+    layout = shared.preferred_layout(identity)
+    base = layout.remote_base
     if shared._remote_entry_exists(ssh_client, legacy_base):
         if (shared.preferred_layout(identity) != shared.LEGACY_SHARED_LAYOUT
-                or shared._remote_entry_exists(ssh_client, base)):
+                or shared._remote_entry_exists(ssh_client, shared.SHARED_LAYOUT.remote_base)):
             raise RuntimeError("检测到旧 /home 共享布局或混合布局，拒绝自动清理；请使用迁移或人工恢复。")
         layout = shared.LEGACY_SHARED_LAYOUT
         base = legacy_base
@@ -662,6 +734,13 @@ def _inspect_incomplete(ssh_client):
     conflicts = tuple(path for path in forbidden
                       if path not in (base, shared.SHARED_LAYOUT.dropin_path)
                       and shared._remote_entry_exists(ssh_client, path))
+    if pinyin.REMOTE_BASE in conflicts:
+        package = pinyin.select_package(pinyin._trusted_catalog(), identity)
+        if package is not None:
+            pinyin._validate_external_payload(ssh_client, package)
+            if pinyin._server_running(ssh_client):
+                raise RuntimeError("请先退出文档并手动重启设备以停止拼音服务，再清理残缺状态；词库和设置会保留。")
+            conflicts = tuple(path for path in conflicts if path != pinyin.REMOTE_BASE)
     if conflicts:
         raise RuntimeError("检测到非托管 Xovi 或旧版插件路径，拒绝自动清理；存在不代表正在加载：\n" + "\n".join(conflicts))
     _external_loaders(ssh_client, layout)
@@ -726,10 +805,7 @@ def inspect_incomplete(ssh_client) -> RecoveryReport:
 def _incomplete_cleanup_script(plan: _CleanupPlan, token: str) -> str:
     base = shlex.quote(plan.layout.remote_base)
     dropin = shlex.quote(shared.SHARED_LAYOUT.dropin_path)
-    backup = shlex.quote(
-        f"{plan.layout.remote_base}.incomplete-backup-{token}"
-        if plan.layout == shared.LEGACY_SHARED_LAYOUT else f"/tmp/rmtool-xovi-incomplete-backup-{token}"
-    )
+    backup = shlex.quote(f"{plan.layout.remote_base}.incomplete-backup-{token}")
     mount_dir = shlex.quote(f"/tmp/rmtool-xovi-incomplete-root-{token}")
     sentinel_paths = tuple(item[0] for item in plan.sentinels)
     base_checks = []
@@ -767,7 +843,7 @@ def _incomplete_cleanup_script(plan: _CleanupPlan, token: str) -> str:
         for index, path in enumerate(sentinel_paths)
     ) or ":"
     upper_backup_line = (
-        f'cp -p {dropin} "$BACKUP_DIR/dropin-upper"; rm -f {dropin}'
+        f'cp -p {dropin} "$BACKUP_DIR/dropin-upper"'
         if plan.dropin else ":"
     )
     upper_restore_line = (
@@ -779,13 +855,18 @@ def _incomplete_cleanup_script(plan: _CleanupPlan, token: str) -> str:
     )
     lower_backup_line = (
         f'cp -p "$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}" "$BACKUP_DIR/dropin-lower"; '
-        f'rm -f "$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}"'
+        f':'
         if plan.lower_dropin else ":"
     )
     lower_restore_line = (
         f'if [ -e "$BACKUP_DIR/dropin-lower" ] || [ -L "$BACKUP_DIR/dropin-lower" ]; then '
         f'if [ -e "$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}" ] || '
-        f'[ -L "$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}" ]; then ROLLBACK_OK=0; '
+        f'[ -L "$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}" ]; then '
+        f'if [ ! -L "$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}" ] && '
+        f'[ "$(stat -c \'%a:%u:%g:%s\' "$BACKUP_DIR/dropin-lower")" = '
+        f'"$(stat -c \'%a:%u:%g:%s\' "$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}")" ] && '
+        f'cmp -s "$BACKUP_DIR/dropin-lower" "$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}"; '
+        f'then :; else ROLLBACK_OK=0; fi; '
         f'elif cp -p "$BACKUP_DIR/dropin-lower" "$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}.tmp" && '
         f'mv -f "$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}.tmp" '
         f'"$MOUNT_DIR{shared.SHARED_LAYOUT.dropin_path}"; then :; else ROLLBACK_OK=0; fi; fi'
@@ -848,11 +929,23 @@ BASE_MOVED=0
 MOUNTED=0
 COMMITTED=0
 ROLLBACK_OK=1
+BACKUP_CREATED=0
+ROOT_RELEASED=1
+ROOT_WAS_RW=0
+ROOT_MOUNT_FOUND=0
+while read -r _source mountpoint _type options _rest; do
+    if [ "$mountpoint" = / ]; then
+        ROOT_MOUNT_FOUND=1
+        case ",$options," in *,rw,*) ROOT_WAS_RW=1 ;; esac
+        break
+    fi
+done < /proc/mounts
+[ "$ROOT_MOUNT_FOUND" -eq 1 ] || exit 1
 
 unmount_root() {{
     [ "$MOUNTED" -eq 1 ] || return 0
     sync
-    mount -o remount,ro "$MOUNT_DIR"
+    if [ "$ROOT_WAS_RW" -eq 0 ]; then mount -o remount,ro "$MOUNT_DIR"; fi
     umount "$MOUNT_DIR"
     MOUNTED=0
     rmdir "$MOUNT_DIR"
@@ -865,33 +958,33 @@ rollback() {{
     set +e
     if [ "$COMMITTED" -eq 0 ]; then
         if [ "$MOUNTED" -eq 1 ]; then
-            mount -o remount,ro "$MOUNT_DIR" 2>/dev/null || true
-            umount "$MOUNT_DIR" 2>/dev/null || ROLLBACK_OK=0
-            MOUNTED=0
+            if [ "$ROOT_WAS_RW" -eq 0 ]; then mount -o remount,ro "$MOUNT_DIR" 2>/dev/null || ROLLBACK_OK=0; fi
+            if umount "$MOUNT_DIR" 2>/dev/null; then MOUNTED=0;
+            else ROOT_RELEASED=0; ROLLBACK_OK=0; fi
         fi
         if [ "$BASE_MOVED" -eq 1 ]; then
             {base_restore}
         fi
         {upper_restore_line}
         {restore_sentinels}
-        mkdir -m 0700 "$MOUNT_DIR"
-        if mount --bind / "$MOUNT_DIR"; then
+        if [ "$ROOT_RELEASED" -eq 1 ] && mkdir -p "$MOUNT_DIR" && mount --bind / "$MOUNT_DIR"; then
             MOUNTED=1
-            if mount -o remount,rw "$MOUNT_DIR"; then
+            if [ "$ROOT_WAS_RW" -eq 1 ] || mount -o remount,rw "$MOUNT_DIR"; then
                 {lower_restore_line}
-                mount -o remount,ro "$MOUNT_DIR" 2>/dev/null || ROLLBACK_OK=0
+                if [ "$ROOT_WAS_RW" -eq 0 ]; then mount -o remount,ro "$MOUNT_DIR" 2>/dev/null || ROLLBACK_OK=0; fi
             else
                 ROLLBACK_OK=0
             fi
-            umount "$MOUNT_DIR" 2>/dev/null || ROLLBACK_OK=0
-            MOUNTED=0
-            rmdir "$MOUNT_DIR" 2>/dev/null || true
+            if umount "$MOUNT_DIR" 2>/dev/null; then
+                MOUNTED=0
+                rmdir "$MOUNT_DIR" 2>/dev/null || true
+            else ROOT_RELEASED=0; ROLLBACK_OK=0; fi
         else
             ROLLBACK_OK=0
         fi
-        systemctl daemon-reload 2>/dev/null || ROLLBACK_OK=0
+        if [ "$ROOT_RELEASED" -eq 1 ]; then systemctl daemon-reload 2>/dev/null || ROLLBACK_OK=0; fi
     fi
-    if [ "$ROLLBACK_OK" -eq 1 ]; then
+    if [ "$ROLLBACK_OK" -eq 1 ] && [ "$BACKUP_CREATED" -eq 1 ]; then
         rm -rf "$BACKUP_DIR"
     else
         echo "rmtool incomplete Xovi cleanup rollback incomplete; recovery kept at $BACKUP_DIR" >&2
@@ -906,28 +999,32 @@ trap 'exit 141' PIPE
 trap 'exit 143' TERM
 
 {parent_checks}
-{base_check}
-{chr(10).join(base_checks) or ":"}
-{upper_check}
-{chr(10).join(sentinel_checks) or ":"}
+{{ {base_check}; }} || exit 1
+{chr(10).join('{ ' + check + '; } || exit 1' for check in base_checks) or ":"}
+{{ {upper_check}; }} || exit 1
+{chr(10).join('{ ' + check + '; } || exit 1' for check in sentinel_checks) or ":"}
+mkdir -p "$(dirname "$BACKUP_DIR")"
 mkdir -m 0700 "$BACKUP_DIR"
-{base_move}
-{upper_backup_line}
-{backup_sentinels}
+BACKUP_CREATED=1
 mkdir -m 0700 "$MOUNT_DIR"
 mount --bind / "$MOUNT_DIR"
 MOUNTED=1
-mount -o remount,rw "$MOUNT_DIR"
-{lower_check}
+if [ "$ROOT_WAS_RW" -eq 0 ]; then mount -o remount,rw "$MOUNT_DIR"; fi
+{{ {lower_check}; }} || exit 1
+{upper_backup_line}
 {lower_backup_line}
-mount -o remount,ro "$MOUNT_DIR"
+{base_move}
+{backup_sentinels}
+{'rm -f ' + dropin if plan.dropin else ':'}
+{'rm -f "$MOUNT_DIR' + shared.SHARED_LAYOUT.dropin_path + '"' if plan.lower_dropin else ':'}
+if [ "$ROOT_WAS_RW" -eq 0 ]; then mount -o remount,ro "$MOUNT_DIR"; fi
 umount "$MOUNT_DIR"
 MOUNTED=0
 rmdir "$MOUNT_DIR"
 systemctl daemon-reload
-rm -rf "$BACKUP_DIR"
 COMMITTED=1
 trap - EXIT HUP INT PIPE TERM
+rm -rf "$BACKUP_DIR" || echo "cleanup recovery kept at $BACKUP_DIR" >&2
 """
 
 
@@ -1171,7 +1268,7 @@ def _inspect(ssh_client):
     missing = set(states) - set(targets)
     if missing:
         return RecoveryReport(RecoveryState.UNSUPPORTED, "当前固件缺少部分功能的精确包，无法保留开关状态。", features, tuple(sorted(missing))), None
-    unsupported = [fid for fid, state in states.items() if state.enabled and (
+    unsupported = [fid for fid, state in states.items() if not controls_only and state.enabled and (
         fid not in migration._providers()
         or (fid != pinyin.FEATURE_ID and (state.spec.sidecars or targets[fid].sidecars))
     )]

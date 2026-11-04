@@ -14,8 +14,10 @@ saving.
 
 from __future__ import annotations
 
+import os
 import platform as _platform
 import sys
+import tempfile
 import uuid
 import zipfile
 from contextlib import nullcontext
@@ -449,7 +451,15 @@ def write_bundle(
             f"诊断内容超过大小预算（{total} > {TOTAL_BUDGET_BYTES} 字节）。"
         )
     path = Path(destination)
-    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for name, text in sorted(entries.items()):
-            archive.writestr(name, text)
+    fd, temporary = tempfile.mkstemp(prefix=".rmtool-diag-", suffix=".zip", dir=path.parent)
+    os.close(fd)
+    try:
+        with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for name, text in sorted(entries.items()):
+                archive.writestr(name, text)
+        with open(temporary, "r+b") as handle:
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
     return path

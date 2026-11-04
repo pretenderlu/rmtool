@@ -1,0 +1,26 @@
+/* Identities are independent of the shared instruction/layout adapter. */
+#include <string.h>
+
+#if defined(RMTOOL_HIGHLIGHT_32910)
+#define EXPECTED_FIRMWARE "20261028104944"
+#define MOVE_XOCHITL_SHA256 "9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4"
+#define PAPER_PRO_XOCHITL_SHA256 "35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd"
+#elif defined(RMTOOL_HIGHLIGHT_329_153)
+#define EXPECTED_FIRMWARE "20261009073202"
+#define MOVE_XOCHITL_SHA256 "0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba"
+#define PAPER_PRO_XOCHITL_SHA256 "9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4"
+#elif defined(RMTOOL_HIGHLIGHT_BETA_329)
+#define EXPECTED_FIRMWARE "20261009073202"
+#define MOVE_XOCHITL_SHA256 "09ba8581a50d96c19b360606ee0288b8863faec620036c8eda3b2a0b5cc2d2e2"
+#define PAPER_PRO_XOCHITL_SHA256 "7aa5d67da6850d7021ade5a2232edeb5f34550236eca6f7a102f37f962dd4bd2"
+#else
+#define EXPECTED_FIRMWARE "20260827113527"
+#define MOVE_XOCHITL_SHA256 "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"
+#define PAPER_PRO_XOCHITL_SHA256 "b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021"
+#endif
+
+static inline int highlight_identity_matches(const char *firmware, const char *expected, const char *actual) {
+    return strcmp(firmware, EXPECTED_FIRMWARE) == 0
+        && (strcmp(expected, MOVE_XOCHITL_SHA256) == 0 || strcmp(expected, PAPER_PRO_XOCHITL_SHA256) == 0)
+        && strcmp(actual, expected) == 0;
+}

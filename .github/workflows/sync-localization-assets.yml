@@ -37,9 +37,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/releases/localization"
-          gh release download "$ASSET_RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --dir "$RUNNER_TEMP/releases/localization"
+          while IFS= read -r asset; do
+            gh release download "$ASSET_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern "$asset" \
+              --dir "$RUNNER_TEMP/releases/localization"
+          done < <(python tools/publish_resources.py names --resource localization)
 
       - name: Verify release manifest and payloads
         run: |

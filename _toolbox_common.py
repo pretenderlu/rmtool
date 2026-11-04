@@ -19,6 +19,13 @@ def plugin_operation_busy(ssh_client) -> bool:
     return state.get("_toolbox_task") is not None and state.get("_toolbox_task_client", client) is client
 
 
+def session_replaced(ssh_client, client) -> bool:
+    # Match _ui_tasks: a closed client still owns its error, not its result.
+    with getattr(ssh_client, "_state_lock", nullcontext()):
+        current = getattr(ssh_client, "_client", None)
+        return current is not None and current is not client
+
+
 def start_plugin_worker(
     owner, fn, *args, pending, success="", close_connection=False,
     on_done=None, show_errors=True, apply_status=None, retry=None,
@@ -33,10 +40,12 @@ def start_plugin_worker(
             on_done()
         return
     task = object()
-    client = getattr(ssh, "_client", None)
+    with getattr(ssh, "_state_lock", nullcontext()):
+        client = getattr(ssh, "_client", None)
     ssh._toolbox_task = task
     ssh._toolbox_task_client = client
     owner._busy = True
+    owner._plugin_task = task
     owner.status_label.setText(pending)
     owner._update_buttons()
 
@@ -66,10 +75,11 @@ def start_plugin_worker(
         try:
             valid = current()
             deleted = sip.isdeleted(owner)
-            if not deleted and vars(ssh).get("_toolbox_task") is task:
+            if not deleted and getattr(owner, "_plugin_task", None) is task:
                 owner._busy = False
+                del owner._plugin_task
                 owner._update_buttons()
-            if not valid:
+            if (exc is None and not valid) or (exc is not None and session_replaced(ssh, client)):
                 return
             if exc is None:
                 if not deleted:
@@ -123,6 +133,7 @@ def _show_package_download_error(
 ) -> None:
     """Both mirrors failed: show the exact URLs and offer a manual load."""
     dialog = QtWidgets.QMessageBox(parent)
+    dialog.setTextFormat(QtCore.Qt.PlainText)
     dialog.setIcon(QtWidgets.QMessageBox.Warning)
     dialog.setWindowTitle(_rmtool.APP_NAME)
     dialog.setText("资源包自动下载失败")
@@ -137,6 +148,7 @@ def _show_package_download_error(
     dialog.addButton("关闭", QtWidgets.QMessageBox.RejectRole)
     dialog.exec_()
     clicked = dialog.clickedButton()
+    dialog.deleteLater()
     if clicked is copy_button:
         QtWidgets.QApplication.clipboard().setText("\n".join(exc.urls))
         show_info(parent, _rmtool.APP_NAME, "全部下载地址已复制到剪贴板。")

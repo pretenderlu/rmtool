@@ -3,6 +3,7 @@
 import logging
 import os
 import posixpath
+from functools import partial
 from typing import Dict, Optional
 
 from PyQt5 import QtCore, QtGui, QtWidgets, sip
@@ -368,7 +369,8 @@ class FontTab(QtWidgets.QWidget):
             None,
         )
         self.set_active_button.setText(
-            "修复字体设置" if self._font_recovery.state == "ready"
+            "还原字体事务" if self._font_recovery.state == "managed"
+            else "修复字体设置" if self._font_recovery.state == "ready"
             else "重新应用系统字体" if selected and selected.active else "设为系统字体"
         )
         if selected_slot is not None:
@@ -377,20 +379,23 @@ class FontTab(QtWidgets.QWidget):
             epub_action = "EPUB 字体菜单已达到安全上限"
         else:
             epub_action = f"添加为 EPUB 第 {len(assigned_slots) + 1} 项"
-        self.epub_font_button.setText(epub_action)
+        stale_epub = self._epub_font_status is not None and self._epub_font_status.state == "stale"
+        self.epub_font_button.setText("修复 EPUB 字体索引" if stale_epub else epub_action)
         self.refresh_button.setEnabled(connected)
         self.select_button.setEnabled(not self._busy)
         self.upload_button.setEnabled(
             connected and bool(self._selected_font_path)
         )
         self.set_active_button.setEnabled(
-            connected and selected is not None and self._font_recovery.state != "blocked"
+            connected and (selected is not None or self._font_recovery.state == "managed")
+            and self._font_recovery.state != "blocked"
         )
         self.epub_font_button.setEnabled(
             connected
-            and selected is not None
-            and epub_supported
+            and (stale_epub or selected is not None and epub_supported)
             and (
+                stale_epub
+                or
                 selected_slot is not None
                 or len(assigned_slots) < _rmkit_cn.EPUB_FONT_INDEX_MAX_ENTRIES
             )
@@ -820,6 +825,23 @@ class FontTab(QtWidgets.QWidget):
 
     @require_connection
     def _set_selected_active(self):
+        if self._font_recovery.state == "managed":
+            if _ui.ask_confirmation(
+                self, _rmtool.APP_NAME, "将核验归属并还原上次未完成的字体安装，保留其他用户设置。是否继续？",
+                confirm_text="还原", cancel_text="取消",
+            ):
+                self._start_font_worker(
+                    partial(
+                        _rmkit_cn.recover_managed_font,
+                        expected_owner=self._font_recovery.owner,
+                        expected_fingerprint=self._font_recovery.fingerprint or None,
+                    ),
+                    self.ssh_client,
+                    pending="正在还原字体事务…",
+                    on_success=lambda _: self._refresh_fonts(),
+                    error_prefix="字体事务还原失败",
+                )
+            return
         selected = self._selected_device_font()
         if not selected:
             return
@@ -886,6 +908,18 @@ class FontTab(QtWidgets.QWidget):
 
     @require_connection
     def _toggle_selected_epub_font(self):
+        if self._epub_font_status is not None and self._epub_font_status.state == "stale":
+            if _ui.ask_confirmation(
+                self, _rmtool.APP_NAME, "将保留原索引副本并移除失效或不可信的字体引用，不删除任何字体文件。是否继续？",
+                confirm_text="修复", cancel_text="取消",
+            ):
+                self._start_font_worker(
+                    _rmkit_cn.repair_epub_font_index, self.ssh_client,
+                    pending="正在修复 EPUB 字体索引…",
+                    on_success=lambda _: self._refresh_fonts(),
+                    error_prefix="EPUB 字体索引修复失败",
+                )
+            return
         selected = self._selected_device_font()
         status = self._epub_font_status
         if not selected or status is None or not status.supported:

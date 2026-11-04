@@ -15,8 +15,7 @@ import stage_172 as staging
 
 class Candidate172Tests(unittest.TestCase):
     def test_resource_records_match_reviewed_baselines(self):
-        # Non-.172 rows remain pinned. Reading was deliberately rebuilt for r13;
-        # historical package trust is independently pinned by its backend tests.
+        # M28/M27 rebuild QMDs and immutable envelopes, not their runtime carriers.
         expected = {
             "tap-page-turn": "c1e4118012d7660c189e6026760ebabfd5681ccf3d56a2832dc19ae23f7783b5",
             "fast-mono-reading": "f00f8f71423bf365e3aeb41e30e0d621f20cc00f2d07b800ac4c6e1ad32940cc",
@@ -29,6 +28,17 @@ class Candidate172Tests(unittest.TestCase):
             entries = json.loads((ROOT / feature / "manifest.json").read_bytes())["packages"]
             old = [e for e in entries if e["release_version"].startswith(("3.27.", "3.28."))
                    and e["release_version"] != builder.RELEASE]
+            carrier_fingerprints = {
+                "tap-page-turn": "a3edf363eb1bef99101ec14eebe7eb6b540cdc5df08625d7cadeefd6ae46befc",
+                "reading-enhancements": "31aa499d0c9d70439907b45cf5c8b119b6b346b1fa19154ede997921059729e8",
+                "pinyin-input": "b2f561ba276bb582782a4a976f704bab4af9e0f4e12d90f175d286783e0e63e7",
+            }
+            if feature in carrier_fingerprints:
+                old = [{key: ([item for item in value if not item["path"].endswith(f"/{feature}.qmd")]
+                              if key == "files" else value)
+                        for key, value in entry.items() if key not in ("asset", "urls", "size", "sha256")}
+                       for entry in old]
+                fingerprint = carrier_fingerprints[feature]
             canonical = json.dumps(old, sort_keys=True, separators=(",", ":")).encode()
             self.assertEqual(builder.digest(canonical), fingerprint, feature)
 
@@ -140,6 +150,14 @@ class Candidate172Tests(unittest.TestCase):
             catalog, 205621,
             "0f1de519ab4ac1998f432dab014d40fb0cdae2fe528ab30ca47c7a507df82485",
         )
+
+    @unittest.skipUnless(Path("E:/remarkable/tools/zig-0.16.0/zig.exe").is_file(), "Pinned Windows Zig is not installed")
+    def test_arm_translator_rebuild_preserves_published_bytes(self):
+        from build_translator_armv7 import build_arm_translator
+
+        with tempfile.TemporaryDirectory() as temporary:
+            data = build_arm_translator(Path("E:/remarkable/tools/zig-0.16.0/zig.exe"), Path(temporary))
+            self.assertEqual(data, (ROOT / "native-chinese/native-chinese-translator-armv7-qt32.so").read_bytes())
 
     @unittest.skipUnless((ROOT / ".rmtool/cache/native-chinese/20260827113527").is_dir(), "local .172 cache not staged")
     def test_application_uses_verified_local_archives_without_network(self):

@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
@@ -289,10 +290,16 @@ dd() {
 
 class ScreenPreviewUiTests(unittest.TestCase):
     def setUp(self):
-        self.tab = ScreenPreviewTab(mock.Mock())
+        ssh = mock.Mock()
+        ssh._state_lock = threading.RLock()
+        ssh._client = object()
+        self.tab = ScreenPreviewTab(ssh)
         self.addCleanup(self.tab.deleteLater)
         self.pool = mock.Mock()
         self.tab.thread_pool = self.pool
+        pool_patch = mock.patch("_ui_tasks.QtCore.QThreadPool.globalInstance", return_value=self.pool)
+        pool_patch.start()
+        self.addCleanup(pool_patch.stop)
         self.tab.set_connection_state(True)
         self.tab.set_page_active(True)
         detection = self.pool.start.call_args.args[0]

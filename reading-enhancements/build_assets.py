@@ -22,6 +22,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 import _reading_enhancements as reading
 import _tap_page_turn as tap
+import _plugin_packages as packages
 
 
 BASE_QMD_PATH = "exthome/qt-resource-rebuilder/tap-page-turn.qmd"
@@ -475,11 +476,13 @@ def _build_archive(base, base_archive: Path, qmd: bytes, highlight_extension: Pa
         base.architecture,
         base.xochitl_sha256,
     ):
-        if base.release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0"):
+        if base.release_version == "3.29.0.152":
             highlight_extension = highlight_extension.with_name("rmtool-highlight-snap-3.29.so")
+        elif base.release_version in ("3.29.0.153", "3.29.1.0"):
+            highlight_extension = highlight_extension.with_name(f"rmtool-highlight-snap-{base.release_version}.so")
         files[reading.HIGHLIGHT_EXTENSION_PATH] = (highlight_extension.read_bytes(), 0o644)
         files[reading.HIGHLIGHT_LICENSE_PATH] = (
-            highlight_extension.with_name("LICENSE.rm-tweak").read_bytes(),
+            highlight_extension.with_name("LICENSE.rm-tweak").read_bytes().replace(b"\r\n", b"\n"),
             0o644,
         )
     if set(files) != reading._payload_paths_for(
@@ -495,7 +498,7 @@ def _build_archive(base, base_archive: Path, qmd: bytes, highlight_extension: Pa
         raise RuntimeError("reading-enhancements build is not deterministic")
     identity = (base.platform, base.firmware, base.architecture, base.xochitl_sha256)
     release, channel, offline, device = reading.ALLOWED_TARGETS[identity]
-    asset = reading._expected_asset_name(base.platform, base.firmware, release)
+    asset = packages.content_asset_name(reading._expected_asset_name(base.platform, base.firmware, release), sha256(archive))
     entry = {
         "firmware": base.firmware,
         "release_version": release,
@@ -532,6 +535,10 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--write-manifest", type=Path, required=True)
     args = parser.parse_args()
+    from tools.native_build import verify_archive_runtime, verify_tool
+    verify_archive_runtime()
+    verify_tool("qmd-tool", args.qmd_tool)
+    verify_tool("qmldiff", args.qmldiff)
     if not args.highlight_extension.is_file():
         raise RuntimeError("missing built highlighter extension")
 
@@ -563,6 +570,8 @@ def main() -> int:
             if len(base_matches) != 1:
                 raise RuntimeError(f"tap manifest has no unique carrier for {platform}/{release}")
             base = base_matches[0]
+            from tools.native_build import verify_carrier_hashtab
+            verify_carrier_hashtab(Path(target["qrex_root"]) / target["hashtab"], base)
             source = _source_for_target(
                 args.source,
                 firmware,

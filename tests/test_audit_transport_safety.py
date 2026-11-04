@@ -1,5 +1,6 @@
 """Offline transport-window and wallpaper transaction regressions."""
 
+import hashlib
 import os
 import shlex
 import socket
@@ -297,10 +298,17 @@ class MemorySSH:
         self.files[remote] = Path(local).read_bytes()
         self.fault("put", local, remote)
 
+    def exec_command(self, command):
+        if command.startswith("cat /sys/devices/soc0/machine"):
+            return "reMarkable Paper Pro", "", 0
+        raise AssertionError(command)
+
     def exec_checked(self, command):
         self.commands.append(command)
         parts = shlex.split(command)
         action = parts[0]
+        if action == "sha256sum":
+            return hashlib.sha256(self.files[parts[1]]).hexdigest() + "  " + parts[1]
         if action in ("cp", "mv"):
             source, target = parts[-2:]
             self.fault(action, source, target)
@@ -333,7 +341,7 @@ class WallpaperSafetyTests(unittest.TestCase):
                       self.backup: b"older-good-backup"}
 
     def upload(self, client, target=None):
-        tab = SimpleNamespace(ssh_client=client)
+        tab = SimpleNamespace(ssh_client=client, device_profile="reMarkable Paper Pro")
         for name in ("_replace_wallpaper_files_locked", "_blank_carousel_overlays_locked",
                      "_migrate_legacy_carousel_backups"):
             setattr(tab, name, getattr(_tab_wallpaper.WallpaperTab, name).__get__(tab))

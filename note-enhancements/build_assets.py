@@ -19,6 +19,7 @@ if str(REPO_ROOT) not in sys.path:
 
 import _note_enhancements as note
 import _tap_page_turn as tap
+import _plugin_packages as packages
 
 
 BASE_QMD_PATH = "exthome/qt-resource-rebuilder/tap-page-turn.qmd"
@@ -419,7 +420,7 @@ def _build_archive(base, base_archive: Path, qmd: bytes) -> tuple[bytes, dict]:
     )
     identity = (base.platform, base.firmware, base.architecture, base.xochitl_sha256)
     release, channel, offline, device = note.ALLOWED_TARGETS[identity]
-    asset = note._expected_asset_name(base.platform, base.firmware, release)
+    asset = packages.content_asset_name(note._expected_asset_name(base.platform, base.firmware, release), sha256(archive))
     entry = {
         "firmware": base.firmware,
         "release_version": release,
@@ -461,6 +462,10 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--write-manifest", type=Path, required=True)
     args = parser.parse_args()
+    from tools.native_build import verify_archive_runtime, verify_tool
+    verify_archive_runtime()
+    verify_tool("qmd-tool", args.qmd_tool)
+    verify_tool("qmldiff", args.qmldiff)
 
     tap_catalog = tap.parse_manifest(args.base_manifest.read_bytes())
     matrix = _load_matrix_config(args.matrix_config)
@@ -491,6 +496,8 @@ def main() -> int:
             if len(matches) != 1:
                 raise RuntimeError(f"tap manifest has no unique carrier for {platform}/{release}")
             base = matches[0]
+            from tools.native_build import verify_carrier_hashtab
+            verify_carrier_hashtab(Path(target["qrex_root"]) / target["hashtab"], base)
             source = _source_for_release(args.source, release, work / "source")
             qmd = _compile_and_validate(
                 qmd_tool=args.qmd_tool,

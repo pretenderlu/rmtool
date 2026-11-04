@@ -1,6 +1,8 @@
 import hashlib
 import io
+import shutil
 import stat
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -14,6 +16,23 @@ import _xovi_standalone as shared
 
 
 class OfficialAssetTests(unittest.TestCase):
+    def test_shim_script_stops_at_first_failed_link(self):
+        shell = shutil.which("bash") if __import__("os").name != "nt" else "C:/Program Files/Git/bin/bash.exe"
+        if not shell or not Path(shell).is_file():
+            self.skipTest("POSIX shell required")
+        package = next(item for item in tap._trusted_catalog() if item.architecture == "aarch64")
+        identity = tap.DeviceIdentity(package.firmware, package.platform, package.architecture, package.xochitl_sha256)
+        ssh = mock.Mock()
+        _appload.ensure_shim_links(ssh, identity)
+        script = ssh.exec_checked.call_args.args[0].replace(_appload.SHIM_LINK_DIR, "./links")
+        with tempfile.TemporaryDirectory() as temporary:
+            result = subprocess.run(
+                [shell, "-c", "ln() { printf 'attempt\\n' >> attempts; return 1; }; " + script],
+                cwd=temporary, capture_output=True, text=True, timeout=15,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual((Path(temporary) / "attempts").read_text().splitlines(), ["attempt"])
+
     def test_exact_firmware_selects_architecture_assets(self):
         packages = tap._trusted_catalog()
         self.assertEqual(_appload.APPLOAD_VERSION, "v0.6.0")
@@ -200,7 +219,7 @@ class EnableTests(unittest.TestCase):
                 return_value=(mock.Mock(), trusted, ()),
             ),
             mock.patch.object(_appload.shared, "has_shared_artifacts", return_value=True),
-            mock.patch.object(_appload.shared, "inspect_shared", return_value=inspection),
+            mock.patch.object(_appload, "_inspect_shared", return_value=(inspection, trusted, {}), autospec=True),
             mock.patch.object(_appload, "_prepare_appload_root", return_value=Path("app")),
             mock.patch.object(_appload, "_prepare_peer_root", return_value=Path("qr")) as prepare_peer,
             mock.patch.object(_appload.shared, "enable_shared") as enable_shared,
@@ -318,7 +337,7 @@ class DisableOrderTests(unittest.TestCase):
         )
         ssh = mock.Mock()
         ssh.file_exists.return_value = False
-        inspection = mock.Mock(states={})
+        inspection = shared.SharedInspection({}, False, False)
         order = []
         with (
             mock.patch.object(_appload, "get_status", return_value=status),
@@ -333,7 +352,7 @@ class DisableOrderTests(unittest.TestCase):
             mock.patch.object(
                 _appload.shared,
                 "disable_shared",
-                side_effect=lambda *_args: order.append("disable"),
+                side_effect=lambda *_args, **_kwargs: order.append("disable"),
             ),
             mock.patch.object(
                 _appload,
@@ -359,7 +378,7 @@ class DisableOrderTests(unittest.TestCase):
             identity,
             _appload.APPLOAD_ASSETS[identity.architecture],
         )
-        feature = mock.Mock(feature_id=_appload.FEATURE_ID)
+        feature = _appload._appload_feature(identity)
         ssh = mock.Mock()
         ssh.file_exists.return_value = False
         order = []
@@ -375,6 +394,8 @@ class DisableOrderTests(unittest.TestCase):
                 "remove_shared_features",
                 side_effect=lambda *_args: order.append("feature"),
             ),
+            mock.patch.object(_appload, "_inspect_shared", return_value=(
+                shared.SharedInspection({}, False, False), {_appload.FEATURE_ID: feature}, {}), autospec=True),
             mock.patch.object(
                 _appload,
                 "remove_shim_links",
@@ -396,7 +417,8 @@ class StatusTests(unittest.TestCase):
             package.architecture,
             package.xochitl_sha256,
         )
-        feature = mock.Mock(feature_id=_appload.FEATURE_ID)
+        feature = _appload._appload_feature(identity)
+        runtime = tap._trusted_shared_context(identity)[0]
         inspection = shared.SharedInspection(
             {
                 _appload.FEATURE_ID: shared.SharedFeatureState(
@@ -424,7 +446,7 @@ class StatusTests(unittest.TestCase):
             mock.patch.object(
                 _appload.tap,
                 "_trusted_shared_context",
-                return_value=(mock.Mock(), {_appload.FEATURE_ID: feature}, ()),
+                return_value=(runtime, {_appload.FEATURE_ID: feature}, ()),
             ),
             mock.patch.object(
                 _appload.shared, "inspect_shared", return_value=inspection
@@ -449,8 +471,9 @@ class StatusTests(unittest.TestCase):
             package.architecture,
             package.xochitl_sha256,
         )
-        current = mock.Mock(package_id="appload-v0.6.0-aarch64")
-        old = mock.Mock(package_id="appload-v0.5.3-aarch64")
+        current = _appload._appload_feature(identity)
+        runtime = tap._trusted_shared_context(identity)[0]
+        old = _appload.published_predecessors(identity, current)[0][1]
         inspection = shared.SharedInspection(
             {
                 _appload.FEATURE_ID: shared.SharedFeatureState(
@@ -478,7 +501,7 @@ class StatusTests(unittest.TestCase):
             mock.patch.object(
                 _appload.tap,
                 "_trusted_shared_context",
-                return_value=(mock.Mock(), {_appload.FEATURE_ID: current}, ()),
+                return_value=(runtime, {_appload.FEATURE_ID: current}, ()),
             ),
             mock.patch.object(
                 _appload.shared, "inspect_shared", return_value=inspection

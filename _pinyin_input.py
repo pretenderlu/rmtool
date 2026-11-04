@@ -97,7 +97,7 @@ ALLOWED_TARGETS = {
     ("20260702125656", "ferrari", "aarch64", "49f60572e830f6c4f20d800a56d644cdf53cd65a8e240b2b27106cce55040f89"): ("3.28.0.163", "beta", True, False),
     ("20260702125656", "chiappa", "aarch64", "3a9e18483b73f43016fb25b451e3ece0efba7aa1cc92e080771e138ce6bbca98"): ("3.28.0.164", "beta", True, False),
     ("20260702125656", "ferrari", "aarch64", "113bf7ea62ad171ea03c77c1f90e0666bcff163242a22ebca84372533b270c1c"): ("3.28.0.164", "beta", True, False),
-    (SUPPORTED_IDENTITY.firmware, SUPPORTED_IDENTITY.platform, SUPPORTED_IDENTITY.architecture, SUPPORTED_IDENTITY.xochitl_sha256): ("3.28.0.166", "beta", True, True),
+    (SUPPORTED_IDENTITY.firmware, SUPPORTED_IDENTITY.platform, SUPPORTED_IDENTITY.architecture, SUPPORTED_IDENTITY.xochitl_sha256): ("3.28.0.166", "beta", True, False),
     ("20260806095513", "chiappa", "aarch64", "5748eed3bb804c8d3000e833ba472750428b6a82bc09b2bc7b5cf01847336bc7"): ("3.28.0.166", "beta", True, False),
     ("20260806095513", "ferrari", "aarch64", "43a9d5d0acc5b998264c16586e11b848f3b83d2d63b5fd322b09c0977d94d3d4"): ("3.28.0.169", "beta", True, False),
     ("20260806095513", "chiappa", "aarch64", "6361610111c381ce730a8bfcc889bd933ef5fef173563a9156e435233714e7ee"): ("3.28.0.169", "beta", True, False),
@@ -248,7 +248,8 @@ def parse_manifest(data: bytes) -> tuple[PinyinInputPackage, ...]:
         ):
             raise RuntimeError("拼音输入法清单包含未审核的设备目标。")
         asset = tap._required_string(entry, "asset", tap._ASSET_RE)
-        if asset != EXPECTED_ASSETS[identity_key]:
+        digest = tap._required_string(entry, "sha256", tap._SHA256_RE)
+        if not _plugin_packages.asset_name_matches(asset, EXPECTED_ASSETS[identity_key], digest):
             raise RuntimeError("拼音输入法包名称不在精确信任白名单中。")
         expected_urls = {f"{COS_URL}/{asset}", f"{GITHUB_URL}/{asset}"}
         if not isinstance(urls, list) or len(urls) != 2 or set(urls) != expected_urls:
@@ -264,7 +265,7 @@ def parse_manifest(data: bytes) -> tuple[PinyinInputPackage, ...]:
             tap._required_string(entry, "sha256", tap._SHA256_RE),
             entry["size"],
             files,
-            expected_urls,
+            tuple(urls),
             entry["offline_verified"],
             entry["device_verified"],
         ))
@@ -363,6 +364,8 @@ def _known_shared_predecessor_specs(
     )
     v5 = replace(
         current,
+        sha256=V3_QMD_SHA256,
+        size=V3_QMD_SIZE,
         extra_files=legacy_files,
         sidecars=(legacy_sidecar,),
     )
@@ -412,33 +415,10 @@ def _inspect_shared_revision(
     *,
     check_lower: bool = False,
 ):
-    revisions = {
-        FEATURE_ID: tuple(
-            (item.reason, item.feature)
-            for item in _known_shared_predecessor_specs(package)
-        )
-    }
     identity = tap.DeviceIdentity(
-        package.firmware,
-        package.platform,
-        package.architecture,
-        package.xochitl_sha256,
+        package.firmware, package.platform, package.architecture, package.xochitl_sha256,
     )
-    revisions.update(tap._reading_enhancement_revisions(identity, trusted))
-    try:
-        import _native_chinese as native
-
-        peer = native.select_package(
-            native._trusted_catalog(),
-            identity,
-        )
-        if peer is not None and native.FEATURE_ID in trusted:
-            revisions[native.FEATURE_ID] = tuple(
-                (item.reason, item.feature)
-                for item in native._known_shared_predecessor_specs(peer)
-            )
-    except ImportError:
-        pass
+    revisions = tap._published_feature_revisions(identity, trusted)
     inspection, installed_trusted, selected = (
         _xovi_standalone.inspect_shared_revisions(
             ssh_client,
@@ -689,7 +669,7 @@ def get_status(
                 _validate_external_payload(ssh_client, package) is True
             )
         elif external_exists:
-            raise RuntimeError("拼音功能已停用，但服务目录仍有残留。")
+            external_outdated = (_validate_external_payload(ssh_client, package) is True)
         if inspection.layout != _xovi_standalone.preferred_layout(runtime):
             outdated = outdated or "storage_layout"
         if outdated or external_outdated:
@@ -797,7 +777,6 @@ def enable(
     _runtime, feature = _shared_specs(package)
     token = uuid.uuid4().hex
     stage = f"{REMOTE_BASE}.staging-{token}"
-    backup = f"{REMOTE_BASE}.backup-{token}"
     with tempfile.TemporaryDirectory() as temporary:
         extracted = tap.extract_verified_package(archive_path, package, temporary)
         with _xovi_standalone._operation_lock(ssh_client):
@@ -834,18 +813,8 @@ def enable(
                     legacies,
                     inspection=inspection,
                 )
-            previous_moved = False
-            new_moved = False
             try:
                 _stage_external(ssh_client, package, extracted, stage)
-                ssh_client.exec_checked(f"rm -rf {shlex.quote(backup)}")
-                if had_previous:
-                    ssh_client.exec_checked(
-                        f"mv {shlex.quote(REMOTE_BASE)} {shlex.quote(backup)}"
-                    )
-                    previous_moved = True
-                ssh_client.exec_checked(f"mv {shlex.quote(stage)} {shlex.quote(REMOTE_BASE)}")
-                new_moved = True
                 _xovi_standalone._enable_shared_locked(
                     ssh_client,
                     runtime,
@@ -853,20 +822,14 @@ def enable(
                     extracted,
                     installed_trusted,
                     legacies,
+                    pinyin_stage=stage,
                 )
             except Exception:
                 try:
-                    if new_moved:
-                        ssh_client.exec_checked(f"rm -rf {shlex.quote(REMOTE_BASE)}")
-                    if previous_moved:
-                        ssh_client.exec_checked(
-                            f"mv {shlex.quote(backup)} {shlex.quote(REMOTE_BASE)}"
-                        )
                     ssh_client.exec_checked(f"rm -rf {shlex.quote(stage)}")
                 except Exception:
                     logging.exception("Could not roll back Pinyin service payload")
                 raise
-            ssh_client.exec_checked(f"rm -rf {shlex.quote(backup)}")
     return get_status(ssh_client, (package,))
 
 
@@ -885,8 +848,6 @@ def disable(
     if package is None:
         raise RuntimeError("当前设备没有可验证的拼音输入法包。")
     runtime, trusted, _legacies = _trusted_shared_context(identity)
-    token = uuid.uuid4().hex
-    backup = f"{REMOTE_BASE}.backup-{token}"
     with _xovi_standalone._operation_lock(ssh_client):
         inspection, installed_trusted, outdated = _inspect_shared_revision(
             ssh_client, runtime, trusted, package, check_lower=True
@@ -896,27 +857,10 @@ def disable(
         had_payload = _has_external_payload(ssh_client)
         if had_payload:
             _validate_external_payload(ssh_client, package)
-            ssh_client.exec_checked(f"rm -rf {shlex.quote(backup)}")
-            ssh_client.exec_checked(f"mv {shlex.quote(REMOTE_BASE)} {shlex.quote(backup)}")
-        try:
-            _xovi_standalone._disable_shared_locked(
-                ssh_client,
-                runtime,
-                FEATURE_ID,
-                installed_trusted,
-                trusted[FEATURE_ID] if outdated else None,
-            )
-        except Exception:
-            if had_payload:
-                try:
-                    ssh_client.exec_checked(
-                        f"mv {shlex.quote(backup)} {shlex.quote(REMOTE_BASE)}"
-                    )
-                except Exception:
-                    logging.exception("Could not restore Pinyin service payload")
-            raise
-        if had_payload:
-            ssh_client.exec_checked(f"rm -rf {shlex.quote(backup)}")
+        _xovi_standalone._disable_shared_locked(
+            ssh_client, runtime, FEATURE_ID, installed_trusted,
+            trusted[FEATURE_ID] if outdated else None,
+        )
     return get_status(ssh_client, tuple(catalog) or _trusted_catalog())
 
 
@@ -939,8 +883,6 @@ def uninstall(
         had_payload = _has_external_payload(ssh_client)
         if had_payload:
             _validate_external_payload(ssh_client, package)
-            if _server_running(ssh_client):
-                raise RuntimeError("拼音输入法服务正在运行，请退出后重试。")
         _xovi_standalone.remove_shared_features(
             ssh_client,
             runtime,
@@ -949,6 +891,7 @@ def uninstall(
             _lock_already_held=True,
         )
         if had_payload:
+            _validate_external_payload(ssh_client, package)
             ssh_client.exec_checked(
                 f"rm -rf {shlex.quote(REMOTE_BASE)}; "
                 f"[ ! -e {shlex.quote(REMOTE_BASE)} ] && "

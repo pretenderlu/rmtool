@@ -5,6 +5,10 @@ from __future__ import annotations
 import argparse
 import subprocess
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools.native_build import prefix_maps, verify_tool
 
 
 def main() -> int:
@@ -12,14 +16,25 @@ def main() -> int:
     parser.add_argument("--zig", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--beta-329", action="store_true")
+    parser.add_argument("--release", choices=("3.28.0.172", "3.29.0.152", "3.29.0.153", "3.29.1.0"))
     args = parser.parse_args()
+    verify_tool("zig", args.zig)
+    if args.beta_329 and args.release not in (None, "3.29.0.152"):
+        parser.error("--beta-329 is the legacy .152 selector; use --release alone")
+    release = args.release or ("3.29.0.152" if args.beta_329 else "3.28.0.172")
+    defines = [] if release == "3.28.0.172" else ["-DRMTOOL_HIGHLIGHT_BETA_329"]
+    if release == "3.29.0.153":
+        defines.append("-DRMTOOL_HIGHLIGHT_329_153")
+    elif release == "3.29.1.0":
+        defines.append("-DRMTOOL_HIGHLIGHT_32910")
     source = Path(__file__).with_name("highlight_snap.c")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
         [
             str(args.zig), "cc", "-target", "aarch64-linux-gnu", "-shared",
             "-fPIC", "-Os", "-Wall", "-Wextra", "-Werror",
-            *(["-DRMTOOL_HIGHLIGHT_BETA_329"] if args.beta_329 else []),
+            *defines,
+            *prefix_maps(),
             str(source), "-o", str(args.output),
         ],
         capture_output=True,

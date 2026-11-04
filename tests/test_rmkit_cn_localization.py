@@ -307,6 +307,9 @@ class FakeSSH:
             if path not in self.files:
                 raise IOError(path)
             return f"{len(self.files[path])}\n"
+        if command.startswith("sha256sum "):
+            path = shlex.split(command)[1]
+            return hashlib.sha256(self.files[path]).hexdigest() + "  " + path + "\n"
         if command in ("mount -o remount,rw /", "mount -o remount,ro /"):
             return ""
         if command == "sync":
@@ -756,7 +759,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
                         _rmkit_cn.CONFIG_PATH: b"[General]\nlanguage=fr_FR\n",
                         **self.managed_files(),
                         target: font,
-                        _rmkit_cn.FONTCONFIG_FILE: b"<fontconfig>rmkit</fontconfig>",
+                        _rmkit_cn.FONTCONFIG_FILE: _rmkit_cn.fontconfig_override("Managed", target).encode(),
                         _rmkit_cn.FONT_MARKER_PATH: json.dumps(marker).encode("ascii"),
                     }
                 )
@@ -837,14 +840,16 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             commands,
             [
                 "cat /etc/version",
+                f"sha256sum {_rmkit_cn.QM_PATH}",
                 _rmkit_cn.PRIMARY_FONT_COMMAND,
                 _rmkit_cn.CJK_FONT_LIST_COMMAND,
             ],
         )
 
         ssh.files[_rmkit_cn.QM_PATH] = self.LOCALIZED_QM
-        with self.assertRaisesRegex(RuntimeError, "缺少可还原的备份"):
-            _rmkit_cn.get_localization_status(ssh)
+        status = _rmkit_cn.get_localization_status(ssh)
+        self.assertEqual(status.state, _rmkit_cn.LocalizationState.RECOVERY_REQUIRED)
+        self.assertIn("缺少可还原的备份", status.detail)
 
     def test_missing_font_without_selection_performs_no_writes(self):
         ssh = self.make_ssh(cjk_available=False)
@@ -1111,7 +1116,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             },
             cjk_available=False,
             cjk_font_data=(font_data,),
-            corrupt_transfer_at=1,
+            corrupt_transfer_at=2,
         )
 
         with self.assertRaisesRegex(RuntimeError, "上传后校验失败"):
@@ -1122,12 +1127,12 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertNotIn(_rmkit_cn.CUSTOM_FONT_PATHS[".ttf"], ssh.files)
         self.assertNotIn(_rmkit_cn.FONT_MARKER_PATH, ssh.files)
         self.assertNotIn(("exec", "systemctl stop xochitl"), ssh.events)
-        self.assertGreaterEqual(
+        self.assertEqual(
             sum(
                 kind == "exec" and value.startswith("fc-cache -f -v ")
                 for kind, value in ssh.events
             ),
-            2,
+            1,
         )
 
     def test_enabled_translation_can_repair_only_the_missing_font(self):
@@ -1558,6 +1563,8 @@ class RmkitCnLocalizationTests(unittest.TestCase):
                 _rmkit_cn.EpubFontSlot(2, third, "中文名称"),
             ),
         )
+        self.assertNotIn(_rmkit_cn.EPUB_FONT_INDEX_PATH, ssh.files)
+        _rmkit_cn._epub_font_slots(ssh, migrate_legacy=True)
         index = json.loads(ssh.files[_rmkit_cn.EPUB_FONT_INDEX_PATH])
         self.assertEqual(index["schema"], 1)
         self.assertEqual([item["path"] for item in index["fonts"]], [first, third])
@@ -1794,7 +1801,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             tap, "get_device_identity", return_value=self._trusted_328_identity()
         ):
             status = _rmkit_cn.get_epub_font_slot_status(ssh)
-        self.assertEqual(status.state, "invalid")
+        self.assertEqual(status.state, "stale")
         self.assertIn("字体状态不可信", status.detail)
 
     def test_epub_font_index_refuses_unsafe_parent_before_transfer(self):
@@ -3494,8 +3501,9 @@ class RmkitCnLocalizationTests(unittest.TestCase):
                 ssh.files[_rmkit_cn.FONT_MARKER_PATH] = marker
                 before = dict(ssh.files)
 
-                with self.assertRaisesRegex(RuntimeError, "字体标记无效"):
-                    _rmkit_cn.get_localization_status(ssh)
+                status = _rmkit_cn.get_localization_status(ssh)
+                self.assertEqual(status.state, _rmkit_cn.LocalizationState.RECOVERY_REQUIRED)
+                self.assertIn("字体标记无效", status.detail)
 
                 self.assertEqual(ssh.files, before)
                 self.assertFalse(any(kind == "transfer" for kind, _ in ssh.events))
@@ -3509,11 +3517,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
                     )
                 )
 
-    def test_stock_carrier_discards_malformed_font_marker(self):
-        # The carrier is verified stock, so a malformed marker (e.g. a
-        # zero-byte file left by an old version) is discarded instead of
-        # blocking localization forever. Its ownership claims cannot be
-        # trusted, so font and Fontconfig data must remain untouched.
+    def test_stock_carrier_retains_malformed_font_marker_until_explicit_recovery(self):
         ssh = self.make_ssh()
         target = _rmkit_cn.CUSTOM_FONT_PATHS[".ttf"]
         current_config = b"<fontconfig>current managed bytes</fontconfig>\n"
@@ -3526,15 +3530,15 @@ class RmkitCnLocalizationTests(unittest.TestCase):
 
         status = _rmkit_cn.get_localization_status(ssh)
 
-        self.assertEqual(status.state, _rmkit_cn.LocalizationState.NOT_INSTALLED)
-        self.assertNotIn(_rmkit_cn.FONT_MARKER_PATH, ssh.files)
+        self.assertEqual(status.state, _rmkit_cn.LocalizationState.RECOVERY_REQUIRED)
+        self.assertEqual(ssh.files[_rmkit_cn.FONT_MARKER_PATH], b"{")
         self.assertEqual(ssh.files[_rmkit_cn.FONTCONFIG_FILE], current_config)
         self.assertEqual(
             ssh.files[_rmkit_cn.FONTCONFIG_BACKUP_PATH], original_config
         )
         self.assertEqual(ssh.files[target], font_data)
 
-    def test_stale_backup_restores_valid_managed_font_state_first(self):
+    def test_stale_status_retains_valid_managed_font_state(self):
         target = _rmkit_cn.CUSTOM_FONT_PATHS[".ttf"]
         font_data = b"managed font from stale localization"
         original_config = b"\x00<fontconfig>pre-localization bytes</fontconfig>\r\n"
@@ -3558,26 +3562,10 @@ class RmkitCnLocalizationTests(unittest.TestCase):
             }
         )
 
+        before = dict(ssh.files)
         status = _rmkit_cn.get_localization_status(ssh)
-
-        self.assertEqual(status.state, _rmkit_cn.LocalizationState.NOT_INSTALLED)
-        self.assertEqual(ssh.files[_rmkit_cn.FONTCONFIG_FILE], original_config)
-        self.assertNotIn(target, ssh.files)
-        self.assertNotIn(_rmkit_cn.FONT_MARKER_PATH, ssh.files)
-        self.assertNotIn(_rmkit_cn.FONTCONFIG_BACKUP_PATH, ssh.files)
-        self.assertNotIn(_rmkit_cn.BACKUP_READY_PATH, ssh.files)
-        self.assertNotIn(_rmkit_cn.BACKUP_QM_PATH, ssh.files)
-        commands = [value for kind, value in ssh.events if kind == "exec"]
-        restore_index = commands.index(
-            f"mv -f {_rmkit_cn.FONTCONFIG_FILE}.tmp {_rmkit_cn.FONTCONFIG_FILE}"
-        )
-        translation_cleanup_index = next(
-            index
-            for index, command in enumerate(commands)
-            if command.startswith("rm -f ")
-            and _rmkit_cn.BACKUP_READY_PATH in command
-        )
-        self.assertLess(restore_index, translation_cleanup_index)
+        self.assertEqual(status.state, _rmkit_cn.LocalizationState.RECOVERY_REQUIRED)
+        self.assertEqual(ssh.files, before)
 
     def test_stale_backup_cleanup_failure_preserves_retry_metadata(self):
         target = _rmkit_cn.CUSTOM_FONT_PATHS[".ttf"]
@@ -3605,10 +3593,9 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         )
         ssh.fail_exec_commands.add(f"rm -f {target}")
 
-        with self.assertRaisesRegex(IOError, "simulated command failure"):
-            _rmkit_cn.get_localization_status(ssh)
-
-        self.assertEqual(ssh.files[_rmkit_cn.FONTCONFIG_FILE], original_config)
+        status = _rmkit_cn.get_localization_status(ssh)
+        self.assertEqual(status.state, _rmkit_cn.LocalizationState.RECOVERY_REQUIRED)
+        self.assertEqual(ssh.files[_rmkit_cn.FONTCONFIG_FILE], b"managed override")
         for path in (
             _rmkit_cn.BACKUP_READY_PATH,
             _rmkit_cn.BACKUP_CONFIG_PATH,
@@ -3619,10 +3606,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         ):
             self.assertIn(path, ssh.files)
 
-    def test_stock_carrier_discards_stale_backup_from_other_firmware(self):
-        # Backup from a different firmware (hash matches neither the
-        # current stock nor the localized catalog) is unusable; the
-        # verified-stock carrier makes it safe to drop and re-enable.
+    def test_stock_carrier_recovers_stale_backup_only_on_explicit_restore(self):
         ssh = self.make_ssh()
         ssh.files[_rmkit_cn.BACKUP_READY_PATH] = b""
         ssh.files[_rmkit_cn.BACKUP_CONFIG_PATH] = b"[General]\n"
@@ -3630,7 +3614,8 @@ class RmkitCnLocalizationTests(unittest.TestCase):
 
         status = _rmkit_cn.get_localization_status(ssh)
 
-        self.assertEqual(status.state, _rmkit_cn.LocalizationState.NOT_INSTALLED)
+        self.assertEqual(status.state, _rmkit_cn.LocalizationState.RECOVERY_REQUIRED)
+        _rmkit_cn.restore_localization(ssh)
         self.assertNotIn(_rmkit_cn.BACKUP_READY_PATH, ssh.files)
         self.assertNotIn(_rmkit_cn.BACKUP_QM_PATH, ssh.files)
 
@@ -3638,7 +3623,7 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         self.assertEqual(result.state, _rmkit_cn.LocalizationState.ENABLED)
         self.assertEqual(ssh.files[_rmkit_cn.BACKUP_QM_PATH], self.STOCK_QM)
 
-    def test_stock_carrier_discards_zeroed_backup(self):
+    def test_stock_carrier_preserves_zeroed_backup_until_restore(self):
         # Regression for the real-device incident: unsynced writes left
         # zero-byte backup files after a hard power-off.
         ssh = self.make_ssh()
@@ -3648,8 +3633,8 @@ class RmkitCnLocalizationTests(unittest.TestCase):
 
         status = _rmkit_cn.get_localization_status(ssh)
 
-        self.assertEqual(status.state, _rmkit_cn.LocalizationState.NOT_INSTALLED)
-        self.assertNotIn(_rmkit_cn.BACKUP_READY_PATH, ssh.files)
+        self.assertEqual(status.state, _rmkit_cn.LocalizationState.RECOVERY_REQUIRED)
+        self.assertIn(_rmkit_cn.BACKUP_READY_PATH, ssh.files)
 
     def test_restore_with_stale_backup_and_stock_carrier_is_a_noop(self):
         ssh = self.make_ssh()
@@ -3726,9 +3711,17 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         ssh = self.make_ssh(
             cjk_available=False,
             cjk_font_data=(font_data,),
-            fail_transfer_at=8,
             fail_exec_commands=(remove_command,),
         )
+        transfer = ssh.transfer_file
+
+        def fail_config_once(local, remote):
+            if remote == f"{_rmkit_cn.CONFIG_PATH}.tmp":
+                ssh.transfer_file = transfer
+                ssh.fail_transfer_at = ssh.transfer_count + 1
+            return transfer(local, remote)
+
+        ssh.transfer_file = fail_config_once
 
         with self.assertRaisesRegex(IOError, "simulated upload failure"):
             _rmkit_cn.enable_localization(
@@ -4012,31 +4005,12 @@ class RmkitCnLocalizationTests(unittest.TestCase):
         )
         self.assertIn("assets\\fonts\\NotoSansCJKsc-Regular.otf", build_script)
         self.assertIn("assets\\fonts\\LICENSE", build_script)
-        self.assertIn("assets\\fonts');assets\\fonts", build_script)
-        self.assertIn(
-            "translations\\manifest.json');translations", build_script
-        )
-        self.assertIn(
-            "translations/manifest.json:translations", release_workflow
-        )
-        self.assertIn(
-            "native-chinese\\manifest.json');native-chinese", build_script
-        )
-        self.assertIn(
-            "native-chinese/manifest.json:native-chinese", release_workflow
-        )
-        self.assertIn(
-            "pinyin-input\\manifest.json');pinyin-input", build_script
-        )
-        self.assertIn(
-            "reading-enhancements\\manifest.json');reading-enhancements", build_script
-        )
-        self.assertIn(
-            "reading-enhancements/manifest.json:reading-enhancements", release_workflow
-        )
-        self.assertIn(
-            "pinyin-input/manifest.json:pinyin-input", release_workflow
-        )
+        import _bundle_resources
+        self.assertIn("tools\\build_app.py", build_script)
+        self.assertIn("tools/build_app.py", release_workflow)
+        for relative in ("assets/fonts", "translations/manifest.json", "native-chinese/manifest.json",
+                         "pinyin-input/manifest.json", "reading-enhancements/manifest.json"):
+            self.assertIn(relative, _bundle_resources.DATA_PATHS)
         self.assertNotIn("translations:translations", release_workflow)
         self.assertNotIn(".qm", release_workflow)
         self.assertNotIn(".qm", build_script)

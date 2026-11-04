@@ -1,5 +1,6 @@
 import unittest
 import importlib
+import hashlib
 from dataclasses import replace
 from unittest.mock import Mock, patch
 
@@ -10,6 +11,18 @@ import _native_import_control as native_import
 
 
 class BuildMatrixTests(unittest.TestCase):
+    def test_highlighter_artifacts_match_every_advertised_identity(self):
+        for package in matrix._manifest("reading-enhancements")["packages"]:
+            path = "extensions.d/rmtool-highlight-snap.so"
+            member = next((item for item in package["files"] if item["path"] == path), None)
+            if member is None:
+                continue
+            suffix = {"3.28.0.172": "", "3.29.0.152": "-3.29"}.get(package["release_version"], "-" + package["release_version"])
+            data = (matrix.ROOT / f"reading-enhancements/native/rmtool-highlight-snap{suffix}.so").read_bytes()
+            with self.subTest(platform=package["platform"], release=package["release_version"]):
+                matrix.validate_native_payload(package, path, data)
+                self.assertEqual((len(data), hashlib.sha256(data).hexdigest()), (member["size"], member["sha256"]))
+
     def test_current_device_and_firmware_matrix_is_complete(self):
         matrix.validate()
 

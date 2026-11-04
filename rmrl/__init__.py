@@ -18,11 +18,13 @@ import shutil
 import struct
 import tempfile
 import zipfile
+from contextlib import closing
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, PdfParser
 
 try:
     import rmscene as _rmscene
@@ -381,14 +383,14 @@ def _parse_rm_fallback(data: memoryview, offset: int) -> Tuple[List[Layer], Tupl
             min_x, min_y, max_x, max_y = _update_bounds(segments, min_x, min_y, max_x, max_y)
             strokes.append(Stroke(color=color, brush=brush_type, segments=segments))
         layers.append(Layer(strokes=strokes))
-    if not layers:
-        raise RmrlError("rm 文件中没有可绘制图层")
     if math.isinf(min_x) or math.isinf(min_y) or math.isinf(max_x) or math.isinf(max_y):
         min_x, min_y, max_x, max_y = 0.0, 0.0, float(_DEFAULT_PAGE_SIZE[0]), float(_DEFAULT_PAGE_SIZE[1])
     return layers, (min_x, min_y, max_x, max_y)
 
 
-def _parse_rm_v6(path: Path) -> Tuple[List[Layer], Tuple[float, float, float, float]]:
+def _parse_rm_v6(
+    path: Path, page_width: int = _DEFAULT_PAGE_SIZE[0],
+) -> Tuple[List[Layer], Tuple[float, float, float, float]]:
     if _rmscene is None or _rmscene_items is None:
         raise RmrlError("检测到 rm v6 文件，但当前环境缺少 rmscene 依赖")
 
@@ -416,7 +418,7 @@ def _parse_rm_v6(path: Path) -> Tuple[List[Layer], Tuple[float, float, float, fl
                 pressure /= 255.0
             segments.append(
                 Segment(
-                    x=float(point.x),
+                    x=float(point.x) + page_width / 2.0,
                     y=float(point.y),
                     width=max(0.1, float(point.width) / 4.0 * thickness_scale),
                     pressure=pressure,
@@ -435,14 +437,14 @@ def _parse_rm_v6(path: Path) -> Tuple[List[Layer], Tuple[float, float, float, fl
             )
         )
 
-    if not strokes:
-        raise RmrlError("rm 文件中没有可绘制图层")
     if math.isinf(min_x) or math.isinf(min_y) or math.isinf(max_x) or math.isinf(max_y):
         min_x, min_y, max_x, max_y = 0.0, 0.0, float(_DEFAULT_PAGE_SIZE[0]), float(_DEFAULT_PAGE_SIZE[1])
     return [Layer(strokes=strokes)], (min_x, min_y, max_x, max_y)
 
 
-def _parse_rm(path: Path) -> Tuple[List[Layer], Tuple[float, float, float, float]]:
+def _parse_rm(
+    path: Path, page_width: int = _DEFAULT_PAGE_SIZE[0],
+) -> Tuple[List[Layer], Tuple[float, float, float, float]]:
     with path.open("rb") as handle:
         raw = handle.read()
     if len(raw) < 8:
@@ -450,11 +452,9 @@ def _parse_rm(path: Path) -> Tuple[List[Layer], Tuple[float, float, float, float
 
     version, offset = _parse_rm_version(raw)
     if version == 6:
-        return _parse_rm_v6(path)
+        return _parse_rm_v6(path, page_width)
 
     data = memoryview(raw)
-    if len(raw) - offset < 8:
-        raise RmrlError("rm 文件体积异常")
 
     if version in (3, 5):
         if offset + _RM_PAGE_V3_V5.size > len(data):
@@ -486,8 +486,6 @@ def _parse_rm(path: Path) -> Tuple[List[Layer], Tuple[float, float, float, float
                 min_x, min_y, max_x, max_y = _update_bounds(segments, min_x, min_y, max_x, max_y)
                 strokes.append(Stroke(color=color, brush=brush_type, segments=segments))
             layers.append(Layer(strokes=strokes))
-        if not layers:
-            raise RmrlError("rm 文件中没有可绘制图层")
         if math.isinf(min_x) or math.isinf(min_y) or math.isinf(max_x) or math.isinf(max_y):
             min_x, min_y, max_x, max_y = 0.0, 0.0, float(_DEFAULT_PAGE_SIZE[0]), float(_DEFAULT_PAGE_SIZE[1])
         return layers, (min_x, min_y, max_x, max_y)
@@ -508,6 +506,10 @@ def _render_layer(
         color_value = _COLOR_MAP.get(stroke.color, 0)
         if color_value >= 255:
             continue  # white strokes are invisible on a white background
+        fill = (
+            (color_value, color_value, color_value, 128 if stroke.brush == 6 else 255)
+            if getattr(draw, "mode", None) == "RGBA" else color_value
+        )
         brush_scale = _BRUSH_SCALE.get(stroke.brush, 1.0)
         points = [
             (
@@ -521,13 +523,13 @@ def _render_layer(
         width = sorted_widths[len(sorted_widths) // 2]
         width = max(1, int(round(width)))
         try:
-            draw.line(points, fill=color_value, width=width, joint="curve")
+            draw.line(points, fill=fill, width=width, joint="curve")
         except TypeError:
-            draw.line(points, fill=color_value, width=width)
+            draw.line(points, fill=fill, width=width)
 
         radius = width / 2.0
         for x, y in (points[0], points[-1]):
-            draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=color_value)
+            draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=fill)
 
 
 def _page_render_transform(
@@ -584,41 +586,72 @@ def _render_page(
     # Draw at a higher resolution to get smoother strokes before scaling down.
     super_w = canvas_w * _SUPER_SAMPLE
     super_h = canvas_h * _SUPER_SAMPLE
-    image = Image.new("L", (super_w, super_h), color=255)
-    draw = ImageDraw.Draw(image)
+    with closing(Image.new("RGB", (super_w, super_h), color="white")) as image:
+        draw = ImageDraw.Draw(image, "RGBA")
+        scale, offset_x, offset_y = _page_render_transform(page, bounds)
+        for layer in layers:
+            _render_layer(draw, layer, scale, offset_x, offset_y)
+        with closing(image.convert("L")) as grayscale:
+            return grayscale.resize((canvas_w, canvas_h), Image.LANCZOS)
 
-    scale, offset_x, offset_y = _page_render_transform(page, bounds)
 
-    for layer in layers:
-        _render_layer(draw, layer, scale, offset_x, offset_y)
-
-    if _SUPER_SAMPLE > 1:
-        image = image.resize((canvas_w, canvas_h), Image.LANCZOS)
-    return image
+def _write_pdf(pages: Sequence[PageInfo], output) -> None:
+    # One catalog avoids Pillow's incremental-append parser and keeps only one canvas alive.
+    with PdfParser.PdfParser(f=output, mode="w+b") as pdf:
+        pdf.start_writing()
+        pdf.write_header()
+        pdf.pages = [pdf.next_object_id(0) for _ in pages]
+        pdf.write_catalog()
+        for index, page in enumerate(pages):
+            layers, bounds = _parse_rm(page.path, page.width)
+            with closing(_render_page(page, layers, bounds)) as rendered, BytesIO() as encoded:
+                rendered.save(encoded, "JPEG")
+                image_ref = pdf.write_obj(
+                    None, stream=encoded.getvalue(), Type=PdfParser.PdfName("XObject"),
+                    Subtype=PdfParser.PdfName("Image"), Width=rendered.width, Height=rendered.height,
+                    Filter=PdfParser.PdfName("DCTDecode"), BitsPerComponent=8,
+                    ColorSpace=PdfParser.PdfName("DeviceGray"),
+                )
+                width = rendered.width * 72.0 / 300.0
+                height = rendered.height * 72.0 / 300.0
+            contents_ref = pdf.write_obj(
+                None, stream=b"q %f 0 0 %f 0 0 cm /image Do Q\n" % (width, height),
+            )
+            pdf.write_page(
+                index, MediaBox=[0, 0, width, height], Contents=contents_ref,
+                Resources=PdfParser.PdfDict(
+                    ProcSet=[PdfParser.PdfName("PDF"), PdfParser.PdfName("ImageB")],
+                    XObject=PdfParser.PdfDict(image=image_ref),
+                ),
+            )
+        pdf.write_xref_and_trailer()
 
 
 def render_notebook_to_pdf(source: str, output_pdf: str, workspace: Optional[str] = None) -> None:
     """Render a notebook (directory or archive) into a multi-page PDF."""
 
+    destination = Path(output_pdf)
+    resolved_destination = destination.resolve()
+    if resolved_destination == Path(source).resolve():
+        raise RmrlError("导出目标不能覆盖笔记源文件")
     notebook = _NotebookSource(source, workspace)
     try:
         pages = _collect_pages(notebook.root)
         if not pages:
             raise RmrlError("未找到任何 .rm 页面")
-        images: List[Image.Image] = []
-        for page in pages:
-            layers, bounds = _parse_rm(page.path)
-            rendered = _render_page(page, layers, bounds)
-            images.append(rendered.convert("RGB"))
-        if not images:
-            raise RmrlError("没有可用于导出的页面")
-        first, *rest = images
-        first.save(
-            output_pdf,
-            "PDF",
-            resolution=300.0,
-            save_all=bool(rest),
-            append_images=rest,
-        )
+        if any(resolved_destination == page.path.resolve() for page in pages) or any(
+            resolved_destination == path.resolve() for path in _iter_content_files(notebook.root)
+        ):
+            raise RmrlError("导出目标不能覆盖笔记源文件")
+        fd, temporary = tempfile.mkstemp(prefix=".rmrl-", suffix=".pdf", dir=destination.parent)
+        os.close(fd)
+        try:
+            with open(temporary, "w+b") as handle:
+                _write_pdf(pages, handle)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, destination)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
     finally:
         notebook.cleanup()

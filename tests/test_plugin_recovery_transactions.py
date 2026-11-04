@@ -1,6 +1,7 @@
 """Execute recovery transactions locally; never mount or contact a device."""
 
 import os
+import hashlib
 import shutil
 import subprocess
 import tempfile
@@ -8,6 +9,7 @@ import unittest
 from pathlib import Path
 
 import _xovi_standalone as shared
+import _plugin_recovery as recovery
 
 
 SH = shutil.which("sh")
@@ -62,14 +64,17 @@ class RecoveryTransactionTests(unittest.TestCase):
         return {str(path.relative_to(directory)).replace("\\", "/"): path.read_bytes()
                 for path in directory.rglob("*") if path.is_file()}
 
-    def execute(self, failure="", *, enable_dropin=True, root_mode="ro", legacy_layouts=(), controls_only=False):
+    def execute(self, failure="", *, enable_dropin=True, root_mode="ro", legacy_layouts=(), controls_only=False,
+                stop_units=(), pinyin_stage=None, runtime_pid=False):
         script = shared.shared_transaction_script(
             self.LAYOUT.remote_base + ".staging-" + self.TOKEN,
             self.TOKEN, legacy_layouts, enable_dropin=enable_dropin, retain_backup=True,
             layout=self.LAYOUT,
             controls_only=controls_only,
+            stop_units=stop_units,
+            pinyin_stage=pinyin_stage,
         )
-        self.assertNotRegex(script, r"\b(?:reboot|shutdown)\b|systemctl\s+(?:start|restart|try-restart)")
+        self.assertNotRegex(script, r"\b(?:reboot|shutdown)\b|systemctl\s+(?:start|restart|try-restart)\s+xochitl")
         # The trailing slash preserves concatenated lower-root paths after the
         # absolute device paths become relative sandbox paths.
         script = script.replace("/tmp/rmtool-xovi-rootfs-" + self.TOKEN, "./sandbox/mount/")
@@ -77,6 +82,15 @@ class RecoveryTransactionTests(unittest.TestCase):
             script = script.replace(prefix, "./sandbox" + prefix)
         script = script.replace("mount --bind / ", "mount --bind ./sandbox/root ")
         script = script.replace("/proc/mounts", "./sandbox/proc-mounts")
+        if runtime_pid:
+            script = script.replace("/proc/", "./sandbox/proc/").replace("/run", "./sandbox/run")
+            (self.root / "sandbox/run").mkdir()
+            boot = self.root / "sandbox/proc/sys/kernel/random/boot_id"
+            boot.parent.mkdir(parents=True)
+            boot.write_text("test-boot\n")
+            process = self.root / "sandbox/proc/778/stat"
+            process.parent.mkdir()
+            process.write_text(" ".join(["0"] * 21 + ["1000"]) + "\n")
         script = script.removeprefix("#!/bin/sh\n")
         self.assertNotRegex(script, r"(?<![\w.])/(?:data|etc|tmp|home|system)(?:/|\b)")
         self.assertNotIn("mount --bind / ", script)
@@ -179,12 +193,28 @@ umount() {
 }
 systemctl() {
     printf 'systemctl %s\n' "$*" >> ./sandbox/events
-    [ "$*" = daemon-reload ] && inject daemon-reload
+    case "$1" in
+        show) if [ "$2" = xochitl ] && [ '__RUNTIME_PID__' = 1 ]; then echo 778; else cat ./sandbox/unit-state; fi ;;
+        stop) printf 'inactive\n' > ./sandbox/unit-state ;;
+        start) printf 'active\n' > ./sandbox/unit-state ;;
+        daemon-reload) inject daemon-reload ;;
+        *) return 98 ;;
+    esac
 }
 '''.replace("__FAILURE__", "'" + failure + "'").replace(
             "__WINDOWS__", "1" if os.name == "nt" else "0"
         ).replace("__DROPIN__", shared.SHARED_LAYOUT.dropin_name)
+        prelude = prelude.replace("__RUNTIME_PID__", "1" if runtime_pid else "0")
+        if runtime_pid:
+            # Root ownership and 0600 are modeled; content and atomic moves use
+            # real files even on Windows, where POSIX metadata is unavailable.
+            prelude += '''
+stat() {
+    case "$2" in '%u:%g') echo 0:0 ;; '%a:%u:%g:%h') echo 600:0:0:1 ;; *) command stat "$@" ;; esac
+}
+'''
         command = prelude + script
+        (self.root / "sandbox/unit-state").write_text("active\n", encoding="ascii")
         syntax = subprocess.run([SH, "-n"], input=command, cwd=self.root,
                                 capture_output=True, encoding="utf-8", errors="replace", timeout=20)
         self.assertEqual(syntax.returncode, 0, syntax.stderr)
@@ -203,8 +233,13 @@ systemctl() {
             elif event == "umount":
                 mounted = False
             elif event.startswith("systemctl"):
-                self.assertEqual(event, "systemctl daemon-reload")
-                self.assertFalse(mounted, "daemon-reload must follow unmount")
+                if event == "systemctl daemon-reload":
+                    self.assertFalse(mounted, "daemon-reload must follow unmount")
+                elif event == "systemctl show xochitl -p MainPID --value":
+                    pass
+                else:
+                    self.assertIn("rmtool-pinyin-input.service", event)
+                    self.assertFalse(mounted, "service changes must follow unmount")
         self.assertFalse(mounted)
         if failure:
             self.assertTrue((self.root / "sandbox/failures").exists(), result.stderr)
@@ -230,6 +265,17 @@ systemctl() {
         self.assertEqual((self.backup / "lower-0").read_bytes(), b"old lower\n")
         self.assertEqual(self.upper.read_bytes(), b"new dropin\n")
         self.assertEqual(self.lower.read_bytes(), b"new dropin\n")
+
+    def test_pinyin_stop_commits_with_shared_state(self):
+        result = self.execute(stop_units=("rmtool-pinyin-input.service",))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / "sandbox/unit-state").read_text(), "inactive\n")
+
+    def test_pinyin_stop_rolls_back_with_shared_state(self):
+        result = self.execute("stage-move", stop_units=("rmtool-pinyin-input.service",))
+        self.assertNotEqual(result.returncode, 0)
+        self.assert_restored()
+        self.assertEqual((self.root / "sandbox/unit-state").read_text(), "active\n")
 
     def prepare_controls(self):
         self.old_tree["systemd/" + self.LAYOUT.dropin_name] = b"old control dropin\n"
@@ -285,6 +331,47 @@ systemctl() {
         self.assertEqual(sum(event.startswith("mount --bind") for event in events), 2)
         self.assertFalse(any("remount" in event for event in events))
         self.assertEqual(self.lower.read_bytes(), b"new dropin\n")
+
+    def test_runtime_moves_record_exact_process_and_transaction_paths(self):
+        result = self.execute(runtime_pid=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        proof = self.root / "sandbox/run/rmtool-xovi-runtime-moves"
+        self.assertEqual(proof.read_text().splitlines(), [
+            "test-boot:778:1000|./sandbox" + self.LAYOUT.remote_base +
+            "|./sandbox" + self.LAYOUT.remote_base.rsplit("/", 1)[0] + "/.xovi-dropins-" + self.TOKEN + "/base-0"
+        ])
+
+    def test_pinyin_payload_and_service_rollback_are_one_transaction(self):
+        external = self.root / "sandbox/home/root/.local/share/rmtool/pinyin-input"
+        stage = external.with_name(external.name + ".staging-" + self.TOKEN)
+        external.mkdir(parents=True)
+        stage.mkdir()
+        (external / "ime-server").write_bytes(b"old service")
+        (stage / "ime-server").write_bytes(b"new service")
+        result = self.execute("stage-move", stop_units=("rmtool-pinyin-input.service",),
+                              pinyin_stage="/home/root/.local/share/rmtool/pinyin-input.staging-" + self.TOKEN)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((external / "ime-server").read_bytes(), b"old service")
+        self.assertEqual((self.root / "sandbox/unit-state").read_text().strip(), "active")
+        self.assert_restored()
+
+    def test_pinyin_payload_and_shared_marker_commit_together(self):
+        external = self.root / "sandbox/home/root/.local/share/rmtool/pinyin-input"
+        stage = external.with_name(external.name + ".staging-" + self.TOKEN)
+        external.mkdir(parents=True)
+        stage.mkdir()
+        (external / "ime-server").write_bytes(b"old service")
+        (stage / "ime-server").write_bytes(b"new service")
+        result = self.execute(stop_units=("rmtool-pinyin-input.service",),
+                              pinyin_stage="/home/root/.local/share/rmtool/pinyin-input.staging-" + self.TOKEN)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((external / "ime-server").read_bytes(), b"new service")
+        self.assertEqual(
+            (external.with_name(external.name + ".backup-" + self.TOKEN) / "ime-server").read_bytes(),
+            b"old service",
+        )
+        self.assertEqual(self.tree(self.base), self.new_tree)
+        self.assertEqual((self.root / "sandbox/unit-state").read_text().strip(), "inactive")
 
     def test_already_writable_root_rollback_skips_busy_remounts(self):
         self.assertNotEqual(self.execute("lower-write", root_mode="rw").returncode, 0)
@@ -369,6 +456,135 @@ class RM1RecoveryTransactionTests(RecoveryTransactionTests):
         self.assertEqual(self.tree(source), self.old_tree)
         self.assertEqual(self.upper.read_bytes(), b"old upper\n")
         self.assertEqual(self.lower.read_bytes(), b"old lower\n")
+
+
+@unittest.skipUnless(SH, "A POSIX shell (or Git Bash) is required")
+class IncompleteCleanupTransactionTests(unittest.TestCase):
+    def run_cleanup(self, *, same_inode=False, root_mode="rw", failure="", tampered=False, missing_parent=False):
+        temporary = tempfile.TemporaryDirectory(prefix="rmtool-incomplete-")
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        device = root / "sandbox"
+        upper = device / "etc/systemd/system/xochitl.service.d/92-rmtool-xovi-standalone.conf"
+        lower = device / "mount/etc/systemd/system/xochitl.service.d/92-rmtool-xovi-standalone.conf"
+        for path in (upper, lower):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"known dropin\n")
+            path.chmod(0o644)
+        (device / "data").mkdir()
+        if not missing_parent:
+            (device / "data/rmtool").mkdir()
+        (device / "tmp").mkdir()
+        (device / "mounts").write_text(f"rootfs / ext4 {root_mode} 0 0\n")
+        digest = hashlib.sha256(b"known dropin\n").hexdigest()
+        snapshot = (shared.SHARED_LAYOUT.dropin_path, 0o100644, 13, digest)
+        plan = recovery._CleanupPlan((), snapshot, snapshot, (), ())
+        script = recovery._incomplete_cleanup_script(plan, "b" * 32)
+        script = script.replace("/proc/mounts", "./sandbox/mounts")
+        script = script.replace("/tmp/rmtool-xovi-incomplete-root-" + "b" * 32, "./sandbox/mount")
+        script = script.replace("$MOUNT_DIR/etc/", "./sandbox/mount/etc/")
+        for prefix in ("/data/", "/etc/", "/tmp/"):
+            script = script.replace(prefix, "./sandbox" + prefix)
+        # Repair the lower path suffix after rewriting its /etc component.
+        script = script.replace("./sandbox/mount./sandbox/etc/", "./sandbox/mount/etc/")
+        script = script.replace("mount --bind / ", "mount --bind ./sandbox/root ")
+        script = script.removeprefix("#!/bin/sh\n")
+        if same_inode:
+            # A bind mount with no /etc overlay resolves both names to one file.
+            script = script.replace("./sandbox/mount/etc/", "./sandbox/etc/")
+        if tampered:
+            upper.write_bytes(b"tampered bytes\n")
+        prelude = r'''
+FAILED=0
+guard() {
+    for arg; do
+        case "$arg" in -*|[0-9][0-9][0-9]|[0-9][0-9][0-9][0-9]|./sandbox/*) ;;
+        *) echo "unsafe test path: $arg" >&2; exit 98 ;; esac
+        case "$arg" in *../*) exit 98 ;; esac
+    done
+}
+stat() {
+    if [ "$1" = -c ] && [ "$2" = '%a:%u:%g:%s' ]; then
+        [ -e "$3" ] || return 1
+        printf '644:0:0:%s\n' "$(command stat -c %s "$3")"
+    else command stat "$@"; fi
+}
+mkdir() { guard "$@"; if [ "$1" = -m ]; then shift 2; fi; command mkdir "$@"; }
+rmdir() { guard "$@"; command rmdir "$@"; }
+cp() { guard "$@"; command cp "$@"; }
+mv() { guard "$@"; command mv "$@"; }
+rm() {
+    guard "$@"
+    command rm "$@" || return $?
+    if [ "$FAILED" -eq 0 ] && [ '__FAILURE__' = removed-upper ] && [ "$*" = "-f $DROPIN" ]; then
+        FAILED=1; return 71
+    fi
+}
+sync() { :; }
+mount() {
+    printf 'mount %s\n' "$*" >> ./sandbox/events
+    case "$*" in '--bind ./sandbox/root ./sandbox/mount'|'-o remount,rw ./sandbox/mount'|'-o remount,ro ./sandbox/mount') ;;
+    *) return 98 ;; esac
+}
+umount() {
+    [ "$1" = ./sandbox/mount ] || return 98
+    printf 'umount\n' >> ./sandbox/events
+    [ '__FAILURE__' != unmount-busy ] || return 73
+}
+systemctl() { [ "$*" = daemon-reload ] || return 98; echo daemon-reload >> ./sandbox/events; }
+'''.replace("__FAILURE__", failure)
+        # The fake bind root already contains lower files, unlike the empty
+        # mountpoint on the tablet. Leave its directory in place after unmount.
+        prelude += '\nrmdir() { guard "$@"; [ "$1" = ./sandbox/mount ] || command rmdir "$@"; }\n'
+        script = script.replace('mkdir -m 0700 "$MOUNT_DIR"', 'mkdir -p "$MOUNT_DIR"')
+        result = subprocess.run([SH], input=prelude + script, cwd=root,
+                                capture_output=True, encoding="utf-8", timeout=30)
+        self.assertNotEqual(result.returncode, 98, result.stderr)
+        self.assertNotIn("unsafe", result.stderr)
+        return result, upper, lower, device
+
+    def test_both_layouts_clean_without_losing_original_root_mode(self):
+        for same_inode in (True, False):
+            for mode in ("rw", "ro"):
+                with self.subTest(same_inode=same_inode, mode=mode):
+                    result, upper, lower, device = self.run_cleanup(same_inode=same_inode, root_mode=mode)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertFalse(upper.exists())
+                    if not same_inode:
+                        self.assertFalse(lower.exists())
+                    events = (device / "events").read_text()
+                    self.assertEqual("remount" in events, mode == "ro")
+
+    def test_both_layouts_restore_dropins_on_failure(self):
+        for same_inode in (True, False):
+            with self.subTest(same_inode=same_inode):
+                result, upper, lower, _device = self.run_cleanup(same_inode=same_inode, failure="removed-upper")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(upper.read_bytes(), b"known dropin\n")
+                self.assertEqual(lower.read_bytes(), b"known dropin\n")
+
+    def test_changed_dropin_is_not_deleted(self):
+        result, upper, lower, _device = self.run_cleanup(tampered=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(upper.read_bytes(), b"tampered bytes\n")
+        self.assertEqual(lower.read_bytes(), b"known dropin\n")
+
+    def test_dropin_only_cleanup_can_create_missing_backup_parent(self):
+        result, upper, lower, _device = self.run_cleanup(missing_parent=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(upper.exists())
+        self.assertFalse(lower.exists())
+
+    def test_busy_unmount_keeps_persistent_backup_and_never_rebinds(self):
+        result, _upper, _lower, device = self.run_cleanup(failure="unmount-busy")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rollback incomplete; recovery kept", result.stderr)
+        backups = list((device / "data/rmtool").glob("*.incomplete-backup-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual((backups[0] / "dropin-lower").read_bytes(), b"known dropin\n")
+        events = (device / "events").read_text()
+        self.assertEqual(events.count("mount --bind"), 1)
+        self.assertNotIn("daemon-reload", events)
 
 
 if __name__ == "__main__":

@@ -94,11 +94,13 @@ def _build_dialog(
     text_stack.setSpacing(8)
 
     title = QtWidgets.QLabel(heading)
+    title.setTextFormat(QtCore.Qt.PlainText)
     title.setObjectName("appDialogTitle")
     title.setWordWrap(True)
     text_stack.addWidget(title)
 
     body = QtWidgets.QLabel(message)
+    body.setTextFormat(QtCore.Qt.PlainText)
     body.setObjectName("appDialogBody")
     body.setWordWrap(True)
     body.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
@@ -114,6 +116,7 @@ def _build_dialog(
         note_layout = QtWidgets.QVBoxLayout(note)
         note_layout.setContentsMargins(14, 12, 14, 12)
         note_text = QtWidgets.QLabel(detail)
+        note_text.setTextFormat(QtCore.Qt.PlainText)
         note_text.setObjectName("appDialogNoteText")
         note_text.setWordWrap(True)
         note_text.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
@@ -224,7 +227,10 @@ def _show_message(
         secondary_text=secondary_text,
         feedback_text=feedback_text,
     )
-    return dialog.exec_()
+    try:
+        return dialog.exec_()
+    finally:
+        dialog.deleteLater()
 
 
 def ask_confirmation(
@@ -248,4 +254,7 @@ def ask_confirmation(
         secondary_text=cancel_text,
         primary_role="danger" if danger else "primary",
     )
-    return dialog.exec_() == QtWidgets.QDialog.Accepted
+    try:
+        return dialog.exec_() == QtWidgets.QDialog.Accepted
+    finally:
+        dialog.deleteLater()

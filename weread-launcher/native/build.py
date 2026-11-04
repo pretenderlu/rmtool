@@ -6,6 +6,11 @@ import argparse
 import hashlib
 import subprocess
 from pathlib import Path
+import sys
+import tempfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools.native_build import check_no_build_paths, prefix_maps, verify_tool
 
 
 def run(command: list[str]) -> None:
@@ -21,13 +26,17 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--shim-output", type=Path, required=True)
     args = parser.parse_args()
+    for name, path in (("zig", args.zig), ("moc", args.qt_host / "bin/moc.exe"), ("rcc", args.qt_host / "bin/rcc.exe")):
+        verify_tool(name, path)
 
     here = Path(__file__).resolve().parent
     moc = args.qt_host / "bin" / "moc.exe"
     rcc = args.qt_host / "bin" / "rcc.exe"
     include = args.qt_host / "include"
-    generated = here / "moc_WeReadLauncher.cpp"
-    generated_resource = here / "qrc_weread_assets.cpp"
+    temporary = tempfile.TemporaryDirectory()
+    work = Path(temporary.name)
+    generated = work / "moc_WeReadLauncher.cpp"
+    generated_resource = work / "qrc_weread_assets.cpp"
     args.shim_output.parent.mkdir(parents=True, exist_ok=True)
     run(
         [
@@ -46,6 +55,7 @@ def main() -> int:
             "-Wl,--gc-sections",
             "-s",
             "-ldl",
+            *prefix_maps((work, "weread-generated"), (args.qt_host, "qt"), (args.zig.parent, "zig")),
             str(here / "fast_refresh.cpp"),
             "-o",
             str(args.shim_output),
@@ -73,7 +83,9 @@ def main() -> int:
                 "-shared",
                 "-fPIC",
                 "-O2",
+                "-s",
                 "-Wl,--allow-shlib-undefined",
+                *prefix_maps((work, "weread-generated"), (args.qt_host, "qt"), (args.zig.parent, "zig")),
                 f'-DRMTOOL_WEREAD_FAST_SHA256="{shim_sha256}"',
                 "-I",
                 str(include),
@@ -81,6 +93,7 @@ def main() -> int:
                 str(include / "QtCore"),
                 "-I",
                 str(include / "QtQml"),
+                "-I", str(work),
                 str(here / "main.cpp"),
                 str(generated_resource),
                 "-o",
@@ -88,8 +101,9 @@ def main() -> int:
             ]
         )
     finally:
-        generated.unlink(missing_ok=True)
-        generated_resource.unlink(missing_ok=True)
+        temporary.cleanup()
+    check_no_build_paths(args.output, args.qt_host, args.zig.parent)
+    check_no_build_paths(args.shim_output, args.qt_host, args.zig.parent)
     return 0
 
 

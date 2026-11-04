@@ -110,7 +110,7 @@ class PinyinInputTests(unittest.TestCase):
         self.assertEqual((len(qmd), hashlib.sha256(qmd).hexdigest()), (spec.size, spec.sha256))
         self.assertEqual(
             spec.sha256,
-            pinyin.V3_QMD_SHA256,
+            "4fd0a9d76d9ee6766423ed32d9749af509e3bc5f97307602d6d1355020743122",
         )
         source = qmd.decode("utf-8")
         self.assertNotIn('return "中文";', source)
@@ -118,7 +118,7 @@ class PinyinInputTests(unittest.TestCase):
         self.assertTrue(all(item.offline_verified for item in packages))
         self.assertEqual(
             {(item.platform, item.release_version) for item in packages if item.device_verified},
-            {("ferrari", "3.28.0.166")},
+            set(),
         )
         rcc = (ROOT / "pinyin-input/zh_CN.rcc").read_bytes()
         rcc_spec = package.file(pinyin.RCC_PATH)
@@ -268,8 +268,8 @@ class PinyinInputTests(unittest.TestCase):
         self.assertEqual(v4.feature.extra_files, v5.feature.extra_files)
         self.assertEqual(v5.feature.sidecars[0].unit_name, "")
         self.assertEqual(v5.feature.sidecars[0].unit_runtime_path, "")
-        self.assertEqual(v3.feature.sha256, current.sha256)
-        self.assertEqual(v3.feature.size, current.size)
+        self.assertEqual(v3.feature.sha256, pinyin.V3_QMD_SHA256)
+        self.assertEqual(v3.feature.size, pinyin.V3_QMD_SIZE)
         self.assertEqual(v3.feature.strict_metadata_paths, ())
         self.assertEqual(v4.feature.strict_metadata_paths, ())
         self.assertNotEqual(v4.feature.sha256, current.sha256)
@@ -576,14 +576,14 @@ class PinyinInputTests(unittest.TestCase):
             self.assertIs(inspection, expected)
             self.assertEqual(installed[pinyin.FEATURE_ID], accepted.feature)
             self.assertEqual(reason, accepted.reason)
-            self.assertEqual(calls, failures + 1)
+            self.assertEqual(calls, failures + 2)
 
         with patch.object(
             shared, "inspect_shared", side_effect=RuntimeError("modified tree")
         ) as inspect:
             with self.assertRaisesRegex(RuntimeError, "modified tree"):
                 pinyin._inspect_shared_revision(Mock(), runtime, trusted, package)
-        self.assertEqual(inspect.call_count, len(predecessors) + 1)
+        self.assertEqual(inspect.call_count, 2 * (len(predecessors) + 2))
 
     def test_rmkit_owned_ime_is_rejected_before_writes(self):
         ssh = Mock()
@@ -657,7 +657,13 @@ class PinyinInputTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as raised:
                 pinyin.enable_cloud(device, package, ".rmtool")
         self.assertEqual(raised.exception.recovery_context["kind"], "shared-capacity")
-        self.assertEqual(raised.exception.recovery_context["required"], 20795392)
+        runtime, feature = pinyin._shared_specs(package)
+        states = {
+            "native-chinese": shared.SharedFeatureState(native_feature, True, "token"),
+            pinyin.FEATURE_ID: shared.SharedFeatureState(feature, True, "token"),
+        }
+        self.assertEqual(raised.exception.recovery_context["required"],
+                         shared.shared_capacity_budget(runtime, states).required_bytes + shared.storage.LEGACY_ROOT_RESERVE)
         download.assert_not_called()
         device.transfer_file.assert_not_called()
         self.assertEqual(set(device.entries), entries)
@@ -743,7 +749,7 @@ class PinyinInputTests(unittest.TestCase):
         self.assertNotIn("systemctl restart", commands)
         self.assertNotIn("reboot", commands)
 
-    def test_enable_restores_previous_payload_when_staged_swap_fails(self):
+    def test_enable_delegates_payload_swap_to_shared_transaction(self):
         package = self.package()
         ssh = Mock()
 
@@ -764,17 +770,13 @@ class PinyinInputTests(unittest.TestCase):
             pinyin, "_has_external_payload", return_value=True
         ), patch.object(pinyin, "_validate_external_payload"), patch.object(
             pinyin, "_stage_external"
-        ), patch.object(shared, "_enable_shared_locked") as activate:
+        ), patch.object(shared, "_enable_shared_locked", side_effect=RuntimeError("swap failed")) as activate:
             with self.assertRaisesRegex(RuntimeError, "swap failed"):
                 pinyin.enable(ssh, package, "package.tar.gz", ".rmtool")
 
         commands = [call.args[0] for call in ssh.exec_checked.call_args_list]
-        old_move = next(command for command in commands if command.startswith(
-            f"mv {pinyin.REMOTE_BASE} {pinyin.REMOTE_BASE}.backup-"
-        ))
-        backup = old_move.split()[-1]
-        self.assertIn(f"mv {backup} {pinyin.REMOTE_BASE}", commands)
-        activate.assert_not_called()
+        self.assertFalse(any(command.startswith("mv ") for command in commands))
+        self.assertTrue(activate.call_args.kwargs["pinyin_stage"].startswith(pinyin.REMOTE_BASE + ".staging-"))
 
     def test_enable_is_idempotent_after_exact_validation(self):
         package = self.package()
@@ -874,12 +876,12 @@ class PinyinInputTests(unittest.TestCase):
                     pinyin.enable(ssh, package, "package.tar.gz", ".rmtool")
             self.assertIs(activate.call_args.args[4], installed_trusted)
             commands = "\n".join(call.args[0] for call in ssh.exec_checked.call_args_list)
-            self.assertIn(f"mv {pinyin.REMOTE_BASE}", commands)
-            self.assertIn(f" {pinyin.REMOTE_BASE}", commands)
+            self.assertNotIn(f"mv {pinyin.REMOTE_BASE}", commands)
+            self.assertTrue(activate.call_args.kwargs["pinyin_stage"].startswith(pinyin.REMOTE_BASE + ".staging-"))
             self.assertNotIn("systemctl restart", commands)
             self.assertNotIn("reboot", commands)
 
-    def test_disable_restores_home_payload_when_shared_disable_fails(self):
+    def test_disable_keeps_home_payload_when_shared_disable_fails(self):
         package = self.package()
         runtime, feature = pinyin._shared_specs(package)
         inspection = shared.SharedInspection(
@@ -903,8 +905,8 @@ class PinyinInputTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "disable failed"):
                 pinyin.disable(ssh, (package,))
         commands = "\n".join(call.args[0] for call in ssh.exec_checked.call_args_list)
-        self.assertIn(f"mv {pinyin.REMOTE_BASE}", commands)
-        self.assertIn(f" {pinyin.REMOTE_BASE}", commands)
+        self.assertNotIn(f"mv {pinyin.REMOTE_BASE}", commands)
+        self.assertNotIn(f"rm -rf {pinyin.REMOTE_BASE}", commands)
         self.assertNotIn("systemctl restart", commands)
         self.assertNotIn("reboot", commands)
 
@@ -962,7 +964,7 @@ class PinyinInputTests(unittest.TestCase):
         self.assertLess(ssh.events.index("shared-removed"), ssh.events.index("external-removed"))
         refresh.assert_called_once_with(ssh, (package,))
 
-    def test_uninstall_refuses_running_service_before_any_removal(self):
+    def test_uninstall_running_service_delegates_stop_to_shared_transaction(self):
         package, runtime, trusted, inspection = self.uninstall_fixture()
         ssh = FakeSSH()
         with patch.object(tap, "get_device_identity", return_value=self.identity()), patch.object(
@@ -970,16 +972,16 @@ class PinyinInputTests(unittest.TestCase):
         ), patch.object(
             pinyin, "_inspect_shared_revision", return_value=(inspection, trusted, None)
         ), patch.object(shared, "inspect_shared", return_value=inspection), patch.object(
-            shared, "replace_shared_features"
+            shared, "replace_shared_features", side_effect=RuntimeError("transaction stopped")
         ) as replace_shared, patch.object(
             pinyin, "_has_external_payload", return_value=True
         ), patch.object(pinyin, "_validate_external_payload"), patch.object(
             pinyin, "_server_running", return_value=True
         ):
-            with self.assertRaisesRegex(RuntimeError, "服务正在运行"):
+            with self.assertRaisesRegex(RuntimeError, "transaction stopped"):
                 pinyin.uninstall(ssh, (package,))
 
-        replace_shared.assert_not_called()
+        replace_shared.assert_called_once()
         self.assertFalse(ssh.shared_removed)
         self.assertTrue(ssh.external_present)
         self.assertEqual((ssh.lock_acquisitions, ssh.lock_releases), (1, 1))

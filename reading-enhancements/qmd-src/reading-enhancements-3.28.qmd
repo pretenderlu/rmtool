@@ -742,12 +742,14 @@ AFFECT /qml/device/view/documentview/SceneViewGestures.qml
                     const rmtoolDirection = touchArea.rmtoolTapPageDirection(pos)
                     if (!linkPressed && rmtoolDirection < 0) {
                         console.warn("RMTOOL-READING: previous")
+                        touchClicked()
                         reset()
                         view.moveBackward()
                         return
                     }
                     if (!linkPressed && rmtoolDirection > 0) {
                         console.warn("RMTOOL-READING: next")
+                        touchClicked()
                         reset()
                         view.moveForward()
                         return

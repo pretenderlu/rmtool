@@ -10,6 +10,7 @@ import secrets
 import sys
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -512,12 +513,33 @@ def _github_release_assets(resource: Resource):
     return result
 
 
+def referenced_asset_names(resource: Resource) -> set[str]:
+    document = _read_json(resource.repository_manifest.read_bytes(), "bundled manifest")
+    if resource.name == "localization":
+        entries = [entry for firmware in document["firmwares"].values()
+                   for entry in (firmware, *firmware.get("variants", []))]
+        pattern = LOCALIZATION_ASSET_RE
+    else:
+        entries = document["packages"]
+        pattern = ASSET_RE
+    names = {entry["asset"] for entry in entries}
+    if not all(isinstance(name, str) and pattern.fullmatch(name) for name in names):
+        raise RuntimeError("Invalid referenced resource names.")
+    return {"manifest.json", *names}
+
+
 def download_releases(download_root: Path) -> None:
     download_root.mkdir(parents=True, exist_ok=True)
     for resource in RESOURCES.values():
         release_dir = download_root / resource.release_dir_name
         release_dir.mkdir()
-        for name, url, expected_size in _github_release_assets(resource):
+        required = referenced_asset_names(resource)
+        assets = _github_release_assets(resource)
+        if required - {name for name, _url, _size in assets}:
+            raise RuntimeError(f"Missing currently referenced assets in {resource.tag}.")
+        for name, url, expected_size in assets:
+            if name not in required:
+                continue  # Historical immutable assets remain on the release.
             payload = _retry(
                 f"GitHub download for {name}",
                 lambda url=url: _request_bytes(
@@ -566,10 +588,14 @@ def _public_url(key: str) -> str:
 def _public_matches(path: Path, key: str) -> bool:
     try:
         actual = _request_bytes(_public_url(key), limit=MAX_DOWNLOAD_BYTES, timeout=30)
-    except Exception:
-        return False
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return False
+        raise
     expected = path.read_bytes()
-    return len(actual) == len(expected) and _sha256(actual) == _sha256(expected)
+    if actual != expected:
+        raise RuntimeError(f"Immutable resource already exists with different content: {key}. Use a content-addressed name.")
+    return True
 
 
 def _retry(label: str, operation, attempts=3):
@@ -671,10 +697,14 @@ def main(argv=None) -> int:
     publish = subparsers.add_parser("publish", help="download, validate, and publish all releases")
     publish.add_argument("--download-dir", type=Path, required=True)
     publish.add_argument("--env-file", type=Path, default=ROOT / ".env")
+    names = subparsers.add_parser("names", help="list only assets referenced by the bundled manifest")
+    names.add_argument("--resource", choices=RESOURCES, required=True)
     args = parser.parse_args(argv)
 
     try:
-        if args.command == "verify":
+        if args.command == "names":
+            print("\n".join(sorted(referenced_asset_names(RESOURCES[args.resource]))))
+        elif args.command == "verify":
             validate_releases(args.release_root, _resource_names(args.resource))
         else:
             credentials = load_env(args.env_file)

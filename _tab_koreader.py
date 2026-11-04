@@ -298,11 +298,13 @@ class KOReaderTab(QtWidgets.QWidget):
                 return operation(*args, **kwargs)
 
         worker = _rmtool.Worker(run)
+        progress_task = object()
+        worker.progress_task = progress_task
 
         def progress(current, total):
             if sip.isdeleted(self) or not self._session_current(token):
                 return
-            self._update_progress_dialog(current, total)
+            self._update_progress_dialog(current, total, progress_task)
 
         worker.signals.progress.connect(progress)
         return worker
@@ -495,12 +497,13 @@ class KOReaderTab(QtWidgets.QWidget):
         self._update_management_actions()
         self._update_action_state()
         worker = self._session_worker(token, operation)
+        progress_task = worker.progress_task
 
         def on_finished(_result):
             if sip.isdeleted(self) or not self._session_current(token):
                 return
             self._management_loading = False
-            self._close_progress_dialog()
+            self._close_progress_dialog(progress_task)
             if close_connection:
                 self.ssh_client.close()
             show_info(
@@ -519,14 +522,14 @@ class KOReaderTab(QtWidgets.QWidget):
                 self._report_if_session_lost(token, exc)
                 return
             self._management_loading = False
-            self._close_progress_dialog()
+            self._close_progress_dialog(progress_task)
             self._update_management_actions()
             self._update_action_state()
             self._on_error(exc)
 
         worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
-        self._show_progress_dialog(title, pending)
+        self._show_progress_dialog(title, pending, worker=progress_task)
         self.thread_pool.start(worker)
 
     @require_connection
@@ -795,7 +798,7 @@ class KOReaderTab(QtWidgets.QWidget):
         )
 
     # -- Progress helpers ------------------------------------------------------
-    def _show_progress_dialog(self, title: str, text: str) -> None:
+    def _show_progress_dialog(self, title: str, text: str, *, worker=None) -> None:
         if self._active_progress:
             self._active_progress.close()
             self._active_progress.deleteLater()
@@ -809,9 +812,12 @@ class KOReaderTab(QtWidgets.QWidget):
         dialog.setValue(0)
         dialog.show()
         self._active_progress = dialog
+        self._progress_worker = worker
         self._progress_label_base = text
 
-    def _update_progress_dialog(self, current: int, total: int) -> None:
+    def _update_progress_dialog(self, current: int, total: int, worker=None) -> None:
+        if worker is not None and worker is not getattr(self, "_progress_worker", None):
+            return
         dialog = self._active_progress
         if not dialog:
             return
@@ -824,11 +830,14 @@ class KOReaderTab(QtWidgets.QWidget):
         dialog.setValue(int(ratio * 1000))
         dialog.setLabelText(f"{self._progress_label_base}\n已完成 {ratio * 100:.1f}%")
 
-    def _close_progress_dialog(self) -> None:
+    def _close_progress_dialog(self, worker=None) -> None:
+        if worker is not None and worker is not getattr(self, "_progress_worker", None):
+            return
         if self._active_progress:
             self._active_progress.close()
             self._active_progress.deleteLater()
             self._active_progress = None
+            self._progress_worker = None
             self._progress_label_base = ""
 
     # -- Refresh / navigation ----------------------------------------------------
@@ -1032,13 +1041,14 @@ class KOReaderTab(QtWidgets.QWidget):
             library_root,
             overwrite,
         )
+        progress_task = worker.progress_task
         worker.kwargs["progress_callback"] = worker.signals.progress.emit
 
         def on_finished(_result):
             if sip.isdeleted(self) or not self._session_current(token):
                 # Worker outlived the tab; nothing safe left to update.
                 return
-            self._close_progress_dialog()
+            self._close_progress_dialog(progress_task)
             self.status_message.emit("success", f"已上传 {count} 个文件。", 3500)
             self._reload_current()
 
@@ -1049,7 +1059,7 @@ class KOReaderTab(QtWidgets.QWidget):
                 logging.error("KOReader upload failed after tab close: %s", exc)
                 self._report_if_session_lost(token, exc)
                 return
-            self._close_progress_dialog()
+            self._close_progress_dialog(progress_task)
             self._on_error(exc)
 
         worker.signals.finished.connect(on_finished)
@@ -1057,6 +1067,7 @@ class KOReaderTab(QtWidgets.QWidget):
         self._show_progress_dialog(
             "上传进度",
             f"正在上传 {count} 个文件…" if count > 1 else "正在上传书籍…",
+            worker=progress_task,
         )
         self.thread_pool.start(worker)
 
@@ -1128,13 +1139,14 @@ class KOReaderTab(QtWidgets.QWidget):
         worker = self._session_worker(
             token, self._perform_download, files, target_dir, library_root
         )
+        progress_task = worker.progress_task
         worker.kwargs["progress_callback"] = worker.signals.progress.emit
 
         def on_finished(_result):
             if sip.isdeleted(self) or not self._session_current(token):
                 # Worker outlived the tab; nothing safe left to update.
                 return
-            self._close_progress_dialog()
+            self._close_progress_dialog(progress_task)
             self.status_message.emit("success", f"已下载 {count} 个文件。", 3500)
             show_info(self, _rmtool.APP_NAME, f"已下载 {count} 个文件到：{target_dir}")
 
@@ -1145,7 +1157,7 @@ class KOReaderTab(QtWidgets.QWidget):
                 logging.error("KOReader download failed after tab close: %s", exc)
                 self._report_if_session_lost(token, exc)
                 return
-            self._close_progress_dialog()
+            self._close_progress_dialog(progress_task)
             self._on_error(exc)
 
         worker.signals.finished.connect(on_finished)
@@ -1153,6 +1165,7 @@ class KOReaderTab(QtWidgets.QWidget):
         self._show_progress_dialog(
             "下载进度",
             f"正在下载 {count} 个文件…" if count > 1 else "正在下载书籍…",
+            worker=progress_task,
         )
         self.thread_pool.start(worker)
 
@@ -1167,6 +1180,9 @@ class KOReaderTab(QtWidgets.QWidget):
         completed = 0
         # Validate every name before writing anything to the computer.
         local_paths = [_koreader.local_download_path(target_dir, entry.name) for entry in files]
+        # Refuse the entire batch before a case-insensitive filesystem loses a book.
+        if len({os.path.normpath(path).casefold() for path in local_paths}) != len(local_paths):
+            raise RuntimeError("所选文件名存在大小写冲突，请分开下载到不同目录。")
         for entry, local_path in zip(files, local_paths):
             offset = completed
 
@@ -1224,12 +1240,13 @@ class KOReaderTab(QtWidgets.QWidget):
         ):
             return
         worker = self._session_worker(token, self._perform_delete, entries, library_root)
+        progress_task = worker.progress_task
 
         def on_finished(_result):
             if sip.isdeleted(self) or not self._session_current(token):
                 # Worker outlived the tab; nothing safe left to update.
                 return
-            self._close_progress_dialog()
+            self._close_progress_dialog(progress_task)
             self.status_message.emit("success", success_text, 3000)
             self._reload_current()
 
@@ -1240,12 +1257,12 @@ class KOReaderTab(QtWidgets.QWidget):
                 logging.error("KOReader deletion failed after tab close: %s", exc)
                 self._report_if_session_lost(token, exc)
                 return
-            self._close_progress_dialog()
+            self._close_progress_dialog(progress_task)
             self._on_error(exc)
 
         worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
-        self._show_progress_dialog("删除", progress_text)
+        self._show_progress_dialog("删除", progress_text, worker=progress_task)
         self.thread_pool.start(worker)
 
     def _perform_delete(
@@ -1277,12 +1294,13 @@ class KOReaderTab(QtWidgets.QWidget):
         worker = self._session_worker(
             token, self._perform_create_folder, current_dir, library_root, name
         )
+        progress_task = worker.progress_task
 
         def on_finished(_result):
             if sip.isdeleted(self) or not self._session_current(token):
                 # Worker outlived the tab; nothing safe left to update.
                 return
-            self._close_progress_dialog()
+            self._close_progress_dialog(progress_task)
             self.status_message.emit("success", f"已创建文件夹「{name}」。", 3000)
             self._reload_current()
 
@@ -1293,12 +1311,12 @@ class KOReaderTab(QtWidgets.QWidget):
                 logging.error("KOReader mkdir failed after tab close: %s", exc)
                 self._report_if_session_lost(token, exc)
                 return
-            self._close_progress_dialog()
+            self._close_progress_dialog(progress_task)
             self._on_error(exc)
 
         worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
-        self._show_progress_dialog("新建文件夹", f"正在创建「{name}」…")
+        self._show_progress_dialog("新建文件夹", f"正在创建「{name}」…", worker=progress_task)
         self.thread_pool.start(worker)
 
     def _perform_create_folder(

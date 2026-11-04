@@ -13,6 +13,7 @@ import _plugin_packages as packages
 import _qr_upload as qr
 import _native_import_control as control
 import _tap_page_turn as tap
+from tools.native_build import verify_archive_runtime
 
 
 def main():
@@ -29,6 +30,7 @@ def main():
                    if value[0] == args.release and key[0] == args.platform), None)
     if target is None:
         parser.error("No exact QR target for this platform/release")
+    verify_archive_runtime()
     identity, verification = target
     platform, firmware, architecture, stock = identity
     carrier = control.select_package(control._trusted_catalog(), tap.DeviceIdentity(firmware, platform, architecture, stock))
@@ -56,7 +58,7 @@ def main():
         raise RuntimeError("QR package payload set mismatch")
     archive = tap._gzip_member(tap._tar_member(files, apk_checksums=False, include_directories=False))
     release, channel, offline, device = verification
-    asset = qr._expected_asset_name(platform, firmware, release)
+    asset = packages.content_asset_name(qr._expected_asset_name(platform, firmware, release), hashlib.sha256(archive).hexdigest())
     entry = dict(firmware=firmware, platform=platform, architecture=architecture, xochitl_sha256=stock,
         release_version=release, channel=channel, offline_verified=offline, device_verified=device,
         package_revision=qr.PACKAGE_REVISION, asset=asset, sha256=hashlib.sha256(archive).hexdigest(),
@@ -69,7 +71,7 @@ def main():
         return
     document = json.loads(qr.BUNDLED_MANIFEST.read_bytes())
     for index, previous in enumerate(document["packages"]):
-        if previous["asset"] == asset:
+        if all(previous[key] == entry[key] for key in ("platform", "firmware", "architecture", "xochitl_sha256")):
             document["packages"][index] = entry
             break
     else:

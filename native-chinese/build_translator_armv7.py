@@ -6,9 +6,14 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from tools.native_build import prefix_maps, verify_tool
 
 
 def build_arm_translator(zig, work):
+    verify_tool("zig", zig)
     root = Path(__file__).resolve().parent
     with tempfile.TemporaryDirectory() as temporary:
         source = Path(temporary)
@@ -18,7 +23,7 @@ def build_arm_translator(zig, work):
             text = text.replace("_ZN7QStringC1EPK5QCharx", "_ZN7QStringC1EPK5QChari")
             text = text.replace("typedef long long i64;", "")
             text = re.sub(r"\bi64\b", "int", text)
-            (source / name).write_text(text)
+            (source / name).write_text(text, encoding="utf-8", newline="\n")
         metadata_test = source / ("test_metadata.exe" if os.name == "nt" else "test_metadata")
         subprocess.run([
             str(zig), "cc", "-std=c11", str(source / "test_metadata.c"), "-o", str(metadata_test),
@@ -41,6 +46,7 @@ def build_arm_translator(zig, work):
             str(zig), "cc", "-target", "arm-linux-gnueabihf.2.4", "-std=c11",
             "-Oz", "-shared", "-fPIC", "-fno-stack-protector", "-s",
             "-DRMTOOL_RUNTIME_CATALOG", str(source / "hook.c"),
+            *prefix_maps((source, "translator-generated")),
             str(source / "xovi.c"), "-o", str(destination),
         ], check=True, timeout=180)
         payload = destination.read_bytes()

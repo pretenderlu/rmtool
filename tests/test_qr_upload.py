@@ -1,6 +1,7 @@
 """Managed QR package boundaries; native device acceptance is a separate gate."""
 import json
 import unittest
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -13,9 +14,14 @@ from tests.test_plugin_recovery import Device
 
 class QrUploadTests(unittest.TestCase):
     def test_native_builder_normalizes_generated_source_paths(self):
-        builder = (Path(__file__).resolve().parents[1] / "qr-upload/native/build.py").read_text()
-        self.assertIn("-ffile-prefix-map={work}=qr-upload-generated", builder)
-        self.assertIn("-fmacro-prefix-map={work}=qr-upload-generated", builder)
+        from tools.native_build import prefix_maps
+
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary).resolve()
+            arguments = prefix_maps((work, "qr-upload-generated"))
+            for spelling in (str(work), work.as_posix()):
+                self.assertIn(f"-ffile-prefix-map={spelling}=qr-upload-generated", arguments)
+                self.assertIn(f"-fmacro-prefix-map={spelling}=qr-upload-generated", arguments)
 
     def setUp(self):
         self.catalog = qr._trusted_catalog()
@@ -99,6 +105,7 @@ class QrUploadTests(unittest.TestCase):
             with (patch.object(tap, "get_device_identity", return_value=self.identity),
                   patch.object(tap, "_xochitl_process_token", return_value="now"),
                   patch.object(shared, "has_shared_artifacts", return_value=True),
+                  patch.object(shared, "read_shared_identity", return_value=(self.identity.firmware, self.identity.platform, self.identity.architecture, self.identity.xochitl_sha256)),
                   patch.object(qr, "_inspect", return_value=(inspection, self.trusted, {}))):
                 status = qr.get_status(ssh, self.catalog)
             self.assertEqual(status.state, expected)
@@ -152,7 +159,15 @@ class QrUploadTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as raised:
                 _install_qr_upload(device, package, ".rmtool", False)
         self.assertEqual(raised.exception.recovery_context["kind"], "shared-capacity")
-        self.assertEqual(raised.exception.recovery_context["required"], 31039488)
+        runtime, _trusted, _legacies, feature = qr._context(device.identity, package)
+        states = {
+            "native-chinese": shared.SharedFeatureState(native_feature, True, "token"),
+            qr.FEATURE_ID: shared.SharedFeatureState(feature, True, "token"),
+        }
+        self.assertEqual(
+            raised.exception.recovery_context["required"],
+            shared.shared_capacity_budget(runtime, states).required_bytes + shared.storage.LEGACY_ROOT_RESERVE,
+        )
         download.assert_not_called()
         install.assert_not_called()
         device.transfer_file.assert_not_called()

@@ -56,7 +56,7 @@ class DeviceSSH(FakeSSH):
             self.files[target] = self.files.pop(source)
         if LOCK in command:
             self.locked = False
-        if command.startswith('if [ "$(cat ' + f.BASE + '/current'):
+        if command.startswith('set -eu; if [ -e ' + f.BASE + '/current'):
             self.commands.append(command)
             current = self.files.get(f.BASE + "/current", b"").decode().strip()
             return "yes" if current == JOB else "no"
@@ -146,16 +146,19 @@ class ReleaseTests(unittest.TestCase):
         for forbidden in ("echo 0 >", "rootdev --switch", "systemctl reboot", "reset-failed"):
             self.assertNotIn(forbidden, commands)
 
-    def test_uncertain_job_without_result_can_be_released_in_same_boot(self):
+    def test_uncertain_job_without_result_keeps_job_and_lock(self):
         del self.ssh.files[DIRECTORY + "/result"]
         self.ssh.props = "LoadState=not-found\nActiveState=inactive\nSubState=dead"
         self.assertEqual(f.query_transaction(self.ssh)[0], "unknown")
-        f.release_transaction(self.ssh, self.ssh.token, confirmed=True)
-        self.assertEqual(f.query_transaction(self.ssh)[0], "none")
+        with self.assertRaisesRegex(RuntimeError, "结果不明"):
+            f.release_transaction(self.ssh, self.ssh.token, confirmed=True)
+        self.assertEqual(f.query_transaction(self.ssh)[0], "unknown")
+        self.assertTrue(self.ssh.locked)
+        self.assertIn(DIRECTORY + "/image.swu", self.ssh.files)
 
     def test_refuses_while_device_shows_update_or_partition_risk(self):
         for change in ({"swu_status": "1"}, {"swu_applied": "1"}, {"boot": "2"},
-                       {"rootb_errcnt": "1"}, {"writer": "busy"}, {"holders": "busy"}):
+                       {"swu_status": "7"}, {"writer": "busy"}, {"holders": "busy"}):
             with self.subTest(change=change):
                 self.ssh.probe = state_text(**change)
                 with self.assertRaises(RuntimeError):
@@ -174,22 +177,22 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn(f.BASE + "/current", self.ssh.files)
 
     def test_refuses_when_any_firmware_unit_or_writer_is_running(self):
-        # query_transaction failed (unknown) although the unit is still running.
+        # Another native writer must prevent recovery even of a proven failure.
         self.ssh.jobs_running = True
-        with mock.patch.object(f, "query_transaction", return_value=("unknown", "uncertain")):
+        with mock.patch.object(f, "query_transaction", return_value=("failed", "failed")):
             with self.assertRaisesRegex(RuntimeError, "仍有固件任务"):
                 f.release_transaction(self.ssh, self.ssh.token, confirmed=True)
         self.assertIn(f.BASE + "/current", self.ssh.files)
         self.assertTrue(self.ssh.locked)
 
-    def test_invalid_pointer_is_released_but_unknown_lock_is_reported(self):
+    def test_invalid_pointer_keeps_unknown_job_and_lock(self):
         self.ssh.files[f.BASE + "/current"] = b"garbage\n"
         self.assertEqual(f.query_transaction(self.ssh)[0], "unknown")
         self.ssh.probe = state_text(shared_lock="busy")
-        message = f.release_transaction(self.ssh, self.ssh.token, confirmed=True)
-        self.assertNotIn(f.BASE + "/current", self.ssh.files)
+        with self.assertRaisesRegex(RuntimeError, "结果不明"):
+            f.release_transaction(self.ssh, self.ssh.token, confirmed=True)
+        self.assertIn(f.BASE + "/current", self.ssh.files)
         self.assertTrue(self.ssh.locked)
-        self.assertIn("插件事务锁仍在", message)
 
     def test_stale_connection_is_refused(self):
         with self.assertRaisesRegex(RuntimeError, "连接已变化"):
@@ -362,7 +365,8 @@ class CommitAndStartTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "其他固件任务"):
                 self.commit()
         self.assertEqual(self.ssh.files[f.BASE + "/current"], (other + "\n").encode())
-        self.assertFalse(self.committed["value"])
+        self.assertTrue(self.committed["value"])
+        self.assertTrue(self.ssh.firmware_guard_reason)
 
     def test_lost_connection_stays_uncertain(self):
         original = self.ssh.exec_checked

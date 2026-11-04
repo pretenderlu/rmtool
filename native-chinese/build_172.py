@@ -12,6 +12,7 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import _tap_page_turn as tap
+from _plugin_packages import content_asset_name
 import _native_chinese as native
 
 RELEASE = "3.28.0.172"
@@ -145,6 +146,7 @@ def _entry(feature, platform, files):
     }
     if feature == "native-chinese":
         entry["asset"] = native.EXPECTED_ASSETS[(FIRMWARE, platform, architecture, xochitl)]
+    entry["asset"] = content_asset_name(entry["asset"], entry["sha256"])
     return entry, data
 
 

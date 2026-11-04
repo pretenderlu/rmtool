@@ -15,6 +15,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 import _native_chinese as native
 import _tap_page_turn as tap
+import _plugin_packages as packages
 import _xovi_standalone
 
 
@@ -305,7 +306,7 @@ def build_target(
     release_version, channel, offline_verified, device_verified = (
         native.ALLOWED_TARGETS[identity]
     )
-    asset = native.EXPECTED_ASSETS[identity]
+    asset = packages.content_asset_name(native.EXPECTED_ASSETS[identity], sha256(archive))
     entry = {
         "firmware": package.firmware,
         "release_version": release_version,
@@ -350,6 +351,9 @@ def main() -> int:
     parser.add_argument("--target-firmware")
     parser.add_argument("--target-platform")
     args = parser.parse_args()
+    from tools.native_build import verify_archive_runtime, verify_tool
+    verify_archive_runtime()
+    verify_tool("qmd-tool", args.qmd_tool)
     if not args.qmd_tool.is_file():
         raise FileNotFoundError(args.qmd_tool)
 

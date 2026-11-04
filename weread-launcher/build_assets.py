@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
 
 import _reading_enhancements as reading
 import _tap_page_turn as tap
+import _plugin_packages as packages
 import _weread_launcher as weread
 
 
@@ -133,6 +134,10 @@ def main() -> int:
     parser.add_argument("--allow-hash-only", action="store_true")
     parser.add_argument("--release", choices=("3.28.0.172", "3.29.0.152", "3.29.0.153", "3.29.1.0"))
     args = parser.parse_args()
+    from tools.native_build import verify_archive_runtime, verify_tool
+    verify_archive_runtime()
+    verify_tool("qmd-tool", args.qmd_tool)
+    verify_tool("qmldiff", args.qmldiff)
 
     bridge = args.bridge.read_bytes()
     require_aarch64(bridge, "WeRead launcher bridge")
@@ -161,6 +166,11 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as temporary:
         work = Path(temporary)
         for package in sorted(carriers, key=lambda item: item.platform):
+            from tools.native_build import verify_carrier_hashtab
+            verify_carrier_hashtab(
+                args.matrix_root / f"{package.platform}-{package.firmware}-{package.release_version}" / "hashtab",
+                package,
+            )
             qmd = compile_qmd(
                 args.qmd_tool,
                 args.qmldiff,
@@ -175,7 +185,7 @@ def main() -> int:
             release, channel, offline, device = weread.ALLOWED_TARGETS[
                 (package.platform, package.firmware, package.architecture, package.xochitl_sha256)
             ]
-            asset = weread._expected_asset_name(package.platform, package.firmware, release)
+            asset = packages.content_asset_name(weread._expected_asset_name(package.platform, package.firmware, release), sha256(archive))
             (args.output_dir / asset).write_bytes(archive)
             entries.append({
                 "firmware": package.firmware,

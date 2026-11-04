@@ -82,13 +82,11 @@ class ReleaseWorkflowTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("tap-page-turn/manifest.json:tap-page-turn", workflow)
-        self.assertIn("native-chinese/manifest.json:native-chinese", workflow)
-        self.assertIn("pinyin-input/manifest.json:pinyin-input", workflow)
-        self.assertIn("reading-enhancements/manifest.json:reading-enhancements", workflow)
-        self.assertIn("note-enhancements/manifest.json:note-enhancements", workflow)
-        self.assertIn("weread-app/manifest.json:weread-app", workflow)
-        self.assertIn("weread-launcher/manifest.json:weread-launcher", workflow)
+        import _bundle_resources
+        self.assertIn("tools/build_app.py", workflow)
+        self.assertIn("tools\\build_app.py", windows_build)
+        self.assertEqual(len(_bundle_resources.MANIFESTS), 12)
+        self.assertIn("assets/published-plugin-features.json", _bundle_resources.MANIFESTS)
         self.assertIn("--collect-data certifi", workflow)
         self.assertIn(
             "dist/rmtool.app/Contents/Resources/certifi/cacert.pem", workflow
@@ -106,12 +104,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("3.28.0.172", matrix_gate)
         self.assertIn("OFFICIAL_172", matrix_gate)
         self.assertIn('"certifi\\cacert.pem"', windows_build)
-        self.assertIn(
-            'weread-app\\manifest.json\');weread-app', windows_build
-        )
-        self.assertIn(
-            'weread-launcher\\manifest.json\');weread-launcher', windows_build
-        )
+        self.assertIn("weread-app/manifest.json", _bundle_resources.MANIFESTS)
+        self.assertIn("weread-launcher/manifest.json", _bundle_resources.MANIFESTS)
         feature_workflow = (
             ROOT / ".github/workflows/sync-feature-assets.yml"
         ).read_text(encoding="utf-8")
@@ -154,6 +148,19 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
 
 class ReleaseGateTests(unittest.TestCase):
+    def test_draft_rerun_refreshes_notes_before_upload(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        self.assertLess(
+            workflow.index('gh release edit "$GITHUB_REF_NAME" "${notes_args[@]}"'),
+            workflow.index('gh release upload "$GITHUB_REF_NAME"'),
+        )
+
+    def test_local_launcher_does_not_use_path_pythonw(self):
+        launcher = (ROOT / "rmtool.bat").read_text(encoding="utf-8")
+        self.assertIn(r'"%~dp0build\.venv\Scripts\pythonw.exe"', launcher)
+        self.assertIn('py -3.12 "%~dp0rmtool.py"', launcher)
+        self.assertNotIn('start "" pythonw ', launcher)
+
     def load_checker(self):
         import importlib.util
 

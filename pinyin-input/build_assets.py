@@ -17,6 +17,7 @@ import _fast_mono_reading as fast
 import _native_chinese as native
 import _pinyin_input as pinyin
 import _tap_page_turn as tap
+import _plugin_packages as packages
 import _xovi_standalone
 
 
@@ -166,6 +167,16 @@ def build_target(
     armv7 = package.architecture == "armv7l"
     server_path = rmkit_root / "dist" / ("ime-server-armv7" if armv7 else "ime-server")
     server = server_path.read_bytes()
+    trusted = pinyin.select_package(pinyin._trusted_catalog(), tap.DeviceIdentity(
+        package.firmware, package.platform, package.architecture, package.xochitl_sha256,
+    ))
+    hook_path = rmkit_root / "dist" / ("ime_hook-armv7.so" if armv7 else "ime_hook.so")
+    if trusted is None:
+        raise RuntimeError("Pinyin native payload has no exact reviewed target")
+    for payload_path, data in ((pinyin.SERVER_PATH, server), (pinyin.HOOK_PATH, hook_path.read_bytes())):
+        expected = trusted.file(payload_path)
+        if len(data) != expected.size or sha256(data) != expected.sha256:
+            raise RuntimeError(f"Unverified Pinyin native build input: {payload_path}")
     unit_source = (REPO_ROOT / "pinyin-input/rmtool-pinyin-input.service").read_text()
     unit = unit_source.replace("18481336", str(len(server))).replace(
         "ab1935dac1e91a86e7b704f9feb0de985e009f366590448fe9c6ec5e400901bf",
@@ -210,7 +221,7 @@ def build_target(
         raise RuntimeError("Pinyin package build is not deterministic")
     identity = _identity(package)
     release, channel, offline_verified, device_verified = pinyin.ALLOWED_TARGETS[identity]
-    asset = pinyin.EXPECTED_ASSETS[identity]
+    asset = packages.content_asset_name(pinyin.EXPECTED_ASSETS[identity], sha256(payload))
     entry = {
         "firmware": package.firmware,
         "release_version": release,
@@ -245,6 +256,9 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path, default=REPO_ROOT / "pinyin-input/manifest.json")
     parser.add_argument("--local-cache", type=Path)
     args = parser.parse_args()
+    from tools.native_build import verify_archive_runtime, verify_tool
+    verify_archive_runtime()
+    verify_tool("qmd-tool", args.qmd_tool)
     if not args.qmd_tool.is_file():
         raise FileNotFoundError(args.qmd_tool)
 

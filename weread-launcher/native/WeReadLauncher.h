@@ -16,7 +16,7 @@ public:
     Q_INVOKABLE QString lastError() const { return m_lastError; }
 
 private:
-    QString validateInstallation() const;
-    QString validateFastMode() const;
+    QString validateInstallation(bool force = false) const;
+    QString validateFastMode(bool force = false) const;
     QString m_lastError;
 };

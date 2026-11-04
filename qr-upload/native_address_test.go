@@ -6,8 +6,8 @@ import (
 )
 
 func TestNativeStableMatrixAndExactIdentity(t *testing.T) {
-	if len(nativeFirmwares) != 10 {
-		t.Fatal("expected five stable and five exact beta targets")
+	if len(nativeFirmwares) != 15 {
+		t.Fatal("expected five exact targets for each of .172, .153 and 3.29.1.0")
 	}
 	for _, target := range nativeFirmwares {
 		machine := "reMarkable " + target.platform
@@ -29,7 +29,7 @@ func TestNativeStableMatrixAndExactIdentity(t *testing.T) {
 			}
 		}
 		want := "10.11.99.1/27"
-		if target.build == "20261009073202" {
+		if target.build != "20260827113527" {
 			want = "10.11.99.1/29"
 		}
 		if target.address != want {

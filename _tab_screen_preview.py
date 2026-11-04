@@ -7,6 +7,8 @@ from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
 from _dialogs import show_error, show_info
 import _screen_preview
+from _toolbox_common import session_replaced
+from _ui_tasks import run_in_background
 import rmtool as _rmtool
 
 
@@ -102,38 +104,55 @@ class ScreenPreviewTab(QtWidgets.QWidget):
         self._busy = True
         self._refresh_controls()
         generation = self._generation
-        worker = _rmtool.Worker(operation)
-        self._worker = worker
+        with self.ssh_client._state_lock:
+            client = self.ssh_client._client
+        task = object()
+        self._worker = task
 
         def finished(result):
-            if sip.isdeleted(self) or self._worker is not worker:
+            if sip.isdeleted(self) or self._worker is not task:
                 return
             self._busy = False
-            self._worker = None
-            if generation != self._generation:
+            if generation != self._generation or session_replaced(self.ssh_client, client) or not self._connected:
                 self._refresh_controls()
                 return
             try:
                 on_success(result)
             except Exception as exc:
                 failed(exc)
+            finally:
+                self._worker = None
 
-        def failed(exc):
-            if sip.isdeleted(self) or self._worker is not worker:
+        def failed(exc, *, report=True):
+            if sip.isdeleted(self) or self._worker is not task:
+                return
+            if session_replaced(self.ssh_client, client):
+                release(exc)
                 return
             self._busy = False
             self._worker = None
-            if generation != self._generation:
-                self._refresh_controls()
-                return
             self._stop_preview()
             self.status_label.setText(f"{error_prefix}：{exc}")
             self._refresh_controls()
-            show_error(self, _rmtool.APP_NAME, f"{error_prefix}：{exc}")
+            if report:
+                show_error(self, _rmtool.APP_NAME, f"{error_prefix}：{exc}")
 
-        worker.signals.finished.connect(finished)
-        worker.signals.error.connect(failed)
-        self.thread_pool.start(worker)
+        def release(_result):
+            if sip.isdeleted(self) or self._worker is not task:
+                return
+            self._busy = False
+            self._worker = None
+            self._refresh_controls()
+            if self._connected and self._page_active and self._supported is None:
+                self._detect()
+
+        worker = run_in_background(
+            self, lambda _ssh: operation(), self.ssh_client,
+            on_success=finished, error_prefix=error_prefix,
+            log_message="Screen preview failed",
+        )
+        worker.signals.finished.connect(release)
+        worker.signals.error.connect(lambda exc: failed(exc, report=False))
 
     def _detect(self) -> None:
         self.status_label.setText("正在检测屏幕预览能力…")

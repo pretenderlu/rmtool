@@ -1,0 +1,2178 @@
+{
+  "schema": 1,
+  "source": "v1.21.3",
+  "features": {
+    "tap-page-turn": {
+      "20261028104944|tatsu|aarch64|c464f2ee5f03468834cb117672ebaaabb1e322cdab8510bbdc2f663886334531": {
+        "archive_sha256": "67d51a75d55aa1c4631c4908b81dd3d9950eb29b3348cf90f9b5580d997a8b14",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+            2876,
+            420
+          ]
+        }
+      },
+      "20261028104944|rm1|armv7l|2bc210bd4e05b709ea15d7e4f357b816505a40fb1838c02f6b60040ea3c87690": {
+        "archive_sha256": "af68b1f22b0edbea5314f9d4f5004197fb7e004e24ed5a145cb33da054b14ded",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+            2876,
+            420
+          ]
+        }
+      },
+      "20261028104944|rm2|armv7l|4ab39bdf42503fe8d9e10a31a415b28b9aed6f25bd32788226c02ee23879fd13": {
+        "archive_sha256": "2186dbcd8d406c4d7d3c9ccdd15b4ed4ef00a96d0006183b9a7df069f05f45e7",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+            2876,
+            420
+          ]
+        }
+      },
+      "20261028104944|ferrari|aarch64|35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd": {
+        "archive_sha256": "b50121b69b3478277e3b2a1561ceac0b4683f47472c1b436179c0e90b6d107eb",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+            2876,
+            420
+          ]
+        }
+      },
+      "20261028104944|chiappa|aarch64|9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4": {
+        "archive_sha256": "570f8a6f082f9ebc1bb79ddba6389647bdd615ad666720363cb7a442836b9c88",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+            2876,
+            420
+          ]
+        }
+      },
+      "20260506100933|chiappa|aarch64|4646e0aef1cef2b3417889073ad5faba9259ae6b41f68326e75ef9a5c520c322": {
+        "archive_sha256": "d7d9e00962b1535f21b065db4f072eb133888eb6828e490fe2a99f535ef0758e",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260506100933|ferrari|aarch64|29b9896b07f59636d910d8a740f6562c502f676a1a70f8814459229d25cc5288": {
+        "archive_sha256": "50744944efe838d1886e20cc86fa47634ad72f3165b3dfe4c2a9dac9de1292fc",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260612085811|chiappa|aarch64|227a9bfe928ef5d164359e490d97648ffca40a5de13f07a9eb57a618a403f084": {
+        "archive_sha256": "40c563528fb36ec4a6b0c306e93f924614760728bc5fe8c2ac463e0c63b9d84a",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260612085811|ferrari|aarch64|9749880daa2f10844e77b560ec0ecddd1634d43eb328af637c7026edf3ef120e": {
+        "archive_sha256": "c1b80d80a09004d2ec483c4886b9d5c4a51283d3640f28a770df489fc796570b",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260612085811|rm1|armv7l|28268d44e710738622e576ca9256d14045fd8a18464252f3fb266c7f28d00b1f": {
+        "archive_sha256": "05bc9d776a3056ab46271cfbba72492a75b304f355c43630b6d61e9d1826bd9c",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260612085811|rm2|armv7l|87b574fc7ac1a15d502e96458a94a5279a189023bd476758e4aaca9bae13575a": {
+        "archive_sha256": "b57dcc0da706b0b1d9045c2e8c8e5a5c0683d9181d8b37e7b0fc3d5a754de439",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260612085811|tatsu|aarch64|12ccd2e95a1e8115a959322fc50de3da3243a208652ad40aba62a0cc34b7344d": {
+        "archive_sha256": "57f8e66b02d632bfebc66d0052ef7e6f0dd58d044585ce6d403d8c4efeb56326",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260629074044|chiappa|aarch64|9e3e0372a15da25b148ac17667feb566014440e079c3e3ee504112d556ad2e10": {
+        "archive_sha256": "2e34a82eea8aeecf885bea5fc2c437ed3d6b1ac48105642304f353768277dac6",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260629074044|ferrari|aarch64|10082aeb857c69c3f404ab189d7403318ba97d0c169e756ae9a5b3532b248a4a": {
+        "archive_sha256": "dd34a1e8016449cf4980d3eec80ebb0d0d1b46ffa002e02b06a84f310596493c",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "5e50757fd50a76851c01c2f572b37dbcf87f1d6eb31f0ebe215f6fcab09150b9",
+            3082,
+            420
+          ]
+        }
+      },
+      "20260702125656|chiappa|aarch64|08171df6296b99d04b3694b337bd0ce911e6a93356955961a37de9dd93a0394d": {
+        "archive_sha256": "bd75cd5414aa9a74eddf7cd3cb97e6b0273006c787b981dfbbc8099153864c28",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260702125656|ferrari|aarch64|49f60572e830f6c4f20d800a56d644cdf53cd65a8e240b2b27106cce55040f89": {
+        "archive_sha256": "55a173c42223c53cf52250f9066702ec0adb33a0f24a5cdb522327805970ea99",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260702125656|chiappa|aarch64|3a9e18483b73f43016fb25b451e3ece0efba7aa1cc92e080771e138ce6bbca98": {
+        "archive_sha256": "6e22ed06092cdd0c5bd263a305890ff300c8845979e1e617ba7d2b2e43df3c83",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260702125656|ferrari|aarch64|113bf7ea62ad171ea03c77c1f90e0666bcff163242a22ebca84372533b270c1c": {
+        "archive_sha256": "1249cc883406203915aaa4a2aa90da05e4bb85419ab40d8efd394035421c70cb",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260806095513|ferrari|aarch64|8726b4fce55a9154a5014956e5204401ce881d752c1ff3813adb622a68aac2f9": {
+        "archive_sha256": "7a7bdd468a430079cd936c5f240cafb913d053acf57b21faed6579faa4958ba8",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260806095513|chiappa|aarch64|5748eed3bb804c8d3000e833ba472750428b6a82bc09b2bc7b5cf01847336bc7": {
+        "archive_sha256": "eb96f55bcdac23d73ec91f4429eae51b1a29833bb2f826a3c55422fca4de33b6",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260806095513|ferrari|aarch64|43a9d5d0acc5b998264c16586e11b848f3b83d2d63b5fd322b09c0977d94d3d4": {
+        "archive_sha256": "af7f4c68c0474ef7730a34b9a2e70b7576eedef578fd62fa193fb40826901fa9",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260806095513|chiappa|aarch64|6361610111c381ce730a8bfcc889bd933ef5fef173563a9156e435233714e7ee": {
+        "archive_sha256": "e883806566dc3948818b3c15eec27e72a10408e3cf5ede150f1de9e13e643f41",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260827113527|ferrari|aarch64|b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021": {
+        "archive_sha256": "e73dae6d2d532888b24dbc20d4a99db06cd859b74ba39ac0347be8f9789e2e84",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260827113527|chiappa|aarch64|5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4": {
+        "archive_sha256": "1cba990bee08b5ca8f8c7d45163d2348476b1a5be3aba69c080c08d835692ce2",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260827113527|tatsu|aarch64|fa674d2ca3d8002602ce4b1b92280b96bcdf2cf32b6a42ec62ae178a1fad1fe3": {
+        "archive_sha256": "933420d4cd7bc5aa1395bafc2814f6d510425db3a68c4371a7d77d50841290e3",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260827113527|rm1|armv7l|1f4fbb6e14650704b5b036e482da9948e73553178f6116ad464ab072f7b90117": {
+        "archive_sha256": "cb61fc5e0c2c31462d8838b059eef71b2da55c788027010f183231d084dd61fc",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20260827113527|rm2|armv7l|071d85beef3ef2d4cc0e11002140b27b82a2cc04a2ed740a5669f591069b77df": {
+        "archive_sha256": "81c25c914308ed5d8a0b34dd01b421ed15830d73609ff2ec507fe2645dd04ab3",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "4858df4241d65149e47d531eaeeeb5eeb0ac3e451d6529b910eee29f8664268f",
+            3018,
+            420
+          ]
+        }
+      },
+      "20261009073202|ferrari|aarch64|7aa5d67da6850d7021ade5a2232edeb5f34550236eca6f7a102f37f962dd4bd2": {
+        "archive_sha256": "9b31a341aa32cc629978eefb230d49ea3b8e2e409352f334d674359cfdf08aee",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+            2876,
+            420
+          ]
+        }
+      },
+      "20261009073202|chiappa|aarch64|09ba8581a50d96c19b360606ee0288b8863faec620036c8eda3b2a0b5cc2d2e2": {
+        "archive_sha256": "a39833daeb79cccd0fb2de96c7444a19a3d7aa39d5adcf83a13b34ed0d108e26",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+            2876,
+            420
+          ]
+        }
+      },
+      "20261009073202|tatsu|aarch64|1bf16b6e7d5355e48479fa832871e98834307da652a06245b5fb86d0bbd7a26c": {
+        "archive_sha256": "57efbb833a6919ef4af659ed0c62f23f054560ea434c94a12fac00d15c70ce11",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+            2876,
+            420
+          ]
+        }
+      },
+      "20261009073202|rm1|armv7l|2eb775c3ced943c20ccf6271bb107e745db10aece2dc21e0e4bd8450d98fd23c": {
+        "archive_sha256": "1bb9b7ff41bf6f67e17a062f878cdd4c9580f6af07e78e83dad29683044543a1",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+            2876,
+            420
+          ]
+        }
+      },
+      "20261009073202|rm2|armv7l|50a5ed69ab9c60d9f3b1d04b19311562194f6cfee769b17a6ea069d255e47760": {
+        "archive_sha256": "7d80e67e0fc6ac6f60ce6642bf081e3853be8a0eaff7dceab962f9c021079cdd",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+            2876,
+            420
+          ]
+        }
+      },
+      "20261009073202|chiappa|aarch64|0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba": {
+        "archive_sha256": "ddf1db54e6f5db483a6eebd06cf835d965c45f3c493a12fe67e34fe628f5f85d",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+            2876,
+            420
+          ]
+        }
+      },
+      "20261009073202|ferrari|aarch64|9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4": {
+        "archive_sha256": "cbbc51c6a12d6f08effb2319f8333728ca33f7a1aed44e7a41b68f5d88051804",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+            2876,
+            420
+          ]
+        }
+      },
+      "20261009073202|tatsu|aarch64|3735105b7e6b8a1d8ea42c9eabe6079c0bd1c99a546ab1a9fc7870263909ce39": {
+        "archive_sha256": "007657fe027fe357324054c4c8f996aa4c80e17854e2959054cb7ee203ed1b58",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+            2876,
+            420
+          ]
+        }
+      },
+      "20261009073202|rm1|armv7l|0c68cf7b049fb87929b5978494a1205bc558f239f77758821c67524133a3f54b": {
+        "archive_sha256": "7332ecce5361265199c4c48f6f3c7ef09f32cf8315bd41064ae88b6bd1d9db58",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+            2876,
+            420
+          ]
+        }
+      },
+      "20261009073202|rm2|armv7l|53547bc30584b9057d5b05ada6c5fb2df3561c3a097c1c2b1aae527d5ddd2e26": {
+        "archive_sha256": "ae47ebb131be3ce2d16ad01d63cdc5c1a9f377ec4f116e135af4ca123f194052",
+        "files": {
+          "exthome/qt-resource-rebuilder/tap-page-turn.qmd": [
+            "e47d523c71a7f808698b99456a5f4abbefb45ce60acf3d613d602d48eb24faac",
+            2876,
+            420
+          ]
+        }
+      }
+    },
+    "reading-enhancements": {
+      "20261028104944|ferrari|aarch64|35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd": {
+        "archive_sha256": "50c6f7db83bb276a0e919768828e3005418174b62b6dc691c55f293d13dbb632",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "1e84c2918b1400fc5f429eea12761574b86d40cbc8ff11e92e2c88089139cac3",
+            65674,
+            420
+          ],
+          "extensions.d/rmtool-highlight-snap.so": [
+            "2888eabb4f7629db5e96d287902bb83ee970e8f3a4d7d992bf956d901412c2d9",
+            9904,
+            420
+          ]
+        }
+      },
+      "20261028104944|chiappa|aarch64|9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4": {
+        "archive_sha256": "0abf71376f2f32ec0cb9a13e0dc39d9bf507a51131e95ed1a43817911196b39b",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "1e84c2918b1400fc5f429eea12761574b86d40cbc8ff11e92e2c88089139cac3",
+            65674,
+            420
+          ],
+          "extensions.d/rmtool-highlight-snap.so": [
+            "2888eabb4f7629db5e96d287902bb83ee970e8f3a4d7d992bf956d901412c2d9",
+            9904,
+            420
+          ]
+        }
+      },
+      "20260506100933|chiappa|aarch64|4646e0aef1cef2b3417889073ad5faba9259ae6b41f68326e75ef9a5c520c322": {
+        "archive_sha256": "55af932dfeb64b81ed78313438a9a9f9d51c0ae99bfe352dbfcfc88a9780e7a2",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "57b38578b051dd2beed681763332ea35344db1e0cb378034eed7da727ad39d3c",
+            56578,
+            420
+          ]
+        }
+      },
+      "20260506100933|ferrari|aarch64|29b9896b07f59636d910d8a740f6562c502f676a1a70f8814459229d25cc5288": {
+        "archive_sha256": "a078ab87820ccfac538e75b05bb26615bcd14fb4a310d469686ada3abd4a0e25",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "57b38578b051dd2beed681763332ea35344db1e0cb378034eed7da727ad39d3c",
+            56578,
+            420
+          ]
+        }
+      },
+      "20260612085811|chiappa|aarch64|227a9bfe928ef5d164359e490d97648ffca40a5de13f07a9eb57a618a403f084": {
+        "archive_sha256": "e506c8c605991b849dcd3ad244b0ade13921f041819a9e67df8af33f8b2f3360",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "57b38578b051dd2beed681763332ea35344db1e0cb378034eed7da727ad39d3c",
+            56578,
+            420
+          ]
+        }
+      },
+      "20260612085811|ferrari|aarch64|9749880daa2f10844e77b560ec0ecddd1634d43eb328af637c7026edf3ef120e": {
+        "archive_sha256": "11605589ce58e7e552c93410c4a9eae560b06acef7835f7ca402cf6d1bf7fc51",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "57b38578b051dd2beed681763332ea35344db1e0cb378034eed7da727ad39d3c",
+            56578,
+            420
+          ]
+        }
+      },
+      "20260629074044|chiappa|aarch64|9e3e0372a15da25b148ac17667feb566014440e079c3e3ee504112d556ad2e10": {
+        "archive_sha256": "cf2b2bb33d1661a25d2e461a7d17db3b0845fe40ed8954f4ccb5b4c262adf380",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "ef39330074d5c65ec3e56892b12af2abcd10a8e16edad4395d6da391fef7e1a7",
+            64413,
+            420
+          ]
+        }
+      },
+      "20260629074044|ferrari|aarch64|10082aeb857c69c3f404ab189d7403318ba97d0c169e756ae9a5b3532b248a4a": {
+        "archive_sha256": "b9ee858d5cfa1cfdd046fd0ecac5b924ddeb2db31260f70a9e1553dabad15d3d",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "ef39330074d5c65ec3e56892b12af2abcd10a8e16edad4395d6da391fef7e1a7",
+            64413,
+            420
+          ]
+        }
+      },
+      "20260702125656|chiappa|aarch64|08171df6296b99d04b3694b337bd0ce911e6a93356955961a37de9dd93a0394d": {
+        "archive_sha256": "74f4f2a467cec3a81a36221d3676b9ddebf1f13347950bd5d30675a42be4d564",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "9b3fba9defc7b32696471d5fd3622fe37c8f533c226e6f8e39352b6c45e8d8e2",
+            64453,
+            420
+          ]
+        }
+      },
+      "20260702125656|chiappa|aarch64|3a9e18483b73f43016fb25b451e3ece0efba7aa1cc92e080771e138ce6bbca98": {
+        "archive_sha256": "84a6600b678c0b232392454405261e46b3907b1d7eda5dcc5f77d7c0615c250a",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "9b3fba9defc7b32696471d5fd3622fe37c8f533c226e6f8e39352b6c45e8d8e2",
+            64453,
+            420
+          ]
+        }
+      },
+      "20260702125656|ferrari|aarch64|113bf7ea62ad171ea03c77c1f90e0666bcff163242a22ebca84372533b270c1c": {
+        "archive_sha256": "0159779f43d2ad8052ee35a8238ab51b91f55526b8b5f86605b2ac8a0e6936c6",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "9b3fba9defc7b32696471d5fd3622fe37c8f533c226e6f8e39352b6c45e8d8e2",
+            64453,
+            420
+          ]
+        }
+      },
+      "20260702125656|ferrari|aarch64|49f60572e830f6c4f20d800a56d644cdf53cd65a8e240b2b27106cce55040f89": {
+        "archive_sha256": "c270cab7bcdf1648caf40253319c2028f38ec86b41225903b134e42cce162e1c",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "9b3fba9defc7b32696471d5fd3622fe37c8f533c226e6f8e39352b6c45e8d8e2",
+            64453,
+            420
+          ]
+        }
+      },
+      "20260806095513|chiappa|aarch64|5748eed3bb804c8d3000e833ba472750428b6a82bc09b2bc7b5cf01847336bc7": {
+        "archive_sha256": "60f3092cb675baa9a5a8e7609f3934e700b74e3763216dc6fca93746b26b5c8d",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "9b3fba9defc7b32696471d5fd3622fe37c8f533c226e6f8e39352b6c45e8d8e2",
+            64453,
+            420
+          ]
+        }
+      },
+      "20260806095513|chiappa|aarch64|6361610111c381ce730a8bfcc889bd933ef5fef173563a9156e435233714e7ee": {
+        "archive_sha256": "888df357c058bb68fb511cb46bb4858cf637ae350663c4b46b9740190ca80304",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "9b3fba9defc7b32696471d5fd3622fe37c8f533c226e6f8e39352b6c45e8d8e2",
+            64453,
+            420
+          ]
+        }
+      },
+      "20260806095513|ferrari|aarch64|43a9d5d0acc5b998264c16586e11b848f3b83d2d63b5fd322b09c0977d94d3d4": {
+        "archive_sha256": "5c41601fd6037f3d822338d5d096a1c380706105a631d9a0928d9e0bc2a5cdb7",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "9b3fba9defc7b32696471d5fd3622fe37c8f533c226e6f8e39352b6c45e8d8e2",
+            64453,
+            420
+          ]
+        }
+      },
+      "20260806095513|ferrari|aarch64|8726b4fce55a9154a5014956e5204401ce881d752c1ff3813adb622a68aac2f9": {
+        "archive_sha256": "daa97d778213ba510898194197ab6071643e9d711e64fedf4d78fa944d8e62e3",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "9b3fba9defc7b32696471d5fd3622fe37c8f533c226e6f8e39352b6c45e8d8e2",
+            64453,
+            420
+          ]
+        }
+      },
+      "20260827113527|chiappa|aarch64|5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4": {
+        "archive_sha256": "a627f329b9320c4dc1893a8ec00736b407cd15e4ffa4b8c8182ce0133d4e53b4",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "29a418ff57906270279e6d6ba50bc1c66ae269e33611cde8e6a2ec1e6f429e57",
+            65734,
+            420
+          ],
+          "extensions.d/rmtool-highlight-snap.so": [
+            "a3fbed58347669545386d0aa5955339e578b00b066c15d11f131eead11cb19e5",
+            9872,
+            420
+          ]
+        }
+      },
+      "20260827113527|ferrari|aarch64|b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021": {
+        "archive_sha256": "441d9f280150ed0e16d365c3b443e295f2dc74c8e846e048a299252f2aaa3249",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "29a418ff57906270279e6d6ba50bc1c66ae269e33611cde8e6a2ec1e6f429e57",
+            65734,
+            420
+          ],
+          "extensions.d/rmtool-highlight-snap.so": [
+            "a3fbed58347669545386d0aa5955339e578b00b066c15d11f131eead11cb19e5",
+            9872,
+            420
+          ]
+        }
+      },
+      "20261009073202|ferrari|aarch64|7aa5d67da6850d7021ade5a2232edeb5f34550236eca6f7a102f37f962dd4bd2": {
+        "archive_sha256": "dd2baab2eed54d986e8a413891f4342e77d70cf7c51391f33d3ca7f441ec9c2c",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "1e84c2918b1400fc5f429eea12761574b86d40cbc8ff11e92e2c88089139cac3",
+            65674,
+            420
+          ],
+          "extensions.d/rmtool-highlight-snap.so": [
+            "2888eabb4f7629db5e96d287902bb83ee970e8f3a4d7d992bf956d901412c2d9",
+            9904,
+            420
+          ]
+        }
+      },
+      "20261009073202|chiappa|aarch64|09ba8581a50d96c19b360606ee0288b8863faec620036c8eda3b2a0b5cc2d2e2": {
+        "archive_sha256": "290115f9ce3429714eecd4fb39d305364d8467630c26c76ba1b0211a63585355",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "1e84c2918b1400fc5f429eea12761574b86d40cbc8ff11e92e2c88089139cac3",
+            65674,
+            420
+          ],
+          "extensions.d/rmtool-highlight-snap.so": [
+            "2888eabb4f7629db5e96d287902bb83ee970e8f3a4d7d992bf956d901412c2d9",
+            9904,
+            420
+          ]
+        }
+      },
+      "20261009073202|chiappa|aarch64|0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba": {
+        "archive_sha256": "1d282d4b6cbe2992bb0bcb02d6e72e4a6e9793d856754b79cb171d5fb7e998eb",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "1e84c2918b1400fc5f429eea12761574b86d40cbc8ff11e92e2c88089139cac3",
+            65674,
+            420
+          ],
+          "extensions.d/rmtool-highlight-snap.so": [
+            "2888eabb4f7629db5e96d287902bb83ee970e8f3a4d7d992bf956d901412c2d9",
+            9904,
+            420
+          ]
+        }
+      },
+      "20261009073202|ferrari|aarch64|9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4": {
+        "archive_sha256": "7a5ab1524617085dc6ba7f6bcc1980a2945103afe3b51ef7fd78a8f40376ee85",
+        "files": {
+          "exthome/qt-resource-rebuilder/reading-enhancements.qmd": [
+            "1e84c2918b1400fc5f429eea12761574b86d40cbc8ff11e92e2c88089139cac3",
+            65674,
+            420
+          ],
+          "extensions.d/rmtool-highlight-snap.so": [
+            "2888eabb4f7629db5e96d287902bb83ee970e8f3a4d7d992bf956d901412c2d9",
+            9904,
+            420
+          ]
+        }
+      }
+    },
+    "pinyin-input": {
+      "20261028104944|tatsu|aarch64|c464f2ee5f03468834cb117672ebaaabb1e322cdab8510bbdc2f663886334531": {
+        "archive_sha256": "7cf131cbce2213658fbd883ecf123bf2be2e7e8934fa8b80d8f0953e00a008fd",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "5630195d67b53a1e0273af8516281372069d45040964b5607ca9c03bd763fb96",
+            63564,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20261028104944|rm1|armv7l|2bc210bd4e05b709ea15d7e4f357b816505a40fb1838c02f6b60040ea3c87690": {
+        "archive_sha256": "ba18d1f56da061ddb93b29d955a7762b68dbed720d86ac90db0e9653cf162121",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "5630195d67b53a1e0273af8516281372069d45040964b5607ca9c03bd763fb96",
+            63564,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "ee919128b3201ad9ba7a975f0626351cece98a2f4e008973e1847409c28ca1c3",
+            13280,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "420f2023a48ff1348883e39c397f49197c1d583e2a9a4209ddc2ee39a131d6c5",
+            648,
+            420
+          ]
+        }
+      },
+      "20261028104944|rm2|armv7l|4ab39bdf42503fe8d9e10a31a415b28b9aed6f25bd32788226c02ee23879fd13": {
+        "archive_sha256": "2f45aa6c99d1f909e181e2b93bce950f9d6f0edfd321af924cbb1384984d22bb",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "1699b38e524730931d03153b0aa2e177dee87de622de21b301efa7d3914afcba",
+            63595,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "ee919128b3201ad9ba7a975f0626351cece98a2f4e008973e1847409c28ca1c3",
+            13280,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "420f2023a48ff1348883e39c397f49197c1d583e2a9a4209ddc2ee39a131d6c5",
+            648,
+            420
+          ]
+        }
+      },
+      "20261028104944|ferrari|aarch64|35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd": {
+        "archive_sha256": "875075aecba2d4264ed023c16fb6c8d6f1dce6fd2dc34ac266283fbad55eb73d",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "5630195d67b53a1e0273af8516281372069d45040964b5607ca9c03bd763fb96",
+            63564,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20261028104944|chiappa|aarch64|9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4": {
+        "archive_sha256": "e657450aac3cf4389ac1c94f6c3279a58343b52404c72de9f81838b5ab8babe3",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "5630195d67b53a1e0273af8516281372069d45040964b5607ca9c03bd763fb96",
+            63564,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260806095513|ferrari|aarch64|8726b4fce55a9154a5014956e5204401ce881d752c1ff3813adb622a68aac2f9": {
+        "archive_sha256": "b934b70fa2ead9238c931ce008df30120fec0f5fdbbf5e473eee974d8e95ef3f",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260612085811|chiappa|aarch64|227a9bfe928ef5d164359e490d97648ffca40a5de13f07a9eb57a618a403f084": {
+        "archive_sha256": "45f8f3d1bd5e55dfd5806a501dc4a5d5c9342b5c4a86b642567e16416c7bf449",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260806095513|chiappa|aarch64|5748eed3bb804c8d3000e833ba472750428b6a82bc09b2bc7b5cf01847336bc7": {
+        "archive_sha256": "b8cd39ddff865b24b2a9fc884cbd5cf0a95ca1c8441e9dcf44a85560df3dba19",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260806095513|ferrari|aarch64|43a9d5d0acc5b998264c16586e11b848f3b83d2d63b5fd322b09c0977d94d3d4": {
+        "archive_sha256": "5f0d675c3b8fb7d605e09c39a8da4e0ecb56c28ca71f8fcaf83260ec5530061d",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260806095513|chiappa|aarch64|6361610111c381ce730a8bfcc889bd933ef5fef173563a9156e435233714e7ee": {
+        "archive_sha256": "db6b9208467daf3b663cf95a7e4b9266a8d66427630ac96439c0e527434a8ad0",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260506100933|chiappa|aarch64|4646e0aef1cef2b3417889073ad5faba9259ae6b41f68326e75ef9a5c520c322": {
+        "archive_sha256": "fef01e0560ad592d5e337d1feb55a3932af7fc0ece078c5383e779b239960d05",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260506100933|ferrari|aarch64|29b9896b07f59636d910d8a740f6562c502f676a1a70f8814459229d25cc5288": {
+        "archive_sha256": "87164a807372e4b40c3180d51d2f73839ecd60d641ae70c5421433ddb66b3d67",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260612085811|ferrari|aarch64|9749880daa2f10844e77b560ec0ecddd1634d43eb328af637c7026edf3ef120e": {
+        "archive_sha256": "0c8c466037ca999ca2ab9193fc21ae2ed5d65d4dce5917f90ec8c22b5becabbc",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260629074044|chiappa|aarch64|9e3e0372a15da25b148ac17667feb566014440e079c3e3ee504112d556ad2e10": {
+        "archive_sha256": "e516a79f97c47bc5b238d5d39c11a6502726a27d5bdeaee39d81a24ec2c54207",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260629074044|ferrari|aarch64|10082aeb857c69c3f404ab189d7403318ba97d0c169e756ae9a5b3532b248a4a": {
+        "archive_sha256": "20073cc2bd77a5513c832640d9931eea8d792aecc008d318bd2c9786d7dc0edf",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260702125656|chiappa|aarch64|08171df6296b99d04b3694b337bd0ce911e6a93356955961a37de9dd93a0394d": {
+        "archive_sha256": "ccc5d7cb24e561dee96ec0843d4e0276a566c76ec35fa97b9e73e2b28c1fb2d9",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260702125656|ferrari|aarch64|49f60572e830f6c4f20d800a56d644cdf53cd65a8e240b2b27106cce55040f89": {
+        "archive_sha256": "9379e945d2c2c95b6c8948be075e59e26f63ebdc8528aa820947d82efcdc0f29",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260702125656|chiappa|aarch64|3a9e18483b73f43016fb25b451e3ece0efba7aa1cc92e080771e138ce6bbca98": {
+        "archive_sha256": "c4b99d68a94630ade86e01df79d5a9d5ac4b27183b21a972659c279959e286ff",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260702125656|ferrari|aarch64|113bf7ea62ad171ea03c77c1f90e0666bcff163242a22ebca84372533b270c1c": {
+        "archive_sha256": "f399eaed5a14737aa337d327119801b2ccc4484926ac43a2e72ffdba02c17aac",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260827113527|ferrari|aarch64|b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021": {
+        "archive_sha256": "bd006bacc3d5719a286d7cebd53310c3daccc4f8cc6430aedfac4d6b152ced92",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260827113527|chiappa|aarch64|5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4": {
+        "archive_sha256": "1c3ed29b8da2d7bfa02c47d4d708787955a3cf1cbf9edb8f7e64ac717c089016",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260827113527|tatsu|aarch64|fa674d2ca3d8002602ce4b1b92280b96bcdf2cf32b6a42ec62ae178a1fad1fe3": {
+        "archive_sha256": "9691bc89d614e9ba53b242dea18d637c6eb20057344c12a39715a7111ec29f09",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20260827113527|rm1|armv7l|1f4fbb6e14650704b5b036e482da9948e73553178f6116ad464ab072f7b90117": {
+        "archive_sha256": "4d99e1aad93b1da49f9d6400e3d5b4d1a5ae865055f4b51cc58a560e1cbafe07",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "ee919128b3201ad9ba7a975f0626351cece98a2f4e008973e1847409c28ca1c3",
+            13280,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "420f2023a48ff1348883e39c397f49197c1d583e2a9a4209ddc2ee39a131d6c5",
+            648,
+            420
+          ]
+        }
+      },
+      "20260827113527|rm2|armv7l|071d85beef3ef2d4cc0e11002140b27b82a2cc04a2ed740a5669f591069b77df": {
+        "archive_sha256": "2f842bd8e528c0f28a36c69daabcd8ba76f89f208c09ac41b109180c2a3b5b91",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "3c5b8c3545225e6d05d1c28cfd4558844b401773a4aef8a9ebe55eefec056b50",
+            51642,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "ee919128b3201ad9ba7a975f0626351cece98a2f4e008973e1847409c28ca1c3",
+            13280,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "420f2023a48ff1348883e39c397f49197c1d583e2a9a4209ddc2ee39a131d6c5",
+            648,
+            420
+          ]
+        }
+      },
+      "20261009073202|ferrari|aarch64|7aa5d67da6850d7021ade5a2232edeb5f34550236eca6f7a102f37f962dd4bd2": {
+        "archive_sha256": "e44fae2329816ab51ad0afe82b731e14b6e353d65f5b2e123b44f2e8dae8130a",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "5630195d67b53a1e0273af8516281372069d45040964b5607ca9c03bd763fb96",
+            63564,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20261009073202|chiappa|aarch64|09ba8581a50d96c19b360606ee0288b8863faec620036c8eda3b2a0b5cc2d2e2": {
+        "archive_sha256": "196bf82dba90040c14ddbf577bb25f2779e6803e96ab4a431ce21818857e24ca",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "5630195d67b53a1e0273af8516281372069d45040964b5607ca9c03bd763fb96",
+            63564,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20261009073202|tatsu|aarch64|1bf16b6e7d5355e48479fa832871e98834307da652a06245b5fb86d0bbd7a26c": {
+        "archive_sha256": "2974e73188f1ddb7dc358d8d411d3934412e6094210c2f19e8534a983a6f41aa",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "5630195d67b53a1e0273af8516281372069d45040964b5607ca9c03bd763fb96",
+            63564,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20261009073202|rm1|armv7l|2eb775c3ced943c20ccf6271bb107e745db10aece2dc21e0e4bd8450d98fd23c": {
+        "archive_sha256": "f5ecd2523ac1119311883ab3354b6cdeb16e8778fc54ee1c3bbb449e5cb02d67",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "5630195d67b53a1e0273af8516281372069d45040964b5607ca9c03bd763fb96",
+            63564,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "ee919128b3201ad9ba7a975f0626351cece98a2f4e008973e1847409c28ca1c3",
+            13280,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "420f2023a48ff1348883e39c397f49197c1d583e2a9a4209ddc2ee39a131d6c5",
+            648,
+            420
+          ]
+        }
+      },
+      "20261009073202|rm2|armv7l|50a5ed69ab9c60d9f3b1d04b19311562194f6cfee769b17a6ea069d255e47760": {
+        "archive_sha256": "fba7ff6600529e9ed3460f87b54abfb2b04d9f9e3e64c3e599c034961fca4482",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "1699b38e524730931d03153b0aa2e177dee87de622de21b301efa7d3914afcba",
+            63595,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "ee919128b3201ad9ba7a975f0626351cece98a2f4e008973e1847409c28ca1c3",
+            13280,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "420f2023a48ff1348883e39c397f49197c1d583e2a9a4209ddc2ee39a131d6c5",
+            648,
+            420
+          ]
+        }
+      },
+      "20261009073202|chiappa|aarch64|0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba": {
+        "archive_sha256": "8afc76f7e10f9c53180bb9915019b4505aa14f207b89c06c5f5eaa4ff9f2e6ca",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "5630195d67b53a1e0273af8516281372069d45040964b5607ca9c03bd763fb96",
+            63564,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20261009073202|ferrari|aarch64|9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4": {
+        "archive_sha256": "7d96769fc576ca1b54b100dfd7dc8073da0d9dbeafd5dba1e2abe38c90c7c098",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "5630195d67b53a1e0273af8516281372069d45040964b5607ca9c03bd763fb96",
+            63564,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20261009073202|tatsu|aarch64|3735105b7e6b8a1d8ea42c9eabe6079c0bd1c99a546ab1a9fc7870263909ce39": {
+        "archive_sha256": "1f73d4979bd3a1da85094ccda456b8e25c664406acf076283373963c3f48afe6",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "5630195d67b53a1e0273af8516281372069d45040964b5607ca9c03bd763fb96",
+            63564,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "81dc0b75c6fac0441b70b89ddafe2477fc6ef3b074d1f224eaeafb39d1060d25",
+            72232,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "2cba59f4e482e4c0d075c7246f91a086e0e772c3954832ead54ac3a22bed288e",
+            648,
+            420
+          ]
+        }
+      },
+      "20261009073202|rm1|armv7l|0c68cf7b049fb87929b5978494a1205bc558f239f77758821c67524133a3f54b": {
+        "archive_sha256": "ef4a58524a82c6858ab4454fa4b60992f446f68482d44ed38c597cd0e3f591a8",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "5630195d67b53a1e0273af8516281372069d45040964b5607ca9c03bd763fb96",
+            63564,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "ee919128b3201ad9ba7a975f0626351cece98a2f4e008973e1847409c28ca1c3",
+            13280,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "420f2023a48ff1348883e39c397f49197c1d583e2a9a4209ddc2ee39a131d6c5",
+            648,
+            420
+          ]
+        }
+      },
+      "20261009073202|rm2|armv7l|53547bc30584b9057d5b05ada6c5fb2df3561c3a097c1c2b1aae527d5ddd2e26": {
+        "archive_sha256": "a6dc711b3c0f62aa749a466650b064c851b2157ee12e8c8544f8034faf5e778f",
+        "files": {
+          "exthome/qt-resource-rebuilder/pinyin-input.qmd": [
+            "1699b38e524730931d03153b0aa2e177dee87de622de21b301efa7d3914afcba",
+            63595,
+            420
+          ],
+          "pinyin-input/ime_hook.so": [
+            "ee919128b3201ad9ba7a975f0626351cece98a2f4e008973e1847409c28ca1c3",
+            13280,
+            420
+          ],
+          "exthome/qt-resource-rebuilder/zh_CN.rcc": [
+            "5c51487f74f68b3afe2e4b0b11d0994b8f2577304d26551dda9cbcd5d26aa726",
+            333,
+            420
+          ],
+          "pinyin-input/rmtool-pinyin-input.service": [
+            "420f2023a48ff1348883e39c397f49197c1d583e2a9a4209ddc2ee39a131d6c5",
+            648,
+            420
+          ]
+        }
+      }
+    },
+    "weread-launcher": {
+      "20261028104944|chiappa|aarch64|9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4": {
+        "archive_sha256": "c80e8759fd3687e13568a43577dcd51f63862be647d1883bee80a3c0cc484acb",
+        "files": {
+          "exthome/qt-resource-rebuilder/weread-launcher.qmd": [
+            "5c9146d2701dccf4ab947cc6b82beb14061a32696dc933bdd683425ba9c07269",
+            19421,
+            420
+          ],
+          "extensions.d/rmtool-weread-launcher.so": [
+            "4e964dde3bd502f6748f303c92a937311106e05597073ac3ec8d4d0d59325aa6",
+            1925400,
+            420
+          ],
+          "helpers/rmtool-weread-fast.so": [
+            "5e1f04ad8f98a32cb0c68d7567f8dc13044cd2e5d8425f8afb7800bf96207b7b",
+            210272,
+            420
+          ]
+        }
+      },
+      "20261028104944|ferrari|aarch64|35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd": {
+        "archive_sha256": "e3b928600ab9a0329abf0309ceafd274f4f2a5312ed538c6c5042d7a57721a44",
+        "files": {
+          "exthome/qt-resource-rebuilder/weread-launcher.qmd": [
+            "5c9146d2701dccf4ab947cc6b82beb14061a32696dc933bdd683425ba9c07269",
+            19421,
+            420
+          ],
+          "extensions.d/rmtool-weread-launcher.so": [
+            "4e964dde3bd502f6748f303c92a937311106e05597073ac3ec8d4d0d59325aa6",
+            1925400,
+            420
+          ],
+          "helpers/rmtool-weread-fast.so": [
+            "5e1f04ad8f98a32cb0c68d7567f8dc13044cd2e5d8425f8afb7800bf96207b7b",
+            210272,
+            420
+          ]
+        }
+      },
+      "20260827113527|chiappa|aarch64|5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4": {
+        "archive_sha256": "6e41f7aa6d1270ece647029faec2693e1f62ed4fb38f53d7c2712af7f422e0a6",
+        "files": {
+          "exthome/qt-resource-rebuilder/weread-launcher.qmd": [
+            "f0f045f21466aadaa79cd044a50f43d16eea0b63d8ccaed99c8ee4e0b019b59d",
+            19498,
+            420
+          ],
+          "extensions.d/rmtool-weread-launcher.so": [
+            "4e964dde3bd502f6748f303c92a937311106e05597073ac3ec8d4d0d59325aa6",
+            1925400,
+            420
+          ],
+          "helpers/rmtool-weread-fast.so": [
+            "5e1f04ad8f98a32cb0c68d7567f8dc13044cd2e5d8425f8afb7800bf96207b7b",
+            210272,
+            420
+          ]
+        }
+      },
+      "20261009073202|chiappa|aarch64|09ba8581a50d96c19b360606ee0288b8863faec620036c8eda3b2a0b5cc2d2e2": {
+        "archive_sha256": "b44e753c79d87ee05ff98b55e3ca27f3fa19a9e66b0e151a0e0cd9f704006904",
+        "files": {
+          "exthome/qt-resource-rebuilder/weread-launcher.qmd": [
+            "5c9146d2701dccf4ab947cc6b82beb14061a32696dc933bdd683425ba9c07269",
+            19421,
+            420
+          ],
+          "extensions.d/rmtool-weread-launcher.so": [
+            "4e964dde3bd502f6748f303c92a937311106e05597073ac3ec8d4d0d59325aa6",
+            1925400,
+            420
+          ],
+          "helpers/rmtool-weread-fast.so": [
+            "5e1f04ad8f98a32cb0c68d7567f8dc13044cd2e5d8425f8afb7800bf96207b7b",
+            210272,
+            420
+          ]
+        }
+      },
+      "20261009073202|chiappa|aarch64|0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba": {
+        "archive_sha256": "a7644f2c722692bb393cecc5fb6c61c6a30f5af4e87337483d94c252d5e5d972",
+        "files": {
+          "exthome/qt-resource-rebuilder/weread-launcher.qmd": [
+            "5c9146d2701dccf4ab947cc6b82beb14061a32696dc933bdd683425ba9c07269",
+            19421,
+            420
+          ],
+          "extensions.d/rmtool-weread-launcher.so": [
+            "4e964dde3bd502f6748f303c92a937311106e05597073ac3ec8d4d0d59325aa6",
+            1925400,
+            420
+          ],
+          "helpers/rmtool-weread-fast.so": [
+            "5e1f04ad8f98a32cb0c68d7567f8dc13044cd2e5d8425f8afb7800bf96207b7b",
+            210272,
+            420
+          ]
+        }
+      },
+      "20260827113527|ferrari|aarch64|b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021": {
+        "archive_sha256": "e509448b0899054c94f227af4a1264846a7ac62b4a668d4a846a927a9a24c17f",
+        "files": {
+          "exthome/qt-resource-rebuilder/weread-launcher.qmd": [
+            "f0f045f21466aadaa79cd044a50f43d16eea0b63d8ccaed99c8ee4e0b019b59d",
+            19498,
+            420
+          ],
+          "extensions.d/rmtool-weread-launcher.so": [
+            "4e964dde3bd502f6748f303c92a937311106e05597073ac3ec8d4d0d59325aa6",
+            1925400,
+            420
+          ],
+          "helpers/rmtool-weread-fast.so": [
+            "5e1f04ad8f98a32cb0c68d7567f8dc13044cd2e5d8425f8afb7800bf96207b7b",
+            210272,
+            420
+          ]
+        }
+      },
+      "20261009073202|ferrari|aarch64|7aa5d67da6850d7021ade5a2232edeb5f34550236eca6f7a102f37f962dd4bd2": {
+        "archive_sha256": "49ac9cc5cd1e5e3494f110d1a9ba6bcfda4855e1e30498e2b6a4176a084c69c4",
+        "files": {
+          "exthome/qt-resource-rebuilder/weread-launcher.qmd": [
+            "5c9146d2701dccf4ab947cc6b82beb14061a32696dc933bdd683425ba9c07269",
+            19421,
+            420
+          ],
+          "extensions.d/rmtool-weread-launcher.so": [
+            "4e964dde3bd502f6748f303c92a937311106e05597073ac3ec8d4d0d59325aa6",
+            1925400,
+            420
+          ],
+          "helpers/rmtool-weread-fast.so": [
+            "5e1f04ad8f98a32cb0c68d7567f8dc13044cd2e5d8425f8afb7800bf96207b7b",
+            210272,
+            420
+          ]
+        }
+      },
+      "20261009073202|ferrari|aarch64|9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4": {
+        "archive_sha256": "73a5818e2ff4d2057a906d4dfdfa7d7580f84c1e97ac9462cf1ad0dc3e3c0df8",
+        "files": {
+          "exthome/qt-resource-rebuilder/weread-launcher.qmd": [
+            "5c9146d2701dccf4ab947cc6b82beb14061a32696dc933bdd683425ba9c07269",
+            19421,
+            420
+          ],
+          "extensions.d/rmtool-weread-launcher.so": [
+            "4e964dde3bd502f6748f303c92a937311106e05597073ac3ec8d4d0d59325aa6",
+            1925400,
+            420
+          ],
+          "helpers/rmtool-weread-fast.so": [
+            "5e1f04ad8f98a32cb0c68d7567f8dc13044cd2e5d8425f8afb7800bf96207b7b",
+            210272,
+            420
+          ]
+        }
+      }
+    },
+    "qr-upload": {
+      "20261028104944|tatsu|aarch64|c464f2ee5f03468834cb117672ebaaabb1e322cdab8510bbdc2f663886334531": {
+        "archive_sha256": "7d0aa031db7e5fe706135e7ac26be0b67aa0bd1a4fd27f1815d90bdd9673e030",
+        "files": {
+          "exthome/qt-resource-rebuilder/qr-upload.qmd": [
+            "dcd987967d637ad7d9da3a65e662d752109ab20937ea299d4e5990e3c5754199",
+            12316,
+            420
+          ],
+          "extensions.d/rmtool-qr-upload.so": [
+            "26ee338e0d961a85d904f14479d69e876e771a5f53e2cb0ea6739c0d5b5331c4",
+            2361408,
+            420
+          ],
+          "helpers/rmtool-qr-upload": [
+            "d2adaf246aea623aec359081e9f760a219b30cfab111bc32482903e4370e1619",
+            7078048,
+            493
+          ]
+        }
+      },
+      "20261028104944|rm1|armv7l|2bc210bd4e05b709ea15d7e4f357b816505a40fb1838c02f6b60040ea3c87690": {
+        "archive_sha256": "b5e3fa2f27958452fc98bc9945bf3aff25a8f31f0500cf3ae44c8aba98fc57bb",
+        "files": {
+          "exthome/qt-resource-rebuilder/qr-upload.qmd": [
+            "dcd987967d637ad7d9da3a65e662d752109ab20937ea299d4e5990e3c5754199",
+            12316,
+            420
+          ],
+          "extensions.d/rmtool-qr-upload.so": [
+            "efa3e21782e16a14065781ffa3c898e5de1437093a2068cdf9549bdce0c46905",
+            2826452,
+            420
+          ],
+          "helpers/rmtool-qr-upload": [
+            "3a531544d0f5409a1c8f097c2898b1c1f72cae817e8a6e99c652cec4492bd21d",
+            7536800,
+            493
+          ]
+        }
+      },
+      "20261028104944|rm2|armv7l|4ab39bdf42503fe8d9e10a31a415b28b9aed6f25bd32788226c02ee23879fd13": {
+        "archive_sha256": "c6fff702aa6a2a5dd89f7ae72e35fd5ecabf67f49bd97b729e80c867dc44742b",
+        "files": {
+          "exthome/qt-resource-rebuilder/qr-upload.qmd": [
+            "dc5655a1081372d529b8ee8f6cf2df8a38e0b9499632b79c2f4512cae52ceb9d",
+            12336,
+            420
+          ],
+          "extensions.d/rmtool-qr-upload.so": [
+            "efa3e21782e16a14065781ffa3c898e5de1437093a2068cdf9549bdce0c46905",
+            2826452,
+            420
+          ],
+          "helpers/rmtool-qr-upload": [
+            "3a531544d0f5409a1c8f097c2898b1c1f72cae817e8a6e99c652cec4492bd21d",
+            7536800,
+            493
+          ]
+        }
+      },
+      "20261028104944|ferrari|aarch64|35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd": {
+        "archive_sha256": "b6f4f24a5f0d3b846c3d804c0f4ddeac59d0ced7b268eeb43db3704169a68d36",
+        "files": {
+          "exthome/qt-resource-rebuilder/qr-upload.qmd": [
+            "dcd987967d637ad7d9da3a65e662d752109ab20937ea299d4e5990e3c5754199",
+            12316,
+            420
+          ],
+          "extensions.d/rmtool-qr-upload.so": [
+            "26ee338e0d961a85d904f14479d69e876e771a5f53e2cb0ea6739c0d5b5331c4",
+            2361408,
+            420
+          ],
+          "helpers/rmtool-qr-upload": [
+            "d2adaf246aea623aec359081e9f760a219b30cfab111bc32482903e4370e1619",
+            7078048,
+            493
+          ]
+        }
+      },
+      "20261028104944|chiappa|aarch64|9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4": {
+        "archive_sha256": "c6b5ced09bd720766cb2f296a49f848ad0a6b930d9ac849df99112aa8244e599",
+        "files": {
+          "exthome/qt-resource-rebuilder/qr-upload.qmd": [
+            "dcd987967d637ad7d9da3a65e662d752109ab20937ea299d4e5990e3c5754199",
+            12316,
+            420
+          ],
+          "extensions.d/rmtool-qr-upload.so": [
+            "26ee338e0d961a85d904f14479d69e876e771a5f53e2cb0ea6739c0d5b5331c4",
+            2361408,
+            420
+          ],
+          "helpers/rmtool-qr-upload": [
+            "d2adaf246aea623aec359081e9f760a219b30cfab111bc32482903e4370e1619",
+            7078048,
+            493
+          ]
+        }
+      },
+      "20260827113527|chiappa|aarch64|5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4": {
+        "archive_sha256": "054be5bd63d55623eade191e31deab27ed8c3ff7b57e1009a7e7d9b36696988d",
+        "files": {
+          "exthome/qt-resource-rebuilder/qr-upload.qmd": [
+            "dcd987967d637ad7d9da3a65e662d752109ab20937ea299d4e5990e3c5754199",
+            12316,
+            420
+          ],
+          "extensions.d/rmtool-qr-upload.so": [
+            "5c4857a2de9924dee5dadfd31d79c5036a19763c4e55f3100e1e85c4b443c2b5",
+            2356624,
+            420
+          ],
+          "helpers/rmtool-qr-upload": [
+            "d2adaf246aea623aec359081e9f760a219b30cfab111bc32482903e4370e1619",
+            7078048,
+            493
+          ]
+        }
+      },
+      "20261009073202|chiappa|aarch64|0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba": {
+        "archive_sha256": "d6677e101861b27ab73541aefc81d550578d6b256ec58b1170cee5fd53a1a148",
+        "files": {
+          "exthome/qt-resource-rebuilder/qr-upload.qmd": [
+            "dcd987967d637ad7d9da3a65e662d752109ab20937ea299d4e5990e3c5754199",
+            12316,
+            420
+          ],
+          "extensions.d/rmtool-qr-upload.so": [
+            "5c4857a2de9924dee5dadfd31d79c5036a19763c4e55f3100e1e85c4b443c2b5",
+            2356624,
+            420
+          ],
+          "helpers/rmtool-qr-upload": [
+            "d2adaf246aea623aec359081e9f760a219b30cfab111bc32482903e4370e1619",
+            7078048,
+            493
+          ]
+        }
+      },
+      "20261009073202|ferrari|aarch64|9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4": {
+        "archive_sha256": "b57a087499915d58af2ddac5352c36e33d1d47d9faf7df61e8788ea4a5743408",
+        "files": {
+          "exthome/qt-resource-rebuilder/qr-upload.qmd": [
+            "dcd987967d637ad7d9da3a65e662d752109ab20937ea299d4e5990e3c5754199",
+            12316,
+            420
+          ],
+          "extensions.d/rmtool-qr-upload.so": [
+            "c2d9ef657a1cd67514307cc01a5af780581d3e97e8040e9248722f2bc2d96fba",
+            2360776,
+            420
+          ],
+          "helpers/rmtool-qr-upload": [
+            "d2adaf246aea623aec359081e9f760a219b30cfab111bc32482903e4370e1619",
+            7078048,
+            493
+          ]
+        }
+      },
+      "20261009073202|tatsu|aarch64|3735105b7e6b8a1d8ea42c9eabe6079c0bd1c99a546ab1a9fc7870263909ce39": {
+        "archive_sha256": "144e50dfcfeca6c021a10db9fda91c51a77befee97a706cfed70b2156d868ed7",
+        "files": {
+          "exthome/qt-resource-rebuilder/qr-upload.qmd": [
+            "dcd987967d637ad7d9da3a65e662d752109ab20937ea299d4e5990e3c5754199",
+            12316,
+            420
+          ],
+          "extensions.d/rmtool-qr-upload.so": [
+            "c2d9ef657a1cd67514307cc01a5af780581d3e97e8040e9248722f2bc2d96fba",
+            2360776,
+            420
+          ],
+          "helpers/rmtool-qr-upload": [
+            "d2adaf246aea623aec359081e9f760a219b30cfab111bc32482903e4370e1619",
+            7078048,
+            493
+          ]
+        }
+      },
+      "20261009073202|rm1|armv7l|0c68cf7b049fb87929b5978494a1205bc558f239f77758821c67524133a3f54b": {
+        "archive_sha256": "f56562fd3070e008a16047ded0742254c72244fd556e97efcd4856a32fb0d09b",
+        "files": {
+          "exthome/qt-resource-rebuilder/qr-upload.qmd": [
+            "dcd987967d637ad7d9da3a65e662d752109ab20937ea299d4e5990e3c5754199",
+            12316,
+            420
+          ],
+          "extensions.d/rmtool-qr-upload.so": [
+            "9cf1c093eb4237db2e7e1f76d883c82d777ec5b627194b5f5500b2de1971db2d",
+            2825844,
+            420
+          ],
+          "helpers/rmtool-qr-upload": [
+            "3a531544d0f5409a1c8f097c2898b1c1f72cae817e8a6e99c652cec4492bd21d",
+            7536800,
+            493
+          ]
+        }
+      },
+      "20261009073202|rm2|armv7l|53547bc30584b9057d5b05ada6c5fb2df3561c3a097c1c2b1aae527d5ddd2e26": {
+        "archive_sha256": "da101bc54f485906152d514e189889b92914ff02541c590a1a06d559ba5042a4",
+        "files": {
+          "exthome/qt-resource-rebuilder/qr-upload.qmd": [
+            "dc5655a1081372d529b8ee8f6cf2df8a38e0b9499632b79c2f4512cae52ceb9d",
+            12336,
+            420
+          ],
+          "extensions.d/rmtool-qr-upload.so": [
+            "9cf1c093eb4237db2e7e1f76d883c82d777ec5b627194b5f5500b2de1971db2d",
+            2825844,
+            420
+          ],
+          "helpers/rmtool-qr-upload": [
+            "3a531544d0f5409a1c8f097c2898b1c1f72cae817e8a6e99c652cec4492bd21d",
+            7536800,
+            493
+          ]
+        }
+      }
+    },
+    "native-import": {
+      "20260827113527|ferrari|aarch64|b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021": {
+        "archive_sha256": "d0cf3cd611790315cd1a4822210cfb80af8686a804caceb77f58d8e3fe44ee06",
+        "files": {
+          "exthome/qt-resource-rebuilder/native-import.qmd": [
+            "a13ebec80e02e27a82bbc7b9d8eca8eb3e1a6b25f37c4a10c50c9a1315924e5f",
+            237,
+            420
+          ],
+          "extensions.d/rmtool-native-import.so": [
+            "75297040da3340396dee7dc942f61641f288eaa6e581c866915eb787d7025657",
+            227864,
+            420
+          ],
+          "helpers/rmtool-native-import": [
+            "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd",
+            2621600,
+            493
+          ]
+        }
+      },
+      "20260827113527|chiappa|aarch64|5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4": {
+        "archive_sha256": "27b192b28a032870097a72bc21833d98f9b3e00e7150139efdaf45fb3666e84b",
+        "files": {
+          "exthome/qt-resource-rebuilder/native-import.qmd": [
+            "a13ebec80e02e27a82bbc7b9d8eca8eb3e1a6b25f37c4a10c50c9a1315924e5f",
+            237,
+            420
+          ],
+          "extensions.d/rmtool-native-import.so": [
+            "75297040da3340396dee7dc942f61641f288eaa6e581c866915eb787d7025657",
+            227864,
+            420
+          ],
+          "helpers/rmtool-native-import": [
+            "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd",
+            2621600,
+            493
+          ]
+        }
+      },
+      "20260827113527|tatsu|aarch64|fa674d2ca3d8002602ce4b1b92280b96bcdf2cf32b6a42ec62ae178a1fad1fe3": {
+        "archive_sha256": "b1511a0f872cfc3df9329ab65c70d41dfa105446fcfa2ad05604abce4d9bba51",
+        "files": {
+          "exthome/qt-resource-rebuilder/native-import.qmd": [
+            "a13ebec80e02e27a82bbc7b9d8eca8eb3e1a6b25f37c4a10c50c9a1315924e5f",
+            237,
+            420
+          ],
+          "extensions.d/rmtool-native-import.so": [
+            "75297040da3340396dee7dc942f61641f288eaa6e581c866915eb787d7025657",
+            227864,
+            420
+          ],
+          "helpers/rmtool-native-import": [
+            "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd",
+            2621600,
+            493
+          ]
+        }
+      },
+      "20260827113527|rm1|armv7l|1f4fbb6e14650704b5b036e482da9948e73553178f6116ad464ab072f7b90117": {
+        "archive_sha256": "11f878d3694d767440b5776cbd0612fd06ef7ad1efd6b0183ca3896f33b51a7a",
+        "files": {
+          "exthome/qt-resource-rebuilder/native-import.qmd": [
+            "a13ebec80e02e27a82bbc7b9d8eca8eb3e1a6b25f37c4a10c50c9a1315924e5f",
+            237,
+            420
+          ],
+          "extensions.d/rmtool-native-import.so": [
+            "57e1f1525649b6912c0a7d1680318d3d6be9d61e5d8fb00d54877c4b7fc090bf",
+            178628,
+            420
+          ],
+          "helpers/rmtool-native-import": [
+            "50ab23b8e68f375e4871eedcde110b5c0a54e8a5a929f5e3865f10bb50343797",
+            2621600,
+            493
+          ]
+        }
+      },
+      "20260827113527|rm2|armv7l|071d85beef3ef2d4cc0e11002140b27b82a2cc04a2ed740a5669f591069b77df": {
+        "archive_sha256": "72de0596df16f43a7548ed06bec0731d845fb2b340eb4a5c5515b8834f317fcd",
+        "files": {
+          "exthome/qt-resource-rebuilder/native-import.qmd": [
+            "a13ebec80e02e27a82bbc7b9d8eca8eb3e1a6b25f37c4a10c50c9a1315924e5f",
+            237,
+            420
+          ],
+          "extensions.d/rmtool-native-import.so": [
+            "57e1f1525649b6912c0a7d1680318d3d6be9d61e5d8fb00d54877c4b7fc090bf",
+            178628,
+            420
+          ],
+          "helpers/rmtool-native-import": [
+            "50ab23b8e68f375e4871eedcde110b5c0a54e8a5a929f5e3865f10bb50343797",
+            2621600,
+            493
+          ]
+        }
+      },
+      "20261009073202|chiappa|aarch64|0d4bfba6daf8f61138996af95b494d70da11654d4861a98bffe894a425b8caba": {
+        "archive_sha256": "19932d53310713e7ad73552186b543e960e56af72b5b6f5cde27310d3f875d28",
+        "files": {
+          "exthome/qt-resource-rebuilder/native-import.qmd": [
+            "a13ebec80e02e27a82bbc7b9d8eca8eb3e1a6b25f37c4a10c50c9a1315924e5f",
+            237,
+            420
+          ],
+          "extensions.d/rmtool-native-import.so": [
+            "75297040da3340396dee7dc942f61641f288eaa6e581c866915eb787d7025657",
+            227864,
+            420
+          ],
+          "helpers/rmtool-native-import": [
+            "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd",
+            2621600,
+            493
+          ]
+        }
+      },
+      "20261009073202|ferrari|aarch64|9d6d844d793b6242345c7c25667451620c48b2cc28986a21049fa8d534042dd4": {
+        "archive_sha256": "8e5be40ffbe67037465f4b8b8ef0500b0492da925f37b3d5c91d1c62da47352e",
+        "files": {
+          "exthome/qt-resource-rebuilder/native-import.qmd": [
+            "a13ebec80e02e27a82bbc7b9d8eca8eb3e1a6b25f37c4a10c50c9a1315924e5f",
+            237,
+            420
+          ],
+          "extensions.d/rmtool-native-import.so": [
+            "75297040da3340396dee7dc942f61641f288eaa6e581c866915eb787d7025657",
+            227864,
+            420
+          ],
+          "helpers/rmtool-native-import": [
+            "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd",
+            2621600,
+            493
+          ]
+        }
+      },
+      "20261009073202|tatsu|aarch64|3735105b7e6b8a1d8ea42c9eabe6079c0bd1c99a546ab1a9fc7870263909ce39": {
+        "archive_sha256": "4d26bfa5254646f6d776dec862d0fd4c0961fc4b51813947fe512075ed4148db",
+        "files": {
+          "exthome/qt-resource-rebuilder/native-import.qmd": [
+            "a13ebec80e02e27a82bbc7b9d8eca8eb3e1a6b25f37c4a10c50c9a1315924e5f",
+            237,
+            420
+          ],
+          "extensions.d/rmtool-native-import.so": [
+            "75297040da3340396dee7dc942f61641f288eaa6e581c866915eb787d7025657",
+            227864,
+            420
+          ],
+          "helpers/rmtool-native-import": [
+            "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd",
+            2621600,
+            493
+          ]
+        }
+      },
+      "20261009073202|rm1|armv7l|0c68cf7b049fb87929b5978494a1205bc558f239f77758821c67524133a3f54b": {
+        "archive_sha256": "24f7e0e5f38d10600597ca4effc7dc462bf1411cba987ab50237f1e13cd45879",
+        "files": {
+          "exthome/qt-resource-rebuilder/native-import.qmd": [
+            "a13ebec80e02e27a82bbc7b9d8eca8eb3e1a6b25f37c4a10c50c9a1315924e5f",
+            237,
+            420
+          ],
+          "extensions.d/rmtool-native-import.so": [
+            "57e1f1525649b6912c0a7d1680318d3d6be9d61e5d8fb00d54877c4b7fc090bf",
+            178628,
+            420
+          ],
+          "helpers/rmtool-native-import": [
+            "50ab23b8e68f375e4871eedcde110b5c0a54e8a5a929f5e3865f10bb50343797",
+            2621600,
+            493
+          ]
+        }
+      },
+      "20261009073202|rm2|armv7l|53547bc30584b9057d5b05ada6c5fb2df3561c3a097c1c2b1aae527d5ddd2e26": {
+        "archive_sha256": "57471f2602efde549608304aadabc6c30773d9bd7fadcf8f388ee5dab138c430",
+        "files": {
+          "exthome/qt-resource-rebuilder/native-import.qmd": [
+            "a13ebec80e02e27a82bbc7b9d8eca8eb3e1a6b25f37c4a10c50c9a1315924e5f",
+            237,
+            420
+          ],
+          "extensions.d/rmtool-native-import.so": [
+            "57e1f1525649b6912c0a7d1680318d3d6be9d61e5d8fb00d54877c4b7fc090bf",
+            178628,
+            420
+          ],
+          "helpers/rmtool-native-import": [
+            "50ab23b8e68f375e4871eedcde110b5c0a54e8a5a929f5e3865f10bb50343797",
+            2621600,
+            493
+          ]
+        }
+      },
+      "20261028104944|ferrari|aarch64|35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd": {
+        "archive_sha256": "1a8928128e686e01febec8b2f5fb778f4066d1ccb5a191d008529cddd797a6ff",
+        "files": {
+          "exthome/qt-resource-rebuilder/native-import.qmd": [
+            "a13ebec80e02e27a82bbc7b9d8eca8eb3e1a6b25f37c4a10c50c9a1315924e5f",
+            237,
+            420
+          ],
+          "extensions.d/rmtool-native-import.so": [
+            "75297040da3340396dee7dc942f61641f288eaa6e581c866915eb787d7025657",
+            227864,
+            420
+          ],
+          "helpers/rmtool-native-import": [
+            "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd",
+            2621600,
+            493
+          ]
+        }
+      },
+      "20261028104944|chiappa|aarch64|9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4": {
+        "archive_sha256": "5fadfff073b8d2b35c1a0d3fcaf6d474de0877856e29b4359489414321c66204",
+        "files": {
+          "exthome/qt-resource-rebuilder/native-import.qmd": [
+            "a13ebec80e02e27a82bbc7b9d8eca8eb3e1a6b25f37c4a10c50c9a1315924e5f",
+            237,
+            420
+          ],
+          "extensions.d/rmtool-native-import.so": [
+            "75297040da3340396dee7dc942f61641f288eaa6e581c866915eb787d7025657",
+            227864,
+            420
+          ],
+          "helpers/rmtool-native-import": [
+            "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd",
+            2621600,
+            493
+          ]
+        }
+      },
+      "20261028104944|tatsu|aarch64|c464f2ee5f03468834cb117672ebaaabb1e322cdab8510bbdc2f663886334531": {
+        "archive_sha256": "a6dc77c6af308cfb9b389d2505b78f3413991536ab42fe3241a2700c97951e7e",
+        "files": {
+          "exthome/qt-resource-rebuilder/native-import.qmd": [
+            "a13ebec80e02e27a82bbc7b9d8eca8eb3e1a6b25f37c4a10c50c9a1315924e5f",
+            237,
+            420
+          ],
+          "extensions.d/rmtool-native-import.so": [
+            "75297040da3340396dee7dc942f61641f288eaa6e581c866915eb787d7025657",
+            227864,
+            420
+          ],
+          "helpers/rmtool-native-import": [
+            "d38afd278af4c7cd1da526acfc9ec9834907ab6fb84fcf484d10c4004d9de9dd",
+            2621600,
+            493
+          ]
+        }
+      },
+      "20261028104944|rm1|armv7l|2bc210bd4e05b709ea15d7e4f357b816505a40fb1838c02f6b60040ea3c87690": {
+        "archive_sha256": "cf5b47cd6d7f179b560986438204bdf5f6bf47b716d3d7cca09aadd5b26af78a",
+        "files": {
+          "exthome/qt-resource-rebuilder/native-import.qmd": [
+            "a13ebec80e02e27a82bbc7b9d8eca8eb3e1a6b25f37c4a10c50c9a1315924e5f",
+            237,
+            420
+          ],
+          "extensions.d/rmtool-native-import.so": [
+            "57e1f1525649b6912c0a7d1680318d3d6be9d61e5d8fb00d54877c4b7fc090bf",
+            178628,
+            420
+          ],
+          "helpers/rmtool-native-import": [
+            "50ab23b8e68f375e4871eedcde110b5c0a54e8a5a929f5e3865f10bb50343797",
+            2621600,
+            493
+          ]
+        }
+      },
+      "20261028104944|rm2|armv7l|4ab39bdf42503fe8d9e10a31a415b28b9aed6f25bd32788226c02ee23879fd13": {
+        "archive_sha256": "3a0634ac54aa8f95ba28cfed5b98ac3c9c0dfc2a6a64a7f9944f36c551c35602",
+        "files": {
+          "exthome/qt-resource-rebuilder/native-import.qmd": [
+            "a13ebec80e02e27a82bbc7b9d8eca8eb3e1a6b25f37c4a10c50c9a1315924e5f",
+            237,
+            420
+          ],
+          "extensions.d/rmtool-native-import.so": [
+            "57e1f1525649b6912c0a7d1680318d3d6be9d61e5d8fb00d54877c4b7fc090bf",
+            178628,
+            420
+          ],
+          "helpers/rmtool-native-import": [
+            "50ab23b8e68f375e4871eedcde110b5c0a54e8a5a929f5e3865f10bb50343797",
+            2621600,
+            493
+          ]
+        }
+      }
+    }
+  }
+}

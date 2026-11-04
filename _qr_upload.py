@@ -148,7 +148,7 @@ def parse_manifest(data: bytes, *, require_local_match=True):
             if item.mode != (0o755 if item.path in ("qmd-tool", RECEIVER_PAYLOAD_PATH) else 0o644):
                 raise RuntimeError("扫码传输文件权限无效。")
         asset = _expected_asset_name(entry["platform"], entry["firmware"], entry["release_version"])
-        if entry["asset"] != asset or entry["urls"] != [f"{base}/{asset}" for base in REMOTE_BASE_URLS]:
+        if not packages.asset_name_matches(entry["asset"], asset, entry["sha256"]) or entry["urls"] != [f"{base}/{entry['asset']}" for base in REMOTE_BASE_URLS]:
             raise RuntimeError("扫码传输下载来源无效。")
         result.append(QrUploadPackage(**{**entry, "files": files, "urls": tuple(entry["urls"])}))
         seen.add(identity)
@@ -226,11 +226,13 @@ def get_status(ssh_client, catalog):
     package = select_package(catalog, identity)
     if package is None:
         return QrUploadStatus(QrUploadState.INCOMPATIBLE, identity,
-            detail="扫码传输支持五款设备的 3.29.0.153，以及 Paper Pro Move 3.28.0.172。")
+            detail="扫码传输支持五款设备的 3.29.1.0 正式版、3.29.0.153 测试版，以及 Paper Pro Move 3.28.0.172。")
     try:
         runtime, trusted, _legacies, feature = _context(identity, package)
         if not shared.has_shared_artifacts(ssh_client):
             return QrUploadStatus(QrUploadState.NOT_INSTALLED, identity, package, catalog)
+        if detail := shared.firmware_residue_detail(ssh_client, identity):
+            return QrUploadStatus(QrUploadState.BROKEN, identity, package, catalog, detail=detail)
         inspection, _installed, _selected = _inspect(ssh_client, identity, runtime, trusted)
         record = inspection.states.get(FEATURE_ID)
         if record is None:
@@ -257,8 +259,8 @@ def preflight(ssh_client, package, *, with_plan=False):
         raise RuntimeError("设备与扫码传输包不精确匹配，未执行修改。")
     _assert_stopped(ssh_client)
     managed = shared.has_shared_artifacts(ssh_client)
-    if not managed and tap._vellum_runtime_present(ssh_client):
-        raise RuntimeError(tap._vellum_conflict_detail(ssh_client))
+    if detail := tap._external_xovi_conflict_detail(ssh_client):
+        raise RuntimeError(detail)
     tap._preflight_device(ssh_client)
     if not _rmkit_cn.has_localization_cjk_font(ssh_client):
         raise RuntimeError(

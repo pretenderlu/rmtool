@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 import _tap_page_turn as tap
+import _plugin_packages as packages
 
 
 TARGETS = {
@@ -111,7 +112,7 @@ def _build(
         "platform": platform,
         "architecture": architecture,
         "xochitl_sha256": xochitl_sha256,
-        "asset": spec["asset"],
+        "asset": packages.content_asset_name(spec["asset"], sha256(archive)),
         "sha256": sha256(archive),
         "size": len(archive),
         "files": [
@@ -181,7 +182,7 @@ def main() -> int:
             )
         ]
         document["packages"].append(entry)
-        output = args.output_dir / spec["asset"]
+        output = args.output_dir / entry["asset"]
         tap._write_atomic(output, archive)
         print(f"archive={output}")
         print(f"archive_sha256={entry['sha256']}")

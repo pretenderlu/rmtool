@@ -15,7 +15,7 @@ import threading
 import time
 from contextlib import contextmanager
 from functools import wraps
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Callable, Dict, Iterator, Optional, Tuple
 
 import paramiko
@@ -528,9 +528,22 @@ class SSHClientWrapper(QtCore.QObject):
         self, sftp: paramiko.SFTPClient, remote_dir: str, local_dir: str
     ) -> None:
         Path(local_dir).mkdir(parents=True, exist_ok=True)
+        destination = Path(local_dir).resolve()
         for entry in sftp.listdir_attr(remote_dir):
-            remote_path = f"{remote_dir}/{entry.filename}"
-            local_path = os.path.join(local_dir, entry.filename)
+            name = entry.filename
+            # SFTP names are single POSIX components, but the destination may be Windows.
+            if (
+                not isinstance(name, str) or not name or name in (".", "..")
+                or any(ord(char) < 32 or char in '<>:"/\\|?*' for char in name)
+                or name.endswith((".", " ")) or PureWindowsPath(name).is_reserved()
+            ):
+                raise RuntimeError(f"下载目录包含不安全的文件名：{name!r}")
+            local_path = destination / name
+            if local_path.is_symlink() or local_path.is_junction() or local_path.resolve().parent != destination:
+                raise RuntimeError("下载目标包含链接或超出本地目录")
+            remote_path = f"{remote_dir}/{name}"
+            if not (stat.S_ISDIR(entry.st_mode) or stat.S_ISREG(entry.st_mode)):
+                raise RuntimeError("下载目录包含链接或特殊文件，已停止导出")
             if stat.S_ISDIR(entry.st_mode):
                 self._download_directory_recursive(sftp, remote_path, local_path)
             else:

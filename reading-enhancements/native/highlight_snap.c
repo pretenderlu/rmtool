@@ -16,13 +16,15 @@
 
 #define CONFIG_PATH "/home/root/.config/remarkable/xochitl.conf"
 #define PATCH_LEN 20
+#include "highlight_identity.h"
+#if defined(RMTOOL_HIGHLIGHT_329_153) || defined(RMTOOL_HIGHLIGHT_32910)
+__attribute__((used,retain,section(".rmtool.identity"))) static const char rmtool_identity[] =
+    EXPECTED_FIRMWARE "\n" MOVE_XOCHITL_SHA256 "\n" PAPER_PRO_XOCHITL_SHA256;
+#endif
 
 #ifdef RMTOOL_HIGHLIGHT_BETA_329
 #include "highlight_snap_329.h"
 #else
-#define EXPECTED_FIRMWARE "20260827113527"
-#define MOVE_XOCHITL_SHA256 "5ba79d1b5656df1a771217d29a8d3938c40256be53361b10a0d17cd4752807f4"
-#define PAPER_PRO_XOCHITL_SHA256 "b1816408cf90b19e448c70082625c4d6a36060368706eb7a9b35425428a9a021"
 
 static const uint8_t TARGET_PATTERN[] = {
     0x3f,0x23,0x03,0xd5,0xfd,0x7b,0xbd,0xa9,0xfd,0x03,0x00,0x91,
@@ -62,7 +64,12 @@ static int file_text_equals(const char *path, const char *expected) {
 }
 static int xochitl_hash_matches(const char *expected) {
     FILE *f=fopen("/usr/bin/xochitl","rb"); uint8_t buf[65536]; size_t n; Sha256 s; char hex[65]; if(!f)return 0;
-    sha_init(&s); while((n=fread(buf,1,sizeof(buf),f))>0)sha_update(&s,buf,n); if(ferror(f)){fclose(f);return 0;}fclose(f);sha_final(&s,hex);return strcmp(hex,expected)==0;
+    sha_init(&s); while((n=fread(buf,1,sizeof(buf),f))>0)sha_update(&s,buf,n); if(ferror(f)){fclose(f);return 0;}fclose(f);sha_final(&s,hex);
+#if defined(RMTOOL_HIGHLIGHT_329_153) || defined(RMTOOL_HIGHLIGHT_32910)
+    return highlight_identity_matches(EXPECTED_FIRMWARE,expected,hex);
+#else
+    return strcmp(hex,expected)==0;
+#endif
 }
 static const char *machine_xochitl_hash(void) {
     FILE *f=fopen("/sys/devices/soc0/machine","rb"); char buf[256]; size_t n; if(!f)return 0;n=fread(buf,1,sizeof(buf)-1,f);fclose(f);buf[n]=0;

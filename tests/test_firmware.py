@@ -75,7 +75,7 @@ class FakeSSH:
     def ensure_client(self):
         return self.token
 
-    def exec_checked(self, command):
+    def exec_checked(self, command, *, timeout=None):
         self.commands.append(command)
         if "/completed.json; sync" in command:
             import shlex
@@ -416,11 +416,13 @@ class SafetyTests(unittest.TestCase):
             ({"swu_status": None}, False, ""),
             ({"swu_applied": "1"}, False, ""),
             ({"swu_recovery": "1"}, False, ""),
+            ({"roota_errcnt": "1"}, False, "A/B 错误计数非零"),
+            ({"rootb_errcnt": "1"}, False, "A/B 错误计数非零"),
         ]
         for changes, allowed, detail in cases:
             with self.subTest(changes=changes), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                values = dict(swu_status="0", swu_applied="0", swu_recovery="0")
+                values = dict(swu_status="0", swu_applied="0", swu_recovery="0", roota_errcnt="0", rootb_errcnt="0")
                 values.update(changes)
                 for key, value in values.items():
                     if value is not None:
@@ -648,10 +650,10 @@ class TransactionTests(unittest.TestCase):
         self.ssh.probe = state_text(boot="2")
         original = self.ssh.exec_checked
 
-        def execute(command):
+        def execute(command, **kwargs):
             if command == f.isolated_slot_command("b"):
                 return self.ssh.files[self.directory + "/target"].decode()
-            return original(command)
+            return original(command, **kwargs)
 
         with mock.patch.object(self.ssh, "exec_checked", side_effect=execute), \
                 mock.patch.object(self.ssh, "close", create=True) as close:

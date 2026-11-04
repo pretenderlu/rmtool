@@ -34,7 +34,7 @@ PACKAGE_REVISION = 12
 MAX_MANIFEST_BYTES = tap.MAX_MANIFEST_BYTES
 MAX_PACKAGE_BYTES = tap.MAX_PACKAGE_BYTES
 MAX_UNPACKED_BYTES = tap.MAX_UNPACKED_BYTES
-_ASSET_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.tar\.gz")
+_ASSET_RE = _plugin_packages.ASSET_RE
 _REQUIRED_PATHS = {*shared._COMMON_ARCHIVE_PATHS, QMD_PAYLOAD_PATH}
 _PAYLOAD_PATHS = _REQUIRED_PATHS | {
     "LICENSE.qmd-tool",
@@ -204,7 +204,7 @@ def parse_manifest(
         expected = ALLOWED_TARGETS.get((platform, firmware, architecture, xochitl_sha))
         if expected != (release_version, channel, offline_verified, device_verified):
             raise RuntimeError("笔记增强清单身份或验证级别不在本地信任清单中。")
-        if asset != _expected_asset_name(platform, firmware, release_version):
+        if not _plugin_packages.asset_name_matches(asset, _expected_asset_name(platform, firmware, release_version), digest):
             raise RuntimeError("笔记增强资源包文件名与本地信任清单不一致。")
         urls = entry.get("urls")
         expected_urls = {f"{base}/{asset}" for base in REMOTE_BASE_URLS}
@@ -318,39 +318,7 @@ def _trusted_context(identity: DeviceIdentity, package: NoteEnhancementsPackage)
 
 
 def _peer_revisions(identity: DeviceIdentity, trusted):
-    revisions = dict(tap._reading_enhancement_revisions(identity, trusted))
-    package = select_package(_trusted_catalog(), identity)
-    if package is not None and FEATURE_ID in trusted:
-        items = _known_shared_predecessor_specs(package, trusted[FEATURE_ID])
-        if items:
-            revisions[FEATURE_ID] = items
-    for module_name in ("_native_chinese", "_pinyin_input"):
-        try:
-            module = __import__(module_name)
-            package = module.select_package(module._trusted_catalog(), identity)
-            if package is not None and module.FEATURE_ID in trusted:
-                items = tuple(
-                    (item.reason, item.feature)
-                    for item in module._known_shared_predecessor_specs(package)
-                )
-                if items:
-                    revisions[module.FEATURE_ID] = items
-        except (ImportError, AttributeError):
-            pass
-    try:
-        import _fast_mono_reading as fast
-
-        package = fast.select_package(fast._trusted_catalog(), identity)
-        if package is not None and fast.FEATURE_ID in trusted:
-            items = tuple(
-                (f"package-revision-{revision}", feature)
-                for revision, feature in fast._known_shared_predecessor_specs(package)
-            )
-            if items:
-                revisions[fast.FEATURE_ID] = items
-    except (ImportError, AttributeError):
-        pass
-    return revisions
+    return tap._published_feature_revisions(identity, trusted)
 
 
 def _inspect_shared(ssh_client, runtime, trusted, identity, *, check_lower=True):
@@ -448,21 +416,21 @@ def get_status(
             )
             if FEATURE_ID in residue.states:
                 return NoteEnhancementsStatus(
-                    NoteEnhancementsState.REPAIR_AVAILABLE,
+                    NoteEnhancementsState.BROKEN,
                     identity,
                     package,
                     available,
                     "已验证为同一 rmtool 信源的固件升级残留；请在固件管理中迁移共享插件，"
                     "不要单独重装这一项。",
-                    True,
+                    False,
                 )
             return NoteEnhancementsStatus(
-                NoteEnhancementsState.MIGRATION_AVAILABLE,
+                NoteEnhancementsState.BROKEN,
                 identity,
                 package,
                 available,
                 "已验证为同一 rmtool 信源的其他共享插件固件升级残留；请在固件管理中统一迁移。",
-                True,
+                False,
             )
         inspection, _installed_trusted, selected = _inspect_shared(
             ssh_client, runtime, trusted, identity

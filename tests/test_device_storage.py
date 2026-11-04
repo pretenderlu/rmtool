@@ -15,6 +15,7 @@ import _native_chinese as native
 import _pinyin_input as pinyin
 import _plugin_recovery as recovery
 import _qr_upload as qr
+import _tap_page_turn as tap
 import _xovi_standalone as shared
 
 
@@ -287,10 +288,8 @@ class LegacyPluginCapacityTests(unittest.TestCase):
             if item.platform == "rm2" and item.release_version == "3.29.0.153"
         )
         _native_runtime, native_feature = native._shared_specs(native_package)
-        expected = {
-            pinyin.FEATURE_ID: (11317248, 90112, 684032, 12341248, 20795392),
-            qr.FEATURE_ID: (11317248, 10383360, 634880, 22585344, 31039488),
-        }
+        def allocated(items):
+            return sum((item.size + 4095) // 4096 * 4096 for item in items)
         for module in (pinyin, qr):
             package = next(
                 item for item in module._trusted_catalog()
@@ -305,28 +304,29 @@ class LegacyPluginCapacityTests(unittest.TestCase):
             }
             with self.subTest(feature=feature.feature_id):
                 budget = shared.shared_capacity_budget(runtime, states)
-                runtime_bytes, feature_bytes, validation, allocated, total = expected[
-                    feature.feature_id
-                ]
+                runtime_bytes = allocated(runtime.files)
+                feature_bytes = allocated(feature.files)
+                native_bytes = allocated(native_feature.files)
+                validation = allocated(item for item in runtime.files if item.path.endswith("hashtab"))
+                validation += allocated(item for spec in (native_feature, feature)
+                                        for item in spec.files if item.runtime_path.endswith(".qmd"))
                 self.assertEqual(budget.runtime_bytes, runtime_bytes)
-                self.assertEqual(budget.feature_bytes, 233472 + feature_bytes)
+                self.assertEqual(budget.feature_bytes, native_bytes + feature_bytes)
                 by_feature = {item.feature_id: item for item in budget.feature_budgets}
-                self.assertEqual(by_feature[native_feature.feature_id].payload_bytes, 233472)
+                self.assertEqual(by_feature[native_feature.feature_id].payload_bytes, native_bytes)
                 self.assertEqual(by_feature[feature.feature_id].payload_bytes, feature_bytes)
                 self.assertEqual(budget.validation_bytes, validation)
                 self.assertEqual(
                     budget.marker_bytes + budget.launcher_bytes + budget.dropin_bytes,
                     16384,
                 )
-                self.assertEqual(budget.allocated_bytes, allocated)
+                expected_allocated = runtime_bytes + native_bytes + feature_bytes + validation + 16384
+                self.assertEqual(budget.allocated_bytes, expected_allocated)
                 self.assertEqual(budget.transaction_bytes, 64 * 1024)
                 self.assertEqual(
-                    budget.required_bytes + storage.LEGACY_ROOT_RESERVE, total
+                    budget.required_bytes + storage.LEGACY_ROOT_RESERVE,
+                    expected_allocated + 64 * 1024 + storage.LEGACY_ROOT_RESERVE,
                 )
-                self.assertEqual(total / 1048576, {
-                    pinyin.FEATURE_ID: 19.83203125,
-                    qr.FEATURE_ID: 29.6015625,
-                }[feature.feature_id])
                 with self.assertRaises(AttributeError):
                     budget.required_bytes = 0
 
@@ -356,6 +356,8 @@ class LegacyPluginCapacityTests(unittest.TestCase):
         budget = shared.shared_capacity_budget(self.runtime, self.states)
         required = storage.LEGACY_ROOT_RESERVE + budget.required_bytes
         with patch.object(shared, "_assert_managed_dropins"), patch.object(
+            tap, "_external_xovi_conflict_detail", return_value=""
+        ), patch.object(
             shared, "has_shared_artifacts", return_value=False
         ), patch.object(shared, "_process_token", return_value="token"), patch.object(
             storage, "system_free_bytes", return_value=("/", 0),

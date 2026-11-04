@@ -15,6 +15,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from _plugin_packages import content_asset_name
+from tools.native_build import verify_archive_runtime, verify_tool
 RELEASE = '3.29.0.152'
 FIRMWARE = '20261009073202'
 TARGETS = {
@@ -231,6 +233,10 @@ def main():
     parser.add_argument('--zig', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
     args = parser.parse_args()
+    verify_archive_runtime()
+    for name, path in (("zig", args.zig), ("qmd-tool", args.qmd_tool), ("qmldiff", args.qmldiff),
+                       *((tool, args.qt_bin / (tool + '.exe')) for tool in ('lconvert', 'lrelease', 'lupdate'))):
+        verify_tool(name, path)
     release = args.release
     targets = TARGETS_BY_RELEASE[release]
     firmware = FIRMWARE_BY_RELEASE[release]
@@ -240,7 +246,7 @@ def main():
     arm_translator = build_arm_translator(args.zig, args.output_dir) if any(t[0] == 'armv7l' for t in targets.values()) else None
     highlight = args.output_dir / 'rmtool-highlight-snap-3.29.so'
     run([sys.executable, ROOT / 'reading-enhancements/native/build_highlight_snap.py',
-         '--zig', args.zig, '--beta-329', '--output', highlight])
+         '--zig', args.zig, '--release', release, '--output', highlight])
     base_builder = load(ROOT / 'native-chinese/build_172.py')
     records = {feature: [] for feature in FEATURES}
     report = {}
@@ -326,6 +332,7 @@ def main():
                     run([args.qt_bin / 'lrelease.exe', '-nounfinished', merged, '-qm', temp / 'repeat.qm'])
                     if first != (temp / 'repeat.qm').read_bytes():
                         raise RuntimeError('Non-deterministic Chinese catalog')
+                    qm = qm.rename(qm.with_name(content_asset_name(qm.name, digest(first))))
                     files['native-chinese/reMarkable_zh_CN.qm'] = (first, 0o644)
                     carriers.append(dict(platform=platform, release_version=release, channel=channel,
                                          asset=qm.name, size=len(first), sha256=digest(first), xochitl_sha256=xochitl_hash,
@@ -346,8 +353,10 @@ def main():
                 else:
                     asset = f'rmtool-{feature}-{platform}-{firmware}-{release}.tar.gz'
                 origins = (module.COS_URL, module.GITHUB_URL) if feature in ('native-chinese', 'pinyin-input') else module.REMOTE_BASE_URLS
-                entry['urls'] = [f'{origin}/{asset}' for origin in origins]
             archive = base_builder.pack(files)
+            asset = content_asset_name(asset, digest(archive))
+            if feature != 'tap-page-turn':
+                entry['urls'] = [f'{origin}/{asset}' for origin in origins]
             entry.update(asset=asset, size=len(archive), sha256=digest(archive), files=[
                 dict(path=p, size=len(data), sha256=digest(data), mode=mode) for p, (data, mode) in sorted(files.items())])
             destination = args.output_dir / feature / asset

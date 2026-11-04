@@ -175,6 +175,13 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             and self.ssh_client.is_connected()
         )
 
+    def _session_replaced(self, token):
+        generation, client = token
+        return (
+            _ui.session_replaced(self.ssh_client, client)
+            or self._connection_generation > generation + 1
+        )
+
     def _run_in_session(self, session, fn, *args):
         with self.ssh_client.operation_session():
             if not self._session_current(session):
@@ -310,10 +317,13 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             completed = True
             try:
                 release()
-                if sip.isdeleted(self) or not self._session_current(session):
+                if sip.isdeleted(self) or (
+                    self._session_replaced(session) if exc is not None
+                    else not self._session_current(session)
+                ):
                     return
                 self._busy = False
-                self._on_connection_changed(True)
+                self._on_connection_changed(self.ssh_client.is_connected())
                 if exc is None:
                     incomplete_report = None
                     if (
@@ -367,7 +377,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                     self._recovery_report = None
                     self._incomplete_report = None
                     self._incomplete_session = None
-                    self._on_connection_changed(True)
+                    self._on_connection_changed(self.ssh_client.is_connected())
                     guidance = (
                         "未自动重启设备。恢复的旧程序不代表已通过校验；请勿重启或解除紧急停用，"
                         "先重新检测并保留备份，必要时导出诊断日志。"
@@ -534,7 +544,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             self.status_label.setText(self._report_text(report))
 
         def on_error(exc: Exception):
-            if sip.isdeleted(self) or not self._session_current(session):
+            if sip.isdeleted(self) or self._session_replaced(session):
                 logging.error("Residue detection failed after tab close: %s", exc)
                 return
             self._busy = False
@@ -616,7 +626,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             )
 
         def on_error(exc: Exception):
-            if sip.isdeleted(self) or not self._session_current(session):
+            if sip.isdeleted(self) or self._session_replaced(session):
                 logging.error("Residue migration failed after tab close: %s", exc)
                 return
             self._busy = False
@@ -690,7 +700,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             )
 
         def on_error(exc: Exception):
-            if sip.isdeleted(self) or not self._session_current(session):
+            if sip.isdeleted(self) or self._session_replaced(session):
                 logging.error("Firmware residue cleanup failed after tab close: %s", exc)
                 return
             self._busy = False
@@ -752,7 +762,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                 _ui.show_info(self, _rmtool.APP_NAME, "没有需要卸载的 rmtool 旧版插件。")
 
         def on_error(exc: Exception):
-            if sip.isdeleted(self) or not self._session_current(session):
+            if sip.isdeleted(self) or self._session_replaced(session):
                 logging.error("Legacy Vellum cleanup failed after tab close: %s", exc)
                 return
             self._busy = False

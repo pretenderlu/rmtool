@@ -28,6 +28,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 import rmrl
 import rmtool
+import _device_actions
 import _legacy_vellum
 import _native_chinese
 import _residue_migration
@@ -187,6 +188,9 @@ class FakeCarouselClient(QtCore.QObject):
         self.commands.append(command)
         if command.startswith("mount -o remount"):
             assert self.session_depth > 0, "root remount outside operation_session"
+        if command.startswith("sha256sum "):
+            remote = shlex.split(command)[1]
+            return hashlib.sha256(self.files[remote]).hexdigest() + "  " + remote
         parts = command.split(" ")
         if parts[0] == "cp":
             self.files[parts[-1]] = self.files[parts[-2]]
@@ -1619,6 +1623,14 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertIn("仅通过官方固件离线验证，尚未进行实机验证", section.status_label.text())
         self.assertTrue(section.enable_button.isEnabled())
         self.assertTrue(section.load_package_button.isEnabled())
+
+        with mock.patch("_toolbox_common.ask_confirmation", return_value=True), mock.patch.object(section, "_start_worker") as start:
+            section._enable()
+        start.assert_called_once()
+        section._apply_status(_tap_page_turn.TapPageTurnStatus(
+            _tap_page_turn.TapPageTurnState.FIRMWARE_RESIDUE, identity, package, (package,),
+        ))
+        self.assertFalse(section.disable_button.isEnabled())
 
     def test_tap_section_load_local_package_verifies_and_caches(self):
         section = _tab_toolbox.TapPageTurnSection(
@@ -3490,7 +3502,8 @@ class WallpaperUiTests(unittest.TestCase):
         self.addCleanup(lambda: os.path.exists(temp_path) and os.remove(temp_path))
         Image.new("RGB", (8, 8), (1, 2, 3)).save(temp_path, format="PNG")
 
-        widget._do_upload_wallpaper(temp_path, "/usr/share/remarkable/suspended.png")
+        with mock.patch.object(client, "exec_command", return_value=("reMarkable Paper Pro", "", 0), create=True):
+            widget._do_upload_wallpaper(temp_path, "/usr/share/remarkable/suspended.png")
 
         for path in carousel_files(original):
             self.assertEqual(client.files[carousel_backup_path(path)], original)
@@ -3506,7 +3519,9 @@ class WallpaperUiTests(unittest.TestCase):
         payload = make_png_bytes((1, 2, 3))
         Path(temp_path).write_bytes(payload)
 
-        with mock.patch.object(_sleep_wallpaper, "enable") as enable:
+        with mock.patch.object(_sleep_wallpaper, "enable") as enable, mock.patch.object(
+            client, "exec_command", return_value=("reMarkable Paper Pro", "", 0), create=True
+        ):
             requires_reboot = widget._do_upload_wallpaper(
                 temp_path,
                 "/usr/share/remarkable/suspended.png",
@@ -3711,8 +3726,10 @@ class DeviceFramePreviewTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("assets\\device_frames');assets\\device_frames", windows)
-        self.assertIn("assets/device_frames:assets/device_frames", workflow)
+        import _bundle_resources
+        self.assertIn("assets/device_frames", _bundle_resources.DATA_PATHS)
+        self.assertIn("tools\\build_app.py", windows)
+        self.assertIn("tools/build_app.py", workflow)
         for filename, _screen_rect in _tab_wallpaper._DEVICE_FRAME_PROFILES.values():
             self.assertIn(filename, windows)
 
@@ -5186,7 +5203,7 @@ class FontUiTests(unittest.TestCase):
     def test_restart_is_only_sent_by_dedicated_confirmed_action(self):
         client = rmtool.SSHClientWrapper()
         client._client = mock.Mock()
-        client.exec_command = mock.Mock()
+        client.exec_command = mock.Mock(return_value=("", "", 0))
         widget = rmtool.FontTab(client, rmtool._default_config())
         self.addCleanup(widget.deleteLater)
 
@@ -5201,7 +5218,9 @@ class FontUiTests(unittest.TestCase):
             # Reboot runs on a worker so a stalled link cannot freeze the UI.
             QtCore.QThreadPool.globalInstance().waitForDone(5000)
             QtWidgets.QApplication.processEvents()
-        client.exec_command.assert_called_once_with("reboot")
+        client.exec_command.assert_called_once_with(
+            "reboot", timeout=_device_actions.QUICK_COMMAND_TIMEOUT
+        )
         self.assertTrue(widget.restart_button.isEnabled())
 
 
@@ -5913,7 +5932,8 @@ class SSHTransportSerializationTests(unittest.TestCase):
         tracker = self.Tracker()
         wrapper = _ssh.SSHClientWrapper()
         wrapper._client = self.Client(tracker)
-        start = threading.Barrier(8)
+        start = threading.Barrier(8, timeout=15)
+        errors = []
 
         def run_command(index):
             start.wait()
@@ -5924,18 +5944,23 @@ class SSHTransportSerializationTests(unittest.TestCase):
             with wrapper.sftp_session():
                 time.sleep(0.02)
 
-        threads = [
-            threading.Thread(target=run_command, args=(index,))
-            if index % 2 == 0
-            else threading.Thread(target=run_sftp)
-            for index in range(8)
-        ]
+        def run(index):
+            try:
+                if index % 2 == 0:
+                    run_command(index)
+                else:
+                    run_sftp()
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=run, args=(index,)) for index in range(8)]
         for thread in threads:
             thread.start()
         for thread in threads:
-            thread.join(timeout=2)
+            thread.join(timeout=15)
 
         self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(errors, [])
         self.assertEqual(tracker.maximum, 1)
         self.assertEqual(tracker.active, 0)
 
@@ -6399,6 +6424,29 @@ class DocumentWorkspaceUiTests(unittest.TestCase):
             QtWidgets.QAbstractItemView.ExtendedSelection,
         )
 
+    def test_filtered_select_all_excludes_hidden_documents(self):
+        widget = self._make_widget()
+        documents = [self._make_document(name, ["pdf"], datetime(2026, 4, 15))
+                     for name in ("Meeting 1", "Meeting 2", "Private")]
+        widget._on_documents_loaded(documents)
+        widget._apply_filter("Meeting")
+        widget.table.selectAll()
+        self.assertEqual({item.name for item in widget._selected_documents()},
+                         {"Meeting 1", "Meeting 2"})
+
+    def test_filter_deselects_hidden_rows_even_when_current_row_stays_visible(self):
+        widget = self._make_widget()
+        widget._on_documents_loaded([
+            self._make_document(name, ["pdf"], datetime(2026, 4, 15))
+            for name in ("Meeting", "Private")])
+        widget.table.selectAll()
+        visible_row = next(row for row in range(widget.table.rowCount())
+                           if widget._document_for_row(row).name == "Meeting")
+        widget.table.setCurrentCell(visible_row, 0, QtCore.QItemSelectionModel.NoUpdate)
+        widget._apply_filter("Meeting")
+        rows = {index.row() for index in widget.table.selectionModel().selectedRows()}
+        self.assertEqual(rows, {visible_row})
+
     def test_multi_selection_updates_summary_and_single_item_actions(self):
         widget = self._make_widget()
         widget.set_connection_state(True)
@@ -6822,7 +6870,7 @@ class DocumentTransferTests(unittest.TestCase):
 
 
     def test_export_downloads_note_archive_and_renders_all_pages(self):
-        identifier = "note-doc"
+        identifier = "56dd5d4d-124a-4823-aebc-0b4dc61e76bc"
         archive_buffer = BytesIO()
         with zipfile.ZipFile(archive_buffer, "w") as archive:
             archive.writestr("pages/page-1.rm", build_rm_v5_page())

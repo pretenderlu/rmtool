@@ -49,13 +49,13 @@ class WeReadLauncherTests(unittest.TestCase):
             for item in self.catalog
             if item.release_version == "3.28.0.172"
         }
-        self.assertEqual(verification, {"chiappa": True, "ferrari": False})
+        self.assertEqual(verification, {"chiappa": False, "ferrari": False})
         stable_verification = {
             item.platform: item.device_verified
             for item in self.catalog
             if item.release_version == "3.29.1.0"
         }
-        self.assertEqual(stable_verification, {"chiappa": True, "ferrari": False})
+        self.assertEqual(stable_verification, {"chiappa": False, "ferrari": False})
         self.assertTrue(all(
             not item.device_verified
             for item in self.catalog
@@ -418,7 +418,7 @@ class WeReadLauncherTests(unittest.TestCase):
             )
         self.assertEqual(
             tuple(reason for reason, _feature in revisions[weread.FEATURE_ID]),
-            ("package-revision-2", "package-revision-3", "package-revision-4"),
+            ("published-v1.21.3", "package-revision-2", "package-revision-3", "package-revision-4"),
         )
 
     def test_missing_official_install_disables_install_and_launch(self):
@@ -468,6 +468,8 @@ class WeReadLauncherTests(unittest.TestCase):
                 )
                 with (
                     patch.object(tap, "get_device_identity", return_value=self.identity),
+                    patch.object(shared, "read_shared_identity", return_value=tuple(vars(self.identity).values())),
+                    patch.object(shared, "firmware_residue_detail", return_value=""),
                     patch.object(weread, "_official_install_error", return_value=""),
                     patch.object(
                         weread,
@@ -512,6 +514,8 @@ class WeReadLauncherTests(unittest.TestCase):
         )
         with (
             patch.object(tap, "get_device_identity", return_value=self.identity),
+            patch.object(shared, "read_shared_identity", return_value=tuple(vars(self.identity).values())),
+            patch.object(shared, "firmware_residue_detail", return_value=""),
             patch.object(weread, "_official_install_error", return_value=""),
             patch.object(
                 weread,

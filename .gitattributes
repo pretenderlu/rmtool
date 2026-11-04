@@ -2,3 +2,11 @@
 */manifest.json text eol=lf
 reading-enhancements/qmd-src/*.qmd text eol=lf diff merge
 native-chinese/qmd/native-chinese-3.29.qmd text eol=lf diff merge
+*.py text eol=lf
+*.go text eol=lf
+*.c text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+qr-upload/web/** text eol=lf
+reading-enhancements/LICENSE.rm-tweak text eol=lf
+assets/published-plugin-features.json text eol=lf

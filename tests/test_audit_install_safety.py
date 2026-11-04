@@ -82,6 +82,8 @@ class InstallSafetyTests(unittest.TestCase):
                 target.mkdir(parents=True)
                 (target / "old-payload").write_bytes(b"healthy old payload")
                 (target / "settings.reader.lua").write_bytes(b"user settings")
+                (target / "ota").mkdir()
+                (target / "ota/package.index").write_text("koreader/old-payload\n")
             app = root / "official" / "koreader"
             app.mkdir(parents=True)
             for name, content in {
@@ -89,6 +91,8 @@ class InstallSafetyTests(unittest.TestCase):
                 "git-rev": b"v1", "external.manifest.json": b"{}",
             }.items():
                 (app / name).write_bytes(content)
+            (app / "ota").mkdir()
+            (app / "ota/package.index").write_text("koreader/git-rev\n")
             asset = _appload.OfficialAsset(
                 "KOReader", "v1", "aarch64", "koreader.zip", 1, "a" * 64, "url"
             )

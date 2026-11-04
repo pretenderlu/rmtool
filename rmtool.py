@@ -13,13 +13,16 @@ import uuid
 # already-loading module object instead.
 sys.modules.setdefault("rmtool", sys.modules[__name__])
 
-if sys.argv[1:] == ["--https-smoke-test"]:
+if sys.argv[1:] in (["--https-smoke-test"], ["--bundle-self-test"]):
     import _https
+    import _bundle_resources
 
     # Exit with a status instead of raising: a windowed (GUI) build would show
     # a modal error dialog for an uncaught exception and hang the build job.
     try:
-        _https.smoke_test()
+        _bundle_resources.self_test()
+        if sys.argv[1:] == ["--https-smoke-test"]:
+            _https.smoke_test()
     except Exception as exc:
         if sys.stderr is not None:
             print(f"HTTPS smoke test failed: {exc}", file=sys.stderr)
@@ -37,7 +40,7 @@ from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets, sip
 
 
 APP_NAME = "reMarkable 管理工具"
-APP_VERSION = "1.21.3"
+APP_VERSION = "1.21.4"
 CONFIG_FILE = "devices.json"
 GITHUB_REPO_URL = "https://github.com/pretenderlu/rmtool"
 GITHUB_RELEASES_URL = f"{GITHUB_REPO_URL}/releases/latest"

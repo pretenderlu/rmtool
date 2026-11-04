@@ -166,9 +166,7 @@ class TapPageTurnSection(QtWidgets.QWidget):
     def _update_buttons(self):
         connected = self.ssh_client.is_connected() and not self._busy
         state = self._status.state if self._status else None
-        if state == _tap_page_turn.TapPageTurnState.FIRMWARE_RESIDUE:
-            self.disable_button.setText("清理残留")
-        elif state in (
+        if state in (
             _tap_page_turn.TapPageTurnState.OUTDATED,
             _tap_page_turn.TapPageTurnState.LEGACY_VELLUM,
         ):
@@ -197,8 +195,6 @@ class TapPageTurnSection(QtWidgets.QWidget):
                 _tap_page_turn.TapPageTurnState.DISABLE_PENDING_REBOOT,
                 _tap_page_turn.TapPageTurnState.OUTDATED,
                 _tap_page_turn.TapPageTurnState.LEGACY_VELLUM,
-                _tap_page_turn.TapPageTurnState.FIRMWARE_RESIDUE,
-                _tap_page_turn.TapPageTurnState.BROKEN,
             )
         )
         self.uninstall_button.setEnabled(
@@ -341,7 +337,7 @@ class TapPageTurnSection(QtWidgets.QWidget):
             return
         verification_notice = (
             "该精确包已完成对应真机验证。"
-            if self._status.package.device_verified
+            if getattr(self._status.package, "device_verified", False)
             else "该精确包已完成官方固件离线验证，尚未进行实机验证。"
         )
         if not _ui.ask_confirmation(

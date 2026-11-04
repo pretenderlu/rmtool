@@ -137,7 +137,7 @@ def parse_manifest(data, *, require_local_match=True):
             if item.mode != (0o755 if item.path in ("qmd-tool", HELPER_PAYLOAD_PATH) else 0o644):
                 raise RuntimeError("原生传输文件权限无效。")
         asset = _expected_asset_name(entry["platform"], entry["firmware"], entry["release_version"])
-        if entry["asset"] != asset or entry["urls"] != [f"{base}/{asset}" for base in REMOTE_BASE_URLS]:
+        if not packages.asset_name_matches(entry["asset"], asset, entry["sha256"]) or entry["urls"] != [f"{base}/{entry['asset']}" for base in REMOTE_BASE_URLS]:
             raise RuntimeError("原生传输下载来源无效。")
         result.append(NativeImportPackage(**{**entry, "files": files, "urls": tuple(entry["urls"])}))
         seen.add(identity)
@@ -208,11 +208,13 @@ def get_status(ssh_client, catalog):
     package = select_package(catalog, identity)
     if package is None:
         return NativeImportStatus(NativeImportState.INCOMPATIBLE, identity,
-            detail="自动传输支持五款设备的 3.28.0.172 正式版和 3.29.0.153 测试版；其他固件可手动开启原生 USB 网页界面。")
+            detail="自动传输支持五款设备的 3.28.0.172、3.29.1.0 正式版和 3.29.0.153 测试版；其他固件可手动开启原生 USB 网页界面。")
     try:
         runtime, trusted, _legacies, feature = _context(identity, package)
         if not shared.has_shared_artifacts(ssh_client):
             return NativeImportStatus(NativeImportState.NOT_INSTALLED, identity, package, catalog)
+        if detail := shared.firmware_residue_detail(ssh_client, identity):
+            return NativeImportStatus(NativeImportState.BROKEN, identity, package, catalog, detail)
         inspection, _installed, _selected = _inspect(ssh_client, identity, runtime, trusted)
         record = inspection.states.get(FEATURE_ID)
         if record is None:
@@ -239,6 +241,8 @@ def loaded_helper(ssh_client):
         return None
     runtime, trusted, _legacies = tap._trusted_shared_context(identity)
     if not shared.has_shared_artifacts(ssh_client):
+        return None
+    if shared.firmware_residue_detail(ssh_client, identity):
         return None
     inspection, _installed, _selected = _inspect(ssh_client, identity, runtime, trusted)
     shared.assert_startup_guard_not_latched(inspection)
@@ -272,7 +276,7 @@ def install(ssh_client, package, archive_path):
     if any(shared.validate_legacy(ssh_client, item) for item in legacies):
         raise RuntimeError("请先通过设备维护完成旧插件迁移。")
     if shared.has_shared_artifacts(ssh_client):
-        inspection, _installed, _selected = _inspect(ssh_client, identity, runtime, trusted, check_lower=True)
+        inspection, trusted, _selected = _inspect(ssh_client, identity, runtime, trusted, check_lower=True)
         qr = inspection.states.get("qr-upload")
         if qr is not None and qr.enabled:
             bridge = f"{inspection.layout.remote_base}/extensions.d/rmtool-qr-upload.so"
@@ -307,7 +311,7 @@ def uninstall(ssh_client, catalog):
         raise RuntimeError(status.detail)
     _assert_stopped(ssh_client)
     runtime, trusted, _legacies, _feature = _context(status.identity, status.package)
-    _inspect(ssh_client, status.identity, runtime, trusted, check_lower=True)
+    _inspection, trusted, _selected = _inspect(ssh_client, status.identity, runtime, trusted, check_lower=True)
     shared.remove_shared_features(ssh_client, runtime, trusted, (FEATURE_ID,))
     status = get_status(ssh_client, catalog)
     if status.state is not NativeImportState.NOT_INSTALLED:

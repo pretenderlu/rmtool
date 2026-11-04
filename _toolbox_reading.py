@@ -732,7 +732,7 @@ class WeReadLauncherSection(ReadingEnhancementsSection):
             _rmtool.APP_NAME,
             "将从腾讯微信读书官方 CDN 下载并严格校验 v1.0.0 安装包，"
             + ("保留用户数据并修复程序文件。" if repairing else "安装到设备。")
-            + "仅支持 Paper Pro/Move 的 3.28 系列固件；不会重启 xochitl 或设备。是否继续？",
+            + "仅支持已适配的 Paper Pro/Move 3.28、3.29 系列固件；不会重启 xochitl 或设备。是否继续？",
             confirm_text="修复微信读书 App" if repairing else "安装微信读书 App",
             cancel_text="取消",
         ):

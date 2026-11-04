@@ -609,7 +609,7 @@ class NativeChineseTests(unittest.TestCase):
                     native._reject_active_french_slot(Mock(), current_identity)
             get_status.assert_not_called()
 
-    def test_enable_checks_cjk_before_preflight_and_french_slot_inspection(self):
+    def test_enable_checks_french_slot_before_font_or_preflight(self):
         package = self.package()
         events = []
 
@@ -631,7 +631,7 @@ class NativeChineseTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "stop"):
                 native.enable(Mock(), package, "unused.tar.gz", ".rmtool")
 
-        self.assertEqual(events, ["font", "preflight", "french"])
+        self.assertEqual(events, ["french"])
         deploy.assert_not_called()
 
     def test_stock_chinese_fallback_passes_status_and_enable_for_every_package(self):
@@ -663,7 +663,7 @@ class NativeChineseTests(unittest.TestCase):
                 self.assertEqual(status.state, native.NativeChineseState.NOT_INSTALLED)
                 with self.assertRaisesRegex(RuntimeError, "font gate passed"):
                     native.enable(ssh, package, "unused.tar.gz", ".rmtool")
-                preflight.assert_called_once_with(ssh)
+                preflight.assert_not_called()
                 fallback.assert_not_called()
                 ssh.transfer_file.assert_not_called()
 
@@ -679,7 +679,7 @@ class NativeChineseTests(unittest.TestCase):
         ) as deploy:
             with self.assertRaisesRegex(RuntimeError, "字体管理.*系统字体"):
                 native.enable(Mock(), package, "unused.tar.gz", ".rmtool")
-        french.assert_not_called()
+        french.assert_called_once()
         deploy.assert_not_called()
 
     def test_enable_installs_verified_fallback_for_rm1_without_cjk(self):
@@ -704,7 +704,7 @@ class NativeChineseTests(unittest.TestCase):
         with patch.object(
             tap, "get_device_identity", return_value=identity
         ), patch.object(
-            _rmkit_cn, "has_localization_cjk_font", return_value=False
+            _rmkit_cn, "has_localization_cjk_font", side_effect=[False, True]
         ), patch.object(
             _rmkit_cn, "install_bundled_fallback_font"
         ) as install_font, patch.object(
@@ -762,7 +762,7 @@ class NativeChineseTests(unittest.TestCase):
         with patch.object(
             tap, "get_device_identity", return_value=identity
         ), patch.object(
-            _rmkit_cn, "has_localization_cjk_font", return_value=False
+            _rmkit_cn, "has_localization_cjk_font", side_effect=[False, True]
         ), patch.object(
             _rmkit_cn, "install_bundled_fallback_font"
         ), patch.object(
@@ -798,7 +798,7 @@ class NativeChineseTests(unittest.TestCase):
                     "Fallback CJK",
                 )
 
-        remove_font.assert_called_once_with(ssh)
+        remove_font.assert_called_once_with(ssh, expected_owner=_rmkit_cn.FONT_OWNER_NATIVE_CHINESE)
 
     def test_repair_preserves_exact_old_pinyin_peer_revision(self):
         package = native.select_package(native._trusted_catalog(), self.identity())
@@ -875,7 +875,7 @@ class NativeChineseTests(unittest.TestCase):
         self.assertIs(result, expected)
         self.assertIs(activate.call_args.args[4], installed_trusted)
 
-    def test_disable_switches_selected_chinese_to_english_before_removal(self):
+    def test_disable_switches_selected_chinese_only_after_successful_removal(self):
         package = self.package()
         runtime, feature = native._shared_specs(package)
         inspection = shared.SharedInspection(
@@ -915,9 +915,9 @@ class NativeChineseTests(unittest.TestCase):
         ), patch.object(native, "get_status") as get_status:
             native.disable(MagicMock(), (package,))
 
-        self.assertEqual([name for name, _data in events], ["config", "sync", "disable"])
-        self.assertIn(b"language=en", events[0][1])
-        self.assertNotIn(b"language=zh_CN", events[0][1])
+        self.assertEqual([name for name, _data in events], ["disable", "config", "sync"])
+        self.assertIn(b"language=en", events[1][1])
+        self.assertNotIn(b"language=zh_CN", events[1][1])
         get_status.assert_called_once()
 
     def test_status_reports_and_clear_uses_generic_emergency_sentinel(self):
@@ -1100,9 +1100,9 @@ class NativeChineseTests(unittest.TestCase):
         ) as remove, patch.object(shared, "_disable_shared_locked") as disable_current, patch.object(
             native, "get_status"
         ):
-            native.disable(Mock(), (package,))
+            native.disable(MagicMock(), (package,))
 
-        self.assertEqual(events, ["language", "remove"])
+        self.assertEqual(events, ["remove", "language"])
         disable_current.assert_not_called()
         self.assertEqual(remove.call_args.args[-1], (
             current.firmware,

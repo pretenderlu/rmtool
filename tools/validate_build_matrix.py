@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import importlib
+import argparse
+import hashlib
 import json
 import re
+import shutil
+import subprocess
 import sys
+import tarfile
+import tempfile
 from pathlib import Path
 
 
@@ -228,6 +234,90 @@ def _allowed_key(key, release: str) -> tuple[str, str, str, str, str]:
     return firmware, platform, architecture, xochitl_sha256, release
 
 
+def validate_native_identities(go: Path) -> None:
+    """Execute the Go gate with independent manifest identities, including refusals."""
+    from tools.native_build import go_environment
+
+    entries = _manifest("native-import")["packages"]
+    cases = []
+    for entry in entries:
+        platform = entry["platform"]
+        machine = "reMarkable " + (platform[2:] + ".0" if platform in ("rm1", "rm2") else platform)
+        architecture = "arm64" if entry["architecture"] == "aarch64" else "arm"
+        args = [machine, architecture, entry["firmware"], entry["xochitl_sha256"]]
+        address = "10.11.99.1/27" if entry["release_version"] == "3.28.0.172" else "10.11.99.1/29"
+        cases.append("{" + ",".join(json.dumps(value) for value in (*args, address)) + "}")
+    source = '''package main
+import "testing"
+func TestManifestNativeIdentities(t *testing.T) {
+    cases := [][5]string{''' + ",".join(cases) + '''}
+    if len(nativeFirmwares) != len(cases) { t.Fatal("native/manifest identity count differs") }
+    for _, c := range cases {
+        target, err := nativeFirmwareFor(c[0],c[1],c[2],c[3])
+        if err != nil || target.address != c[4] { t.Fatalf("manifest identity refused: %v: %v", c, err) }
+        for field := 0; field < 4; field++ {
+            bad := c; bad[field] = "unknown"
+            if _,err := nativeFirmwareFor(bad[0],bad[1],bad[2],bad[3]); err == nil { t.Fatalf("mismatch admitted: %v",bad) }
+        }
+        for _, other := range cases {
+            if c[3] == other[3] { continue }
+            if _,err := nativeFirmwareFor(c[0],c[1],c[2],other[3]); err == nil { t.Fatal("cross-device/release identity admitted") }
+        }
+    }
+}
+'''
+    with tempfile.TemporaryDirectory() as temporary:
+        work = Path(temporary)
+        shutil.copy2(ROOT / "qr-upload/native_address.go", work / "native_address.go")
+        (work / "identity_test.go").write_text(source, encoding="utf-8", newline="\n")
+        result = subprocess.run([str(go), "test", "-count=1", "-v", "native_address.go", "identity_test.go"],
+                                cwd=work, env=go_environment(), capture_output=True, text=True, timeout=180)
+        if result.returncode:
+            raise RuntimeError("Native identity execution failed:\n" + result.stdout + result.stderr)
+
+
+def validate_native_payload(package: dict, path: str, data: bytes) -> None:
+    architecture = package["architecture"]
+    machine, elf_class = (183, 2) if architecture == "aarch64" else (40, 1)
+    if (len(data) < 20 or data[:6] != b"\x7fELF" + bytes((elf_class, 1))
+            or int.from_bytes(data[18:20], "little") != machine):
+        raise RuntimeError(f"Native ELF architecture mismatch: {package['asset']}/{path}")
+    highlighter = path == "extensions.d/rmtool-highlight-snap.so"
+    # Old compiler folds the highlighter build literal into instructions.
+    require_build = not highlighter or package["release_version"] in ("3.29.0.153", "3.29.1.0")
+    if ((require_build and package["firmware"].encode() not in data) or package["xochitl_sha256"].encode() not in data):
+        raise RuntimeError(f"Native binary identity mismatch: {package['asset']}/{path}")
+
+
+def validate_native_archives(cache: Path) -> int:
+    """Fail closed on missing archives; never fetch or accept unchecked local bytes."""
+    count = 0
+    for feature, payload in (("native-import", "helpers/rmtool-native-import"),
+                             ("qr-upload", "helpers/rmtool-qr-upload"),
+                             ("reading-enhancements", "extensions.d/rmtool-highlight-snap.so")):
+        for package in _manifest(feature)["packages"]:
+            member = next((item for item in package["files"] if item["path"] == payload), None)
+            if member is None:
+                continue
+            matches = [candidate for candidate in cache.rglob(package["asset"]) if candidate.is_file()]
+            if not matches:
+                raise RuntimeError(f"Missing native archive: {package['asset']}")
+            archive = matches[0]
+            raw = archive.read_bytes()
+            if len(raw) != package["size"] or hashlib.sha256(raw).hexdigest() != package["sha256"]:
+                raise RuntimeError(f"Native archive digest mismatch: {archive}")
+            with tarfile.open(archive, "r:gz") as source:
+                info = source.getmember(payload)
+                if not info.isfile() or info.size != member["size"]:
+                    raise RuntimeError(f"Invalid native payload: {archive}/{payload}")
+                data = source.extractfile(info).read(member["size"] + 1)
+            if len(data) != member["size"] or hashlib.sha256(data).hexdigest() != member["sha256"]:
+                raise RuntimeError(f"Native payload digest mismatch: {archive}/{payload}")
+            validate_native_payload(package, payload, data)
+            count += 1
+    return count
+
+
 def _validate_feature_matrix(feature: str) -> None:
     module = importlib.import_module(FEATURE_MODULES[feature])
     document = _manifest(feature)
@@ -381,7 +471,16 @@ def validate() -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--go", type=Path, help="Execute native identity gates against manifest identities")
+    parser.add_argument("--native-cache", type=Path, help="Require and verify all native payload archives below this directory")
+    args = parser.parse_args()
     validate()
+    if args.go:
+        validate_native_identities(args.go)
+        print("PASS: native identity acceptance and rejection executed against every native-import manifest target")
+    if args.native_cache:
+        print(f"PASS: {validate_native_archives(args.native_cache)} native archive identities and ELF architectures")
     print(
         f"PASS: 37 device/firmware targets, {len(FEATURE_MODULES)} plugin matrices, shared runtimes, "
         "AppLoad/KOReader and WeRead boundaries, five preview profiles, and "

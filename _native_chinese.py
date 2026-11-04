@@ -349,7 +349,7 @@ def parse_manifest(data: bytes) -> tuple[NativeChinesePackage, ...]:
             channel,
             offline_verified,
             device_verified,
-        ) or asset != EXPECTED_ASSETS.get(identity):
+        ) or not _plugin_packages.asset_name_matches(asset, EXPECTED_ASSETS[identity], digest):
             raise RuntimeError("原生中文包不在本地精确身份白名单中。")
         urls = entry.get("urls")
         expected_urls = {f"{COS_URL}/{asset}", f"{GITHUB_URL}/{asset}"}
@@ -524,26 +524,7 @@ def _inspect_shared_revision(
     *,
     check_lower: bool = False,
 ):
-    revisions = {
-        FEATURE_ID: tuple(
-            (item.reason, item.feature)
-            for item in _known_shared_predecessor_specs(package)
-        )
-    }
-    revisions.update(
-        tap._reading_enhancement_revisions(_package_identity(package), trusted)
-    )
-    try:
-        import _pinyin_input as pinyin
-
-        peer = pinyin.select_package(pinyin._trusted_catalog(), _package_identity(package))
-        if peer is not None and pinyin.FEATURE_ID in trusted:
-            revisions[pinyin.FEATURE_ID] = tuple(
-                (item.reason, item.feature)
-                for item in pinyin._known_shared_predecessor_specs(peer)
-            )
-    except ImportError:
-        pass
+    revisions = tap._published_feature_revisions(_package_identity(package), trusted)
     return _xovi_standalone.inspect_shared_revisions(
         ssh_client,
         runtime,
@@ -846,6 +827,7 @@ def enable(
     trusted = select_package(_trusted_catalog(), identity)
     if trusted is None or trusted != package:
         raise RuntimeError("设备与原生中文包不精确匹配，未执行修改。")
+    _reject_active_french_slot(ssh_client, identity)
     fallback_font_installed = False
     if not _rmkit_cn.has_localization_cjk_font(ssh_client):
         if identity.platform not in {"rm1", "rm2"} or not fallback_font_local_path:
@@ -865,12 +847,16 @@ def enable(
         tap._preflight_device(ssh_client)
 
     try:
-        _reject_active_french_slot(ssh_client, identity)
         runtime, feature_trust, legacies = _trusted_shared_context(identity)
         _runtime, feature = _shared_specs(package)
         with tempfile.TemporaryDirectory() as temporary:
             extracted = tap.extract_verified_package(archive_path, package, temporary)
             with _xovi_standalone._operation_lock(ssh_client):
+                if tap.get_device_identity(ssh_client) != identity:
+                    raise RuntimeError("部署前设备身份已变化，未执行修改。")
+                _reject_active_french_slot(ssh_client, identity)
+                if not _rmkit_cn.has_localization_cjk_font(ssh_client):
+                    raise RuntimeError("部署前中文字体已不可用，未执行修改。")
                 installed_trust = feature_trust
                 if _xovi_standalone.has_shared_artifacts(ssh_client):
                     _inspection, installed_trust, _revisions = _inspect_shared_revision(
@@ -891,7 +877,9 @@ def enable(
     except Exception as exc:
         if fallback_font_installed:
             try:
-                _rmkit_cn._remove_managed_font(ssh_client)
+                _rmkit_cn._remove_managed_font(
+                    ssh_client, expected_owner=_rmkit_cn.FONT_OWNER_NATIVE_CHINESE
+                )
             except Exception as rollback_exc:
                 raise RuntimeError(
                     f"{exc}；兜底字体回滚未完整完成：{rollback_exc}"
@@ -937,6 +925,11 @@ def disable(
     ssh_client,
     catalog: Iterable[NativeChinesePackage] = (),
 ) -> NativeChineseStatus:
+    with ssh_client.operation_session():
+        return _disable_locked(ssh_client, catalog)
+
+
+def _disable_locked(ssh_client, catalog) -> NativeChineseStatus:
     identity = tap.get_device_identity(ssh_client)
     marker_identity = tap.DeviceIdentity(
         *_xovi_standalone.read_shared_identity(ssh_client)
@@ -972,7 +965,6 @@ def disable(
             )
         if FEATURE_ID not in inspection.states:
             raise RuntimeError("旧共享 Xovi 不包含原生简体中文。")
-        _switch_selected_chinese_to_english(ssh_client)
         cleanup_kwargs = {"tolerate_legacy_templates": True}
         alternatives = tap._trusted_alternatives_for_identity(
             trusted,
@@ -997,6 +989,7 @@ def disable(
             ),
             **cleanup_kwargs,
         )
+        _switch_selected_chinese_to_english(ssh_client)
         return get_status(ssh_client, tuple(catalog) or _trusted_catalog())
     with _xovi_standalone._operation_lock(ssh_client):
         package = select_package(tuple(catalog) or _trusted_catalog(), marker_identity)
@@ -1011,7 +1004,6 @@ def disable(
         )
         if FEATURE_ID not in inspection.states:
             raise RuntimeError("原生简体中文尚未安装。")
-        _switch_selected_chinese_to_english(ssh_client)
         _xovi_standalone._disable_shared_locked(
             ssh_client,
             runtime,
@@ -1019,6 +1011,7 @@ def disable(
             installed_trusted,
             trusted[FEATURE_ID] if FEATURE_ID in revisions else None,
         )
+        _switch_selected_chinese_to_english(ssh_client)
     return get_status(ssh_client, tuple(catalog) or _trusted_catalog())
 
 
@@ -1026,6 +1019,11 @@ def uninstall(
     ssh_client,
     catalog: Iterable[NativeChinesePackage] = (),
 ) -> NativeChineseStatus:
+    with ssh_client.operation_session():
+        return _uninstall_locked(ssh_client, catalog)
+
+
+def _uninstall_locked(ssh_client, catalog) -> NativeChineseStatus:
     packages = tuple(catalog) or _trusted_catalog()
     status = get_status(ssh_client, packages)
     if status.state in (
@@ -1045,10 +1043,10 @@ def uninstall(
     )
     if FEATURE_ID not in inspection.states:
         return get_status(ssh_client, packages)
-    _switch_selected_chinese_to_english(ssh_client)
     _xovi_standalone.remove_shared_features(
         ssh_client, runtime, installed_trusted, (FEATURE_ID,)
     )
+    _switch_selected_chinese_to_english(ssh_client)
     return get_status(ssh_client, packages)
 
 

@@ -1,5 +1,6 @@
 import os
 import tempfile
+import threading
 import unittest
 from contextlib import nullcontext
 from pathlib import Path
@@ -21,6 +22,9 @@ class UIConnection(QtCore.QObject):
     def __init__(self):
         super().__init__()
         self.connected = False
+        self._state_lock = threading.RLock()
+        self._transport_lock = threading.RLock()
+        self._client = self
 
     def is_connected(self):
         return self.connected
@@ -137,13 +141,14 @@ class FirmwareUITests(unittest.TestCase):
 
     def test_reboot_requires_confirmed_durable_success(self):
         self.ssh.connected = True
+        self.page.standby_slot = {"version": "3.28.0.172"}
         for status in ("none", "unknown", "failed", "running", "completed", "success"):
             self.page.transaction = (status, "state")
             self.page._update()
             self.assertEqual(self.page.buttons["reboot"].isEnabled(), status == "success")
             self.assertEqual(self.page.buttons["switch"].isEnabled(), status in ("none", "completed"))
 
-    def test_release_button_only_for_failed_or_uncertain_after_refresh(self):
+    def test_release_button_only_for_confirmed_failure_after_refresh(self):
         self.ssh.connected = True
         for status in ("none", "running", "success", "completed", "failed", "unknown"):
             with self.subTest(status=status):
@@ -153,7 +158,7 @@ class FirmwareUITests(unittest.TestCase):
                 self.assertTrue(self.page.buttons["release"].isHidden())
                 self.page.state = f.parse_state(state_text())
                 self.page._update()
-                releasable = status in ("failed", "unknown")
+                releasable = status == "failed"
                 self.assertEqual(not self.page.buttons["release"].isHidden(), releasable)
                 self.assertEqual(self.page.buttons["release"].isEnabled(), releasable)
 

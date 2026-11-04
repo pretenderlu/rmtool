@@ -1,7 +1,7 @@
 # Pinned to versions verified against the test suite.
 # Loosen with care: PyQt5 minor bumps frequently break QSS and packaging.
-paramiko==4.0.0
+paramiko==5.0.1
 PyQt5==5.15.11
-Pillow==12.2.0
+Pillow==13.0.0
 rmscene==0.8.0
 certifi==2026.7.22
