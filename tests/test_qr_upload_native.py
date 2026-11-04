@@ -27,7 +27,7 @@ class QrUploadNativeTests(unittest.TestCase):
                 if "build" in command:
                     path = Path(command[command.index("-o") + 1])
                     self.assertTrue(path.is_absolute())
-                    self.assertEqual(path.parent, output)
+                    self.assertEqual(path.parent, output.resolve())
                     data = bytearray(20)
                     data[:4], data[5] = b"\x7fELF", 1
                     struct.pack_into("<H", data, 18, 40 if kwargs['env']['GOARCH'] == 'arm' else 183)
