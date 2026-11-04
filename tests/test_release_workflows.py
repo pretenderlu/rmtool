@@ -7,6 +7,38 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_ci_uses_isolated_virtualenv_for_all_python_steps(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn("os: [ubuntu-latest, windows-latest, macos-15]", workflow)
+        self.assertIn(
+            "      - name: Create virtual environment\n"
+            "        shell: pwsh\n"
+            "        run: |\n"
+            "          python -m venv .venv\n"
+            '          if ($LASTEXITCODE -ne 0) { throw "Cannot create virtual environment." }\n'
+            "          $bin = if ($IsWindows) { 'Scripts' } else { 'bin' }\n"
+            '          (Join-Path $env:GITHUB_WORKSPACE ".venv/$bin") >> $env:GITHUB_PATH\n',
+            workflow,
+        )
+        self.assertNotIn("--system-site-packages", workflow)
+        self.assertLess(workflow.index("actions/setup-python@"), workflow.index("python -m venv .venv"))
+        self.assertLess(workflow.index("$env:GITHUB_PATH"), workflow.index("name: Install dependencies"))
+        _, steps = workflow.split("      - name: Install dependencies\n", 1)
+        self.assertEqual(
+            [line.strip().removeprefix("run: ") for line in steps.splitlines()
+             if "python" in line.casefold() and "PYTHONUTF8" not in line],
+            [
+                "python -m pip install --disable-pip-version-check --no-input -r requirements.txt -r requirements-dev.txt",
+                "python -m pip check",
+                "python -m ruff check .",
+                "python -m unittest discover -s tests",
+                "python tools/validate_build_matrix.py",
+                "python tools/check_test_isolation.py",
+                r"python R:\tools\check_test_isolation.py",
+                "python tools/check_release.py",
+            ],
+        )
+
     def test_current_release_notes_hide_internal_revision_terms(self):
         source = ast.parse((ROOT / "rmtool.py").read_text(encoding="utf-8"))
         version = next(

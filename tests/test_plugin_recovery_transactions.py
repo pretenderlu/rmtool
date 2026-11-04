@@ -485,6 +485,8 @@ class IncompleteCleanupTransactionTests(unittest.TestCase):
         script = script.replace("$MOUNT_DIR/etc/", "./sandbox/mount/etc/")
         for prefix in ("/data/", "/etc/", "/tmp/"):
             script = script.replace(prefix, "./sandbox" + prefix)
+        for parent in ("/data", "/etc", "/tmp", "/"):
+            script = script.replace(f"[ ! -L {parent} ]", f"[ ! -L ./sandbox{parent.rstrip('/')} ]")
         # Repair the lower path suffix after rewriting its /etc component.
         script = script.replace("./sandbox/mount./sandbox/etc/", "./sandbox/mount/etc/")
         script = script.replace("mount --bind / ", "mount --bind ./sandbox/root ")
@@ -492,6 +494,10 @@ class IncompleteCleanupTransactionTests(unittest.TestCase):
         if same_inode:
             # A bind mount with no /etc overlay resolves both names to one file.
             script = script.replace("./sandbox/mount/etc/", "./sandbox/etc/")
+        self.assertNotRegex(script, r"\[ ! -L /")
+        self.assertNotRegex(script, r"(?<![\w.])/(?:data|etc|tmp)(?:/|\b)")
+        for parent in ("", "/data", "/etc"):
+            self.assertIn(f"[ ! -L ./sandbox{parent} ]", script)
         if tampered:
             upper.write_bytes(b"tampered bytes\n")
         prelude = r'''
@@ -506,7 +512,7 @@ guard() {
 stat() {
     if [ "$1" = -c ] && [ "$2" = '%a:%u:%g:%s' ]; then
         [ -e "$3" ] || return 1
-        printf '644:0:0:%s\n' "$(command stat -c %s "$3")"
+        printf '644:0:0:%s\n' "$(wc -c < "$3" | tr -d '[:space:]')"
     else command stat "$@"; fi
 }
 mkdir() { guard "$@"; if [ "$1" = -m ]; then shift 2; fi; command mkdir "$@"; }
