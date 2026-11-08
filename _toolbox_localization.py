@@ -730,13 +730,15 @@ class NativeChineseSection(QtWidgets.QWidget):
         self._start_status_detection()
 
     def _start_status_detection(self, *, on_done=None, show_errors: bool = True):
-        self._start_worker(
+        return _ui.start_plugin_worker(
+            self,
             _native_chinese.get_cloud_status,
             self.ssh_client,
             str(_rmtool.app_state_dir()),
             pending="正在核对设备身份、精确包与共享 Xovi 状态…",
             on_done=on_done,
             show_errors=show_errors,
+            detection=True,
         )
 
     def _bundled_fallback_font(self) -> Optional[tuple[str, str]]:
@@ -1021,11 +1023,13 @@ class PinyinInputSection(QtWidgets.QWidget):
     def _update_buttons(self):
         connected = self.ssh_client.is_connected() and not self._busy
         state = self._status.state if self._status else None
+        firmware_residue = self._status is not None and self._status.firmware_residue
         self.detect_button.setEnabled(connected)
         self.enable_button.setEnabled(
             connected
             and self._status is not None
             and self._status.package is not None
+            and not firmware_residue
             and state in (
                 _pinyin_input.PinyinInputState.NOT_INSTALLED,
                 _pinyin_input.PinyinInputState.INSTALLED_DISABLED,
@@ -1044,6 +1048,7 @@ class PinyinInputSection(QtWidgets.QWidget):
         self.disable_button.setEnabled(
             connected
             and self._status is not None
+            and not firmware_residue
             and self._status.installed
             and state
             not in (
@@ -1055,6 +1060,7 @@ class PinyinInputSection(QtWidgets.QWidget):
         self.uninstall_button.setEnabled(
             connected
             and self._status is not None
+            and not firmware_residue
             and self._status.installed
             and state in (
                 _pinyin_input.PinyinInputState.OUTDATED,
@@ -1090,7 +1096,7 @@ class PinyinInputSection(QtWidgets.QWidget):
             _pinyin_input.PinyinInputState.OUTDATED: "已安装的拼音包需要修复更新",
             _pinyin_input.PinyinInputState.BROKEN: "检测到不完整或不可验证的拼音输入法状态",
         }
-        message = messages[status.state]
+        message = "检测到拼音输入法固件残留" if status.firmware_residue else messages[status.state]
         if status.detail:
             message += f"：{status.detail}"
         self.status_label.setText(message)
@@ -1119,18 +1125,19 @@ class PinyinInputSection(QtWidgets.QWidget):
         self._start_status_detection()
 
     def _start_status_detection(self, *, on_done=None, show_errors: bool = True):
-        self._start_worker(
+        return _ui.start_plugin_worker(
+            self,
             _pinyin_input.get_status,
             self.ssh_client,
-            _pinyin_input._trusted_catalog(),
             pending="正在核对设备身份、服务载荷与共享 Xovi 状态…",
             on_done=on_done,
             show_errors=show_errors,
+            detection=True,
         )
 
     @require_connection
     def _enable(self):
-        if not self._status or not self._status.package:
+        if not self._status or not self._status.package or self._status.firmware_residue:
             return
         repairing = self._status.state in (
             _pinyin_input.PinyinInputState.OUTDATED,
@@ -1178,7 +1185,7 @@ class PinyinInputSection(QtWidgets.QWidget):
 
     @require_connection
     def _disable(self):
-        if not self._status or not self._status.installed:
+        if not self._status or not self._status.installed or self._status.firmware_residue:
             return
         if not _ui.ask_confirmation(
             self,
@@ -1200,7 +1207,7 @@ class PinyinInputSection(QtWidgets.QWidget):
 
     @require_connection
     def _uninstall(self):
-        if not self._status or not self._status.installed:
+        if not self._status or not self._status.installed or self._status.firmware_residue:
             return
         if not _ui.ask_confirmation(
             self,

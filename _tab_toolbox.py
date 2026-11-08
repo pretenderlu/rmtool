@@ -5,12 +5,16 @@ re-exported here so existing ``_tab_toolbox.<Name>`` imports keep working.
 """
 
 import logging
+from contextlib import nullcontext
 from typing import Dict, Optional
 
 from PyQt5 import QtCore, QtWidgets, sip
 
 import _reading_enhancements
 import _tap_page_turn
+import _toolbox_common as _ui
+from _plugin_recovery import RecoveryState
+from _weread_app import WeReadAppState
 from _ssh import SSHClientWrapper, require_connection
 import rmtool as _rmtool  # late-bound access to avoid circular import
 from _toolbox_common import (  # noqa: F401 - re-exported for callers and tests
@@ -66,6 +70,38 @@ from _toolbox_diagnostics import (  # noqa: F401 - re-exported for callers and t
 )
 
 
+_PLUGIN_STATES = {
+    "incompatible": ("不兼容", ""),
+    "not_installed": ("未安装", "可安装"),
+    "installed": ("已安装", ""),
+    "installed_disabled": ("已停用", ""),
+    "emergency_disabled": ("已停用", ""),
+    "enabled": ("已启用", ""),
+    "enable_pending_reboot": ("待重启", ""),
+    "disable_pending_reboot": ("待重启", ""),
+    "outdated": ("旧版", "可更新"),
+    "repair_available": ("已安装", "可更新"),
+    "migration_available": ("旧版", "可迁移"),
+    "firmware_residue": ("固件残留", ""),
+    "legacy_vellum": ("旧版", ""),
+    "vellum_runtime": ("存在问题", ""),
+    "broken": ("存在问题", ""),
+}
+
+
+def _plugin_status(status, *, action_allowed=True):
+    if status is None:
+        return "待检测", ""
+    if getattr(status, "firmware_residue", False):
+        return "固件残留", ""
+    state, action = _PLUGIN_STATES.get(status.state.value, ("状态未知", ""))
+    if status.state in (_tap_page_turn.TapPageTurnState.OUTDATED, _tap_page_turn.TapPageTurnState.LEGACY_VELLUM):
+        return state, "可卸载" if status.dropin_present else ""
+    if status.state is WeReadAppState.REPAIR_AVAILABLE:
+        state, action = "存在问题", "可修复"
+    return state, action if action_allowed and status.package is not None else ""
+
+
 class ToolboxTab(QtWidgets.QWidget):
     def __init__(
         self,
@@ -76,7 +112,9 @@ class ToolboxTab(QtWidgets.QWidget):
         super().__init__(parent)
         self.ssh_client = ssh_client
         self._detect_all_busy = False
-        self._detect_all_index = 0
+        self._scan_prompt_handled = False
+        self._scan_prompt_open = False
+        self._maintenance_visit = False
         self.time_section = TimeTab(ssh_client)
         self.control_section = ControlTab(ssh_client)
         self.native_chinese_section = NativeChineseSection(ssh_client, config=config)
@@ -103,6 +141,7 @@ class ToolboxTab(QtWidgets.QWidget):
         self._device_identity = None
         self._identity_probe_running = False
         self._identity_connection_state: Optional[bool] = None
+        self._connection_client = None
         self._identity_connection_generation = 0
         self.thread_pool = QtCore.QThreadPool.globalInstance()
 
@@ -193,6 +232,14 @@ class ToolboxTab(QtWidgets.QWidget):
                 "section": self.legacy_plugin_section,
                 "status": self.legacy_plugin_section.status_label,
             },
+            {
+                "title": "共享插件恢复",
+                "category": "设备维护",
+                "keywords": "共享 Xovi 修复 重装 清理 事务锁",
+                "section": self.legacy_plugin_section,
+                "status": self.legacy_plugin_section.status_label,
+                "shared_recovery": True,
+            },
         )
 
         self.search_input = QtWidgets.QLineEdit()
@@ -226,7 +273,9 @@ class ToolboxTab(QtWidgets.QWidget):
 
         self.detail_stack = QtWidgets.QStackedWidget()
         self.detail_stack.setObjectName("toolboxDetailStack")
+        self._detail_pages = {}
         for row, entry in enumerate(self._tool_entries):
+            section = entry["section"]
             name_item = QtWidgets.QTableWidgetItem(entry["title"])
             name_item.setData(QtCore.Qt.UserRole, entry["category"])
             name_item.setData(
@@ -237,13 +286,20 @@ class ToolboxTab(QtWidgets.QWidget):
             status_item.setTextAlignment(QtCore.Qt.AlignCenter)
             self.tool_table.setItem(row, 0, name_item)
             self.tool_table.setItem(row, 1, status_item)
-            self.tool_table.setRowHeight(row, 48)
-            self.detail_stack.addWidget(
-                self._detail_page(entry["title"], entry["category"], entry["section"])
-            )
+            lines = 3 if section is self.weread_launcher_section else 2
+            self.tool_table.setRowHeight(row, max(48, lines * self.tool_table.fontMetrics().lineSpacing() + 18))
+            if section not in self._detail_pages:
+                title = "旧版插件迁移与共享插件恢复" if section is self.legacy_plugin_section else entry["title"]
+                page = self._detail_page(title, entry["category"], section)
+                self.detail_stack.addWidget(page)
+                self._detail_pages[section] = page
             status_label = entry["status"]
             if status_label is not None:
                 status_label.text_changed.connect(
+                    lambda _text, current_row=row: self._refresh_row_status(current_row)
+                )
+            if section is self.weread_launcher_section:
+                section.app_status_label.text_changed.connect(
                     lambda _text, current_row=row: self._refresh_row_status(current_row)
                 )
             self._refresh_row_status(row)
@@ -320,7 +376,8 @@ class ToolboxTab(QtWidgets.QWidget):
 
     def _detail_page(self, title: str, category: str, section: QtWidgets.QWidget):
         for old_title in section.findChildren(QtWidgets.QLabel, "toolboxFeatureTitle"):
-            old_title.hide()
+            if section is not self.weread_launcher_section or old_title is section.title_label:
+                old_title.hide()
 
         category_label = QtWidgets.QLabel(category)
         category_label.setObjectName("toolboxDetailCategory")
@@ -350,12 +407,18 @@ class ToolboxTab(QtWidgets.QWidget):
             recovery_link.setObjectName("pluginRecoveryLink")
             recovery_link.clicked.connect(self._show_plugin_recovery)
 
-            def update_recovery_link(text):
-                if sip.isdeleted(recovery_link):
+            def update_recovery_link(_text):
+                if sip.isdeleted(self) or sip.isdeleted(recovery_link):
                     return
-                recovery_link.setVisible(any(word in text for word in (
-                    "失败", "不完整", "不可信", "不可验证", "被修改", "残留", "SHA", "需要修复",
-                )))
+                status = section._status
+                recovery_link.setVisible(
+                    section.status_label.detection_failed or (
+                        status is not None and (
+                            status.state.value in ("broken", "firmware_residue")
+                            or getattr(status, "firmware_residue", False)
+                        )
+                    )
+                )
 
             section.status_label.text_changed.connect(update_recovery_link)
             update_recovery_link(section.status_label.text())
@@ -434,6 +497,7 @@ class ToolboxTab(QtWidgets.QWidget):
             if entry["section"] is self.diagnostics_section
         )
         self.tool_table.setCurrentCell(row, 0)
+        self._maintenance_visit = True
 
     def show_capacity_recovery(self, intent=None, error=None):
         self.search_input.clear()
@@ -443,6 +507,7 @@ class ToolboxTab(QtWidgets.QWidget):
             if entry["section"] is self.capacity_recovery_section
         )
         self.tool_table.setCurrentCell(row, 0)
+        self._maintenance_visit = True
         if intent is not None:
             self.capacity_recovery_section.open_intent(intent, error)
 
@@ -451,24 +516,90 @@ class ToolboxTab(QtWidgets.QWidget):
         self.category_combo.setCurrentIndex(0)
         row = next(
             row for row, entry in enumerate(self._tool_entries)
-            if entry["section"] is self.legacy_plugin_section
+            if entry.get("shared_recovery")
         )
         self.tool_table.setCurrentCell(row, 0)
         self.legacy_plugin_section._start_status_detection(show_errors=False)
 
     def _refresh_row_status(self, row: int):
+        if sip.isdeleted(self):
+            return
         entry = self._tool_entries[row]
+        section = entry["section"]
         status_label = entry["status"]
         full_status = status_label.text() if status_label is not None else "设备维护工具"
         status_item = self.tool_table.item(row, 1)
-        status_item.setText(
-            self._status_summary(full_status) if status_label is not None else "工具"
-        )
-        status_item.setToolTip(full_status)
+        if section not in self._detectable_sections:
+            text = "工具"
+        elif not self.ssh_client.is_connected():
+            text = "未连接"
+        elif section is self.legacy_plugin_section:
+            if entry.get("shared_recovery"):
+                text, full_status = self._shared_recovery_status(section)
+            else:
+                report = section._report
+                if section._residue_detection_failed:
+                    text = "检测失败"
+                elif section._report_session is None:
+                    text = "待检测"
+                elif report is None:
+                    text, full_status = "无固件残留", section._report_text(None)
+                else:
+                    text = "固件残留"
+                    if report.migratable and not getattr(section._recovery_report, "operation_locked", False):
+                        text += "\n可迁移"
+                    full_status = section._report_text(report)
+        elif section is self.weread_launcher_section:
+            if status_label.detection_failed:
+                text = "App 检测失败\n入口检测失败"
+            else:
+                app = _plugin_status(section.app_status)
+                entry_status = _plugin_status(
+                    section._status,
+                    action_allowed=(
+                        section.app_status is not None
+                        and section.app_status.state is WeReadAppState.INSTALLED
+                        and getattr(section._status, "prerequisite_available", True)
+                    ),
+                )
+                text = "\n".join(filter(None, (f"App {app[0]}", app[1], f"入口 {entry_status[0]}", entry_status[1])))
+                full_status = f"App：{section.app_status_label.text()}\n入口：{full_status}"
+        elif status_label.detection_failed:
+            text = "检测失败"
+        else:
+            text = "\n".join(filter(None, _plugin_status(section._status)))
+        status_item.setText(text)
+        status_item.setToolTip(f"{text}\n{full_status}")
+
+    @staticmethod
+    def _shared_recovery_status(section):
+        if section.status_label.detection_failed:
+            return "检测失败", "共享插件恢复检测失败，请重新检测。"
+        report = section._recovery_report
+        if report is None:
+            return "待检测", "尚未检测共享插件恢复状态"
+        incomplete = section._incomplete_report
+        if getattr(report, "operation_locked", False):
+            return "已阻止", report.detail
+        if not report.can_repair and getattr(incomplete, "can_cleanup", False):
+            return "可清理", incomplete.detail
+        if incomplete is not None and incomplete.state is RecoveryState.BLOCKED:
+            return "已阻止", incomplete.detail
+        return {
+            RecoveryState.NOT_NEEDED: "无需修复",
+            RecoveryState.REPAIR_AVAILABLE: "可修复",
+            RecoveryState.CLEANUP_AVAILABLE: "可清理",
+            RecoveryState.UNSUPPORTED: "不兼容",
+            RecoveryState.BLOCKED: "已阻止",
+        }[report.state], report.detail
 
     def _show_current_tool(self, current_row: int, _column: int, _old_row: int, _old_column: int):
         if current_row >= 0 and not self.tool_table.isRowHidden(current_row):
-            self.detail_stack.setCurrentIndex(current_row)
+            section = self._tool_entries[current_row]["section"]
+            self.detail_stack.setCurrentWidget(self._detail_pages[section])
+            if self._maintenance_visit and section not in (self.diagnostics_section, self.capacity_recovery_section):
+                self._maintenance_visit = False
+                QtCore.QTimer.singleShot(0, self._maybe_offer_scan)
         else:
             self.detail_stack.setCurrentWidget(self.empty_detail_page)
 
@@ -503,16 +634,79 @@ class ToolboxTab(QtWidgets.QWidget):
 
     def _on_connection_changed(self, connected: bool):
         connected = bool(connected)
-        if connected != self._identity_connection_state:
-            self._identity_connection_state = connected
-            self._identity_connection_generation += 1
-            self._identity_probe_running = False
-        self.detect_all_button.setEnabled(connected and not self._detect_all_busy)
-        if not connected:
-            self._device_identity = None
-            self._update_device_scoped_entries()
-        else:
+        client = getattr(self.ssh_client, "_client", None) if connected else None
+        if connected == self._identity_connection_state and client is self._connection_client:
+            return
+        replaced = connected and self._identity_connection_state is True
+        self._identity_connection_state = connected
+        self._connection_client = client
+        self._identity_connection_generation += 1
+        self._identity_probe_running = False
+        self._device_identity = None
+        self._scan_prompt_handled = False
+        self._reset_scan()
+        for section in self._detectable_sections:
+            if section is not self.legacy_plugin_section:
+                _ui.reset_plugin_detection(section)
+            if replaced:
+                section._on_connection_changed(False)
+                section._on_connection_changed(True)
+        self._update_device_scoped_entries()
+        for row in range(len(self._tool_entries)):
+            self._refresh_row_status(row)
+        if connected:
             self._probe_device_identity()
+            if self.isVisible():
+                QtCore.QTimer.singleShot(0, self._maybe_offer_scan)
+
+    def _session_current(self, session):
+        generation, client = session
+        return (
+            generation == self._identity_connection_generation
+            and client is getattr(self.ssh_client, "_client", None)
+            and self.ssh_client.is_connected()
+        )
+
+    def _session_token(self):
+        return self._identity_connection_generation, self._connection_client
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Direct diagnostic and recovery navigation selects its row after showing this page.
+        QtCore.QTimer.singleShot(0, self._maybe_offer_scan)
+
+    def hideEvent(self, event):
+        self._maintenance_visit = False
+        super().hideEvent(event)
+
+    def _maybe_offer_scan(self):
+        if sip.isdeleted(self):
+            return
+        session = self._session_token()
+        if (
+            self._scan_prompt_handled or self._scan_prompt_open or self._maintenance_visit
+            or not self.isVisible() or not self._session_current(session)
+        ):
+            return
+        self._scan_prompt_open = True
+        try:
+            accepted = _ui.ask_confirmation(
+                self, "检测设备插件",
+                "是否检测当前设备的插件状态？检测只读取设备状态，不会安装、更新或清理插件。",
+                confirm_text="检测全部插件", cancel_text="稍后",
+            )
+        finally:
+            if not sip.isdeleted(self):
+                self._scan_prompt_open = False
+        if sip.isdeleted(self):
+            return
+        if not self._session_current(session):
+            if self.isVisible() and self.ssh_client.is_connected():
+                QtCore.QTimer.singleShot(0, self._maybe_offer_scan)
+        elif not self._scan_prompt_handled:
+            self._scan_prompt_handled = True
+            if accepted and self.isVisible() and not self._maintenance_visit:
+                self._detect_all_statuses()
 
     def _probe_device_identity(self):
         """Quietly learn the device identity to scope device-specific entries."""
@@ -523,30 +717,40 @@ class ToolboxTab(QtWidgets.QWidget):
         ):
             return
         self._identity_probe_running = True
-        connection_generation = self._identity_connection_generation
-        worker = _rmtool.Worker(_tap_page_turn.get_device_identity, self.ssh_client)
+        session = self._session_token()
+        ssh = self.ssh_client
+
+        def inspect():
+            with getattr(ssh, "operation_session", nullcontext)():
+                if not self._session_current(session):
+                    raise RuntimeError("设备连接已变化，请重新检测。")
+                return _tap_page_turn.get_device_identity(ssh)
+
+        worker = _rmtool.Worker(inspect)
 
         def on_finished(identity):
             if sip.isdeleted(self):
                 return
-            if connection_generation != self._identity_connection_generation:
+            if not self._session_current(session) or not self._identity_probe_running:
                 return
             self._identity_probe_running = False
             self._device_identity = identity
             self._update_device_scoped_entries()
+            if self._detect_all_busy:
+                self._begin_scan(session)
 
         def on_error(_exc):
             if sip.isdeleted(self):
                 return
-            if connection_generation != self._identity_connection_generation:
-                return
-            self._identity_probe_running = False
-            self._device_identity = None
-            self._update_device_scoped_entries()
+            on_finished(None)
 
         worker.signals.finished.connect(on_finished)
         worker.signals.error.connect(on_error)
-        self.thread_pool.start(worker)
+        try:
+            self.thread_pool.start(worker)
+        except Exception as exc:
+            logging.exception("Could not start device identity probe")
+            on_error(exc)
 
     def _tap_entry_hidden(self) -> bool:
         return any(
@@ -582,43 +786,73 @@ class ToolboxTab(QtWidgets.QWidget):
     def _detect_all_statuses(self):
         if self._detect_all_busy:
             return
+        self._scan_prompt_handled = True
         self._detect_all_busy = True
-        self._detect_all_index = 0
         self.detect_all_button.setEnabled(False)
-        self._run_next_status_detection()
+        self.detect_all_button.setToolTip("")
+        if self._identity_probe_running:
+            self.detect_all_button.setText("正在识别设备…")
+        else:
+            self._begin_scan(self._session_token())
 
-    def _run_next_status_detection(self):
+    def _reset_scan(self):
+        self._detect_all_busy = False
+        self.detect_all_button.setText("检测全部插件")
+        self.detect_all_button.setEnabled(self.ssh_client.is_connected())
+        self.detect_all_button.setToolTip("")
+
+    def _begin_scan(self, session):
+        steps = []
+        for section in self._detectable_sections:
+            if section is self.tap_page_turn_section and self._tap_entry_hidden():
+                continue
+            if section is self.legacy_plugin_section:
+                steps.append((section, section._start_residue_detection))
+            steps.append((section, section._start_status_detection))
+        self._run_next_status_detection(session, steps, 0, 0, 0)
+
+    def _run_next_status_detection(self, session, steps, index, completed, skipped):
         if sip.isdeleted(self):
             return
-        if (
-            not self.ssh_client.is_connected()
-            or self._detect_all_index >= len(self._detectable_sections)
-        ):
-            self._detect_all_busy = False
-            self.detect_all_button.setText("检测全部插件")
-            self.detect_all_button.setEnabled(self.ssh_client.is_connected())
+        if not self._detect_all_busy or not self._session_current(session):
+            return
+        total = len(steps)
+        while index < total:
+            section, start = steps[index]
+            if not section._busy and not _ui.plugin_operation_busy(self.ssh_client):
+                break
+            index += 1
+            skipped += 1
+        if index == total:
+            self._reset_scan()
+            suffix = f"，忙碌跳过 {skipped} 项" if skipped else ""
+            self.detect_all_button.setToolTip(f"已完成检测 {completed}/{total}{suffix}")
             return
 
-        section = self._detectable_sections[self._detect_all_index]
-        while (
-            section is self.tap_page_turn_section
-            and self._tool_entries and self._tap_entry_hidden()
-        ):
-            self._detect_all_index += 1
-            if self._detect_all_index >= len(self._detectable_sections):
-                self._detect_all_busy = False
-                self.detect_all_button.setText("检测全部插件")
-                self.detect_all_button.setEnabled(self.ssh_client.is_connected())
+        self.detect_all_button.setText(f"正在检测 {completed}/{total}")
+        done_called = False
+        starting = True
+
+        def advance(ran):
+            self._run_next_status_detection(
+                session, steps, index + 1, completed + int(ran), skipped + int(not ran)
+            )
+
+        def on_done():
+            if sip.isdeleted(self):
                 return
-            section = self._detectable_sections[self._detect_all_index]
-        self._detect_all_index += 1
-        self.detect_all_button.setText(
-            f"正在检测 {self._detect_all_index}/{len(self._detectable_sections)}"
-        )
-        section._start_status_detection(
-            on_done=self._run_next_status_detection,
-            show_errors=False,
-        )
+            nonlocal done_called
+            if done_called:
+                return
+            done_called = True
+            if not starting:
+                advance(True)
+
+        worker = start(on_done=on_done, show_errors=False)
+        starting = False
+        if done_called:
+            # A worker that loses the reservation race calls on_done but returns no worker.
+            advance(worker is not None)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

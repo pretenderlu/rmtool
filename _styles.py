@@ -756,14 +756,14 @@ QStatusBar#appStatusBar[level="error"] {
     padding: 0;
 }
 #toolboxBrowserList::item {
-    padding: 8px 10px;
+    padding: 4px 6px;
 }
 #toolboxBrowserList::item:selected {
     background: {table_item_selected};
 }
 #toolboxBrowserList QHeaderView::section {
     background: transparent;
-    padding: 8px 10px;
+    padding: 4px 6px;
 }
 #toolboxDetailScroll,
 #toolboxDetailContent {

@@ -661,6 +661,9 @@ def _trusted_shared_context(identity: DeviceIdentity):
     return runtime, trusted, tuple(legacies)
 
 
+PUBLISHED_V1213_REASON = "published-v1.21.3"
+
+
 @lru_cache(maxsize=1)
 def _published_payloads():
     document = json.loads((Path(__file__).with_name("assets") / "published-plugin-features.json").read_bytes())
@@ -715,7 +718,7 @@ def _published_feature_revisions(identity, trusted):
         predecessor = _published_payload_predecessor(identity, current)
         if predecessor is not None and predecessor != current:
             existing = revisions.get(feature_id, ())
-            revisions[feature_id] = (("published-v1.21.3", predecessor), *(
+            revisions[feature_id] = ((PUBLISHED_V1213_REASON, predecessor), *(
                 (reason, spec) for reason, spec in existing if spec != predecessor
             ))
     return revisions

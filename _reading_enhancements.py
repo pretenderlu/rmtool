@@ -929,7 +929,7 @@ def get_status(
                 False,
                 False,
             )
-        inspection, installed_trusted, selected_predecessors = _inspection_for_migration(
+        inspection, _installed_trusted, selected_predecessors = _inspection_for_migration(
             ssh_client, runtime, trusted, package
         )
         record = inspection.states.get(FEATURE_ID)
@@ -945,14 +945,21 @@ def get_status(
                 True,
                 True,
             )
-        if predecessor in _PUBLISHED_PREDECESSOR_REASONS:
-            revision = predecessor.rsplit("-", 1)[-1]
+        if predecessor == tap.PUBLISHED_V1213_REASON:
+            if record is None or record.spec != tap._published_payload_predecessor(identity, feature):
+                raise RuntimeError("阅读增强旧版识别结果无效。")
+            revision = "v1.21.3"
+        elif predecessor in _PUBLISHED_PREDECESSOR_REASONS:
+            revision = f"revision {predecessor.rsplit('-', 1)[-1]}"
+        else:
+            revision = None
+        if revision is not None:
             return ReadingEnhancementsStatus(
                 ReadingEnhancementsState.REPAIR_AVAILABLE,
                 identity,
                 package,
                 available,
-                f"检测到已公开的阅读增强旧版（revision {revision}），可安全更新；"
+                f"检测到已公开的阅读增强旧版（{revision}），可安全更新；"
                 "其他共享功能和阅读设置会保留。",
                 True,
                 True,
@@ -1049,16 +1056,15 @@ def install(
                 and not ({"tap-page-turn", "fast-mono-reading"} & set(inspection.states))
             ):
                 return get_status(ssh_client, (package,))
-        states = _target_states(inspection, trusted, feature, ssh_client) if inspection.states else {
-            FEATURE_ID: shared.SharedFeatureState(feature, True, tap._xochitl_process_token(ssh_client))
-        }
+        states = _target_states(inspection, current_trusted, feature, ssh_client)
+        target_trusted = {**current_trusted, FEATURE_ID: feature}
         # The old tap/fast enabled bit is deliberately not copied.
         shared.replace_shared_features(
             ssh_client,
             runtime,
             current_trusted,
             runtime,
-            trusted,
+            target_trusted,
             states,
             {FEATURE_ID: extracted},
             legacy_layouts=tuple(item.layout for item in present_legacies),

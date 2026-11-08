@@ -26,10 +26,24 @@ def session_replaced(ssh_client, client) -> bool:
         return current is not None and current is not client
 
 
+def reset_plugin_detection(owner):
+    task = getattr(owner, "_plugin_detection_task", None)
+    if task is not None and getattr(owner, "_plugin_task", None) is task:
+        del owner._plugin_task
+        owner._busy = False
+        ssh = owner.ssh_client
+        if vars(ssh).get("_toolbox_task") is task:
+            del ssh._toolbox_task
+            vars(ssh).pop("_toolbox_task_client", None)
+        owner._update_buttons()
+    owner._plugin_detection_task = None
+    owner.status_label.detection_failed = False
+
+
 def start_plugin_worker(
     owner, fn, *args, pending, success="", close_connection=False,
     on_done=None, show_errors=True, apply_status=None, retry=None,
-    error_hint="设备不会被自动重启。", recovery_intent=None,
+    error_hint="设备不会被自动重启。", recovery_intent=None, detection=False,
 ):
     """Reserve one connection until the worker and its completion cleanup finish."""
     ssh = owner.ssh_client
@@ -46,6 +60,9 @@ def start_plugin_worker(
     ssh._toolbox_task_client = client
     owner._busy = True
     owner._plugin_task = task
+    if detection:
+        owner._plugin_detection_task = task
+    owner.status_label.detection_failed = False
     owner.status_label.setText(pending)
     owner._update_buttons()
 
@@ -55,13 +72,14 @@ def start_plugin_worker(
     def execute():
         session = getattr(ssh, "operation_session", nullcontext)
         with session():
-            if not current():
+            if not current() or (detection and vars(ssh).get("_toolbox_task") is not task):
                 raise RuntimeError("设备连接已变化，请重新检测后操作。")
             return fn(*args)
 
     completed = False
 
     def finish(result=None, exc=None):
+        deleted = sip.isdeleted(owner)
         nonlocal completed
         if completed:
             return
@@ -74,11 +92,15 @@ def start_plugin_worker(
 
         try:
             valid = current()
-            deleted = sip.isdeleted(owner)
-            if not deleted and getattr(owner, "_plugin_task", None) is task:
+            owns_task = not deleted and getattr(owner, "_plugin_task", None) is task
+            if owns_task:
                 owner._busy = False
                 del owner._plugin_task
+                if detection:
+                    owner._plugin_detection_task = None
                 owner._update_buttons()
+            if detection and (not valid or not owns_task):
+                return
             if (exc is None and not valid) or (exc is not None and session_replaced(ssh, client)):
                 return
             if exc is None:
@@ -97,6 +119,7 @@ def start_plugin_worker(
                 logging.error("%s operation failed: %s", type(owner).__name__, exc)
                 if deleted:
                     return
+                owner.status_label.detection_failed = detection
                 if isinstance(exc, _package_download.PackageDownloadError):
                     owner.status_label.setText("资源包下载失败，可手动加载后重试")
                     if show_errors:
@@ -204,9 +227,9 @@ def load_font_file(file_path: str) -> tuple[int, Optional[str]]:
 
 class ToolboxStatusLabel(QtWidgets.QLabel):
     text_changed = QtCore.pyqtSignal(str)
+    detection_failed = False
 
     def setText(self, text: str):
-        changed = text != self.text()
         super().setText(text)
-        if changed:
-            self.text_changed.emit(text)
+        # Structured status can change even if its detail text stays the same.
+        self.text_changed.emit(text)

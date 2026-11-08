@@ -12,6 +12,7 @@ from PyQt5 import QtWidgets, sip
 
 import _package_download
 import _plugin_recovery as recovery
+import _reading_enhancements as reading
 import rmtool
 import _legacy_vellum
 import _residue_migration
@@ -580,16 +581,20 @@ class RecoveryUiTests(unittest.TestCase):
             tab = toolbox.ToolboxTab(self.ssh, {})
         self.addCleanup(tab.deleteLater)
         self.assertIn(tab.legacy_plugin_section, tab._detectable_sections)
-        with mock.patch.object(tab, "_tap_entry_hidden", return_value=False):
+        with mock.patch.object(tab, "_tap_entry_hidden", return_value=False), mock.patch.object(
+            tab.legacy_plugin_section, "_start_residue_detection", side_effect=lambda **kw: kw["on_done"]()
+        ) as residue:
             for section in tab._detectable_sections:
                 patch = mock.patch.object(section, "_start_status_detection", side_effect=lambda **kw: kw["on_done"]())
                 patch.start()
                 self.addCleanup(patch.stop)
             tab._detect_all_statuses()
+        residue.assert_called_once()
         self.assertFalse(tab._detect_all_busy)
         tab.legacy_plugin_section._start_status_detection.assert_called_once()
-        label = tab.reading_enhancements_section.status_label
-        label.setText("检测到不完整或不可验证的安装")
+        tab.reading_enhancements_section._apply_status(reading.ReadingEnhancementsStatus(
+            reading.ReadingEnhancementsState.BROKEN, None, detail="已启用"
+        ))
         page = tab.detail_stack.widget(2)
         link = page.findChild(QtWidgets.QPushButton, "pluginRecoveryLink")
         self.assertFalse(link.isHidden())
@@ -598,7 +603,7 @@ class RecoveryUiTests(unittest.TestCase):
             link.click()
         detect.assert_called_once_with(show_errors=False)
         self.assertEqual(tab.search_input.text(), "")
-        self.assertEqual(tab.tool_table.item(tab.tool_table.currentRow(), 0).text(), "旧版插件迁移/清理")
+        self.assertEqual(tab.tool_table.item(tab.tool_table.currentRow(), 0).text(), "共享插件恢复")
 
 
 if __name__ == "__main__":

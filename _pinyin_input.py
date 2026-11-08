@@ -176,6 +176,7 @@ class PinyinInputStatus:
     detail: str = ""
     installed: bool = False
     emergency_disabled: bool = False
+    firmware_residue: bool = False
 
 
 @dataclass(frozen=True)
@@ -642,6 +643,7 @@ def get_status(
                 "已验证为同一 rmtool 信源的固件升级残留，请在固件管理中迁移共享插件后再操作",
                 True,
                 emergency,
+                firmware_residue=True,
             )
         runtime, trusted, _legacies = _trusted_shared_context(identity)
         if package is None:
@@ -698,6 +700,9 @@ def get_status(
                 ),
                 "missing_rcc": (
                     "已精确验证为缺少中文键盘布局资源的首版拼音包，可直接修复更新"
+                ),
+                tap.PUBLISHED_V1213_REASON: (
+                    "已精确验证为已公开的旧版拼音包，可直接修复更新"
                 ),
                 _xovi_standalone.MANAGED_RECEIPT_REASON: (
                     "已验证为 rmtool 完成安装的旧版拼音输入法，可直接修复更新"

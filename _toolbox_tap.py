@@ -322,13 +322,15 @@ class TapPageTurnSection(QtWidgets.QWidget):
         self._start_status_detection()
 
     def _start_status_detection(self, *, on_done=None, show_errors: bool = True):
-        self._start_worker(
+        return _ui.start_plugin_worker(
+            self,
             _tap_page_turn_status,
             self.ssh_client,
             str(_rmtool.app_state_dir()),
             pending="正在获取清单并核对点击翻页包与设备状态…",
             on_done=on_done,
             show_errors=show_errors,
+            detection=True,
         )
 
     @require_connection

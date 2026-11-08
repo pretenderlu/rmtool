@@ -439,6 +439,8 @@ def get_status(ssh_client, catalog) -> WeReadLauncherStatus:
         if record.spec != feature:
             reason = selected.get(FEATURE_ID)
             predecessors = dict(_known_shared_predecessor_specs(package, feature))
+            if reason == tap.PUBLISHED_V1213_REASON:
+                predecessors[reason] = tap._published_payload_predecessor(identity, feature)
             if reason == shared.MANAGED_RECEIPT_REASON:
                 detail = "已验证为 rmtool 完成安装的旧版启动器，可安全更新。"
             elif reason in predecessors and record.spec == predecessors[reason]:
@@ -446,7 +448,8 @@ def get_status(ssh_client, catalog) -> WeReadLauncherStatus:
             else:
                 raise RuntimeError("微信读书启动器状态与当前内置信任清单不一致。")
             return WeReadLauncherStatus(
-                WeReadLauncherState.MIGRATION_AVAILABLE,
+                WeReadLauncherState.REPAIR_AVAILABLE if reason == tap.PUBLISHED_V1213_REASON
+                else WeReadLauncherState.MIGRATION_AVAILABLE,
                 identity,
                 package,
                 available,

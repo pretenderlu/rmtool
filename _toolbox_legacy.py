@@ -38,6 +38,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         self._busy = False
         self._report = None
         self._report_session = None
+        self._residue_detection_failed = False
         self._recovery_report = None
         self._recovery_session = None
         self._incomplete_report = None
@@ -129,6 +130,8 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             self._connection_generation += 1
             self._report = None
             self._report_session = None
+            self._residue_detection_failed = False
+            self.status_label.detection_failed = False
             self._recovery_report = None
             self._recovery_session = None
             self._incomplete_report = None
@@ -273,7 +276,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
 
     def _start_worker(
         self, fn, *args, pending: str, on_done=None, show_errors=True,
-        session=None, repairing=False, close_on_success=False, success="",
+        session=None, repairing=False, close_on_success=False, success="", detection=False, residue=False,
     ):
         if self._busy or _ui.plugin_operation_busy(self.ssh_client) or not self.ssh_client.is_connected():
             if on_done is not None:
@@ -286,8 +289,15 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             return
         if repairing:
             self._report = None
+            self._report_session = None
             self._incomplete_report = None
             self._incomplete_session = None
+        if residue:
+            self._report = None
+            self._report_session = None
+            self._residue_detection_failed = False
+        else:
+            self.status_label.detection_failed = False
         self._busy = True
         self._on_connection_changed(True)
         self.status_label.setText(pending)
@@ -311,20 +321,33 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
         completed = False
 
         def finish(report=None, exc=None):
+            deleted = sip.isdeleted(self)
             nonlocal completed
             if completed:
                 return
             completed = True
             try:
                 release()
-                if sip.isdeleted(self) or (
-                    self._session_replaced(session) if exc is not None
+                if deleted or (
+                    self._session_replaced(session) if exc is not None and not detection
                     else not self._session_current(session)
                 ):
                     return
                 self._busy = False
                 self._on_connection_changed(self.ssh_client.is_connected())
-                if exc is None:
+                if residue:
+                    self._report = report
+                    self._report_session = session if exc is None else None
+                    self._residue_detection_failed = exc is not None
+                    self._on_connection_changed(True)
+                    if exc is None:
+                        self.status_label.setText(self._report_text(report))
+                    else:
+                        self.status_label.setText(f"检测迁移状态失败：{exc}")
+                        logging.error("Residue detection failed: %s", exc)
+                        if show_errors:
+                            _ui.show_error(self, _rmtool.APP_NAME, f"检测失败：{exc}")
+                elif exc is None:
                     incomplete_report = None
                     if (
                         isinstance(report, tuple)
@@ -365,6 +388,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                         if success:
                             _ui.show_info(self, _rmtool.APP_NAME, success)
                 elif isinstance(exc, _package_download.PackageDownloadError):
+                    self.status_label.detection_failed = detection
                     self.status_label.setText("资源包下载失败，可手动加载后重试")
 
                     def retry():
@@ -374,7 +398,9 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                     if show_errors:
                         _ui._show_package_download_error(self, exc, retry=retry)
                 else:
+                    self.status_label.detection_failed = detection
                     self._recovery_report = None
+                    self._recovery_session = None
                     self._incomplete_report = None
                     self._incomplete_session = None
                     self._on_connection_changed(self.ssh_client.is_connected())
@@ -399,6 +425,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
             self.thread_pool.start(worker)
         except Exception as exc:
             finish(exc=exc)
+        return worker
 
     def _start_status_detection(self, *, on_done=None, show_errors=True):
         def inspect():
@@ -408,10 +435,10 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                 incomplete = _plugin_recovery.inspect_incomplete(self.ssh_client)
             return report, incomplete
 
-        self._start_worker(
+        return self._start_worker(
             inspect,
             pending="正在只读检测共享插件恢复状态…",
-            on_done=on_done, show_errors=show_errors,
+            on_done=on_done, show_errors=show_errors, detection=True,
         )
 
     @require_connection
@@ -518,44 +545,14 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
 
     @require_connection
     def _detect(self):
-        if self._busy:
-            return
-        session = self._session_token()
-        self._report = None
-        self._report_session = None
-        self._recovery_report = None
-        self._recovery_session = None
-        self._incomplete_report = None
-        self._incomplete_session = None
-        self._busy = True
-        self._on_connection_changed(True)
-        self.status_label.setText("正在验证共享 Xovi 固件残留…")
-        worker = _rmtool.Worker(
-            self._run_in_session, session, _residue_migration.inspect_residue, self.ssh_client
+        self._start_residue_detection()
+
+    def _start_residue_detection(self, *, on_done=None, show_errors=True):
+        return self._start_worker(
+            _residue_migration.inspect_residue, self.ssh_client,
+            pending="正在验证共享 Xovi 固件残留…",
+            on_done=on_done, show_errors=show_errors, detection=True, residue=True,
         )
-
-        def on_finished(report):
-            if sip.isdeleted(self) or not self._session_current(session):
-                return
-            self._busy = False
-            self._report = report
-            self._report_session = session
-            self._on_connection_changed(self.ssh_client.is_connected())
-            self.status_label.setText(self._report_text(report))
-
-        def on_error(exc: Exception):
-            if sip.isdeleted(self) or self._session_replaced(session):
-                logging.error("Residue detection failed after tab close: %s", exc)
-                return
-            self._busy = False
-            self._on_connection_changed(self.ssh_client.is_connected())
-            self.status_label.setText(f"检测迁移状态失败：{exc}")
-            logging.error("Residue detection failed: %s", exc)
-            _ui.show_error(self, _rmtool.APP_NAME, f"检测失败：{exc}")
-
-        worker.signals.finished.connect(on_finished)
-        worker.signals.error.connect(on_error)
-        self.thread_pool.start(worker)
 
     @require_connection
     def _migrate(self):
@@ -609,6 +606,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                 return
             self._busy = False
             self._report = None
+            self._report_session = None
             self._on_connection_changed(self.ssh_client.is_connected())
             skipped = "、".join(
                 item.label for item in report.features
@@ -689,6 +687,7 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                 return
             self._busy = False
             self._report = None
+            self._report_session = None
             self._on_connection_changed(self.ssh_client.is_connected())
             self._close_session(session)
             self.status_label.setText("固件升级残留已清理。")

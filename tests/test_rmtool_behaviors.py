@@ -1324,7 +1324,7 @@ class WallpaperUiTests(unittest.TestCase):
         toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
         self.addCleanup(toolbox.deleteLater)
 
-        self.assertEqual(toolbox.tool_table.rowCount(), 12)
+        self.assertEqual(toolbox.tool_table.rowCount(), 13)
         self.assertEqual(
             [
                 toolbox.tool_table.item(row, 0).text()
@@ -1343,6 +1343,7 @@ class WallpaperUiTests(unittest.TestCase):
                 "设备修复与清理",
                 "诊断日志导出",
                 "旧版插件迁移/清理",
+                "共享插件恢复",
             ],
         )
         self.assertEqual(
@@ -1392,21 +1393,23 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertIs(toolbox.detail_stack.currentWidget(), toolbox.empty_detail_page)
 
     def test_toolbox_browser_summarizes_live_plugin_status(self):
-        toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
+        with mock.patch.object(_tab_toolbox.ToolboxTab, "_probe_device_identity"):
+            toolbox = rmtool.ToolboxTab(FakeConnectionClient(connected=True), rmtool._default_config())
         self.addCleanup(toolbox.deleteLater)
 
-        toolbox.native_chinese_section.status_label.setText("原生中文已加载")
+        section = toolbox.native_chinese_section
+        section._apply_status(_native_chinese.NativeChineseStatus(_native_chinese.NativeChineseState.ENABLED, None))
         self.assertEqual(toolbox.tool_table.item(0, 1).text(), "已启用")
-        toolbox.native_chinese_section.status_label.setText("检测到不完整安装")
-        self.assertEqual(toolbox.tool_table.item(0, 1).text(), "需处理")
-        toolbox.reading_enhancements_section.status_label.setText(
-            "检测到旧版阅读功能，可迁移"
-        )
-        self.assertEqual(toolbox.tool_table.item(2, 1).text(), "可迁移")
-        toolbox.reading_enhancements_section.status_label.setText(
-            "检测到旧版阅读增强，可安全更新到当前版本"
-        )
-        self.assertEqual(toolbox.tool_table.item(2, 1).text(), "可更新")
+        section._apply_status(_native_chinese.NativeChineseStatus(_native_chinese.NativeChineseState.BROKEN, None))
+        self.assertEqual(toolbox.tool_table.item(0, 1).text(), "存在问题")
+        section = toolbox.reading_enhancements_section
+        for state, summary in (
+            (_reading_enhancements.ReadingEnhancementsState.MIGRATION_AVAILABLE, "旧版\n可迁移"),
+            (_reading_enhancements.ReadingEnhancementsState.REPAIR_AVAILABLE, "已安装\n可更新"),
+        ):
+            section._status = _reading_enhancements.ReadingEnhancementsStatus(state, None, package=object())
+            section.status_label.setText("此处不参与状态归类")
+            self.assertEqual(toolbox.tool_table.item(2, 1).text(), summary)
 
     def test_reading_enhancements_exposes_user_facing_explanation(self):
         section = _tab_toolbox.ReadingEnhancementsSection(
@@ -1439,29 +1442,31 @@ class WallpaperUiTests(unittest.TestCase):
         self.assertIn("中文划词精确选取", show_info.call_args.args[2])
 
     def test_toolbox_detect_all_runs_supported_plugins_sequentially(self):
-        toolbox = rmtool.ToolboxTab(
-            FakeConnectionClient(connected=True), rmtool._default_config()
-        )
+        with mock.patch.object(_tab_toolbox.ToolboxTab, "_probe_device_identity"):
+            toolbox = rmtool.ToolboxTab(
+                FakeConnectionClient(connected=True), rmtool._default_config()
+            )
         self.addCleanup(toolbox.deleteLater)
         calls = []
         pending = []
 
-        for name, section in (
-            ("native", toolbox.native_chinese_section),
-            ("pinyin", toolbox.pinyin_input_section),
-            ("reading", toolbox.reading_enhancements_section),
-            ("note", toolbox.note_enhancements_section),
-            ("weread", toolbox.weread_launcher_section),
-            ("qr", toolbox.qr_upload_section),
-            ("tap", toolbox.tap_page_turn_section),
-            ("recovery", toolbox.legacy_plugin_section),
+        for name, section, method in (
+            ("native", toolbox.native_chinese_section, "_start_status_detection"),
+            ("pinyin", toolbox.pinyin_input_section, "_start_status_detection"),
+            ("reading", toolbox.reading_enhancements_section, "_start_status_detection"),
+            ("note", toolbox.note_enhancements_section, "_start_status_detection"),
+            ("weread", toolbox.weread_launcher_section, "_start_status_detection"),
+            ("qr", toolbox.qr_upload_section, "_start_status_detection"),
+            ("tap", toolbox.tap_page_turn_section, "_start_status_detection"),
+            ("residue", toolbox.legacy_plugin_section, "_start_residue_detection"),
+            ("recovery", toolbox.legacy_plugin_section, "_start_status_detection"),
         ):
             def start(*, on_done, show_errors, current_name=name):
                 calls.append((current_name, show_errors))
                 pending.append(on_done)
 
             patcher = mock.patch.object(
-                section, "_start_status_detection", side_effect=start
+                section, method, side_effect=start
             )
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -1470,10 +1475,10 @@ class WallpaperUiTests(unittest.TestCase):
         # so detect-all skips it without starting a detection.
         toolbox.detect_all_button.click()
         self.assertEqual(calls, [("native", False)])
-        self.assertEqual(toolbox.detect_all_button.text(), "正在检测 1/8")
+        self.assertEqual(toolbox.detect_all_button.text(), "正在检测 0/8")
         self.assertFalse(toolbox.detect_all_button.isEnabled())
 
-        for expected in ("pinyin", "reading", "note", "weread", "qr", "recovery"):
+        for expected in ("pinyin", "reading", "note", "weread", "qr", "residue", "recovery"):
             pending.pop(0)()
             self.assertEqual(calls[-1], (expected, False))
 
@@ -1487,6 +1492,7 @@ class WallpaperUiTests(unittest.TestCase):
                 ("note", False),
                 ("weread", False),
                 ("qr", False),
+                ("residue", False),
                 ("recovery", False),
             ],
         )

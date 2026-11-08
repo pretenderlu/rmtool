@@ -378,13 +378,15 @@ class ReadingEnhancementsSection(QtWidgets.QWidget):
         self._start_status_detection()
 
     def _start_status_detection(self, *, on_done=None, show_errors: bool = True):
-        self._start_worker(
+        return _ui.start_plugin_worker(
+            self,
             self.status_loader,
             self.ssh_client,
             str(_rmtool.app_state_dir()),
             pending=f"正在获取清单并核对{self.feature_name}包与设备状态…",
             on_done=on_done,
             show_errors=show_errors,
+            detection=True,
         )
 
     @require_connection
@@ -695,18 +697,19 @@ class WeReadLauncherSection(ReadingEnhancementsSection):
         self.app_status_label.setText(message)
 
     def _start_status_detection(self, *, on_done=None, show_errors: bool = True):
-        self._start_combined_worker(
+        return self._start_combined_worker(
             _weread_combined_status,
             self.ssh_client,
             str(_rmtool.app_state_dir()),
             pending="正在检测微信读书 App 与设备启动入口…",
             on_done=on_done,
             show_errors=show_errors,
+            detection=True,
         )
 
     def _start_combined_worker(
         self, fn, *args, pending: str, success: str = "", on_done=None,
-        show_errors: bool = True,
+        show_errors: bool = True, detection=False,
     ):
         def apply(result):
             app_status, launcher_status = result
@@ -716,7 +719,7 @@ class WeReadLauncherSection(ReadingEnhancementsSection):
         return _ui.start_plugin_worker(
             self, fn, *args, pending=pending, success=success,
             on_done=on_done, show_errors=show_errors, apply_status=apply,
-            retry=self._install_app,
+            retry=self._install_app, detection=detection,
         )
 
     @require_connection

@@ -3,6 +3,7 @@
 from collections import Counter
 from dataclasses import replace
 import hashlib
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -15,6 +16,7 @@ import _qr_upload as qr
 import _reading_enhancements as reading
 import _note_enhancements as note
 import _tap_page_turn as tap
+import _weread_launcher as weread
 import _xovi_standalone as shared
 from tests.test_plugin_recovery import Device, TOKEN
 
@@ -53,6 +55,126 @@ class PublishedPeerTrustTests(unittest.TestCase):
     def device(self, platform="chiappa", release="3.28.0.172"):
         package = next(p for p in pinyin._trusted_catalog() if p.platform == platform and p.release_version == release)
         return Device(package=package)
+
+    def install_published(self, device, *modules):
+        states = {}
+        for module in modules:
+            feature_id = module.FEATURE_ID
+            current = device.trusted[feature_id]
+            previous = tap._published_payload_predecessor(device.identity, current)
+            self.assertIsNotNone(previous)
+            self.assertNotEqual(previous, current)
+            states[feature_id] = shared.SharedFeatureState(previous, True, TOKEN)
+        device.install(states)
+
+    def test_paper_pro_published_combination_has_read_only_repair_statuses(self):
+        device = self.device("ferrari", "3.29.1.0")
+        self.install_published(device, reading, weread, control)
+        for path, digest in weread.OFFICIAL_FILES.items():
+            device.add(path, digest=digest)
+        before = dict(device.entries)
+        with patch.object(tap, "get_device_identity", return_value=device.identity), patch.object(
+            shared, "_MANAGED_RECEIPT_STORE", None
+        ):
+            for module, expected in (
+                (reading, reading.ReadingEnhancementsState.REPAIR_AVAILABLE),
+                (weread, weread.WeReadLauncherState.REPAIR_AVAILABLE),
+                (control, control.NativeImportState.REPAIR_AVAILABLE),
+            ):
+                with self.subTest(feature=module.FEATURE_ID):
+                    status = module.get_status(device, module._trusted_catalog())
+                    self.assertEqual(status.state, expected, status.detail)
+                    if module is weread:
+                        self.assertTrue(status.prerequisite_available)
+            missing_path = next(iter(weread.OFFICIAL_FILES))
+            missing_app = device.entries.pop(missing_path)
+            status = weread.get_status(device, weread._trusted_catalog())
+            device.entries[missing_path] = missing_app
+            self.assertEqual(status.state, weread.WeReadLauncherState.REPAIR_AVAILABLE, status.detail)
+            self.assertFalse(status.prerequisite_available)
+            self.assertIn("v1.0.0", status.detail)
+        self.assertEqual(device.entries, before)
+        self.assertFalse(any(command.startswith(("rm ", "mv ", "mkdir ", "cp ")) for command in device.events))
+
+    def test_paper_pro_published_pinyin_requires_verified_external_service(self):
+        device = self.device("ferrari", "3.29.1.0")
+        device.install_pinyin()
+        self.install_published(device, pinyin)
+        with patch.object(tap, "get_device_identity", return_value=device.identity), patch.object(
+            shared, "_MANAGED_RECEIPT_STORE", None
+        ):
+            before = dict(device.entries)
+            status = pinyin.get_status(device)
+            self.assertEqual(status.state, pinyin.PinyinInputState.OUTDATED, status.detail)
+            self.assertEqual(device.entries, before)
+            device.entries[pinyin.REMOTE_MARKER].digest = "0" * 64
+            status = pinyin.get_status(device)
+            self.assertEqual(status.state, pinyin.PinyinInputState.BROKEN, status.detail)
+        self.assertFalse(any(command.startswith(("rm ", "mv ", "mkdir ", "cp ")) for command in device.events))
+
+    def test_status_rejects_published_reason_with_wrong_spec(self):
+        device = self.device("ferrari", "3.29.1.0")
+        self.install_published(device, reading, weread)
+        for module, inspect_name in (
+            (reading, "_inspection_for_migration"),
+            (weread, "_inspect_shared"),
+        ):
+            with self.subTest(feature=module.FEATURE_ID):
+                feature_id = module.FEATURE_ID
+                previous = device.states[feature_id]
+                wrong = replace(previous, spec=replace(previous.spec, sha256="0" * 64))
+                inspection = shared.SharedInspection({feature_id: wrong}, False, False)
+                with patch.object(tap, "get_device_identity", return_value=device.identity), patch.object(
+                    module, inspect_name, return_value=(
+                        inspection, device.trusted, {feature_id: tap.PUBLISHED_V1213_REASON}
+                    ),
+                ):
+                    status = module.get_status(device, module._trusted_catalog())
+                self.assertEqual(status.state.value, "broken", status.detail)
+
+    def test_reading_install_stages_published_peers_with_their_installed_specs(self):
+        device = self.device("ferrari", "3.29.1.0")
+        self.install_published(device, reading, weread, control)
+        package = reading.select_package(reading._trusted_catalog(), device.identity)
+        with patch.object(tap, "get_device_identity", return_value=device.identity), patch.object(
+            shared, "_MANAGED_RECEIPT_STORE", None
+        ), patch.object(
+            reading, "extract_verified_package", return_value=Path("unused")
+        ), patch.object(
+            shared, "replace_shared_features", wraps=shared.replace_shared_features
+        ) as transaction, patch.object(
+            shared, "_stage_shared", side_effect=RuntimeError("stop before staging")
+        ) as stage:
+            with self.assertRaisesRegex(RuntimeError, "stop before staging"):
+                reading.install(device, package, "unused")
+
+        target_trusted = transaction.call_args.args[4]
+        _ssh, _runtime, target_states, incoming, sources, _stage = stage.call_args.args
+        self.assertEqual(incoming, {reading.FEATURE_ID: Path("unused")})
+        self.assertEqual(target_trusted[reading.FEATURE_ID], device.trusted[reading.FEATURE_ID])
+        self.assertEqual(target_states[reading.FEATURE_ID].spec, device.trusted[reading.FEATURE_ID])
+        for peer in (weread.FEATURE_ID, control.FEATURE_ID):
+            self.assertEqual(target_states[peer], device.states[peer])
+            self.assertEqual(target_trusted[peer], device.states[peer].spec)
+            for item in target_states[peer].spec.files:
+                self.assertEqual(sources[item.runtime_path], f"{device.layout.remote_base}/{item.runtime_path}")
+
+    def test_reading_install_rejects_retaining_a_receipt_only_peer(self):
+        device = self.device("ferrari", "3.29.1.0")
+        self.install_published(device, reading)
+        peer = replace(device.trusted[weread.FEATURE_ID], sha256="d" * 64)
+        device.install({**device.states, weread.FEATURE_ID: shared.SharedFeatureState(peer, True, TOKEN)})
+        package = reading.select_package(reading._trusted_catalog(), device.identity)
+        marker = json.loads(device.entries[shared.SHARED_MARKER_PATH].data)
+        with tempfile.TemporaryDirectory() as temporary, patch.object(
+            shared, "_MANAGED_RECEIPT_STORE", Path(temporary) / "receipts.json"
+        ), patch.object(tap, "get_device_identity", return_value=device.identity), patch.object(
+            reading, "extract_verified_package", return_value=Path("unused")
+        ), patch.object(shared, "_stage_shared") as stage:
+            shared._remember_managed_receipt(marker)
+            with self.assertRaisesRegex(RuntimeError, f"收据.*{weread.FEATURE_ID}"):
+                reading.install(device, package, "unused")
+            stage.assert_not_called()
 
     def test_published_appload_is_recognized_without_this_computers_receipts(self):
         shared.configure_managed_receipt_store(None)

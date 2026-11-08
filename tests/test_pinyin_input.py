@@ -13,6 +13,7 @@ import _note_enhancements as note
 import _reading_enhancements as reading
 import _tap_page_turn as tap
 import _xovi_standalone as shared
+from tests.test_plugin_recovery import Device, DROPIN
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -61,6 +62,21 @@ class PinyinInputTests(unittest.TestCase):
             package.architecture,
             package.xochitl_sha256,
         )
+
+    def test_status_identifies_firmware_residue_separately_from_an_update(self):
+        current = next(p for p in pinyin._trusted_catalog()
+                       if p.platform == "ferrari" and p.release_version == "3.29.1.0")
+        device = Device(package=self.package())
+        device.install_pinyin()
+        del device.entries[DROPIN]
+        device.loader_config = "FragmentPath=/usr/lib/systemd/system/xochitl.service\nDropInPaths=\n"
+        device.identity = tap.DeviceIdentity(
+            current.firmware, current.platform, current.architecture, current.xochitl_sha256
+        )
+        with patch.object(tap, "get_device_identity", return_value=device.identity):
+            status = pinyin.get_status(device)
+        self.assertEqual(status.state, pinyin.PinyinInputState.OUTDATED, status.detail)
+        self.assertTrue(status.firmware_residue)
 
     def test_manifest_and_ported_qmd_are_exact(self):
         packages = pinyin._trusted_catalog()

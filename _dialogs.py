@@ -3,7 +3,7 @@
 import logging
 from typing import Callable, Optional
 
-from PyQt5 import QtCore, QtWidgets
+from PyQt5 import QtCore, QtWidgets, sip
 
 # Result code for the error dialog's "反馈问题" button.  Distinct from
 # Accepted/Rejected so Esc or the close button never starts the feedback flow.
@@ -257,4 +257,5 @@ def ask_confirmation(
     try:
         return dialog.exec_() == QtWidgets.QDialog.Accepted
     finally:
-        dialog.deleteLater()
+        if not sip.isdeleted(dialog):
+            dialog.deleteLater()

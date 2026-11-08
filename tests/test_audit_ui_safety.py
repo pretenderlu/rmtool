@@ -7,12 +7,18 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5 import QtWidgets
+from PyQt5 import QtCore, QtWidgets, sip
 
 import rmtool
+import _native_chinese
+import _pinyin_input
+import _plugin_recovery
 import _tab_documents
 import _tab_toolbox
+import _tap_page_turn
 import _toolbox_common as common
+import _weread_app
+import _weread_launcher
 from _ssh import SSHClientWrapper
 
 
@@ -222,13 +228,208 @@ class UiSafetyTests(unittest.TestCase):
         probe.start()
         self.addCleanup(probe.stop)
         tab = _tab_toolbox.ToolboxTab(self.ssh, {})
-        self.addCleanup(tab.deleteLater)
+        self.addCleanup(lambda: None if sip.isdeleted(tab) else tab.deleteLater())
         patch = mock.patch.object(tab, "_tap_entry_hidden", return_value=False)
         patch.start()
         self.addCleanup(patch.stop)
         for section in tab._detectable_sections:
             section.thread_pool = self.pool
         return tab
+
+    def test_toolbox_first_visit_later_then_accept_after_reconnect(self):
+        tab = self.make_toolbox()
+        with mock.patch.object(common, "ask_confirmation", side_effect=(False, True)) as ask:
+            tab.show()
+            _APP.processEvents()
+            ask.assert_called_once()
+            self.pool.start.assert_not_called()
+            tab.hide()
+            tab.show()
+            _APP.processEvents()
+            ask.assert_called_once()
+            self.reconnect()
+            _APP.processEvents()
+            self.assertEqual(ask.call_count, 2)
+            self.assertEqual(ask.call_args.kwargs["confirm_text"], "检测全部插件")
+            self.assertEqual(ask.call_args.kwargs["cancel_text"], "稍后")
+            self.pool.start.assert_called_once()
+
+    def test_toolbox_direct_maintenance_visits_do_not_consume_prompt(self):
+        tab = self.make_toolbox()
+        with mock.patch.object(common, "ask_confirmation", return_value=False) as ask:
+            for navigate in (tab.show_diagnostics, tab.show_capacity_recovery):
+                tab.show()
+                navigate()
+                _APP.processEvents()
+                ask.assert_not_called()
+                tab.hide()
+            tab.show()
+            _APP.processEvents()
+            ask.assert_called_once()
+
+    def test_toolbox_manual_scan_and_disconnected_visits_do_not_prompt(self):
+        self.ssh.close()
+        tab = self.make_toolbox()
+        with mock.patch.object(common, "ask_confirmation") as ask:
+            tab.show()
+            _APP.processEvents()
+            ask.assert_not_called()
+            self.reconnect()
+            tab._detect_all_statuses()
+            _APP.processEvents()
+            ask.assert_not_called()
+            self.pool.start.assert_called_once()
+
+    def test_toolbox_prompt_acceptance_cannot_scan_replacement_device(self):
+        tab = self.make_toolbox()
+        responses = iter((True, False))
+
+        def reconnect_on_accept(*args, **kwargs):
+            accepted = next(responses)
+            if accepted:
+                self.reconnect()
+            return accepted
+
+        with mock.patch.object(common, "ask_confirmation", side_effect=reconnect_on_accept) as ask:
+            tab.show()
+            _APP.processEvents()
+            _APP.processEvents()
+            self.assertEqual(ask.call_count, 2)
+            self.pool.start.assert_not_called()
+
+    def test_toolbox_destroyed_while_confirmation_is_open(self):
+        tab = self.make_toolbox()
+        # Run the real modal dialog. Deleting the parent must also end its event loop.
+        modal_was_open = []
+
+        def delete_parent():
+            modal_was_open.append(_APP.activeModalWidget() is not None)
+            sip.delete(tab)
+
+        tab.show()
+        QtCore.QTimer.singleShot(0, delete_parent)
+        _APP.processEvents()
+        self.assertEqual(modal_was_open, [True])
+        self.assertTrue(sip.isdeleted(tab))
+        self.pool.start.assert_not_called()
+
+    def test_toolbox_old_scan_completion_does_not_advance_new_scan(self):
+        tab = self.make_toolbox()
+        tab._detect_all_statuses()
+        old_worker = self.pool.start.call_args.args[0]
+        self.reconnect()
+        tab._detect_all_statuses()
+        progress = tab.detect_all_button.text()
+        self.assertEqual(self.pool.start.call_count, 2)
+        old_worker.signals.error.emit(RuntimeError("old failure"))
+        self.assertEqual(self.pool.start.call_count, 2)
+        self.assertEqual(tab.detect_all_button.text(), progress)
+        self.assertTrue(tab._detect_all_busy)
+
+    def test_toolbox_probe_failure_is_typed_and_scan_continues(self):
+        tab = self.make_toolbox()
+        tab._detect_all_statuses()
+        self.assertIn("0/", tab.detect_all_button.text())
+        worker = self.pool.start.call_args.args[0]
+        worker.signals.error.emit(RuntimeError("已启用 可更新"))
+        self.assertEqual(tab.tool_table.item(0, 1).text(), "检测失败")
+        self.assertIn("1/", tab.detect_all_button.text())
+        self.assertEqual(self.pool.start.call_count, 2)
+
+    def test_toolbox_late_busy_skip_does_not_increment_progress(self):
+        tab = self.make_toolbox()
+        with mock.patch.object(
+            tab.native_chinese_section, "_start_status_detection",
+            side_effect=lambda *, on_done, show_errors: on_done(),
+        ):
+            tab._detect_all_statuses()
+        self.pool.start.assert_called_once()
+        self.assertTrue(tab.pinyin_input_section._busy)
+        self.assertEqual(tab.detect_all_button.text(), "正在检测 0/9")
+
+    def test_toolbox_scan_waits_for_identity_to_determine_tap_applicability(self):
+        probe = _tab_toolbox.ToolboxTab._probe_device_identity
+        is_hidden = _tab_toolbox.ToolboxTab._tap_entry_hidden
+        tab = self.make_toolbox()
+        tab._tap_entry_hidden.side_effect = lambda: is_hidden(tab)
+        tab.thread_pool = self.pool
+        probe(tab)
+        identity_worker = self.pool.start.call_args.args[0]
+        tab._detect_all_statuses()
+        self.pool.start.assert_called_once()
+        self.assertEqual(tab.detect_all_button.text(), "正在识别设备…")
+
+        package = next(p for p in _tap_page_turn._trusted_catalog() if p.platform == "rm1")
+        identity = _tap_page_turn.DeviceIdentity(
+            package.firmware, package.platform, package.architecture, package.xochitl_sha256
+        )
+        identity_worker.signals.finished.emit(identity)
+        self.assertFalse(tab._tap_entry_hidden())
+        self.assertEqual(tab.detect_all_button.text(), "正在检测 0/9")
+        self.assertEqual(self.pool.start.call_count, 2)
+
+    def test_toolbox_typed_plugin_statuses_ignore_misleading_detail(self):
+        tab = self.make_toolbox()
+        section = tab.native_chinese_section
+        section._status = _native_chinese.NativeChineseStatus(
+            _native_chinese.NativeChineseState.ENABLED, None, detail="未安装 可更新"
+        )
+        section.status_label.setText(section._status.detail)
+        self.assertEqual(tab.tool_table.item(0, 1).text(), "已启用")
+        section = tab.pinyin_input_section
+        section._apply_status(_pinyin_input.PinyinInputStatus(
+            _pinyin_input.PinyinInputState.OUTDATED, None,
+            package=_pinyin_input._trusted_catalog()[0], detail="已启用 可更新",
+            installed=True, firmware_residue=True,
+        ))
+        self.assertEqual(tab.tool_table.item(1, 1).text(), "固件残留")
+        self.assertTrue(section.status_label.text().startswith("检测到拼音输入法固件残留"))
+        self.assertFalse(section.enable_button.isEnabled())
+        self.assertFalse(section.disable_button.isEnabled())
+        self.assertFalse(section.uninstall_button.isEnabled())
+
+    def test_toolbox_tap_predecessor_is_not_a_direct_update(self):
+        tab = self.make_toolbox()
+        section = tab.tap_page_turn_section
+        section._status = _tap_page_turn.TapPageTurnStatus(
+            _tap_page_turn.TapPageTurnState.OUTDATED, None, package=object(), dropin_present=True
+        )
+        section.status_label.setText("旧版可更新")
+        self.assertEqual(tab.tool_table.item(5, 1).text(), "旧版\n可卸载")
+
+    def test_toolbox_weread_app_and_entry_have_separate_statuses(self):
+        tab = self.make_toolbox()
+        section = tab.weread_launcher_section
+        section._status = _weread_launcher.WeReadLauncherStatus(
+            _weread_launcher.WeReadLauncherState.REPAIR_AVAILABLE, None, package=object()
+        )
+        section._apply_app_status(_weread_app.WeReadAppStatus(
+            _weread_app.WeReadAppState.NOT_INSTALLED, None, package=object()
+        ))
+        text = tab.tool_table.item(4, 1).text()
+        self.assertIn("App 未安装", text)
+        self.assertIn("入口", text)
+        self.assertNotIn("可更新", text)
+        section._apply_app_status(_weread_app.WeReadAppStatus(
+            _weread_app.WeReadAppState.INSTALLED, None, package=object()
+        ))
+        self.assertEqual(tab.tool_table.item(4, 1).text(), "App 已安装\n入口 已安装\n可更新")
+        tab.tool_table.setCurrentCell(4, 0)
+        self.assertTrue(tab.detail_stack.currentWidget().isAncestorOf(section))
+
+    def test_toolbox_shared_recovery_does_not_override_plugin_update(self):
+        tab = self.make_toolbox()
+        section = tab.native_chinese_section
+        section._status = _native_chinese.NativeChineseStatus(
+            _native_chinese.NativeChineseState.OUTDATED, None, package=object(), installed=True
+        )
+        section.status_label.setText("可直接修复更新")
+        tab.legacy_plugin_section._apply_status(_plugin_recovery.RecoveryReport(
+            _plugin_recovery.RecoveryState.BLOCKED, "可更新 已启用", operation_locked=True
+        ))
+        self.assertEqual(tab.tool_table.item(0, 1).text(), "旧版\n可更新")
+        row = next(i for i, entry in enumerate(tab._tool_entries) if entry["title"] == "共享插件恢复")
+        self.assertEqual(tab.tool_table.item(row, 1).text(), "已阻止")
 
     def test_each_plugin_rejects_overlapping_detection_and_install(self):
         toolbox = self.make_toolbox()
@@ -268,6 +469,7 @@ class UiSafetyTests(unittest.TestCase):
                 self.assertTrue(busy_section._busy)
                 self.assertEqual(busy_section.status_label.text(), "installing")
                 self.assertTrue(toolbox.detect_all_button.isEnabled())
+                self.assertIn("0/9", toolbox.detect_all_button.toolTip())
                 with mock.patch.object(busy_section, "_apply_status"):
                     worker.signals.finished.emit(None)
                 self.assertFalse(common.plugin_operation_busy(self.ssh))
