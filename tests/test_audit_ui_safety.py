@@ -3,6 +3,7 @@
 import os
 import threading
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -345,7 +346,7 @@ class UiSafetyTests(unittest.TestCase):
             tab._detect_all_statuses()
         self.pool.start.assert_called_once()
         self.assertTrue(tab.pinyin_input_section._busy)
-        self.assertEqual(tab.detect_all_button.text(), "正在检测 0/9")
+        self.assertEqual(tab.detect_all_button.text(), "正在检测 0/10")
 
     def test_toolbox_scan_waits_for_identity_to_determine_tap_applicability(self):
         probe = _tab_toolbox.ToolboxTab._probe_device_identity
@@ -365,7 +366,7 @@ class UiSafetyTests(unittest.TestCase):
         )
         identity_worker.signals.finished.emit(identity)
         self.assertFalse(tab._tap_entry_hidden())
-        self.assertEqual(tab.detect_all_button.text(), "正在检测 0/9")
+        self.assertEqual(tab.detect_all_button.text(), "正在检测 0/10")
         self.assertEqual(self.pool.start.call_count, 2)
 
     def test_toolbox_typed_plugin_statuses_ignore_misleading_detail(self):
@@ -431,9 +432,31 @@ class UiSafetyTests(unittest.TestCase):
         row = next(i for i, entry in enumerate(tab._tool_entries) if entry["title"] == "共享插件恢复")
         self.assertEqual(tab.tool_table.item(row, 1).text(), "已阻止")
 
+    def test_toolbox_blocked_recovery_tooltip_shows_confirmed_next_step(self):
+        tab = self.make_toolbox()
+        section = tab.legacy_plugin_section
+        row = next(i for i, entry in enumerate(tab._tool_entries) if entry.get("shared_recovery"))
+        section._recovery_report = SimpleNamespace(
+            state=_plugin_recovery.RecoveryState.BLOCKED, can_repair=False,
+            detail="第三方应用阻止整套恢复", next_step="前往文档中心更新原生文档传输",
+        )
+        section._incomplete_report = _plugin_recovery.RecoveryReport(
+            _plugin_recovery.RecoveryState.BLOCKED, "不允许清理"
+        )
+        tab._refresh_row_status(row)
+        item = tab.tool_table.item(row, 1)
+        self.assertEqual(item.text(), "已阻止")
+        self.assertIn(section._recovery_report.next_step, item.toolTip())
+
+        del section._recovery_report.next_step
+        tab._refresh_row_status(row)
+        self.assertEqual(item.toolTip(), "已阻止\n不允许清理")
+
     def test_each_plugin_rejects_overlapping_detection_and_install(self):
         toolbox = self.make_toolbox()
         for section in toolbox._detectable_sections:
+            if section is toolbox.native_transfer_section:
+                continue
             for terminal in ("finished", "error"):
                 with self.subTest(section=type(section).__name__, terminal=terminal):
                     self.pool.reset_mock()
@@ -461,15 +484,19 @@ class UiSafetyTests(unittest.TestCase):
         for busy_section in toolbox._detectable_sections:
             with self.subTest(section=type(busy_section).__name__):
                 self.pool.reset_mock()
-                busy_section._start_worker(lambda: None, pending="installing")
+                if busy_section is toolbox.native_transfer_section:
+                    busy_section._start_status_detection(show_errors=False)
+                else:
+                    busy_section._start_worker(lambda: None, pending="installing")
                 worker = self.pool.start.call_args.args[0]
+                status = busy_section.status_label.text()
                 toolbox._detect_all_statuses()
                 self.assertFalse(toolbox._detect_all_busy)
                 self.assertEqual(self.pool.start.call_count, 1)
                 self.assertTrue(busy_section._busy)
-                self.assertEqual(busy_section.status_label.text(), "installing")
+                self.assertEqual(busy_section.status_label.text(), status)
                 self.assertTrue(toolbox.detect_all_button.isEnabled())
-                self.assertIn("0/9", toolbox.detect_all_button.toolTip())
+                self.assertIn("0/10", toolbox.detect_all_button.toolTip())
                 with mock.patch.object(busy_section, "_apply_status"):
                     worker.signals.finished.emit(None)
                 self.assertFalse(common.plugin_operation_busy(self.ssh))

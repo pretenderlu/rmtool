@@ -762,6 +762,106 @@ class RecoveryInspectionTests(unittest.TestCase):
                 self.assertTrue(report.can_repair)
                 self.assertIn(feature_id, report.features)
 
+    def install_paper_pro_native_import_predecessor(self, *, schema_version=2):
+        self.device = Device(package=next(p for p in recovery.migration.native_import._trusted_catalog()
+            if p.platform == "ferrari" and p.release_version == "3.29.1.0"))
+        trusted = self.device.trusted
+        old = tap._published_payload_predecessor(self.device.identity, trusted["native-import"])
+        self.assertIsNotNone(old)
+        self.assertNotEqual(old, trusted["native-import"])
+        self.device.install({
+            "native-import": shared.SharedFeatureState(old, True, TOKEN),
+            "appload": shared.SharedFeatureState(trusted["appload"], True, TOKEN),
+            "koreader": shared.SharedFeatureState(trusted["koreader"], True, TOKEN),
+            "reading-enhancements": shared.SharedFeatureState(trusted["reading-enhancements"], False, TOKEN),
+        }, schema_version=schema_version)
+        self.device.process_token = TOKEN.replace(":778:", ":779:")
+        self.device.maps = "1-2 r-xp 0 0:0 1 " + BASE + "/xovi.so"
+
+    def test_only_published_native_import_needs_update_with_appload_and_koreader(self):
+        for schema, known_receipt in ((1, False), (2, False), (2, True)):
+            with self.subTest(schema=schema, known_receipt=known_receipt), tempfile.TemporaryDirectory() as temporary:
+                self.install_paper_pro_native_import_predecessor(schema_version=schema)
+                shared.configure_managed_receipt_store(temporary)
+                try:
+                    if known_receipt:
+                        shared._remember_managed_receipt(json.loads(self.device.entries[BASE + "/package.json"].data))
+                    report = self.inspect()
+                    self.assertEqual(report.state, recovery.RecoveryState.BLOCKED)
+                    self.assertFalse(report.can_repair)
+                    self.assertEqual(report.issues, ("appload", "koreader"))
+                    self.assertNotIn("原生文档传输", report.detail)
+                    self.assertIn("原生文档传输", report.next_step)
+                    self.assertIn("文档中心 > 原生传输服务 > 初始化自动传输…", report.next_step)
+                    self.assertIn("重新检测", report.next_step)
+                    self.assertIn("无需卸载", report.next_step)
+                finally:
+                    shared.configure_managed_receipt_store(None)
+                self.assertFalse(any("MOUNT_DIR=" in event for event in self.device.events))
+                states = dict(self.device.states)
+                states["native-import"] = replace(states["native-import"], spec=self.device.trusted["native-import"])
+                self.device.install(states, schema_version=schema)
+                self.assertEqual(self.inspect().state, recovery.RecoveryState.NOT_NEEDED)
+
+    def test_native_import_update_guidance_refuses_uncertain_or_protected_installations(self):
+        for problem in ("runtime", "payload", "missing", "unknown", "inactive", "startup", "sentinel", "lock",
+                        "old-template", "other-old-peer", "unknown-receipt", "foreign-loader", "other-firmware",
+                        "disabled-native", "active-transfer"):
+            with self.subTest(problem=problem):
+                self.install_paper_pro_native_import_predecessor()
+                if problem == "runtime":
+                    self.device.break_payload()
+                elif problem == "payload":
+                    path = self.device.states["native-import"].spec.runtime_path
+                    self.device.entries[f"{BASE}/{path}"].digest = "0" * 64
+                elif problem == "missing":
+                    del self.device.entries[BASE + "/launcher.sh"]
+                elif problem == "unknown":
+                    self.device.add(BASE + "/unknown")
+                elif problem == "inactive":
+                    self.device.maps = ""
+                elif problem == "startup":
+                    self.device.add(BASE + "/startup.pending", mode=0o100600)
+                elif problem == "sentinel":
+                    self.device.add(shared.SHARED_RECOVERY_SENTINEL, mode=0o100600)
+                elif problem == "lock":
+                    self.device.add(shared._OPERATION_LOCK, mode=0o40700)
+                elif problem == "old-template":
+                    enabled = tuple(state.spec for state in self.device.states.values() if state.enabled)
+                    launcher = shared.shared_launcher(self.device.runtime, enabled, startup_guard=False).encode()
+                    self.device.add(BASE + "/launcher.sh", launcher, mode=0o100755)
+                    self.device.marker(lambda marker: marker.update(launcher_sha256=hashlib.sha256(launcher).hexdigest()))
+                elif problem == "other-old-peer":
+                    states = dict(self.device.states)
+                    old = tap._published_payload_predecessor(self.device.identity, states["reading-enhancements"].spec)
+                    self.assertIsNotNone(old)
+                    self.assertNotEqual(old, states["reading-enhancements"].spec)
+                    states["reading-enhancements"] = replace(states["reading-enhancements"], spec=old)
+                    self.device.install(states)
+                elif problem == "unknown-receipt":
+                    states = dict(self.device.states)
+                    native = states["native-import"]
+                    states["native-import"] = replace(native, spec=replace(native.spec, sha256="f" * 64))
+                    self.device.install(states)
+                elif problem == "foreign-loader":
+                    self.device.maps += "\n2-3 r-xp 0 0:0 2 /opt/other/xovi.so"
+                elif problem == "other-firmware":
+                    package = next(p for p in recovery.migration.native_import._trusted_catalog()
+                        if p.platform == "ferrari" and p.release_version == "3.28.0.172")
+                    self.device.identity = tap.DeviceIdentity(package.firmware, package.platform,
+                                                              package.architecture, package.xochitl_sha256)
+                elif problem == "disabled-native":
+                    states = dict(self.device.states)
+                    states["native-import"] = replace(states["native-import"], enabled=False)
+                    self.device.install(states)
+                elif problem == "active-transfer":
+                    self.device.add("/run/rmtool-native-import-control/active")
+                report = self.inspect()
+                self.assertEqual(report.state, recovery.RecoveryState.BLOCKED)
+                self.assertFalse(report.can_repair)
+                self.assertEqual(report.next_step, "")
+                self.assertFalse(any("MOUNT_DIR=" in event for event in self.device.events))
+
 
 class IncompleteSharedCleanupTests(unittest.TestCase):
     def setUp(self):

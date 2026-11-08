@@ -524,6 +524,8 @@ class FakeWallpaperTab(QtWidgets.QWidget):
 
 
 class FakeToolboxTab(QtWidgets.QWidget):
+    open_documents_requested = QtCore.pyqtSignal()
+
     def __init__(self, *_args, **_kwargs):
         super().__init__()
         self.time_section = QtWidgets.QWidget()
@@ -1324,7 +1326,7 @@ class WallpaperUiTests(unittest.TestCase):
         toolbox = rmtool.ToolboxTab(FakeConnectionClient(), rmtool._default_config())
         self.addCleanup(toolbox.deleteLater)
 
-        self.assertEqual(toolbox.tool_table.rowCount(), 13)
+        self.assertEqual(toolbox.tool_table.rowCount(), 14)
         self.assertEqual(
             [
                 toolbox.tool_table.item(row, 0).text()
@@ -1338,6 +1340,7 @@ class WallpaperUiTests(unittest.TestCase):
                 "微信读书",
                 "点击翻页（RM1/RM2/Paper Pure）",
                 "扫码传输",
+                "原生文档传输",
                 "时间管理",
                 "设备控制",
                 "设备修复与清理",
@@ -1457,6 +1460,7 @@ class WallpaperUiTests(unittest.TestCase):
             ("note", toolbox.note_enhancements_section, "_start_status_detection"),
             ("weread", toolbox.weread_launcher_section, "_start_status_detection"),
             ("qr", toolbox.qr_upload_section, "_start_status_detection"),
+            ("native_transfer", toolbox.native_transfer_section, "_start_status_detection"),
             ("tap", toolbox.tap_page_turn_section, "_start_status_detection"),
             ("residue", toolbox.legacy_plugin_section, "_start_residue_detection"),
             ("recovery", toolbox.legacy_plugin_section, "_start_status_detection"),
@@ -1475,10 +1479,10 @@ class WallpaperUiTests(unittest.TestCase):
         # so detect-all skips it without starting a detection.
         toolbox.detect_all_button.click()
         self.assertEqual(calls, [("native", False)])
-        self.assertEqual(toolbox.detect_all_button.text(), "正在检测 0/8")
+        self.assertEqual(toolbox.detect_all_button.text(), "正在检测 0/9")
         self.assertFalse(toolbox.detect_all_button.isEnabled())
 
-        for expected in ("pinyin", "reading", "note", "weread", "qr", "residue", "recovery"):
+        for expected in ("pinyin", "reading", "note", "weread", "qr", "native_transfer", "residue", "recovery"):
             pending.pop(0)()
             self.assertEqual(calls[-1], (expected, False))
 
@@ -1492,11 +1496,13 @@ class WallpaperUiTests(unittest.TestCase):
                 ("note", False),
                 ("weread", False),
                 ("qr", False),
+                ("native_transfer", False),
                 ("residue", False),
                 ("recovery", False),
             ],
         )
         self.assertEqual(toolbox.detect_all_button.text(), "检测全部插件")
+        self.assertEqual(toolbox.detect_all_button.toolTip(), "已完成检测 9/9")
         self.assertTrue(toolbox.detect_all_button.isEnabled())
 
     def test_toolbox_tap_entry_is_device_scoped(self):

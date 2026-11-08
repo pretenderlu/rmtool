@@ -52,6 +52,7 @@ class RecoveryReport:
     issues: tuple[str, ...] = ()
     backup_path: str = ""
     operation_locked: bool = False
+    next_step: str = ""
 
     @property
     def can_repair(self) -> bool:
@@ -1183,7 +1184,49 @@ def _preserved_sidecars_snapshot(ssh_client, identity, states, targets):
     return tuple(snapshot)
 
 
-def _inspect(ssh_client):
+def _native_import_next_step(ssh_client, identity, runtime, targets, states, layout, fingerprint, schema_version):
+    feature_id = migration.native_import.FEATURE_ID
+    native = states.get(feature_id)
+    if native is None or not native.enabled or native.spec == targets[feature_id] or any(
+        state.spec != targets[fid] for fid, state in states.items() if fid != feature_id
+    ):
+        return ""
+    try:
+        if native.spec != tap._published_payload_predecessor(identity, targets[feature_id]):
+            return ""
+        # Reuse the exact ownership snapshot: inspect_shared can persist a local receipt.
+        base = layout.remote_base
+        enabled = tuple(state.spec for state in states.values() if state.enabled)
+        launcher = shared.shared_launcher(runtime, enabled, layout=layout,
+            startup_guard=layout == shared.SHARED_LAYOUT or runtime.platform == "rm1").encode()
+        dropin = shared.shared_dropin(runtime, enabled, layout=layout).encode()
+        dropin_digest = hashlib.sha256(dropin).hexdigest()
+        marker = shared.shared_marker(runtime, states, hashlib.sha256(launcher).hexdigest(),
+            dropin_digest, schema_version=schema_version)
+        expected = {f"{base}/{item.path}": (item.size, item.sha256) for item in runtime.files}
+        expected.update({f"{base}/{item.runtime_path}": (item.size, item.sha256)
+                         for feature in enabled for item in feature.files})
+        expected.update({
+            f"{base}/package.json": (len(marker), hashlib.sha256(marker).hexdigest()),
+            f"{base}/launcher.sh": (len(launcher), hashlib.sha256(launcher).hexdigest()),
+            f"{base}/systemd/{layout.dropin_name}": (len(dropin), dropin_digest),
+            layout.dropin_path: (len(dropin), dropin_digest),
+        })
+        actual = {path: (size, digest) for path, mode, size, digest in fingerprint if stat.S_ISREG(mode)}
+        if actual != expected or not shared._active(ssh_client, layout):
+            return ""
+        shared._assert_receipt_sidecars(ssh_client, states)
+        migration.native_import._assert_stopped(ssh_client)
+        if shared._remote_entry_exists(ssh_client, shared._OPERATION_LOCK):
+            return ""
+    except Exception:
+        logging.debug("Could not confirm standalone native import update guidance", exc_info=True)
+        return ""
+    return ("只有原生文档传输需要更新。请前往“文档中心 > 原生传输服务 > 初始化自动传输…”只更新此组件，"
+            "完成后重新检测共享插件，无需卸载其他功能。")
+
+
+def _inspect(ssh_client, *, include_next_step=False):
     base = shared.SHARED_LAYOUT.remote_base
     artifacts = (base, shared.LEGACY_SHARED_LAYOUT.remote_base, shared.SHARED_LAYOUT.dropin_path)
     if not any(shared._remote_entry_exists(ssh_client, path) for path in artifacts):
@@ -1273,7 +1316,13 @@ def _inspect(ssh_client):
         or (fid != pinyin.FEATURE_ID and (state.spec.sidecars or targets[fid].sidecars))
     )]
     if unsupported:
-        return RecoveryReport(RecoveryState.BLOCKED, "以下功能含外部程序，暂不能保证全新重建及配置保留：" + "、".join(unsupported), features, tuple(unsupported)), None
+        next_step = ""
+        if (include_next_step and old_identity == identity and not sentinels
+                and layout == shared.preferred_layout(new_runtime)):
+            next_step = _native_import_next_step(ssh_client, identity, new_runtime, targets, states,
+                layout, fingerprint, marker["schema_version"])
+        return RecoveryReport(RecoveryState.BLOCKED, "以下功能含外部程序，暂不能保证全新重建及配置保留：" + "、".join(unsupported),
+            features, tuple(unsupported), next_step=next_step), None
     preserved = _preserved_sidecars_snapshot(ssh_client, identity, states, targets)
     plan = _Plan(identity, new_runtime, {fid: targets[fid] for fid in states}, states, fingerprint, sentinels, layout, preserved, controls_only)
     tap._preflight_device(ssh_client, allow_stopped=True)
@@ -1300,7 +1349,7 @@ def inspect_recovery(ssh_client) -> RecoveryReport:
                 "重连后重新检测恢复状态。不会直接删除事务锁或恢复备份。",
                 operation_locked=True,
             )
-        report, plan = _inspect(ssh_client)
+        report, plan = _inspect(ssh_client, include_next_step=True)
         if plan is not None:
             _check_capacity(ssh_client, plan)
         return report

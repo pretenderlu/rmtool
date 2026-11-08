@@ -239,6 +239,17 @@ class RecoveryUiTests(unittest.TestCase):
 
         self.assertEqual(self.section.status_label.text().count(duplicate), 1)
 
+    def test_blocked_recovery_prefers_verified_update_guidance(self):
+        result = report(recovery.RecoveryState.BLOCKED)
+        result.next_step = "请前往文档中心单独更新原生文档传输。"
+        self.section._apply_status(result)
+
+        text = self.section.status_label.text()
+        self.assertTrue(text.startswith("整套共享恢复已阻止\n" + result.next_step), text)
+        self.assertNotIn("请导出诊断日志", text)
+        self.assertIn(result.detail, text)
+        self.assertFalse(self.section.repair_button.isEnabled())
+
     def test_busy_and_disconnected_detection_finish_once_without_changing_status(self):
         self.section._busy = True
         self.section.status_label.setText("installing")

@@ -254,7 +254,13 @@ class LegacyPluginMigrationSection(QtWidgets.QWidget):
                 "无法安全自动修复，请导出诊断日志交由维护者核对；不要手动跳过校验"
             ),
         }
-        lines = ["插件操作已阻止：检测到事务锁" if getattr(report, "operation_locked", False) else labels[report.state]]
+        next_step = getattr(report, "next_step", "")
+        if getattr(report, "operation_locked", False):
+            lines = ["插件操作已阻止：检测到事务锁"]
+        elif report.state == _plugin_recovery.RecoveryState.BLOCKED and next_step:
+            lines = ["整套共享恢复已阻止", next_step]
+        else:
+            lines = [labels[report.state]]
         if report.detail:
             lines.append(report.detail)
         if report.features:

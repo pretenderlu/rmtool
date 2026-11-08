@@ -40,7 +40,7 @@ from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets, sip
 
 
 APP_NAME = "reMarkable 管理工具"
-APP_VERSION = "1.21.5"
+APP_VERSION = "1.21.6"
 CONFIG_FILE = "devices.json"
 GITHUB_REPO_URL = "https://github.com/pretenderlu/rmtool"
 GITHUB_RELEASES_URL = f"{GITHUB_REPO_URL}/releases/latest"
@@ -841,6 +841,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.nav_buttons.append(button)
         self.nav_button_group.idClicked.connect(self.pages.setCurrentIndex)
         self.pages.currentChanged.connect(self._on_page_changed)
+        self.toolbox_tab.open_documents_requested.connect(self._show_documents)
         self.nav_buttons[0].setChecked(True)
         nav_layout.addWidget(nav_widget)
         self.connection_widget.add_sidebar_section(nav_container)
@@ -1047,6 +1048,11 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         if self.pages.widget(index) is self.koreader_tab:
             self.koreader_tab.ensure_loaded()
+
+    def _show_documents(self) -> None:
+        index = self.pages.indexOf(self.documents_tab)
+        self.nav_buttons[index].setChecked(True)
+        self.pages.setCurrentIndex(index)
 
     def _show_status_message(self, level: str, text: str, timeout: int = 4000) -> None:
         status_bar = self.statusBar()
