@@ -6,8 +6,8 @@ import (
 )
 
 func TestNativeStableMatrixAndExactIdentity(t *testing.T) {
-	if len(nativeFirmwares) != 15 {
-		t.Fatal("expected five exact targets for each of .172, .153 and 3.29.1.0")
+	if len(nativeFirmwares) != 20 {
+		t.Fatal("expected five exact targets for each supported firmware family")
 	}
 	for _, target := range nativeFirmwares {
 		machine := "reMarkable " + target.platform

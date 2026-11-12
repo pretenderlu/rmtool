@@ -132,7 +132,7 @@ def main() -> int:
     parser.add_argument("--write-manifest", type=Path, required=True)
     parser.add_argument("--cache-root", action="append", type=Path, default=[])
     parser.add_argument("--allow-hash-only", action="store_true")
-    parser.add_argument("--release", choices=("3.28.0.172", "3.29.0.152", "3.29.0.153", "3.29.1.0"))
+    parser.add_argument("--release", choices=sorted({value[0] for value in weread.ALLOWED_TARGETS.values()}))
     args = parser.parse_args()
     from tools.native_build import verify_archive_runtime, verify_tool
     verify_archive_runtime()
@@ -150,8 +150,7 @@ def main() -> int:
     roots = tuple(args.cache_root) or (ROOT / ".rmtool/cache/reading-enhancements",)
     carriers = tuple(
         package for package in reading._trusted_catalog()
-        if package.release_version in {"3.28.0.172", "3.29.0.152", "3.29.0.153", "3.29.1.0"}
-        and package.platform in {"ferrari", "chiappa"}
+        if (package.platform, package.firmware, package.architecture, package.xochitl_sha256) in weread.ALLOWED_TARGETS
         and (not args.release or package.release_version == args.release)
     )
     expected_targets = sum(

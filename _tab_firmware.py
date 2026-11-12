@@ -336,8 +336,13 @@ class FirmwareTab(QtWidgets.QWidget):
 
         def done(releases):
             self.releases.clear()
-            for release in releases:
-                self.releases.addItem(f"{release.version} · {release.channel}", release)
+            stable_index = -1
+            for index, release in enumerate(releases):
+                channel = release.channel
+                self.releases.addItem(f"{release.version} · {channel}", release)
+                if stable_index < 0 and channel == "正式版":
+                    stable_index = index
+            self.releases.setCurrentIndex(stable_index)
             self.status.setText(f"官方列表：{len(releases)} 个版本")
 
         self._run(lambda: firmware.list_releases(platform), done)

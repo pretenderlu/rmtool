@@ -1222,8 +1222,9 @@ def _native_import_next_step(ssh_client, identity, runtime, targets, states, lay
     except Exception:
         logging.debug("Could not confirm standalone native import update guidance", exc_info=True)
         return ""
-    return ("只有原生文档传输需要更新。请前往“文档中心 > 原生传输服务 > 初始化自动传输…”只更新此组件，"
-            "完成后重新检测共享插件，无需卸载其他功能。")
+    return ("只有原生文档传输的自动开启组件有更新。如需继续自动开启，请在设备的 USB 网页界面关闭时，"
+            "从“文档中心 > 上传文档”按提示更新。已有可用的扫码控制时可直接上传，无需为传书更新。"
+            "更新后可重新检测共享插件，无需卸载其他功能。")
 
 
 def _inspect(ssh_client, *, include_next_step=False):

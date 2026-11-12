@@ -27,6 +27,7 @@ SETTINGS_QML = "qml/device/view/settings/Settings.qml"
 SETTINGS_MENU_QML = "qt/qml/xofm/libs/toolbar/qml/SettingsMenu.qml"
 DOCUMENT_QML = "qml/device/view/documentview/DocumentView.qml"
 SCENE_QML = "qml/device/view/documentview/DeviceSceneView.qml"
+STROKE_QML = "qml/device/view/documentview/StrokeInput.qml"
 
 
 def sha256(data: bytes) -> str:
@@ -39,6 +40,34 @@ def _variant_for_release(release_version: str) -> str:
 
 def _source_for_release(source: Path, release_version: str, temporary: Path) -> Path:
     text = source.read_text(encoding="utf-8")
+    if release_version == "3.30.0.108":
+        text = text.replace("Item#_uiContainer > Toolbar#toolbar", "Item#_uiContainer").replace(
+            "root.toolbar.rmtoolNoteDocumentView", "root.container?.rmtoolNoteDocumentView",
+        )
+        boundary = "    TRAVERSE ?#viewportUpdateTimer\n"
+        if text.count(boundary) != 1:
+            raise RuntimeError("note-enhancements source lacks the stock stroke timer")
+        scene, timer = text.split(boundary)
+        scene = scene.replace("viewportUpdateTimer.rmtool", "strokeInputCoordinator.rmtoolNoteTimer.rmtool")
+        timer = timer.replace("root.document", "root.rmtoolNoteDocument").replace(
+            "        documentViewTools.isWritingTool(documentViewTools.activePen.tool)",
+            "        root.documentViewTools.isWritingTool(root.documentViewTools.activePen.tool)",
+        ).replace("                inputSurface.clearFramebuffer()", "                root.inputSurface.clearFramebuffer()")
+        text = scene + f"""    TRAVERSE FocusScope#root > StrokeInput#strokeInputCoordinator
+        LOCATE BEFORE ALL
+        INSERT {{ rmtoolNoteDocument: root.document }}
+    END TRAVERSE
+END AFFECT
+
+AFFECT /{STROKE_QML}
+    TRAVERSE Item#root
+        LOCATE BEFORE ALL
+        INSERT {{
+            required property var rmtoolNoteDocument
+            property alias rmtoolNoteTimer: viewportUpdateTimer
+        }}
+    END TRAVERSE
+""" + boundary + timer
     variant = _variant_for_release(release_version)
     if variant == "3.27":
         fallback = """                } else {
@@ -132,6 +161,19 @@ def _compile_and_validate(
     settings_menu = (replay / SETTINGS_MENU_QML).read_text(encoding="utf-8")
     document = (replay / DOCUMENT_QML).read_text(encoding="utf-8")
     scene = (replay / SCENE_QML).read_text(encoding="utf-8")
+    document_ref = "root.document"
+    if target["release_version"] == "3.30.0.108":
+        tool = qrex / "qt/qml/xofm/libs/toolbar/qml/ToolbarTool.qml"
+        if ("container: Toolbar.geometry.container" not in tool.read_text(encoding="utf-8")
+                or "container: _uiContainer" not in document
+                or "root.container?.rmtoolNoteDocumentView" not in settings_menu
+                or "root.toolbar.rmtoolNoteDocumentView" in settings_menu):
+            raise RuntimeError("3.30 note menu is not connected to its document container")
+        for marker in ("rmtoolNoteDocument: root.document", "strokeInputCoordinator.rmtoolNoteTimer.rmtoolSettlePending()"):
+            if marker not in scene:
+                raise RuntimeError(f"stroke coordinator assertion {target['id']} missing {marker}")
+        scene = (replay / STROKE_QML).read_text(encoding="utf-8")
+        document_ref = "root.rmtoolNoteDocument"
     for marker in (
         "rmtoolNoteEnhancementsSidebarItem",
         "rmtoolNoteEnhancementsPage",
@@ -184,8 +226,8 @@ def _compile_and_validate(
         "function rmtoolNoteSettingsChanged()",
         "rmtoolAwaitingStockFinalize",
         'const group = "RmtoolNoteEnhancements"',
-        "root.document.fileType !== Document.Notebook",
-        'return "documents/" + root.document.id.toString() + "/" + key',
+        f"{document_ref}.fileType !== Document.Notebook",
+        f'return "documents/" + {document_ref}.id.toString() + "/" + key',
         "if (!featureKey)",
         "const documentFeature = featureKey",
         "const documentSeconds = delayKey",
@@ -196,7 +238,6 @@ def _compile_and_validate(
         "viewportUpdateTimer.rmtoolQueueDirty(dirtyRect)",
         "root.viewport?.markDirty(rmtoolPendingDirtyRect)",
         "inputSurface.clearFramebuffer()",
-        "viewportUpdateTimer.rmtoolSettlePending()",
         "strokeHandler.timeSincePenUp() < 100",
     ):
         if marker not in scene:
@@ -275,11 +316,15 @@ def _compile_and_validate(
         raise RuntimeError(
             f"pen-up assertion {target['id']} does not retain the stock timer restart"
         )
+    if target["release_version"] != "3.30.0.108" and "viewportUpdateTimer.rmtoolSettlePending()" not in scene:
+        raise RuntimeError(f"timer assertion {target['id']} missing scene settlement")
     settings_start = scene.index(
         "function rmtoolNoteSettingsChanged()",
         scene.index("function rmtoolSettlePending()"),
     )
-    timer_settings = scene[settings_start : scene.index("id: viewportUpdateTimer")]
+    end_marker = ("function markDirtyAndRestart(dirtyRect)" if target["release_version"] == "3.30.0.108"
+                  else "id: viewportUpdateTimer")
+    timer_settings = scene[settings_start : scene.index(end_marker, settings_start)]
     settings_order = (
         "!rmtoolNoteFeatureEnabled()",
         "viewportUpdateTimer.interval = 1000",

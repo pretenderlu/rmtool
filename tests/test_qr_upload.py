@@ -13,6 +13,30 @@ from tests.test_plugin_recovery import Device
 
 
 class QrUploadTests(unittest.TestCase):
+    def test_beta_330_settings_replay_requires_the_qr_page_bindings(self):
+        from tools.build_beta_329 import load
+
+        builder = load(Path(__file__).resolve().parents[1] / "qr-upload/native/build.py")
+        replay = (
+            "import cn.rmtool.QrUpload 1.0\n"
+            "import xofm.libs.qrcode 1.0\n"
+            "import com.remarkable 1.0 as RmtoolQrSystem\n"
+            "Item { id: rmtoolQrTransferPage; QRCodeProvider {} "
+            "QrUpload { id: rmtoolQrBridge; settings: root.settings } "
+            "Connections { target: RmtoolQrSystem.PowerManager } "
+            "Component.onDestruction: rmtoolQrBridge.stop() }\n"
+        )
+        builder.validate_qr_settings(replay, beta_330=True)
+        for fixed, broken, error in (
+            ("import xofm.libs.qrcode", "// import xofm.libs.qrcode", "Missing QRCodeProvider module"),
+            ("import com.remarkable", "// import com.remarkable", "Missing PowerManager module"),
+            ("settings: root.settings", "settings: Settings", "SettingsWindow settings object"),
+            ("target: RmtoolQrSystem.PowerManager", "target: PowerManager", "imported singleton"),
+        ):
+            with self.subTest(fixed=fixed), self.assertRaisesRegex(RuntimeError, error):
+                builder.validate_qr_settings(replay.replace(fixed, broken), beta_330=True)
+        builder.validate_qr_settings(replay.replace("settings: root.settings", "settings: Settings"), beta_330=False)
+
     def test_native_builder_normalizes_generated_source_paths(self):
         from tools.native_build import prefix_maps
 
@@ -32,7 +56,7 @@ class QrUploadTests(unittest.TestCase):
         self.runtime, self.trusted, self.legacies, self.feature = qr._context(self.identity, p)
 
     def test_manifest_and_shared_peers_are_exact(self):
-        self.assertEqual(len(self.catalog), 11)
+        self.assertEqual(len(self.catalog), 16)
         self.assertEqual(self.package.platform, "chiappa")
         self.assertEqual(self.package.release_version, "3.28.0.172")
         self.assertFalse(self.package.device_verified)

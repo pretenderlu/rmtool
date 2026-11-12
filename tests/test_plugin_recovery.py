@@ -792,7 +792,8 @@ class RecoveryInspectionTests(unittest.TestCase):
                     self.assertEqual(report.issues, ("appload", "koreader"))
                     self.assertNotIn("原生文档传输", report.detail)
                     self.assertIn("原生文档传输", report.next_step)
-                    self.assertIn("文档中心 > 原生传输服务 > 初始化自动传输…", report.next_step)
+                    self.assertIn("如需继续自动开启", report.next_step)
+                    self.assertIn("文档中心 > 上传文档", report.next_step)
                     self.assertIn("重新检测", report.next_step)
                     self.assertIn("无需卸载", report.next_step)
                 finally:

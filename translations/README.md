@@ -25,6 +25,12 @@ stock-translation checks passed; hardware acceptance remains separate. See the
 [stable adaptation report](../docs/firmware-3.29.1.0.md) and
 [legacy-device report](../docs/firmware-3.29.1.0-legacy.md).
 
+Beta `3.30.0.108` (Paper Pro/Move/Pure and RM1) and `3.30.0.109` (RM2)
+use build `20261028121323`. The supplement covers 96 exact stock and embedded
+QML identities. Each platform has its own stock French fingerprint and
+release-qualified Chinese catalog record. The French file remains unchanged
+on the device. See the [3.30 offline report](../docs/firmware-3.30-beta.md).
+
 This directory contains the editable Qt Linguist source, the compiled catalog,
 and the cloud release manifest:
 

@@ -18,7 +18,7 @@ from PIL import Image
 from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
 from _dialogs import ask_confirmation, show_error, show_info, show_warning
-from _native_document_import import NativeDocumentImporter
+from _native_document_import import NativeDocumentImporter, NativeImportActivationNeeded
 import _native_import_control as native_control
 from _ssh import SSHClientWrapper, require_connection
 from _ui_tasks import run_in_background
@@ -66,22 +66,13 @@ class DocumentsTab(QtWidgets.QWidget):
         self._connected = False
         self._connection_generation = 0
         self._upload_active = False
+        self._native_activation_declined = False
         self._thumbnail_cleanup_running = False
 
         # --- Toolbar ---
         self.refresh_button = QtWidgets.QPushButton("刷新列表")
         self.upload_button = QtWidgets.QPushButton("上传文档")
         self.upload_button.setProperty("btnRole", "primary")
-        self.native_transfer_button = QtWidgets.QToolButton()
-        self.native_transfer_button.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DriveNetIcon))
-        self.native_transfer_button.setToolTip("原生传输服务")
-        self.native_transfer_button.setAccessibleName("原生传输服务")
-        self.native_transfer_button.setFixedSize(36, 36)
-        self.native_transfer_button.setPopupMode(QtWidgets.QToolButton.InstantPopup)
-        native_menu = QtWidgets.QMenu(self.native_transfer_button)
-        native_menu.addAction("初始化自动传输…", self._initialize_native_transfer)
-        native_menu.addAction("移除传输组件…", self._remove_native_transfer)
-        self.native_transfer_button.setMenu(native_menu)
         self.cleanup_thumbnails_button = QtWidgets.QPushButton("清理缩略图")
         self.cleanup_thumbnails_button.setToolTip(
             "扫描已不存在文档留下的封面缩略图，确认后再删除"
@@ -132,7 +123,6 @@ class DocumentsTab(QtWidgets.QWidget):
         top_layout = QtWidgets.QHBoxLayout()
         top_layout.addWidget(self.refresh_button)
         top_layout.addWidget(self.upload_button)
-        top_layout.addWidget(self.native_transfer_button)
         top_layout.addWidget(self.cleanup_thumbnails_button)
         top_layout.addWidget(self.delete_button)
         top_layout.addWidget(self.export_button)
@@ -266,9 +256,9 @@ class DocumentsTab(QtWidgets.QWidget):
         self._connected = connected
         if not connected:
             self._upload_active = False
-            for button in (self.upload_button, self.native_transfer_button):
-                if hasattr(button, "_rmtool_background_task"):
-                    del button._rmtool_background_task
+            self._native_activation_declined = False
+            if hasattr(self.upload_button, "_rmtool_background_task"):
+                del self.upload_button._rmtool_background_task
             self._close_progress_dialog()
             self.documents = []
             self._documents_by_id.clear()
@@ -279,9 +269,8 @@ class DocumentsTab(QtWidgets.QWidget):
             self._update_results_summary()
             self.summary_changed.emit(self._build_summary())
         self.refresh_button.setEnabled(connected)
-        native_busy = hasattr(self.native_transfer_button, "_rmtool_background_task")
+        native_busy = hasattr(self.upload_button, "_rmtool_background_task")
         self.upload_button.setEnabled(connected and not self._upload_active and not native_busy)
-        self.native_transfer_button.setEnabled(connected and not self._upload_active and not native_busy)
         self._update_action_state()
         self._update_empty_state()
 
@@ -590,7 +579,7 @@ class DocumentsTab(QtWidgets.QWidget):
     # -- Upload ----------------------------------------------------------------
     @require_connection
     def upload_document(self):
-        if self._upload_active or hasattr(self.native_transfer_button, "_rmtool_background_task"):
+        if self._upload_active or hasattr(self.upload_button, "_rmtool_background_task"):
             return
         generation = self._connection_generation
         with self.ssh_client._state_lock:
@@ -600,7 +589,9 @@ class DocumentsTab(QtWidgets.QWidget):
         )
         if not file_paths:
             return
+        self._start_upload(file_paths, generation, client)
 
+    def _start_upload(self, file_paths, generation, client, *, offer_activation=True):
         def is_current():
             with self.ssh_client._state_lock:
                 return (generation == self._connection_generation
@@ -638,7 +629,6 @@ class DocumentsTab(QtWidgets.QWidget):
             if is_current():
                 self._upload_active = False
                 self.upload_button.setEnabled(self._connected)
-                self.native_transfer_button.setEnabled(self._connected)
                 self._on_upload_finished(count, progress)
 
         def on_error(exc):
@@ -651,8 +641,11 @@ class DocumentsTab(QtWidgets.QWidget):
                     and (current_client is None or current_client is client)):
                 self._upload_active = False
                 self.upload_button.setEnabled(self._connected)
-                self.native_transfer_button.setEnabled(self._connected)
                 self._close_progress_dialog(progress)
+                if (isinstance(exc, NativeImportActivationNeeded) and is_current()
+                        and offer_activation and not self._native_activation_declined):
+                    self._offer_native_activation(file_paths, generation, client, str(exc))
+                    return
                 self._on_error(exc)
                 self.refresh()
 
@@ -662,7 +655,6 @@ class DocumentsTab(QtWidgets.QWidget):
         worker.signals.error.connect(on_error)
         self._upload_active = True
         self.upload_button.setEnabled(False)
-        self.native_transfer_button.setEnabled(False)
         progress = self._show_progress_dialog("导入文档", "正在检查设备原生导入服务…")
         self.thread_pool.start(worker)
 
@@ -671,19 +663,18 @@ class DocumentsTab(QtWidgets.QWidget):
         self.status_message.emit("success", f"设备已接收 {count} 个文档，无需重启；转换由系统完成。", 5000)
         self.refresh()
 
-    @require_connection
-    def _initialize_native_transfer(self):
-        if self._upload_active or hasattr(self.native_transfer_button, "_rmtool_background_task"):
+    def _offer_native_activation(self, file_paths, generation, client, manual_hint):
+        message = (f"{manual_hint}\n\n也可以启用自动开启：rmtool 会在上传时临时开启服务，"
+                   "传完恢复原设置。首次启用或更新后需要手动重启一次。")
+        accepted = ask_confirmation(self, _rmtool.APP_NAME, message,
+            confirm_text="启用自动开启", cancel_text="我手动开启")
+        if sip.isdeleted(self):
             return
-        generation = self._connection_generation
         with self.ssh_client._state_lock:
-            client = self.ssh_client._client
-        if not ask_confirmation(self, _rmtool.APP_NAME,
-                "将安装或更新用于自动启停原生导入服务的控制组件，保留书籍和其他插件。"
-                "首次加载或更新后需要手动重启设备一次；之后上传不需要重启。是否继续？",
-                confirm_text="初始化", cancel_text="取消"):
-            return
-        if generation != self._connection_generation:
+            if generation != self._connection_generation or client is not self.ssh_client._client:
+                return
+        if not accepted:
+            self._native_activation_declined = True
             return
 
         def initialize(ssh):
@@ -691,16 +682,21 @@ class DocumentsTab(QtWidgets.QWidget):
                 raise RuntimeError("设备连接已变化，未初始化传输组件。")
             return native_control.initialize(ssh, str(_rmtool.app_state_dir()))
 
+        def initialized(status):
+            if sip.isdeleted(self):
+                return
+            if status.state is native_control.NativeImportState.ENABLED:
+                self._start_upload(file_paths, generation, client, offer_activation=False)
+                return
+            self._native_transfer_initialized(status)
+
         run_in_background(self, initialize, self.ssh_client,
-            on_success=self._native_transfer_initialized,
-            error_prefix="原生传输初始化失败", log_message="Native import initialization failed",
-            disable=(self.native_transfer_button, self.upload_button))
+            on_success=initialized,
+            error_prefix="无法启用自动开启", log_message="Native import activation setup failed",
+            disable=(self.upload_button,))
 
     def _native_transfer_initialized(self, status):
         if sip.isdeleted(self):
-            return
-        if status.state is native_control.NativeImportState.ENABLED:
-            show_info(self, _rmtool.APP_NAME, "自动传输组件已就绪，可直接上传文档。")
             return
         if status.state is not native_control.NativeImportState.ENABLE_PENDING_REBOOT:
             show_error(self, _rmtool.APP_NAME, status.detail or "原生传输组件状态未确认，请导出诊断日志。")
@@ -711,42 +707,6 @@ class DocumentsTab(QtWidgets.QWidget):
         show_info(self, _rmtool.APP_NAME,
             "原生传输组件已部署，SSH 已关闭。请保存文档并手动重启设备一次，"
             "解锁后重新连接 rmtool 上传；不用手动开启 USB 网页界面。")
-
-    @require_connection
-    def _remove_native_transfer(self):
-        if self._upload_active or hasattr(self.native_transfer_button, "_rmtool_background_task"):
-            return
-        generation = self._connection_generation
-        with self.ssh_client._state_lock:
-            client = self.ssh_client._client
-        if not ask_confirmation(self, _rmtool.APP_NAME,
-                "只移除原生传输控制组件，不删除书籍、扫码传输或其他插件。"
-                "完成后请手动重启设备；仍可手动开启系统 USB 网页界面进行原生上传。是否继续？",
-                confirm_text="移除", cancel_text="取消", danger=True):
-            return
-        if generation != self._connection_generation:
-            return
-
-        def remove(ssh):
-            if ssh.ensure_client() is not client:
-                raise RuntimeError("设备连接已变化，未移除传输组件。")
-            return native_control.uninstall(ssh, native_control._trusted_catalog())
-
-        run_in_background(self, remove, self.ssh_client,
-            on_success=self._native_transfer_removed,
-            error_prefix="移除原生传输组件失败", log_message="Native import removal failed",
-            disable=(self.native_transfer_button, self.upload_button))
-
-    def _native_transfer_removed(self, status):
-        if sip.isdeleted(self):
-            return
-        if status.detail:
-            show_info(self, _rmtool.APP_NAME, status.detail)
-            return
-        self.ssh_client.close()
-        self.set_connection_state(False)
-        self.disconnect_requested.emit()
-        show_info(self, _rmtool.APP_NAME, "原生传输组件已移除，SSH 已关闭；请手动重启设备。书籍及其他插件已保留。")
 
     # -- Delete ----------------------------------------------------------------
     @require_connection

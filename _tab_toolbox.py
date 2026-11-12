@@ -10,7 +10,6 @@ from typing import Dict, Optional
 
 from PyQt5 import QtCore, QtWidgets, sip
 
-import _native_import_control
 import _reading_enhancements
 import _tap_page_turn
 import _toolbox_common as _ui
@@ -103,71 +102,7 @@ def _plugin_status(status, *, action_allowed=True):
     return state, action if action_allowed and status.package is not None else ""
 
 
-class NativeTransferStatusSection(QtWidgets.QWidget):
-    open_documents_requested = QtCore.pyqtSignal()
-
-    def __init__(self, ssh_client):
-        super().__init__()
-        self.ssh_client = ssh_client
-        self.thread_pool = QtCore.QThreadPool.globalInstance()
-        self._status = None
-        self._busy = False
-        self.status_label = ToolboxStatusLabel()
-        self.status_label.setTextFormat(QtCore.Qt.PlainText)
-        self.status_label.setWordWrap(True)
-        self.detect_button = QtWidgets.QPushButton("检测状态")
-        self.documents_button = QtWidgets.QPushButton("前往文档中心")
-
-        buttons = QtWidgets.QHBoxLayout()
-        buttons.setSpacing(_rmtool.SUBSECTION_GAP)
-        buttons.addWidget(self.detect_button)
-        buttons.addWidget(self.documents_button)
-        buttons.addStretch()
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(_rmtool.SUBSECTION_GAP)
-        layout.addWidget(self.status_label)
-        layout.addLayout(buttons)
-
-        self.detect_button.clicked.connect(self._detect_status)
-        self.documents_button.clicked.connect(self.open_documents_requested)
-        ssh_client.connection_changed.connect(self._on_connection_changed)
-        self._on_connection_changed(ssh_client.is_connected())
-
-    def _update_buttons(self):
-        connected = self.ssh_client.is_connected()
-        self.detect_button.setEnabled(connected and not self._busy)
-        self.documents_button.setEnabled(connected)
-
-    def _on_connection_changed(self, connected):
-        if not connected:
-            self._status = None
-            self.status_label.setText("设备未连接")
-        elif self._status is None:
-            self.status_label.setText("设备已连接，尚未检测")
-        self._update_buttons()
-
-    def _apply_status(self, status):
-        self._status = status
-        self.status_label.setText("\n".join(filter(None, (*_plugin_status(status), status.detail))))
-
-    @require_connection
-    def _detect_status(self):
-        self._start_status_detection()
-
-    def _start_status_detection(self, *, on_done=None, show_errors=True):
-        def probe():
-            return _native_import_control.get_status(self.ssh_client, _native_import_control._trusted_catalog())
-
-        return _ui.start_plugin_worker(
-            self, probe, pending="正在检测原生文档传输状态…",
-            on_done=on_done, show_errors=show_errors, detection=True,
-        )
-
-
 class ToolboxTab(QtWidgets.QWidget):
-    open_documents_requested = QtCore.pyqtSignal()
-
     def __init__(
         self,
         ssh_client: SSHClientWrapper,
@@ -188,8 +123,6 @@ class ToolboxTab(QtWidgets.QWidget):
         self.note_enhancements_section = NoteEnhancementsSection(ssh_client)
         self.weread_launcher_section = WeReadLauncherSection(ssh_client)
         self.qr_upload_section = QrUploadSection(ssh_client)
-        self.native_transfer_section = NativeTransferStatusSection(ssh_client)
-        self.native_transfer_section.open_documents_requested.connect(self.open_documents_requested)
         self.tap_page_turn_section = TapPageTurnSection(ssh_client)
         self.diagnostics_section = DiagnosticsSection(ssh_client)
         self.legacy_plugin_section = LegacyPluginMigrationSection(ssh_client)
@@ -202,7 +135,6 @@ class ToolboxTab(QtWidgets.QWidget):
             self.note_enhancements_section,
             self.weread_launcher_section,
             self.qr_upload_section,
-            self.native_transfer_section,
             self.tap_page_turn_section,
             self.legacy_plugin_section,
         )
@@ -264,13 +196,6 @@ class ToolboxTab(QtWidgets.QWidget):
                 "keywords": "扫码 手机 Wi-Fi PDF EPUB 传书 上传",
                 "section": self.qr_upload_section,
                 "status": self.qr_upload_section.status_label,
-            },
-            {
-                "title": "原生文档传输",
-                "category": "设备维护",
-                "keywords": "文档中心 原生传输服务 USB Wi-Fi PDF EPUB 传书 上传",
-                "section": self.native_transfer_section,
-                "status": self.native_transfer_section.status_label,
             },
             {
                 "title": "时间管理",

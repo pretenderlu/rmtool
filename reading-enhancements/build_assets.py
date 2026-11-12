@@ -177,7 +177,7 @@ def _strip_highlighter(source: str) -> str:
 
 
 def _tap_source_for_release(text: str, release_version: str) -> str:
-    if release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0"):
+    if release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0", "3.30.0.108", "3.30.0.109"):
         # DeviceSceneView now forwards the same signals used by stock swipes.
         for old, new in (("moveBackward", "leftPageRequested"),
                          ("moveForward", "rightPageRequested")):
@@ -198,6 +198,10 @@ def _source_for_target(
     temporary: Path,
 ) -> Path:
     text = _tap_source_for_release(source.read_text(encoding="utf-8"), release_version)
+    if release_version == "3.30.0.108":
+        text = text.replace("Item#_uiContainer > Toolbar#toolbar", "Item#_uiContainer").replace(
+            "root.toolbar.rmtoolDocumentView", "root.container?.rmtoolDocumentView",
+        )
     if text.count(HIGHLIGHT_AVAILABLE_MARKER) != 1:
         raise RuntimeError("reading-enhancements source lacks one highlighter availability marker")
     if reading._highlight_snap_supported(
@@ -270,6 +274,13 @@ def _compile_and_validate(*, qmd_tool: Path, qmldiff: Path, source: Path, target
     gestures = (replay / QREX_FILES[1]).read_text(encoding="utf-8")
     document = (replay / QREX_FILES[2]).read_text(encoding="utf-8")
     menu = (replay / QREX_FILES[3]).read_text(encoding="utf-8")
+    if target["release_version"] == "3.30.0.108":
+        tool = qrex / "qt/qml/xofm/libs/toolbar/qml/ToolbarTool.qml"
+        if ("container: Toolbar.geometry.container" not in tool.read_text(encoding="utf-8")
+                or "container: _uiContainer" not in document
+                or "root.container?.rmtoolDocumentView" not in menu
+                or "root.toolbar.rmtoolDocumentView" in menu):
+            raise RuntimeError("3.30 reading menu is not connected to its document container")
     pages = (replay / QREX_FILES[5]).read_text(encoding="utf-8")
     for text, markers in (
         (
@@ -478,7 +489,7 @@ def _build_archive(base, base_archive: Path, qmd: bytes, highlight_extension: Pa
     ):
         if base.release_version == "3.29.0.152":
             highlight_extension = highlight_extension.with_name("rmtool-highlight-snap-3.29.so")
-        elif base.release_version in ("3.29.0.153", "3.29.1.0"):
+        elif base.release_version in ("3.29.0.153", "3.29.1.0", "3.30.0.108"):
             highlight_extension = highlight_extension.with_name(f"rmtool-highlight-snap-{base.release_version}.so")
         files[reading.HIGHLIGHT_EXTENSION_PATH] = (highlight_extension.read_bytes(), 0o644)
         files[reading.HIGHLIGHT_LICENSE_PATH] = (

@@ -20,6 +20,11 @@ import _xovi_standalone
 
 
 QMD_VARIANTS = {
+    "3.30": (
+        REPO_ROOT / "native-chinese/qmd/native-chinese-3.30.compiled.qmd",
+        2036,
+        "746043244e65d9ddc94f8efe890a61c402b5dab9e8b0ef289d480445d3038f96",
+    ),
     "3.29": (
         REPO_ROOT / "native-chinese/qmd/native-chinese-3.29.compiled.qmd",
         2035,
@@ -43,6 +48,11 @@ QMD_VARIANTS = {
     ),
 }
 CATALOG_PATHS = {
+    ("ferrari", "3.30.0.108"): REPO_ROOT / "translations/reMarkable_zh_CN-3.30.0.108-ferrari-sha256-a03c4f5915e10a583c610c62a9ed4ee5a4efb2d82eb57d8881a63aab25eb012a.qm",
+    ("chiappa", "3.30.0.108"): REPO_ROOT / "translations/reMarkable_zh_CN-3.30.0.108-chiappa-sha256-ef081995f4966e87300aba3c6b9f2de09fa65e18ef612efc165f7e580292881b.qm",
+    ("tatsu", "3.30.0.108"): REPO_ROOT / "translations/reMarkable_zh_CN-3.30.0.108-tatsu-sha256-ef081995f4966e87300aba3c6b9f2de09fa65e18ef612efc165f7e580292881b.qm",
+    ("rm1", "3.30.0.108"): REPO_ROOT / "translations/reMarkable_zh_CN-3.30.0.108-rm1-sha256-6e4c599a668b99856538440aa76a1087973b3cca277d1667fe62bdd70155cfbc.qm",
+    ("rm2", "3.30.0.109"): REPO_ROOT / "translations/reMarkable_zh_CN-3.30.0.109-rm2-sha256-6e4c599a668b99856538440aa76a1087973b3cca277d1667fe62bdd70155cfbc.qm",
     **{(platform, release): REPO_ROOT / f"translations/reMarkable_zh_CN-{release}-{platform}.qm"
        for platform in ("ferrari", "chiappa", "tatsu", "rm1", "rm2")
        for release in ("3.29.0.152", "3.29.0.153", "3.29.1.0")},
@@ -99,6 +109,8 @@ def sha256(data: bytes) -> str:
 def _variant(package: tap.TapPageTurnPackage | str) -> str:
     release_version = package if isinstance(package, str) else package.release_version
     platform = None if isinstance(package, str) else package.platform
+    if release_version in ("3.30.0.108", "3.30.0.109"):
+        return "3.30"
     if release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0"):
         return "3.29"
     if release_version == "3.28.0.166" or (

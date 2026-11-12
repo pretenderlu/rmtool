@@ -37,11 +37,11 @@ class WeReadLauncherTests(unittest.TestCase):
         self.runtime, self.feature = weread._shared_specs(self.package)
 
     def test_manifest_is_exact_color_device_matrix_with_two_mirrors(self):
-        self.assertEqual(len(self.catalog), 8)
+        self.assertEqual(len(self.catalog), 10)
         self.assertEqual({item.platform for item in self.catalog}, {"ferrari", "chiappa"})
         self.assertEqual(
             {item.release_version for item in self.catalog},
-            {"3.28.0.172", "3.29.0.152", "3.29.0.153", "3.29.1.0"},
+            {"3.28.0.172", "3.29.0.152", "3.29.0.153", "3.29.1.0", "3.30.0.108"},
         )
         self.assertTrue(all(item.offline_verified for item in self.catalog))
         verification = {

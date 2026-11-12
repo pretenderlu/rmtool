@@ -16,7 +16,7 @@ def main() -> int:
     parser.add_argument("--zig", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--beta-329", action="store_true")
-    parser.add_argument("--release", choices=("3.28.0.172", "3.29.0.152", "3.29.0.153", "3.29.1.0"))
+    parser.add_argument("--release", choices=("3.28.0.172", "3.29.0.152", "3.29.0.153", "3.29.1.0", "3.30.0.108"))
     args = parser.parse_args()
     verify_tool("zig", args.zig)
     if args.beta_329 and args.release not in (None, "3.29.0.152"):
@@ -27,6 +27,8 @@ def main() -> int:
         defines.append("-DRMTOOL_HIGHLIGHT_329_153")
     elif release == "3.29.1.0":
         defines.append("-DRMTOOL_HIGHLIGHT_32910")
+    elif release == "3.30.0.108":
+        defines.append("-DRMTOOL_HIGHLIGHT_330")
     source = Path(__file__).with_name("highlight_snap.c")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(

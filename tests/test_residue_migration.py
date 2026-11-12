@@ -382,11 +382,13 @@ class ResidueMigrationTests(unittest.TestCase):
 
     def test_migrate_prepares_appload_and_koreader_roots(self):
         ssh = mock.Mock()
-        old_identity = _identity_for("3.27.1.0")
-        new_identity = _identity_for("3.27.3.0")
+        old_identity = _identity_for("3.29.1.0")
+        new_identity = _identity_for("3.30.0.108")
         old_context = tap._trusted_shared_context(old_identity)
         new_context = tap._trusted_shared_context(new_identity)
         feature_ids = ("appload", "koreader")
+        self.assertTrue(set(feature_ids) <= old_context[1].keys())
+        self.assertTrue(set(feature_ids) <= new_context[1].keys())
         report = _residue_migration.ResidueReport(
             old_identity,
             new_identity,
@@ -538,6 +540,10 @@ class ResidueMigrationTests(unittest.TestCase):
                 "note-enhancements", "qr-upload", "weread-launcher",
             }),
             ("3.28.0.172", "3.29.0.153", set(), {"weread-launcher"}),
+            ("3.29.1.0", "3.30.0.108", set(), {
+                "native-chinese", "pinyin-input", "reading-enhancements",
+                "note-enhancements", "qr-upload", "native-import", "weread-launcher",
+            }),
         )
         for old_release, new_release, skipped, kept in cases:
             for failure in (None, "verify", "stage", "transaction"):

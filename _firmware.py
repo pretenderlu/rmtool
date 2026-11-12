@@ -30,6 +30,7 @@ from _ssh import SSHClientWrapper
 BUCKET = "https://remarkable-software.s3.us-east-2.amazonaws.com/"
 DOWNLOAD = "https://dlqathbgqp3nv.cloudfront.net/"
 PLATFORMS = ("ferrari", "chiappa", "tatsu", "rm1", "rm2")
+LEGACY_BETA_PLATFORMS = frozenset(("rm1", "rm2"))
 MAX_SWU = 4 * 1024**3
 MAX_DESCRIPTION = 256 * 1024
 BASE = "/home/root/.rmtool-firmware"
@@ -51,9 +52,12 @@ class Release:
     platform: str
     filename: str
     size: int
+    beta: bool = False
 
     @property
     def channel(self):
+        if self.beta:
+            return "测试版"
         if self.version == "3.28.0.172":
             return "正式版"
         import _native_chinese
@@ -99,13 +103,19 @@ def list_releases(platform):
         if root.tag != "ListBucketResult":
             raise RuntimeError("官方清单格式无效。")
         for obj in root.findall("Contents"):
-            name = obj.findtext("Key", "")
+            key = obj.findtext("Key", "")
+            beta = key.startswith("beta/")
+            # These beta images use native legacy partition devices, not root_a/root_b.
+            if beta and platform in LEGACY_BETA_PLATFORMS:
+                continue
+            name = key.removeprefix("beta/")
             match = IMAGE_RE.fullmatch(name)
             if match and match[2] == platform:
                 size = int(obj.findtext("Size", "0"))
                 if not 0 < size <= MAX_SWU:
                     raise RuntimeError("官方固件大小无效。")
-                releases[name] = Release(match[1], platform, name, size)
+                if not beta or name not in releases:
+                    releases[name] = Release(match[1], platform, name, size, beta)
         if root.findtext("IsTruncated") == "false":
             return sorted(releases.values(), key=lambda r: version_key(r.version), reverse=True)
         token = root.findtext("NextContinuationToken", "")
@@ -308,9 +318,12 @@ def inspect_image(path, expected_platform=None, progress=None):
 def download_release(release, cache, progress=None):
     match = IMAGE_RE.fullmatch(release.filename)
     if (not match or (match[1], match[2]) != (release.version, release.platform)
+            or (release.beta and release.platform in LEGACY_BETA_PLATFORMS)
             or not 0 < release.size <= MAX_SWU):
         raise RuntimeError("官方固件记录无效。")
     cache = Path(cache)
+    if release.beta:
+        cache /= "beta"
     cache.mkdir(parents=True, exist_ok=True)
     target = cache / release.filename
     if target.is_file():
@@ -322,7 +335,8 @@ def download_release(release, cache, progress=None):
         raise RuntimeError("本地固件缓存空间不足。")
     fd, temporary = tempfile.mkstemp(prefix=".firmware-", suffix=".swu", dir=cache)
     try:
-        with os.fdopen(fd, "wb") as output, _open(DOWNLOAD + release.filename) as response:
+        key = ("beta/" if release.beta else "") + release.filename
+        with os.fdopen(fd, "wb") as output, _open(DOWNLOAD + key) as response:
             received = 0
             while chunk := response.read(1024**2):
                 received += len(chunk)

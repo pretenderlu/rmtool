@@ -52,11 +52,11 @@ class BuildMatrixTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "coverage mismatch"):
                 matrix._validate_feature_matrix("native-import")
 
-    def test_153_cannot_silently_drop_a_supported_device_from_any_feature(self):
+    def test_new_betas_cannot_silently_drop_a_supported_device_from_any_feature(self):
         for feature, targets in matrix.EXPECTED_COVERAGE.items():
             module = importlib.import_module(matrix.FEATURE_MODULES[feature])
             for platform, release in sorted(targets):
-                if release != "3.29.0.153":
+                if release not in {"3.29.0.153", "3.30.0.108", "3.30.0.109"}:
                     continue
                 document = matrix._manifest(feature)
                 document["packages"] = [p for p in document["packages"]
@@ -110,7 +110,7 @@ class BuildMatrixTests(unittest.TestCase):
             ), patch.object(fonts, "_epub_font_slots", return_value=()) as read_slots:
                 status = fonts.get_epub_font_slot_status(ssh)
                 expected = package.platform in matrix.COLOR_PLATFORMS and (
-                    package.release_version.startswith("3.28.") or package.release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0")
+                    package.release_version.startswith("3.28.") or package.release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0", "3.30.0.108")
                 )
                 self.assertEqual(status.supported, expected)
                 self.assertEqual(read_slots.called, expected)

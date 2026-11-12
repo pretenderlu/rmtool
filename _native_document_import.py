@@ -24,6 +24,11 @@ _CONTROL_STATE = (
     "then echo busy; else echo free; fi"
 )
 _NATIVE_ADDRESS_STATE = "ip -4 addr show"
+_MANUAL_UPLOAD_HINT = "请在设备「设置 > 存储」开启 USB 网页界面后重试；如看不到该开关，请先连接 USB。"
+
+
+class NativeImportActivationNeeded(RuntimeError):
+    """No file was sent; an exact, optional activation component can be deployed."""
 
 
 class _NativeHTTPConnection(http.client.HTTPConnection):
@@ -143,10 +148,14 @@ class NativeDocumentImporter:
         import _native_import_control as control
         helper = control.loaded_helper(self.ssh_client)
         if helper is None:
-            raise RuntimeError(
-                "设备自动传输组件尚未就绪，请在「文档中心 > 原生传输服务」初始化或更新组件后"
-                "手动重启设备一次；也可手动开启设备原生 USB 网页界面。"
-            )
+            status = control.get_status(self.ssh_client, control._trusted_catalog())
+            states = control.NativeImportState
+            message = "设备原生导入服务未就绪，未上传任何文件。"
+            if status.package is not None and status.state in (states.NOT_INSTALLED, states.REPAIR_AVAILABLE, states.INSTALLED_DISABLED):
+                raise NativeImportActivationNeeded(message + _MANUAL_UPLOAD_HINT)
+            if status.state is states.ENABLE_PENDING_REBOOT:
+                message += "自动开启组件已安装，请手动重启设备后重试。"
+            raise RuntimeError(message + _MANUAL_UPLOAD_HINT)
         if status_callback:
             status_callback("正在准备设备原生导入服务…")
         channel = transport.open_session(timeout=10)
@@ -161,7 +170,7 @@ class NativeDocumentImporter:
             channel.exec_command(f"{shlex.quote(helper)} --desktop-native-lease")
             reply = channel.makefile("rb")
             if reply.readline(65) != b"ready\n":
-                raise RuntimeError("无法准备原生导入服务，请解锁设备、停止扫码接收，并在文档中心初始化或更新原生传输组件。")
+                raise RuntimeError("无法自动开启原生导入服务。请先解锁设备并停止扫码接收。" + _MANUAL_UPLOAD_HINT)
             acquired = True
             channel.settimeout(5)
 
@@ -256,7 +265,7 @@ class NativeDocumentImporter:
         except Exception as exc:
             raise RuntimeError(
                 "设备原生导入服务未就绪，未上传任何文件。请解锁设备并停止扫码接收后重试；"
-                "仍不可用时，请在「文档中心 > 原生传输服务」初始化或更新组件。"
+                + _MANUAL_UPLOAD_HINT
             ) from exc
         finally:
             connection.close()

@@ -10,17 +10,18 @@ library writes, SFTP fallback, automatic retry, or upload-triggered restart.
 
 | Device | Stable firmware | Beta firmware | Architecture |
 | --- | --- | --- | --- |
-| reMarkable 1 | 3.28.0.172, 3.29.1.0 | 3.29.0.153 | ARMv7 |
-| reMarkable 2 | 3.28.0.172, 3.29.1.0 | 3.29.0.153 | ARMv7 |
-| Paper Pure | 3.28.0.172, 3.29.1.0 | 3.29.0.153 | AArch64 |
-| Paper Pro | 3.28.0.172, 3.29.1.0 | 3.29.0.153 | AArch64 |
-| Paper Pro Move | 3.28.0.172, 3.29.1.0 | 3.29.0.153 | AArch64 |
+| reMarkable 1 | 3.28.0.172, 3.29.1.0 | 3.29.0.153, 3.30.0.108 | ARMv7 |
+| reMarkable 2 | 3.28.0.172, 3.29.1.0 | 3.29.0.153, 3.30.0.109 | ARMv7 |
+| Paper Pure | 3.28.0.172, 3.29.1.0 | 3.29.0.153, 3.30.0.108 | AArch64 |
+| Paper Pro | 3.28.0.172, 3.29.1.0 | 3.29.0.153, 3.30.0.108 | AArch64 |
+| Paper Pro Move | 3.28.0.172, 3.29.1.0 | 3.29.0.153, 3.30.0.108 | AArch64 |
 
 Every target requires its exact internal
-build and stock xochitl hash, not just a matching public version. All fifteen
-packages have offline ABI and resource-replay verification; this does not
-claim fifteen hardware tests. The current Move .153 QR-based controller has passed
-USB/Wi-Fi native imports and restoration tests. Independent-component hardware
+build and stock xochitl hash, not just a matching public version. All packages
+have offline ABI and resource-replay verification. The Move .153 QR-based controller
+has passed USB/Wi-Fi native imports and restoration tests. On Move 3.30.0.108,
+desktop native import and restoration of the disabled USB web interface also passed.
+Independent-component hardware
 acceptance remains outstanding. Native transfer coverage does not authorize
 localization, QR reception or other plugins on these new beta targets; their
 individual exact-package gates still apply. Old unsupported plugin residue
@@ -28,14 +29,17 @@ must be handled by device maintenance before a new shared component is installed
 
 ## Desktop Workflow
 
-1. Initialize the control component from the document center's native-transfer
-   service menu; confirm deployment, then reboot the tablet manually once.
-2. Upload PDF/EPUB documents over USB or Wi-Fi. rmtool acquires an exclusive
-   control session, prepares the device-local address and enables the native
-   service temporarily. No manual USB-web toggle is required.
-3. Wait for native acceptance and explicit restoration. The original setting,
-   existing addresses and accepted documents are preserved. Imported EPUBs may
-   appear under their internal book title while the system converts them.
+Use **Upload Documents** when the tablet's native USB web interface is already
+reachable. No component is needed. To enable the interface manually, connect
+via USB and use the tablet's Settings > Storage page.
+
+If the interface is off and no control component is ready on supported firmware,
+**Upload Documents** offers optional automatic activation before sending files.
+First load requires a manual reboot; retry the upload after reconnecting. With
+the component ready and the interface off, rmtool opens an exclusive control session,
+prepares the device-local address and temporarily enables the native service.
+It restores the original setting when done. Imported EPUBs may appear under
+their internal book title while the system converts them.
 
 A verified, already loaded QR controller is reused without requiring the new
 component. If both are installed, distinct QML types avoid ambiguity and only

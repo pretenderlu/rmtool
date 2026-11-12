@@ -25,6 +25,8 @@ v1.18.2 publication. This is not confirmation of phone uploads on every model.
 | 3.29.0.152 | 20261009073202 | ferrari, chiappa, tatsu, rm1, rm2 | beta |
 | 3.29.0.153 | 20261009073202 | ferrari, chiappa, tatsu, rm1, rm2 | beta; offline coverage below |
 | 3.29.1.0 | 20261028104944 | ferrari, chiappa, tatsu, rm1, rm2 | stable; offline coverage below |
+| 3.30.0.108 | 20261028121323 | ferrari, chiappa, tatsu, rm1 | beta; [offline; Move desktop native import tested on hardware](firmware-3.30-beta.md) |
+| 3.30.0.109 | 20261028121323 | rm2 | beta; [offline](firmware-3.30-beta.md) |
 
 Paper Pro = ferrari; Move = chiappa; Paper Pure = tatsu. RM1/RM2 use armv7l;
 the other three use aarch64. Internal builds are not unique firmware identities:
@@ -55,6 +57,8 @@ does not apply to a monochrome screen.
 | Paper Pro, Move | 3.29.1.0 stable | Yes (offline) | Yes (offline) | In reading | Yes (offline) | Yes (offline) | Yes (offline) | Yes (offline) | Yes (offline) | Yes (Move hardware; Paper Pro offline) | Yes (offline) |
 | Pure, RM1, RM2 | 3.29.0.153 beta (offline) | Yes | Yes | Yes | No | N/A | No | No | No | No | Yes (offline) |
 | Pure, RM1, RM2 | 3.29.1.0 stable (offline) | Yes | Yes | Yes | No | N/A | No | No | No | No | Yes (offline) |
+| Paper Pro, Move | 3.30.0.108 beta (offline) | Yes | Yes | In reading | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Pure, RM1, RM2 | 3.30 beta (offline) | Yes | Yes | Yes | No | N/A | No | No | No | No | Yes |
 
 - The standalone tap/fast-mono packages remain trusted for migration. On color
   devices their normal UI entry is consolidated into reading enhancements;
@@ -63,22 +67,23 @@ does not apply to a monochrome screen.
   refresh preferences and forced refresh. Its color/mono refresh modes are
   restricted to color-device PDF/EPUB reading. The Chinese highlighting hook
   exists for Paper Pro/Move 3.28.0.172, 3.29.0.152, 3.29.0.153 and 3.29.1.0
-  (all 3.29 hook packages are offline verified).
+  (all 3.29 hook packages are offline verified). The 3.30.0.108 port uses its
+  own reviewed stock expansion loop and exact native identity gate.
   Reading-specific features on Pure/RM1/RM2
   are missing ports, not intrinsically impossible on those screens.
 - Note enhancements specifically delays color settlement after pen lift or
   until a page change. Do not advertise it on monochrome devices.
 - EPUB menu injection depends on the reading package and a listed 3.28 build,
-  exact 3.29.0.152, 3.29.0.153, or stable 3.29.1.0 on Paper Pro/Move. It is separate
+  exact 3.29.0.152, 3.29.0.153, 3.29.1.0, or 3.30.0.108 on Paper Pro/Move. It is separate
   from generic font upload/system-font selection; those remain available on all
   five devices subject to file, glyph, storage and mount checks.
-- The WeRead App installer accepts the 3.28 series, exact 3.29.0.152/.153, and
-  stable 3.29.1.0 on Paper Pro/Move. The rmtool launcher covers .172 and all
-  three 3.29 releases. App installation and launcher acceptance remain separate;
-  3.29 packages are offline verified with hardware checks pending.
+- The WeRead App installer accepts the 3.28 series and exact 3.29.0.152/.153,
+  3.29.1.0 and 3.30.0.108 on Paper Pro/Move. The launcher covers .172 and those
+  exact newer releases. App installation and launcher acceptance remain separate;
+  3.30 support was verified offline.
 - AppLoad is pinned to [upstream v0.6.0](https://github.com/asivery/rm-appload/releases/tag/v0.6.0)
   and KOReader to v2026.07.1. The installer accepts every listed exact 3.27,
-  3.28 and 3.29 target, including the beta packages. AppLoad v0.5.3 receipts
+  3.28, 3.29 and 3.30 target, including the beta packages. AppLoad v0.5.3 receipts
   remain recognizable for repair. The new 3.28/3.29 installation coverage is
   offline until hardware acceptance; Move and Paper Pro on 3.29.0.153 and
   stable 3.29.1.0 are canaries, not completed hardware evidence.
@@ -101,17 +106,19 @@ system; rmtool does not fall back to direct library writes or restart the reader
 
 Automatic preparation has independent exact-target packages for **RM1, RM2,
 Paper Pure, Paper Pro and Move on stable 3.28.0.172, beta 3.29.0.153, and
-stable 3.29.1.0**.
-The control component can be initialized/removed from the document center;
-its first load needs one manual reboot. QR reception is not a prerequisite.
+stable 3.29.1.0**. The [3.30 beta packages](firmware-3.30-beta.md) cover the
+same five models. On Move 3.30.0.108, desktop native import and restoration
+of the previously disabled USB web interface were tested on hardware.
+First deployment, if needed, is offered only when uploading and needs one
+manual reboot. QR reception is not a prerequisite.
 An authenticated, already loaded
 QR control component remains usable. Existing enabled native services are left
 unchanged; temporary activation restores the original setting and only removes
 addresses owned by that session.
 
-All fifteen packages passed exact stock ABI and peer-QMD replay checks. The current
-Move .153 QR-based control path has hardware evidence; the new independent
-component on each device/firmware still requires hardware acceptance. Core and
+The standalone packages passed stock ABI and peer-QMD replay checks and still
+require hardware acceptance. The Move .153 and .108 QR-based desktop control
+paths have hardware evidence. Core and
 QR .153 ports are separately verified in the plugin matrix and
 [five-device report](firmware-3.29.0.153.md); stable 3.29.1.0 evidence is in the
 [stable adaptation report](firmware-3.29.1.0.md). Existing incompatible plugin residue remains guarded. See

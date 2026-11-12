@@ -27,6 +27,11 @@ BRIDGE_PAYLOAD_PATH = "extensions.d/rmtool-native-import.so"
 HELPER_PAYLOAD_PATH = "helpers/rmtool-native-import"
 REQUIRED_PATHS = {*shared._COMMON_ARCHIVE_PATHS, QMD_PAYLOAD_PATH, BRIDGE_PAYLOAD_PATH, HELPER_PAYLOAD_PATH}
 ALLOWED_TARGETS = {
+    ("ferrari", "20261028121323", "aarch64", "31d33b05e85af85b06a5a92edf710532a0a122ed4cf51e702c19eed0feb6753b"): ("3.30.0.108", "beta", True, False),
+    ("chiappa", "20261028121323", "aarch64", "a9a9c4f01902c30ddc16260d1ac6ef0f7938b7f1094dbb0bb0b78f474c5b17bf"): ("3.30.0.108", "beta", True, False),
+    ("tatsu", "20261028121323", "aarch64", "ceb3c74c64081289c53ff3573d7228489e1d890c69c05ad610e650e5dc5b8b2e"): ("3.30.0.108", "beta", True, False),
+    ("rm1", "20261028121323", "armv7l", "68e01f33f134636dbcd00741a604ded88c8dcc31c70ec6e91e2e936303637089"): ("3.30.0.108", "beta", True, False),
+    ("rm2", "20261028121323", "armv7l", "0f94025163061b85613cb8989f0f1d267944842235ec6ca5f2e50c1c2949cb7b"): ("3.30.0.109", "beta", True, False),
     ("tatsu", "20261028104944", "aarch64", "c464f2ee5f03468834cb117672ebaaabb1e322cdab8510bbdc2f663886334531"): ("3.29.1.0", "stable", True, False),
     ("rm1", "20261028104944", "armv7l", "2bc210bd4e05b709ea15d7e4f357b816505a40fb1838c02f6b60040ea3c87690"): ("3.29.1.0", "stable", True, False),
     ("rm2", "20261028104944", "armv7l", "4ab39bdf42503fe8d9e10a31a415b28b9aed6f25bd32788226c02ee23879fd13"): ("3.29.1.0", "stable", True, False),
@@ -208,7 +213,7 @@ def get_status(ssh_client, catalog):
     package = select_package(catalog, identity)
     if package is None:
         return NativeImportStatus(NativeImportState.INCOMPATIBLE, identity,
-            detail="自动传输支持五款设备的 3.28.0.172、3.29.1.0 正式版和 3.29.0.153 测试版；其他固件可手动开启原生 USB 网页界面。")
+            detail="自动传输支持五款设备的 3.28.0.172、3.29.1.0 正式版和已适配的 3.29 / 3.30 测试版；其他固件可手动开启原生 USB 网页界面。")
     try:
         runtime, trusted, _legacies, feature = _context(identity, package)
         if not shared.has_shared_artifacts(ssh_client):
@@ -251,6 +256,9 @@ def loaded_helper(ssh_client):
     process = tap._xochitl_process_token(ssh_client)
     for feature_id, helper in ((FEATURE_ID, HELPER_PAYLOAD_PATH), ("qr-upload", "helpers/rmtool-qr-upload")):
         record = inspection.states.get(feature_id)
+        # A verified predecessor can be updated from the upload flow if no other controller is ready.
+        if record is not None and feature_id == FEATURE_ID and record.spec != trusted.get(FEATURE_ID):
+            continue
         if record is not None and record.enabled and process != record.process_token:
             if any(item.runtime_path == helper for item in record.spec.files):
                 return f"{inspection.layout.remote_base}/{helper}"

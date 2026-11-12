@@ -29,6 +29,11 @@ REQUIRED_PATHS = {*shared._COMMON_ARCHIVE_PATHS, QMD_PAYLOAD_PATH, BRIDGE_PAYLOA
 MAX_PACKAGE_BYTES = tap.MAX_PACKAGE_BYTES
 MAX_UNPACKED_BYTES = tap.MAX_UNPACKED_BYTES
 ALLOWED_TARGETS = {
+    ("ferrari", "20261028121323", "aarch64", "31d33b05e85af85b06a5a92edf710532a0a122ed4cf51e702c19eed0feb6753b"): ("3.30.0.108", "beta", True, False),
+    ("chiappa", "20261028121323", "aarch64", "a9a9c4f01902c30ddc16260d1ac6ef0f7938b7f1094dbb0bb0b78f474c5b17bf"): ("3.30.0.108", "beta", True, False),
+    ("tatsu", "20261028121323", "aarch64", "ceb3c74c64081289c53ff3573d7228489e1d890c69c05ad610e650e5dc5b8b2e"): ("3.30.0.108", "beta", True, False),
+    ("rm1", "20261028121323", "armv7l", "68e01f33f134636dbcd00741a604ded88c8dcc31c70ec6e91e2e936303637089"): ("3.30.0.108", "beta", True, False),
+    ("rm2", "20261028121323", "armv7l", "0f94025163061b85613cb8989f0f1d267944842235ec6ca5f2e50c1c2949cb7b"): ("3.30.0.109", "beta", True, False),
     ("tatsu", "20261028104944", "aarch64", "c464f2ee5f03468834cb117672ebaaabb1e322cdab8510bbdc2f663886334531"):
         ("3.29.1.0", "stable", True, False),
     ("rm1", "20261028104944", "armv7l", "2bc210bd4e05b709ea15d7e4f357b816505a40fb1838c02f6b60040ea3c87690"):
@@ -226,7 +231,7 @@ def get_status(ssh_client, catalog):
     package = select_package(catalog, identity)
     if package is None:
         return QrUploadStatus(QrUploadState.INCOMPATIBLE, identity,
-            detail="扫码传输支持五款设备的 3.29.1.0 正式版、3.29.0.153 测试版，以及 Paper Pro Move 3.28.0.172。")
+            detail="扫码传输支持五款设备的 3.29.1.0 正式版、已适配的 3.29 / 3.30 测试版，以及 Paper Pro Move 3.28.0.172。")
     try:
         runtime, trusted, _legacies, feature = _context(identity, package)
         if not shared.has_shared_artifacts(ssh_client):

@@ -21,12 +21,14 @@ class NativeControlTests(unittest.TestCase):
         self.identity = tap.DeviceIdentity(p.firmware, p.platform, p.architecture, p.xochitl_sha256)
         self.runtime, self.trusted, self.legacies, self.feature = control._context(self.identity, p)
 
-    def test_exact_five_stable_and_five_beta_targets_share_verified_runtime(self):
-        self.assertEqual(len(self.catalog), 15)
+    def test_exact_stable_and_beta_targets_share_verified_runtime(self):
+        self.assertEqual(len(self.catalog), 20)
         self.assertEqual({p.platform for p in self.catalog if p.channel == "stable"},
                          {"rm1", "rm2", "ferrari", "chiappa", "tatsu"})
         self.assertEqual({(p.platform, p.release_version) for p in self.catalog if p.channel == "beta"},
-                         {(platform, "3.29.0.153") for platform in ("rm1", "rm2", "ferrari", "chiappa", "tatsu")})
+                         {(platform, "3.29.0.153") for platform in ("rm1", "rm2", "ferrari", "chiappa", "tatsu")}
+                         | {(platform, "3.30.0.108") for platform in ("rm1", "ferrari", "chiappa", "tatsu")}
+                         | {("rm2", "3.30.0.109")})
         for p in self.catalog:
             identity = tap.DeviceIdentity(p.firmware, p.platform, p.architecture, p.xochitl_sha256)
             runtime, trusted, _, feature = control._context(identity, p)
@@ -136,6 +138,11 @@ class NativeControlTests(unittest.TestCase):
                       patch.object(control, "_inspect", return_value=(inspection, {}, {}))):
                     expected = f"{layout.remote_base}/{control.HELPER_PAYLOAD_PATH}" if enabled and token != "now" and active else None
                     self.assertEqual(control.loaded_helper(Mock()), expected)
+                    if expected:
+                        previous = replace(self.feature, sha256="1" * 64)
+                        old = replace(inspection, states={control.FEATURE_ID: shared.SharedFeatureState(previous, True, token)})
+                        with patch.object(control, "_inspect", return_value=(old, {}, {})):
+                            self.assertIsNone(control.loaded_helper(Mock()))
 
     def test_authenticated_qr_controller_remains_usable_without_standalone_install(self):
         package = qr._trusted_catalog()[0]

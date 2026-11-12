@@ -48,18 +48,20 @@ BETA_329_COLOR_TARGETS = {(platform, release) for platform in COLOR_PLATFORMS
                           for release in ("3.29.0.152", "3.29.0.153")}
 STABLE_32910_COLOR_TARGETS = {(platform, "3.29.1.0") for platform in COLOR_PLATFORMS}
 STABLE_32910_MONO_TARGETS = {(platform, "3.29.1.0") for platform in MONO_PLATFORMS}
+BETA_330_COLOR_TARGETS = {(platform, "3.30.0.108") for platform in COLOR_PLATFORMS}
+BETA_330_TARGETS = BETA_330_COLOR_TARGETS | {("tatsu", "3.30.0.108"), ("rm1", "3.30.0.108"), ("rm2", "3.30.0.109")}
 EXPECTED_COVERAGE = {
-    "tap-page-turn": COLOR_TARGETS | MONO_TARGETS | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS,
+    "tap-page-turn": COLOR_TARGETS | MONO_TARGETS | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS | BETA_330_TARGETS,
     "fast-mono-reading": COLOR_TARGETS,
-    "native-chinese": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS} | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS,
-    "pinyin-input": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS} | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS,
-    "reading-enhancements": COLOR_TARGETS | BETA_329_COLOR_TARGETS | STABLE_32910_COLOR_TARGETS,
-    "note-enhancements": COLOR_TARGETS | BETA_329_COLOR_TARGETS | STABLE_32910_COLOR_TARGETS,
-    "weread-launcher": {(platform, "3.28.0.172") for platform in COLOR_PLATFORMS} | BETA_329_COLOR_TARGETS | STABLE_32910_COLOR_TARGETS,
+    "native-chinese": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS} | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS | BETA_330_TARGETS,
+    "pinyin-input": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS} | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS | BETA_330_TARGETS,
+    "reading-enhancements": COLOR_TARGETS | BETA_329_COLOR_TARGETS | STABLE_32910_COLOR_TARGETS | BETA_330_COLOR_TARGETS,
+    "note-enhancements": COLOR_TARGETS | BETA_329_COLOR_TARGETS | STABLE_32910_COLOR_TARGETS | BETA_330_COLOR_TARGETS,
+    "weread-launcher": {(platform, "3.28.0.172") for platform in COLOR_PLATFORMS} | BETA_329_COLOR_TARGETS | STABLE_32910_COLOR_TARGETS | BETA_330_COLOR_TARGETS,
     "qr-upload": {("chiappa", "3.28.0.172")} | {
-        (platform, "3.29.0.153") for platform in COLOR_PLATFORMS | MONO_PLATFORMS} | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS,
+        (platform, "3.29.0.153") for platform in COLOR_PLATFORMS | MONO_PLATFORMS} | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS | BETA_330_TARGETS,
     "native-import": {(platform, release) for platform in COLOR_PLATFORMS | MONO_PLATFORMS
-                      for release in ("3.28.0.172", "3.29.0.153")} | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS,
+                      for release in ("3.28.0.172", "3.29.0.153")} | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS | BETA_330_TARGETS,
 }
 
 # These are the official 3.28.0.172 identities extracted from the five cached
@@ -201,6 +203,45 @@ OFFICIAL_32910 = {
 }
 
 
+OFFICIAL_330 = {
+    "ferrari": {
+        "architecture": "aarch64",
+        "xochitl_sha256": "31d33b05e85af85b06a5a92edf710532a0a122ed4cf51e702c19eed0feb6753b",
+        "stock_french_sha256": "743e297285ceb4301a12566a245ab819be7d752cee5cdecb50ccf096771a4715",
+        "localized_qm": ("reMarkable_zh_CN-3.30.0.108-ferrari-sha256-a03c4f5915e10a583c610c62a9ed4ee5a4efb2d82eb57d8881a63aab25eb012a.qm", 224497,
+                         "a03c4f5915e10a583c610c62a9ed4ee5a4efb2d82eb57d8881a63aab25eb012a"),
+    },
+    "chiappa": {
+        "architecture": "aarch64",
+        "xochitl_sha256": "a9a9c4f01902c30ddc16260d1ac6ef0f7938b7f1094dbb0bb0b78f474c5b17bf",
+        "stock_french_sha256": "a8cec4e17000c47da2876a7ed3790fbbb8c2bc6f6b9a80a9a826814e33264711",
+        "localized_qm": ("reMarkable_zh_CN-3.30.0.108-chiappa-sha256-ef081995f4966e87300aba3c6b9f2de09fa65e18ef612efc165f7e580292881b.qm", 220271,
+                         "ef081995f4966e87300aba3c6b9f2de09fa65e18ef612efc165f7e580292881b"),
+    },
+    "tatsu": {
+        "architecture": "aarch64",
+        "xochitl_sha256": "ceb3c74c64081289c53ff3573d7228489e1d890c69c05ad610e650e5dc5b8b2e",
+        "stock_french_sha256": "2520833f5bc7380b57a755781232bdf992458488320ab8fbe58ba9eefca791c0",
+        "localized_qm": ("reMarkable_zh_CN-3.30.0.108-tatsu-sha256-ef081995f4966e87300aba3c6b9f2de09fa65e18ef612efc165f7e580292881b.qm", 220271,
+                         "ef081995f4966e87300aba3c6b9f2de09fa65e18ef612efc165f7e580292881b"),
+    },
+    "rm1": {
+        "architecture": "armv7l",
+        "xochitl_sha256": "68e01f33f134636dbcd00741a604ded88c8dcc31c70ec6e91e2e936303637089",
+        "stock_french_sha256": "e5160da91d15729bec3f911674632c5fb8135dc4c59e417eb38a80a0ef95c58f",
+        "localized_qm": ("reMarkable_zh_CN-3.30.0.108-rm1-sha256-6e4c599a668b99856538440aa76a1087973b3cca277d1667fe62bdd70155cfbc.qm", 233492,
+                         "6e4c599a668b99856538440aa76a1087973b3cca277d1667fe62bdd70155cfbc"),
+    },
+    "rm2": {
+        "architecture": "armv7l",
+        "xochitl_sha256": "0f94025163061b85613cb8989f0f1d267944842235ec6ca5f2e50c1c2949cb7b",
+        "stock_french_sha256": "5a7045cc27dae2e6fb3b2d52fe9c84d7e5c3f47ee6070c546cc6c06246b9251f",
+        "localized_qm": ("reMarkable_zh_CN-3.30.0.109-rm2-sha256-6e4c599a668b99856538440aa76a1087973b3cca277d1667fe62bdd70155cfbc.qm", 233492,
+                         "6e4c599a668b99856538440aa76a1087973b3cca277d1667fe62bdd70155cfbc"),
+    },
+}
+
+
 def _manifest(feature: str) -> dict:
     path = ROOT / feature / "manifest.json"
     try:
@@ -284,7 +325,7 @@ def validate_native_payload(package: dict, path: str, data: bytes) -> None:
         raise RuntimeError(f"Native ELF architecture mismatch: {package['asset']}/{path}")
     highlighter = path == "extensions.d/rmtool-highlight-snap.so"
     # Old compiler folds the highlighter build literal into instructions.
-    require_build = not highlighter or package["release_version"] in ("3.29.0.153", "3.29.1.0")
+    require_build = not highlighter or package["release_version"] in ("3.29.0.153", "3.29.1.0", "3.30.0.108")
     if ((require_build and package["firmware"].encode() not in data) or package["xochitl_sha256"].encode() not in data):
         raise RuntimeError(f"Native binary identity mismatch: {package['asset']}/{path}")
 
@@ -394,12 +435,13 @@ def _validate_cross_feature_support() -> None:
         # Includes path conflicts and trusted historical peers. Historical trust
         # alone never grants installation support.
         tap._trusted_shared_context(identity)
-        expected_appload = package.release_version.startswith(("3.27.", "3.28.", "3.29."))
+        pair = (package.platform, package.release_version)
+        expected_appload = package.release_version.startswith(("3.27.", "3.28.", "3.29.")) or pair in BETA_330_TARGETS
         if ((appload.app_asset(identity) is not None) != expected_appload
                 or (appload.koreader_asset(identity) is not None) != expected_appload):
             raise RuntimeError(f"AppLoad/KOReader support drift: {package.package_id}")
-        device = weread.WeReadAppDevice(package.platform, package.architecture, package.release_version)
-        expected_weread = package.platform in COLOR_PLATFORMS and package.release_version.startswith(("3.28.", "3.29."))
+        device = weread.WeReadAppDevice(package.platform, package.architecture, package.release_version, identity)
+        expected_weread = (package.platform in COLOR_PLATFORMS and package.release_version.startswith(("3.28.", "3.29."))) or pair in BETA_330_COLOR_TARGETS
         if weread._supported(device, app) != expected_weread:
             raise RuntimeError(f"WeRead app support drift: {package.package_id}")
     if set(preview.PROFILES) != COLOR_PLATFORMS | MONO_PLATFORMS:
@@ -468,6 +510,10 @@ def validate() -> None:
     _validate_localization("20261009073202", "3.29.0.152", OFFICIAL_329)
     _validate_localization("20261009073202", "3.29.0.153", OFFICIAL_329_153)
     _validate_localization("20261028104944", "3.29.1.0", OFFICIAL_32910)
+    for release in ("3.30.0.108", "3.30.0.109"):
+        targets = {platform: OFFICIAL_330[platform]
+                   for platform, version in BETA_330_TARGETS if version == release}
+        _validate_localization("20261028121323", release, targets)
 
 
 def main() -> int:
@@ -482,9 +528,9 @@ def main() -> int:
     if args.native_cache:
         print(f"PASS: {validate_native_archives(args.native_cache)} native archive identities and ELF architectures")
     print(
-        f"PASS: 37 device/firmware targets, {len(FEATURE_MODULES)} plugin matrices, shared runtimes, "
+        f"PASS: {len(EXPECTED_COVERAGE['tap-page-turn'])} device/firmware targets, {len(FEATURE_MODULES)} plugin matrices, shared runtimes, "
         "AppLoad/KOReader and WeRead boundaries, five preview profiles, and "
-        "twenty official 3.28.0.172 / 3.29.0.152 / 3.29.0.153 / 3.29.1.0 localization carriers."
+        "25 official localization carriers, including five 3.30 beta targets."
     )
     return 0
 

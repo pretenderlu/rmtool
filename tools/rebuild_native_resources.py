@@ -36,7 +36,7 @@ def run(command):
 def resource_for(package, args):
     if package.release_version == "3.29.1.0":
         root, hashtab = args.stable_resources / package.platform, "hashtab"
-    elif package.release_version.startswith("3.29."):
+    elif package.release_version.startswith(("3.29.", "3.30.")):
         root, hashtab = args.firmware_work / ("beta-" + package.release_version) / package.platform, "hashtab"
     else:
         matrix = json.loads(args.matrix_config.read_text(encoding="utf-8"))["targets"]
@@ -89,7 +89,7 @@ def rebuild_reader(args, module, package, files, resources, hashtab, work):
 def rebuild_pinyin(args, package, files, resources, hashtab, work):
     source = ROOT / "pinyin-input/qmd/pinyin-input.qmd"
     qmd = (run([args.qmd_tool, "hash", "-hashtab", hashtab, source])
-           if package.release_version.startswith("3.29.") else source.read_bytes())
+           if package.release_version.startswith(("3.29.", "3.30.")) else source.read_bytes())
     compiled = work / "pinyin-input.qmd"
     compiled.write_bytes(qmd)
     run([args.qmldiff, "check-compatibility", hashtab, compiled])
@@ -142,6 +142,7 @@ def main():
     parser.add_argument("--firmware-work", type=Path, required=True)
     parser.add_argument("--stable-resources", type=Path, required=True)
     parser.add_argument("--matrix-config", type=Path, required=True)
+    parser.add_argument("--release", action="append", help="Rebuild only these exact public releases; repeat for multiple releases")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     verify_archive_runtime()
@@ -158,11 +159,14 @@ def main():
     carrier_builder = load(ROOT / "native-chinese/build_172.py")
     document = json.loads(module.BUNDLED_MANIFEST.read_bytes())
     catalog = module.parse_manifest(json.dumps(document).encode())
+    if args.release and (missing := set(args.release) - {package.release_version for package in catalog}):
+        parser.error(f"No {args.feature} targets for: {', '.join(sorted(missing))}")
     args.output.mkdir(parents=True, exist_ok=True)
     report = []
     for index, package in enumerate(catalog):
+        if args.release and package.release_version not in args.release:
+            continue
         resources, hashtab = resource_for(package, args)
-        archive, _ = carrier_builder._find_archive(package, (ROOT / ".rmtool", ROOT / "build", args.firmware_work))
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)
             if args.feature == "qr-upload":
@@ -192,6 +196,7 @@ def main():
                               module.BRIDGE_PAYLOAD_PATH: ((work / "one/rmtool-qr-upload.so").read_bytes(), 0o644),
                               module.QMD_PAYLOAD_PATH: ((work / "one/rmtool-qr-upload.qmd").read_bytes(), 0o644)})
             else:
+                archive, _ = carrier_builder._find_archive(package, (ROOT / ".rmtool", ROOT / "build", args.firmware_work))
                 extracted = packages.extract_verified_package(archive, package, work / "carrier")
                 files = {item.path: ((extracted / item.path).read_bytes(), item.mode) for item in package.files}
                 hashtab = work / "hashtab"
@@ -234,6 +239,8 @@ def main():
     manifest = (json.dumps(document, indent=2) + "\n").encode()
     updated = module.parse_manifest(manifest, **parser_options)
     for package in updated:
+        if args.release and package.release_version not in args.release:
+            continue
         packages.extract_verified_package(args.output / package.asset, package,
             args.output / "verified" / package.asset.removesuffix(".tar.gz"))
         packages.write_atomic(packages.package_cache_path(str(ROOT / ".rmtool"), args.feature, package),

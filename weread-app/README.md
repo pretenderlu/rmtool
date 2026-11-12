@@ -5,6 +5,10 @@
 expected universal AArch64 archive, and verifies that inner archive again
 before transferring it to the device. Neither archive is bundled in rmtool.
 
+The 3.30 beta installer is enabled only for the two exact Paper Pro and Move
+3.30.0.108 identities. The remote installer rechecks the build and stock
+xochitl hash before running the unchanged upstream installer.
+
 Verify the supplied official release locally with the focused tests:
 
 ```powershell

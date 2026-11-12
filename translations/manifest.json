@@ -353,6 +353,58 @@
           "stock_french_sha256": "a7a096cd6b3ba3fc248a4926c2277ab7f0ba2bab38b25615e84f6051f49575ea"
         }
       ]
+    },
+    "20261028121323": {
+      "platform": "ferrari",
+      "release_version": "3.30.0.108",
+      "channel": "beta",
+      "asset": "reMarkable_zh_CN-3.30.0.108-ferrari-sha256-a03c4f5915e10a583c610c62a9ed4ee5a4efb2d82eb57d8881a63aab25eb012a.qm",
+      "size": 224497,
+      "sha256": "a03c4f5915e10a583c610c62a9ed4ee5a4efb2d82eb57d8881a63aab25eb012a",
+      "xochitl_sha256": "31d33b05e85af85b06a5a92edf710532a0a122ed4cf51e702c19eed0feb6753b",
+      "stock_french_sha256": "743e297285ceb4301a12566a245ab819be7d752cee5cdecb50ccf096771a4715",
+      "variants": [
+        {
+          "platform": "chiappa",
+          "release_version": "3.30.0.108",
+          "channel": "beta",
+          "asset": "reMarkable_zh_CN-3.30.0.108-chiappa-sha256-ef081995f4966e87300aba3c6b9f2de09fa65e18ef612efc165f7e580292881b.qm",
+          "size": 220271,
+          "sha256": "ef081995f4966e87300aba3c6b9f2de09fa65e18ef612efc165f7e580292881b",
+          "xochitl_sha256": "a9a9c4f01902c30ddc16260d1ac6ef0f7938b7f1094dbb0bb0b78f474c5b17bf",
+          "stock_french_sha256": "a8cec4e17000c47da2876a7ed3790fbbb8c2bc6f6b9a80a9a826814e33264711"
+        },
+        {
+          "platform": "tatsu",
+          "release_version": "3.30.0.108",
+          "channel": "beta",
+          "asset": "reMarkable_zh_CN-3.30.0.108-tatsu-sha256-ef081995f4966e87300aba3c6b9f2de09fa65e18ef612efc165f7e580292881b.qm",
+          "size": 220271,
+          "sha256": "ef081995f4966e87300aba3c6b9f2de09fa65e18ef612efc165f7e580292881b",
+          "xochitl_sha256": "ceb3c74c64081289c53ff3573d7228489e1d890c69c05ad610e650e5dc5b8b2e",
+          "stock_french_sha256": "2520833f5bc7380b57a755781232bdf992458488320ab8fbe58ba9eefca791c0"
+        },
+        {
+          "platform": "rm1",
+          "release_version": "3.30.0.108",
+          "channel": "beta",
+          "asset": "reMarkable_zh_CN-3.30.0.108-rm1-sha256-6e4c599a668b99856538440aa76a1087973b3cca277d1667fe62bdd70155cfbc.qm",
+          "size": 233492,
+          "sha256": "6e4c599a668b99856538440aa76a1087973b3cca277d1667fe62bdd70155cfbc",
+          "xochitl_sha256": "68e01f33f134636dbcd00741a604ded88c8dcc31c70ec6e91e2e936303637089",
+          "stock_french_sha256": "e5160da91d15729bec3f911674632c5fb8135dc4c59e417eb38a80a0ef95c58f"
+        },
+        {
+          "platform": "rm2",
+          "release_version": "3.30.0.109",
+          "channel": "beta",
+          "asset": "reMarkable_zh_CN-3.30.0.109-rm2-sha256-6e4c599a668b99856538440aa76a1087973b3cca277d1667fe62bdd70155cfbc.qm",
+          "size": 233492,
+          "sha256": "6e4c599a668b99856538440aa76a1087973b3cca277d1667fe62bdd70155cfbc",
+          "xochitl_sha256": "0f94025163061b85613cb8989f0f1d267944842235ec6ca5f2e50c1c2949cb7b",
+          "stock_french_sha256": "5a7045cc27dae2e6fb3b2d52fe9c84d7e5c3f47ee6070c546cc6c06246b9251f"
+        }
+      ]
     }
   }
 }

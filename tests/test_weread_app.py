@@ -55,7 +55,7 @@ class WeReadAppTests(unittest.TestCase):
         )
         self.assertEqual(document["supported"]["platforms"], ["ferrari", "chiappa"])
         self.assertEqual(document["supported"]["architectures"], ["aarch64"])
-        self.assertEqual(document["supported"]["firmware_series"], ["3.28", "3.29"])
+        self.assertEqual(document["supported"]["firmware_series"], ["3.28", "3.29", "3.30"])
 
     def test_manifest_rejects_changed_hash_or_download_source(self):
         document = json.loads(app.BUNDLED_MANIFEST.read_text(encoding="utf-8"))
@@ -87,6 +87,36 @@ class WeReadAppTests(unittest.TestCase):
                 with self.subTest(platform=platform, release=release):
                     device = app.WeReadAppDevice(platform, "aarch64", release)
                     self.assertTrue(app._supported(device, self.package))
+
+    def test_330_beta_requires_exact_build_and_stock_binary_before_download(self):
+        from tools.validate_build_matrix import OFFICIAL_330
+
+        release = "3.30.0.108"
+        for platform in ("chiappa", "ferrari"):
+            digest = OFFICIAL_330[platform]["xochitl_sha256"]
+            identity = app.tap.DeviceIdentity("20261028121323", platform, "aarch64", digest)
+            device = app.WeReadAppDevice(platform, "aarch64", release, identity)
+            with self.subTest(platform=platform):
+                self.assertTrue(app._supported(device, self.package))
+                for refused in (
+                    replace(device, identity=None),
+                    replace(device, identity=replace(identity, xochitl_sha256="0" * 64)),
+                    replace(device, identity=replace(identity, firmware="20261028104944")),
+                    replace(device, platform="tatsu"),
+                    replace(device, release_version="3.30.0.109"),
+                ):
+                    with patch.object(app, "inspect_device", return_value=refused), patch.object(app, "download_package") as download:
+                        with self.assertRaisesRegex(RuntimeError, "未下载或修改设备"):
+                            app.install_online(Mock(), "state")
+                        download.assert_not_called()
+                ssh = Mock()
+                installed = app.WeReadAppStatus(app.WeReadAppState.INSTALLED, device, self.package)
+                with patch.object(app, "inspect_device", return_value=device), patch.object(app, "_validate_archive"), patch.object(app, "get_status", return_value=installed):
+                    app.install(ssh, self.package, Path("official.tar.gz"))
+                script = shlex.split(ssh.exec_checked.call_args_list[0].args[0])[2]
+                for marker in (f'[ "$version" = {release} ]', f'  *{platform}*)', f'= {identity.firmware} ]',
+                               f'= {digest} ]', 'sha256sum /usr/bin/xochitl', "archive checksum mismatch"):
+                    self.assertIn(marker, script)
 
     @unittest.skipUnless(SH, "A POSIX shell or Git Bash is required")
     def test_remote_firmware_guard_matches_python_support(self):
@@ -278,7 +308,8 @@ class WeReadAppTests(unittest.TestCase):
         self.assertIn('QLabel("设备启动入口")', section)
         self.assertIn('QPushButton("安装微信读书 App")', section)
         self.assertIn('self.detect_button.setText("检测启动入口")', section)
-        self.assertIn("微信读书 App 支持 Paper Pro 和 Move 的 3.28、3.29.0.152/.153 及 3.29.1.0 固件", section)
+        self.assertIn("微信读书 App 支持 Paper Pro 和 Move", section)
+        self.assertIn("精确匹配的 3.30.0.108 固件", section)
         self.assertIn("设备启动入口按精确固件适配", section)
         self.assertIn("若当前固件有匹配的设备启动入口", section)
         self.assertIn("腾讯微信读书官方 CDN", section)

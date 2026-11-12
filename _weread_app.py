@@ -27,6 +27,7 @@ MAX_PACKAGE_BYTES = 48 * 1024 * 1024
 MAX_UNPACKED_BYTES = 72 * 1024 * 1024
 MAX_MEMBERS = 128
 SUPPORTED_329_RELEASES = ("3.29.0.152", "3.29.0.153", "3.29.1.0")
+SUPPORTED_330_BETA = "3.30.0.108"
 INSTALL_ROOT = "/home/root/.local/opt/remarkable-weread"
 OFFICIAL_FILES = {
     f"{INSTALL_ROOT}/bin/remarkable-weread":
@@ -70,6 +71,7 @@ class WeReadAppDevice:
     platform: str
     architecture: str
     release_version: str
+    identity: tap.DeviceIdentity | None = None
 
 
 @dataclass(frozen=True)
@@ -110,7 +112,7 @@ def parse_manifest(data: bytes) -> WeReadAppPackage:
         or set(supported) != {"platforms", "architectures", "firmware_series"}
         or supported.get("platforms") != ["ferrari", "chiappa"]
         or supported.get("architectures") != ["aarch64"]
-        or supported.get("firmware_series") != ["3.28", "3.29"]
+        or supported.get("firmware_series") != ["3.28", "3.29", "3.30"]
     ):
         raise RuntimeError("微信读书 App 清单与内置信任信息不一致。")
     urls = document.get("urls")
@@ -150,28 +152,32 @@ printf "arch=%s\nmachine=%s\nversion=%s\n" "$arch" "$machine" "$version"
         key, separator, value = line.partition("=")
         if separator and key in {"arch", "machine", "version"}:
             values[key] = value.strip()
-    return WeReadAppDevice(
-        _platform_from_machine(values.get("machine", "")),
-        values.get("arch", ""),
-        values.get("version", ""),
-    )
+    platform = _platform_from_machine(values.get("machine", ""))
+    architecture = values.get("arch", "")
+    version = values.get("version", "")
+    identity = (tap.get_device_identity(ssh_client)
+                if version == SUPPORTED_330_BETA and platform and architecture == "aarch64" else None)
+    return WeReadAppDevice(platform, architecture, version, identity)
 
 
 def _supported(device: WeReadAppDevice, package: WeReadAppPackage) -> bool:
-    return (
-        device.platform in package.platforms
-        and device.architecture in package.architectures
-        and (
-            device.release_version.startswith("3.28.")
-            or device.release_version in SUPPORTED_329_RELEASES
-        )
-    )
+    if device.platform not in package.platforms or device.architecture not in package.architectures:
+        return False
+    if device.release_version == SUPPORTED_330_BETA:
+        from _weread_launcher import ALLOWED_TARGETS
+
+        identity = device.identity
+        if identity is None or (identity.platform, identity.architecture) != (device.platform, device.architecture):
+            return False
+        target = ALLOWED_TARGETS.get((identity.platform, identity.firmware, identity.architecture, identity.xochitl_sha256))
+        return target is not None and target[0] == SUPPORTED_330_BETA
+    return device.release_version.startswith("3.28.") or device.release_version in SUPPORTED_329_RELEASES
 
 
 def _require_supported(device: WeReadAppDevice, package: WeReadAppPackage) -> None:
     if not _supported(device, package):
         raise RuntimeError(
-            "微信读书 App 仅支持运行 3.28、3.29.0.152/.153 或 3.29.1.0 固件的 "
+            "微信读书 App 仅支持运行 3.28、3.29.0.152/.153、3.29.1.0 或精确匹配的 3.30.0.108 固件的 "
             "Paper Pro 和 Move（aarch64），未下载或修改设备。"
         )
 
@@ -197,7 +203,7 @@ def get_status(ssh_client) -> WeReadAppStatus:
     if not _supported(device, package):
         return WeReadAppStatus(
             WeReadAppState.INCOMPATIBLE, device, detail=(
-                "仅支持 Paper Pro/Move 的 3.28、3.29.0.152/.153 或 3.29.1.0 固件。"
+                "仅支持 Paper Pro/Move 的 3.28、3.29.0.152/.153、3.29.1.0 或精确匹配的 3.30.0.108 固件。"
             )
         )
     try:
@@ -360,6 +366,20 @@ def install(ssh_client, package: WeReadAppPackage, archive_path: Path) -> WeRead
     ssh_client.transfer_file(str(archive_path), remote_archive)
     archive_q = shlex.quote(remote_archive)
     expected_sha = shlex.quote(package.inner_sha256)
+    firmware_guard = (
+        f'case "$version" in 3.28.*|{"|".join(SUPPORTED_329_RELEASES)}) ;; '
+        '*) echo "unsupported firmware series" >&2; exit 1 ;; esac'
+    )
+    if device.release_version == SUPPORTED_330_BETA:
+        identity = device.identity
+        assert identity is not None
+        firmware_guard = f"""[ "$version" = {SUPPORTED_330_BETA} ] || {{ echo 'unsupported firmware series' >&2; exit 1; }}
+case "$(printf '%s' "$machine" | tr '[:upper:]' '[:lower:]')" in
+  *{identity.platform}*) ;;
+  *) echo 'device identity changed' >&2; exit 1 ;;
+esac
+[ "$(tr -cd '0-9' < /etc/version)" = {identity.firmware} ] || {{ echo 'firmware build changed' >&2; exit 1; }}
+[ "$(sha256sum /usr/bin/xochitl | awk '{{print $1}}')" = {identity.xochitl_sha256} ] || {{ echo 'xochitl hash changed' >&2; exit 1; }}"""
     script = f"""set -eu
 archive={archive_q}
 stage=''
@@ -373,7 +393,7 @@ case "$(printf '%s' "$machine" | tr '[:upper:]' '[:lower:]')" in
   *ferrari*|*chiappa*) ;;
   *) echo 'unsupported device' >&2; exit 1 ;;
 esac
-case "$version" in 3.28.*|{"|".join(SUPPORTED_329_RELEASES)}) ;; *) echo 'unsupported firmware series' >&2; exit 1 ;; esac
+{firmware_guard}
 [ "$(sha256sum "$archive" | awk '{{print $1}}')" = {expected_sha} ] || {{ echo 'archive checksum mismatch' >&2; exit 1; }}
 stage=$(mktemp -d /tmp/rmtool-weread-app.XXXXXXXX)
 tar -tzf "$archive" | grep -q '^remarkable-weread/install.sh$' || {{ echo 'installer missing' >&2; exit 1; }}

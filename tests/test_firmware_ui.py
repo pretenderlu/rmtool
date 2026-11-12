@@ -73,6 +73,18 @@ class FirmwareUITests(unittest.TestCase):
         self.assertFalse(self.page.advanced.isVisible())
         self.assertNotIn("pause", self.page.buttons)
 
+    def test_official_list_does_not_select_beta_by_default(self):
+        beta = f.Release("3.30.0.108", "chiappa", "beta.swu", 1, beta=True)
+        stable = f.Release("3.28.0.172", "chiappa", "stable.swu", 1)
+        with mock.patch.object(self.page, "_run") as run:
+            self.page.load_releases()
+        apply_releases = run.call_args.args[1]
+        apply_releases([beta, stable])
+        self.assertIn("测试版", self.page.releases.itemText(0))
+        self.assertEqual(self.page.releases.currentData(), stable)
+        apply_releases([beta])
+        self.assertEqual(self.page.releases.currentIndex(), -1)
+
     def test_legacy_device_shows_unsupported_firmware_status(self):
         self.ssh.connected = True
         self.ssh.machine = "reMarkable 1"

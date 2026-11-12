@@ -46,6 +46,10 @@ _ASSET_RE = _plugin_packages.ASSET_RE
 OFFICIAL_FILES = _weread_app.OFFICIAL_FILES
 
 ALLOWED_TARGETS = {
+    ("ferrari", "20261028121323", "aarch64", "31d33b05e85af85b06a5a92edf710532a0a122ed4cf51e702c19eed0feb6753b"):
+        ("3.30.0.108", "beta", True, False),
+    ("chiappa", "20261028121323", "aarch64", "a9a9c4f01902c30ddc16260d1ac6ef0f7938b7f1094dbb0bb0b78f474c5b17bf"):
+        ("3.30.0.108", "beta", True, False),
     ("ferrari", "20261028104944", "aarch64", "35e940d8acb3de0dfaf61f1a421d450e61dbaa915f885c818a2a3cc5c94c8ecd"):
         ("3.29.1.0", "stable", True, False),
     ("chiappa", "20261028104944", "aarch64", "9a1391c4a2d26c1c364de078d37773f0464da296039097e88e475ecf807bb6b4"):

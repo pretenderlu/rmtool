@@ -137,7 +137,7 @@ class RM1PluginStorageTests(unittest.TestCase):
         for package in native._trusted_catalog():
             if package.architecture != "armv7l":
                 continue
-            if package.release_version in ("3.29.0.153", "3.29.1.0"):
+            if package.release_version in ("3.29.0.153", "3.29.1.0", "3.30.0.108", "3.30.0.109"):
                 self.assertEqual(native._known_shared_predecessor_specs(package), ())
                 continue
             predecessor = native._known_shared_predecessor_specs(package)[-1]
@@ -154,7 +154,7 @@ class RM1PluginStorageTests(unittest.TestCase):
         for package in native._trusted_catalog():
             if package.architecture != "armv7l":
                 continue
-            if package.release_version in ("3.29.0.153", "3.29.1.0"):
+            if package.release_version in ("3.29.0.153", "3.29.1.0", "3.30.0.108", "3.30.0.109"):
                 self.assertEqual(native._known_shared_predecessor_specs(package), ())
                 continue
             runtime, current = native._shared_specs(package)

@@ -94,6 +94,7 @@ class NativeBuildTests(unittest.TestCase):
             "3.29.0.152": ("20261009073202", matrix.OFFICIAL_329, ["-DRMTOOL_HIGHLIGHT_BETA_329"]),
             "3.29.0.153": ("20261009073202", matrix.OFFICIAL_329_153, ["-DRMTOOL_HIGHLIGHT_329_153"]),
             "3.29.1.0": ("20261028104944", matrix.OFFICIAL_32910, ["-DRMTOOL_HIGHLIGHT_32910"]),
+            "3.30.0.108": ("20261028121323", matrix.OFFICIAL_330, ["-DRMTOOL_HIGHLIGHT_330"]),
         }
         with tempfile.TemporaryDirectory() as temporary:
             executable = Path(temporary) / "identity.exe"

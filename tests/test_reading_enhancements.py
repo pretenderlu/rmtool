@@ -52,10 +52,10 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
     def _state(self, spec, enabled=True, token=None):
         return shared.SharedFeatureState(spec, enabled, token or self.process)
 
-    def test_manifest_is_exact_twenty_target_matrix(self):
+    def test_manifest_is_exact_color_target_matrix(self):
         self.assertEqual(
             len(self.catalog),
-            22,
+            24,
         )
         self.assertEqual(
             {
@@ -66,11 +66,11 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         )
         self.assertEqual(
             len({item.asset for item in self.catalog}),
-            22,
+            24,
         )
         self.assertEqual(
             len({(item.release_version, item.platform) for item in self.catalog}),
-            22,
+            24,
         )
         self.assertTrue(
             all(item.package_revision == reading.PACKAGE_REVISION for item in self.catalog)
@@ -161,15 +161,16 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
         self.assertEqual(
             sorted((item.platform, item.release_version) for item in carrying),
             [("chiappa", "3.28.0.172"), ("chiappa", "3.29.0.152"), ("chiappa", "3.29.0.153"),
-             ("chiappa", "3.29.1.0"), ("ferrari", "3.28.0.172"), ("ferrari", "3.29.0.152"),
-             ("ferrari", "3.29.0.153"), ("ferrari", "3.29.1.0")],
+             ("chiappa", "3.29.1.0"), ("chiappa", "3.30.0.108"), ("ferrari", "3.28.0.172"),
+             ("ferrari", "3.29.0.152"), ("ferrari", "3.29.0.153"), ("ferrari", "3.29.1.0"),
+             ("ferrari", "3.30.0.108")],
         )
         extension = (
             Path(__file__).resolve().parents[1]
             / "reading-enhancements/native/rmtool-highlight-snap.so"
         ).read_bytes()
         for package in carrying:
-            if package.release_version.startswith("3.29."):
+            if package.release_version.startswith(("3.29.", "3.30.")):
                 suffix = "3.29" if package.release_version == "3.29.0.152" else package.release_version
                 payload = (Path(__file__).resolve().parents[1] /
                            f"reading-enhancements/native/rmtool-highlight-snap-{suffix}.so").read_bytes()
@@ -226,7 +227,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
             predecessor = reading._known_published_revision_feature(
                 package, current, 11
             )
-            if package.release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0"):
+            if package.release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0", "3.30.0.108"):
                 self.assertIsNone(predecessor)
                 continue
             self.assertIsNotNone(predecessor, package.asset)
@@ -475,7 +476,7 @@ class ReadingEnhancementsBackendTests(unittest.TestCase):
                         "package-revision-1",
                     ),
                 )
-            elif package.release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0"):
+            elif package.release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0", "3.30.0.108"):
                 self.assertEqual(reasons, ())
             elif package.release_version == "3.28.0.172":
                 self.assertEqual(

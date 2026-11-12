@@ -17,7 +17,7 @@
 #define CONFIG_PATH "/home/root/.config/remarkable/xochitl.conf"
 #define PATCH_LEN 20
 #include "highlight_identity.h"
-#if defined(RMTOOL_HIGHLIGHT_329_153) || defined(RMTOOL_HIGHLIGHT_32910)
+#if defined(RMTOOL_HIGHLIGHT_329_153) || defined(RMTOOL_HIGHLIGHT_32910) || defined(RMTOOL_HIGHLIGHT_330)
 __attribute__((used,retain,section(".rmtool.identity"))) static const char rmtool_identity[] =
     EXPECTED_FIRMWARE "\n" MOVE_XOCHITL_SHA256 "\n" PAPER_PRO_XOCHITL_SHA256;
 #endif
@@ -65,7 +65,7 @@ static int file_text_equals(const char *path, const char *expected) {
 static int xochitl_hash_matches(const char *expected) {
     FILE *f=fopen("/usr/bin/xochitl","rb"); uint8_t buf[65536]; size_t n; Sha256 s; char hex[65]; if(!f)return 0;
     sha_init(&s); while((n=fread(buf,1,sizeof(buf),f))>0)sha_update(&s,buf,n); if(ferror(f)){fclose(f);return 0;}fclose(f);sha_final(&s,hex);
-#if defined(RMTOOL_HIGHLIGHT_329_153) || defined(RMTOOL_HIGHLIGHT_32910)
+#if defined(RMTOOL_HIGHLIGHT_329_153) || defined(RMTOOL_HIGHLIGHT_32910) || defined(RMTOOL_HIGHLIGHT_330)
     return highlight_identity_matches(EXPECTED_FIRMWARE,expected,hex);
 #else
     return strcmp(hex,expected)==0;

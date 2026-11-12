@@ -165,6 +165,25 @@ class ImageTests(unittest.TestCase):
             releases = f.list_releases("chiappa")
         self.assertEqual(releases[0].channel, "正式版")
 
+    def test_beta_listing_preserves_official_prefix_and_prefers_public_duplicate(self):
+        stable = "remarkable-production-image-3.28.0.172-chiappa-public.swu"
+        beta = "remarkable-production-image-3.30.0.108-chiappa-public.swu"
+        swu = small_swu(descriptor_change=lambda text: text.replace("3.28.0.172", "3.30.0.108"))
+        keys = [f"beta/{stable}", stable, f"beta/{beta}", f"beta/../{beta}"]
+        entries = "".join(f"<Contents><Key>{key}</Key><Size>{len(swu)}</Size></Contents>" for key in keys)
+        xml = f"<ListBucketResult>{entries}<IsTruncated>false</IsTruncated></ListBucketResult>".encode()
+        with mock.patch.object(f, "_open", return_value=io.BytesIO(xml)):
+            releases = f.list_releases("chiappa")
+        self.assertEqual([(item.filename, item.beta) for item in releases], [(beta, True), (stable, False)])
+        self.assertEqual(releases[0].channel, "测试版")
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(f, "_open", return_value=io.BytesIO(swu)) as fetch:
+            f.download_release(releases[0], tmp)
+            fetch.assert_called_once_with(f.DOWNLOAD + "beta/" + beta)
+            self.assertTrue((Path(tmp) / "beta" / beta).is_file())
+        for legacy in ("rm1", "rm2"):
+            with mock.patch.object(f, "_open", return_value=io.BytesIO(xml.replace(b"chiappa", legacy.encode()))):
+                self.assertEqual([item.beta for item in f.list_releases(legacy)], [False])
+
     def test_failed_download_does_not_leave_cache_image(self):
         release = f.Release("3.28.0.172", "chiappa", "remarkable-production-image-3.28.0.172-chiappa-public.swu", 20)
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(f, "_open", return_value=io.BytesIO(b"short")):

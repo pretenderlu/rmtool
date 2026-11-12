@@ -100,7 +100,9 @@ class Beta329Tests(unittest.TestCase):
             for release, platform, address in [(builder.RELEASE, 'chiappa', '0xcadd70'),
                                                (builder.RELEASE, 'ferrari', '0xcc8db0'),
                                                ('3.29.0.153', 'chiappa', '0xcaddb0'),
-                                               ('3.29.0.153', 'ferrari', '0xcc8db0')]:
+                                               ('3.29.0.153', 'ferrari', '0xcc8db0'),
+                                               ('3.30.0.108', 'ferrari', '0xe6fe20'),
+                                               ('3.30.0.108', 'chiappa', '0xd84c20')]:
                 path = Path('E:/remarkable/firmware-cache/official-beta') / release / platform / 'extracted/selected-rootfs/usr/bin/xochitl'
                 if not path.is_file():
                     self.skipTest('Exact beta xochitl is not cached')
@@ -110,7 +112,7 @@ class Beta329Tests(unittest.TestCase):
                 other = 'ferrari' if platform == 'chiappa' else 'chiappa'
                 with self.assertRaisesRegex(RuntimeError, 'identity'):
                     builder.highlight_abi_check(path, other, release)
-                if release == '3.29.0.153':
+                if release != builder.RELEASE:
                     with self.assertRaisesRegex(RuntimeError, 'identity'):
                         builder.highlight_abi_check(path, platform, builder.RELEASE)
         finally:

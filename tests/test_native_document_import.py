@@ -98,7 +98,9 @@ class NativeImportTests(unittest.TestCase):
         paths = [self.file("测试书籍.pdf"), self.file("another.epub", b"epub content")]
         self.statuses = [200, 201]
         progress, phases = [], []
-        count = self.importer.transfer_batch(paths, lambda a, b: progress.append((a, b)), phases.append)
+        with patch.object(control, "loaded_helper") as helper:
+            count = self.importer.transfer_batch(paths, lambda a, b: progress.append((a, b)), phases.append)
+            helper.assert_not_called()
         self.assertEqual(count, 2)
         self.assertEqual([r[:2] for r in self.requests], [("GET", "/"), ("POST", "/upload"), ("POST", "/upload")])
         for path, (_method, _url, headers, body) in zip(paths, self.requests[1:]):
@@ -122,14 +124,33 @@ class NativeImportTests(unittest.TestCase):
 
     def test_missing_native_service_never_sends_file_or_restarts(self):
         for status in (302, 403, 503):
-            with self.subTest(status=status), patch.object(control, "loaded_helper", return_value=None):
+            unavailable = Mock(state=control.NativeImportState.INCOMPATIBLE, package=None)
+            with (self.subTest(status=status), patch.object(control, "loaded_helper", return_value=None),
+                  patch.object(control, "get_status", return_value=unavailable)):
                 self.ready_status = status
-                with self.assertRaisesRegex(RuntimeError, "自动传输组件"):
+                with self.assertRaisesRegex(RuntimeError, "设置 > 存储.*开启 USB 网页界面") as error:
                     self.importer.transfer_batch([self.file()])
+                self.assertNotIn("安装", str(error.exception))
         self.assertTrue(all(r[0] == "GET" for r in self.requests))
         self.assertTrue(all(c.args[0].startswith("df -Pk ") or c.args[0] in (native._CONTROL_STATE, native._NATIVE_ADDRESS_STATE)
                             for c in self.ssh.exec_checked.call_args_list))
         self.ssh.sftp_session.assert_not_called()
+
+    def test_automatic_activation_offer_requires_an_installable_exact_target(self):
+        self.ready_status = 503
+        states = control.NativeImportState
+        for state, exception in ((states.NOT_INSTALLED, native.NativeImportActivationNeeded),
+                                 (states.REPAIR_AVAILABLE, native.NativeImportActivationNeeded),
+                                 (states.ENABLE_PENDING_REBOOT, RuntimeError), (states.BROKEN, RuntimeError)):
+            with (self.subTest(state=state), patch.object(control, "loaded_helper", return_value=None),
+                  patch.object(control, "get_status", return_value=Mock(state=state, package=control._trusted_catalog()[0]))):
+                with self.assertRaisesRegex(exception, "未上传任何文件") as error:
+                    self.importer.transfer_batch([self.file()])
+                self.assertIs(type(error.exception), exception)
+                if state is states.ENABLE_PENDING_REBOOT:
+                    self.assertIn("手动重启", str(error.exception))
+        self.assertTrue(all(r[0] == "GET" for r in self.requests))
+        self.transport.open_session.assert_not_called()
 
     def test_native_timeout_is_not_retried_and_preserves_accepted_files(self):
         self.statuses = [201, None]
@@ -254,7 +275,9 @@ class NativeImportTests(unittest.TestCase):
             {(p.platform, p.release_version) for p in catalog},
             {(platform, release) for platform in ("rm1", "rm2", "tatsu", "ferrari", "chiappa")
              for release in ("3.28.0.172", "3.29.0.153")}
-            | {(platform, "3.29.1.0") for platform in ("ferrari", "chiappa", "tatsu", "rm1", "rm2")},
+            | {(platform, "3.29.1.0") for platform in ("ferrari", "chiappa", "tatsu", "rm1", "rm2")}
+            | {(platform, "3.30.0.108") for platform in ("ferrari", "chiappa", "tatsu", "rm1")}
+            | {("rm2", "3.30.0.109")},
         )
         for package in catalog:
             with self.subTest(platform=package.platform, release=package.release_version):
@@ -279,8 +302,9 @@ class NativeImportTests(unittest.TestCase):
 
     def test_same_address_on_lan_is_not_used_without_device_local_assignment(self):
         self.native_addresses = "    inet 10.11.99.15/27 scope global wlan0\n"
-        with patch.object(control, "loaded_helper", return_value=None):
-            with self.assertRaisesRegex(RuntimeError, "自动传输组件"):
+        with (patch.object(control, "loaded_helper", return_value=None),
+              patch.object(control, "get_status", return_value=Mock(state=control.NativeImportState.INCOMPATIBLE, package=None))):
+            with self.assertRaisesRegex(RuntimeError, "开启 USB 网页界面"):
                 self.importer.transfer_batch([self.file()])
         self.assertEqual(self.requests, [])
         self.transport.open_channel.assert_not_called()

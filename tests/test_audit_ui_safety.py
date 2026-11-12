@@ -346,7 +346,7 @@ class UiSafetyTests(unittest.TestCase):
             tab._detect_all_statuses()
         self.pool.start.assert_called_once()
         self.assertTrue(tab.pinyin_input_section._busy)
-        self.assertEqual(tab.detect_all_button.text(), "正在检测 0/10")
+        self.assertEqual(tab.detect_all_button.text(), "正在检测 0/9")
 
     def test_toolbox_scan_waits_for_identity_to_determine_tap_applicability(self):
         probe = _tab_toolbox.ToolboxTab._probe_device_identity
@@ -366,7 +366,7 @@ class UiSafetyTests(unittest.TestCase):
         )
         identity_worker.signals.finished.emit(identity)
         self.assertFalse(tab._tap_entry_hidden())
-        self.assertEqual(tab.detect_all_button.text(), "正在检测 0/10")
+        self.assertEqual(tab.detect_all_button.text(), "正在检测 0/9")
         self.assertEqual(self.pool.start.call_count, 2)
 
     def test_toolbox_typed_plugin_statuses_ignore_misleading_detail(self):
@@ -455,8 +455,6 @@ class UiSafetyTests(unittest.TestCase):
     def test_each_plugin_rejects_overlapping_detection_and_install(self):
         toolbox = self.make_toolbox()
         for section in toolbox._detectable_sections:
-            if section is toolbox.native_transfer_section:
-                continue
             for terminal in ("finished", "error"):
                 with self.subTest(section=type(section).__name__, terminal=terminal):
                     self.pool.reset_mock()
@@ -484,10 +482,7 @@ class UiSafetyTests(unittest.TestCase):
         for busy_section in toolbox._detectable_sections:
             with self.subTest(section=type(busy_section).__name__):
                 self.pool.reset_mock()
-                if busy_section is toolbox.native_transfer_section:
-                    busy_section._start_status_detection(show_errors=False)
-                else:
-                    busy_section._start_worker(lambda: None, pending="installing")
+                busy_section._start_worker(lambda: None, pending="installing")
                 worker = self.pool.start.call_args.args[0]
                 status = busy_section.status_label.text()
                 toolbox._detect_all_statuses()
@@ -496,7 +491,7 @@ class UiSafetyTests(unittest.TestCase):
                 self.assertTrue(busy_section._busy)
                 self.assertEqual(busy_section.status_label.text(), status)
                 self.assertTrue(toolbox.detect_all_button.isEnabled())
-                self.assertIn("0/10", toolbox.detect_all_button.toolTip())
+                self.assertIn("0/9", toolbox.detect_all_button.toolTip())
                 with mock.patch.object(busy_section, "_apply_status"):
                     worker.signals.finished.emit(None)
                 self.assertFalse(common.plugin_operation_busy(self.ssh))

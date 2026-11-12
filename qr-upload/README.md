@@ -9,7 +9,10 @@ Move support is available from rmtool v1.18.0. The four additional .153 ports
 are included in v1.18.2 and passed offline verification. The user confirmed
 Paper Pro .153 plugin migration and installation. The stable 3.29.1.0 packages
 completed full stock-QML replay and remain offline-only pending hardware
-acceptance. Other firmware is unsupported.
+acceptance. The [3.30 beta packages](../docs/firmware-3.30-beta.md) also cover
+all five models and passed offline verification. Phone reception on 3.30
+still needs hardware acceptance. Other firmware
+is unsupported.
 
 The final experience is tablet-hosted: start reception on the tablet, scan its
 QR code from a phone on the same Wi-Fi, upload PDF/EPUB to the native library,

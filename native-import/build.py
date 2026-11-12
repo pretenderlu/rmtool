@@ -133,7 +133,10 @@ def check_bridge(bridge, libraries, architecture, ELFFile):
 
 
 def resource_root(args, platform, firmware, release):
-    if release in ("3.29.0.153", "3.29.1.0"):
+    if release in ("3.29.0.153", "3.29.1.0", "3.30.0.108", "3.30.0.109"):
+        versioned = args.beta_resources / ("beta-" + release) / platform
+        if versioned.is_dir():
+            return versioned
         return args.beta_resources / platform
     group = "matrix-172" if platform in ("ferrari", "chiappa") else "matrix-172-classic"
     return args.stable_resources / group / f"{platform}-{firmware}"
@@ -152,7 +155,7 @@ def main():
     parser.add_argument("--stable-resources", type=Path, required=True)
     parser.add_argument("--beta-resources", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--release", choices=sorted({item[0] for item in control.ALLOWED_TARGETS.values()}))
+    parser.add_argument("--release", action="append", choices=sorted({item[0] for item in control.ALLOWED_TARGETS.values()}))
     args = parser.parse_args()
     verify_archive_runtime()
     for name, path in (("go", args.go), ("zig", args.zig), ("7z", args.seven_zip), ("moc", args.qt_host / "bin/moc.exe"),
@@ -178,7 +181,7 @@ def main():
     for identity, verification in control.ALLOWED_TARGETS.items():
         platform, firmware, architecture, stock = identity
         release, channel, offline, device = verification
-        if args.release and release != args.release:
+        if args.release and release not in args.release:
             continue
         libraries = args.output / "stock" / release / platform
         rootfs, provenance = stock_libraries(args, platform, release, libraries)
@@ -189,7 +192,10 @@ def main():
             if indicator not in binary and indicator.decode().encode("utf-16le") not in binary:
                 raise RuntimeError(f"Missing native importer prerequisite: {indicator!r}")
         webui = (libraries / "usr/share/remarkable/webui/assets/index.js").read_bytes()
-        for indicator in (b"new FormData", b'.append("file",', b'fetch("/upload",', b'method:"post"', b"status!==201"):
+        quote = b"`" if release.startswith("3.30.") else b'"'
+        for indicator in (b"new FormData", b".append(" + quote + b"file" + quote + b",",
+                          b"fetch(" + quote + b"/upload" + quote + b",",
+                          b"method:" + quote + b"post" + quote, b"status!==201"):
             if indicator not in webui:
                 raise RuntimeError(f"Missing exact native web-upload contract: {indicator!r}")
         address = "10.11.99.1/27" if release == "3.28.0.172" else "10.11.99.1/29"
@@ -232,7 +238,8 @@ def main():
                 check_bridge(extracted / library, libraries, architecture, ELFFile)
             check_elf(extracted / "qmd-tool", architecture, ELFFile)
             storage = (resources / "qrex-out/qml/device/view/settings/Storage.qml").read_text(encoding="utf-8")
-            if "Settings.webInterfaceEnabled = !Settings.webInterfaceEnabled" not in storage:
+            toggle = "root.settings.webInterfaceEnabled" if release.startswith("3.30.") else "Settings.webInterfaceEnabled"
+            if f"{toggle} = !{toggle}" not in storage:
                 raise RuntimeError("Stock native-import Settings property differs")
             qmd = run([args.qmd_tool, "hash", "-hashtab", resources / "hashtab", ROOT / "native-import/native/native-import.qmd"])
             qmd_path = work / "native-import.qmd"
@@ -282,8 +289,9 @@ def main():
     packages.write_atomic(control.BUNDLED_MANIFEST, manifest)
     control._trusted_catalog.cache_clear()
     packages.write_atomic(args.output / "validation.json", (json.dumps(checks, indent=2) + "\n").encode())
-    if args.release:
-        packages.write_atomic(args.output / f"validation-{args.release}.json", (json.dumps(checks, indent=2) + "\n").encode())
+    for release in args.release or ():
+        selected = [check for check in checks if check["release"] == release]
+        packages.write_atomic(args.output / f"validation-{release}.json", (json.dumps(selected, indent=2) + "\n").encode())
     print(f"{len(entries)} exact native-transfer packages built and cached; no publication or device deployment", flush=True)
 
 

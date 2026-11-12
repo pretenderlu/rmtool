@@ -86,7 +86,7 @@ class SharedRuntimeSpec:
 
 # Exact RM1 builds with an early /home mount keep the shared runtime in /home.
 # Older AppLoad packages also have external shim links tied to the /data layout.
-HOME_LAYOUT_RM1_FIRMWARE = frozenset({"20260827113527", "20261009073202", "20261028104944"})
+HOME_LAYOUT_RM1_FIRMWARE = frozenset({"20260827113527", "20261009073202", "20261028104944", "20261028121323"})
 
 
 def preferred_layout(runtime) -> StandaloneLayout:

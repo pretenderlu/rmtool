@@ -1,4 +1,4 @@
-"""Build offline-verified 3.29 candidates from exact official firmware."""
+"""Build offline-verified 3.29 and 3.30 candidates from exact official firmware."""
 from __future__ import annotations
 
 import argparse
@@ -42,16 +42,29 @@ TARGETS_BY_RELEASE = {
         'rm1': ('armv7l', '215d43ec9d72dd296e729b0d18dea4bdd8946c6f9c8e8e1b4bcbf7278c624a5f', '2bc210bd4e05b709ea15d7e4f357b816505a40fb1838c02f6b60040ea3c87690'),
         'rm2': ('armv7l', '7a0af4173d90bae0adf0c5a9e94e7eaf5e86cf741e38bdbec4e3788315c9da6f', '4ab39bdf42503fe8d9e10a31a415b28b9aed6f25bd32788226c02ee23879fd13'),
     },
+    '3.30.0.108': {
+        'ferrari': ('aarch64', '5cd2c255d7e712d2d4a52d215ab8d7c44ef5856480478ada1ddff69c49c05d55', '31d33b05e85af85b06a5a92edf710532a0a122ed4cf51e702c19eed0feb6753b'),
+        'chiappa': ('aarch64', '40ba6de1eadf51281db714db9096aafbf96ec0c86eeb9ef92f1c7c1ffc031390', 'a9a9c4f01902c30ddc16260d1ac6ef0f7938b7f1094dbb0bb0b78f474c5b17bf'),
+        'tatsu': ('aarch64', '7b2d6d90b2a30290cc77ba3fa893df1f15bcac99c17121f64eca782459339904', 'ceb3c74c64081289c53ff3573d7228489e1d890c69c05ad610e650e5dc5b8b2e'),
+        'rm1': ('armv7l', '4cffa907638b5c1ec0f4a655c1e495bfee995c212f376d4fca0cdb006cfb7df6', '68e01f33f134636dbcd00741a604ded88c8dcc31c70ec6e91e2e936303637089'),
+    },
+    '3.30.0.109': {
+        'rm2': ('armv7l', '14ebbca9c765e8febc0941df55852838b4d83401b13111679fbb40bcb1e04c7b', '0f94025163061b85613cb8989f0f1d267944842235ec6ca5f2e50c1c2949cb7b'),
+    },
 }
 FIRMWARE_BY_RELEASE = {
     '3.29.0.152': FIRMWARE,
     '3.29.0.153': FIRMWARE,
     '3.29.1.0': '20261028104944',
+    '3.30.0.108': '20261028121323',
+    '3.30.0.109': '20261028121323',
 }
 CHANNEL_BY_RELEASE = {
     '3.29.0.152': 'beta',
     '3.29.0.153': 'beta',
     '3.29.1.0': 'stable',
+    '3.30.0.108': 'beta',
+    '3.30.0.109': 'beta',
 }
 FEATURES = ('tap-page-turn', 'native-chinese', 'pinyin-input', 'reading-enhancements', 'note-enhancements')
 HASHTAB = 'exthome/qt-resource-rebuilder/hashtab'
@@ -198,7 +211,12 @@ def highlight_abi_check(path, platform, release=RELEASE):
             normalized.append(ins.mnemonic + ' ' + ins.op_str)
     # Full reviewed expansion loop: wrapper +0, glyphs +8, UTF-16 +0x30,
     # glyph stride 0x38, range stride 0x20, start/end indices +0/+4.
-    if digest('\n'.join(normalized).encode()) != 'eca4c7bf1f4fa94f45e72847f5bcb581addd14d02a45eb1c72b56164c0db9fa7':
+    expected_layout = (
+        '65bf68d5e2adba82eb5a3e84433a79a1b952f773921eff7fc7f34dd2370fd06e'
+        if release == '3.30.0.108' else
+        'eca4c7bf1f4fa94f45e72847f5bcb581addd14d02a45eb1c72b56164c0db9fa7'
+    )
+    if digest('\n'.join(normalized).encode()) != expected_layout:
         raise RuntimeError('Highlighter expansion layout changed')
     return dict(address=hex(address), xochitl_sha256=target[2],
                 instructions=[[hex(i.address), i.mnemonic, i.op_str] for i in instructions])
@@ -245,8 +263,10 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     arm_translator = build_arm_translator(args.zig, args.output_dir) if any(t[0] == 'armv7l' for t in targets.values()) else None
     highlight = args.output_dir / 'rmtool-highlight-snap-3.29.so'
-    run([sys.executable, ROOT / 'reading-enhancements/native/build_highlight_snap.py',
-         '--zig', args.zig, '--release', release, '--output', highlight])
+    enable_highlight = any(platform in targets for platform in ('ferrari', 'chiappa'))
+    if enable_highlight:
+        run([sys.executable, ROOT / 'reading-enhancements/native/build_highlight_snap.py',
+             '--zig', args.zig, '--release', release, '--output', highlight])
     base_builder = load(ROOT / 'native-chinese/build_172.py')
     records = {feature: [] for feature in FEATURES}
     report = {}
@@ -266,7 +286,7 @@ def main():
         work = args.output_dir / platform
         work.mkdir(exist_ok=True)
         report[platform] = dict(identity=identity, abi=abi_check(root, architecture, work))
-        if platform in ('chiappa', 'ferrari'):
+        if enable_highlight and platform in ('chiappa', 'ferrari'):
             report[platform]['highlight_abi'] = highlight_abi_check(root / 'usr/bin/xochitl', platform, release)
         static_ts = work / 'static-qml.ts'
         run([args.qt_bin / 'lupdate.exe', resource / 'qrex-out', '-no-obsolete', '-locations', 'none', '-ts', static_ts])
@@ -276,7 +296,8 @@ def main():
             # New targets are not registered yet; verify predecessor archives below.
             catalog = json.loads((ROOT / feature / 'manifest.json').read_text(encoding='utf-8'))
             packages = [base_builder._package(p) for p in catalog['packages']]
-            previous = [p for p in packages if p.platform == platform and p.release_version == '3.28.0.172']
+            predecessor = '3.29.1.0' if release.startswith('3.30.') else '3.28.0.172'
+            previous = [p for p in packages if p.platform == platform and p.release_version == predecessor]
             if len(previous) != 1:
                 raise RuntimeError(f'Missing unique predecessor: {feature}/{platform}')
             previous = previous[0]
@@ -298,7 +319,18 @@ def main():
                     builder = load(ROOT / feature / 'build_assets.py')
                     qmd_source = builder._source_for_target(qmd_source, firmware, release,
                                                            platform, architecture, xochitl_hash, temp / 'src')
-                    files['extensions.d/rmtool-highlight-snap.so'] = (highlight.read_bytes(), 0o644)
+                    if enable_highlight:
+                        files['extensions.d/rmtool-highlight-snap.so'] = (highlight.read_bytes(), 0o644)
+                elif feature == 'native-chinese' and release.startswith('3.30.'):
+                    text = qmd_source.read_text(encoding='utf-8')
+                    boundary = 'TRAVERSE Background#root'
+                    if text.count(boundary) != 1:
+                        raise RuntimeError('Unexpected language settings source')
+                    qmd_source = temp / 'native-chinese-3.30.qmd'
+                    qmd_source.write_text(text.replace(boundary, 'TRAVERSE InputBlocker#root'), encoding='utf-8', newline='\n')
+                elif feature == 'note-enhancements' and release.startswith('3.30.'):
+                    builder = load(ROOT / feature / 'build_assets.py')
+                    qmd_source = builder._source_for_release(qmd_source, release, temp)
                 elif feature == 'tap-page-turn':
                     builder = load(ROOT / 'reading-enhancements/build_assets.py')
                     text = builder._tap_source_for_release(qmd_source.read_text(encoding='utf-8'), release)
@@ -319,9 +351,12 @@ def main():
                     old_qm = temp / 'previous.qm'
                     old_qm.write_bytes(files['native-chinese/reMarkable_zh_CN.qm'][0])
                     merged = temp / 'merged.ts'
-                    supplements = [ROOT / 'translations/reMarkable_zh_CN_3_29_0_152_supplement.ts']
-                    if release in ('3.29.0.153', '3.29.1.0'):
-                        supplements.append(ROOT / 'translations/reMarkable_zh_CN_3_29_0_153_supplement.ts')
+                    if release.startswith('3.30.'):
+                        supplements = [ROOT / 'translations/reMarkable_zh_CN_3_30_supplement.ts']
+                    else:
+                        supplements = [ROOT / 'translations/reMarkable_zh_CN_3_29_0_152_supplement.ts']
+                        if release in ('3.29.0.153', '3.29.1.0'):
+                            supplements.append(ROOT / 'translations/reMarkable_zh_CN_3_29_0_153_supplement.ts')
                     run([args.qt_bin / 'lconvert.exe', '-sort-contexts', '-locations', 'none', old_qm,
                          *supplements, '-o', merged])
                     stock = root / 'usr/share/remarkable/xochitl/translations'
@@ -380,7 +415,8 @@ def main():
         report[platform]['combined_qmd_orders'] = len(groups) * 2
         report[platform]['tap_navigation_signals_verified'] = True
     for feature, entries in records.items():
-        (args.output_dir / feature / 'manifest.candidate.json').write_text(json.dumps(dict(schema=1, packages=entries), indent=2) + '\n')
+        if entries:
+            (args.output_dir / feature / 'manifest.candidate.json').write_text(json.dumps(dict(schema=1, packages=entries), indent=2) + '\n')
     (args.output_dir / 'carriers.json').write_text(json.dumps(carriers, indent=2) + '\n')
     (args.output_dir / 'validation.json').write_text(json.dumps(report, indent=2) + '\n')
 
