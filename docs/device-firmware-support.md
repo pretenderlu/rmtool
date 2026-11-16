@@ -98,6 +98,14 @@ does not apply to a monochrome screen.
 
 ## Other Tools
 
+### Shared Plugin Storage on RM1 and RM2
+
+On the older models, adding a plugin to an existing verified shared install can
+reuse the unchanged Xovi runtime rather than stage a second physical copy. This
+reduces installation space without lowering the reserve or changing the boot
+layout. New payloads still need free space. On RM2 3.29.1.0, stock firmware
+orders `/home` after xochitl; the pre-unlock runtime cannot simply move there.
+
 ### Native Desktop Import (v1.18.0)
 
 Document-center PDF/EPUB uploads use the tablet's own `/upload` importer over

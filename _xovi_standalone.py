@@ -2746,7 +2746,8 @@ def shared_capacity_budget(
     )
 
 
-def check_shared_capacity(ssh_client, runtime, states, *, staged=False, controls_only=False):
+def check_shared_capacity(ssh_client, runtime, states, *, staged=False, controls_only=False,
+                          reuse_runtime=False):
     """Budget legacy installs and repairs without changing boot-time storage."""
     if runtime.platform not in {"rm1", "rm2"}:
         return
@@ -2773,10 +2774,11 @@ def check_shared_capacity(ssh_client, runtime, states, *, staged=False, controls
     else:
         partition, available = storage.system_free_bytes(ssh_client)
         reserve = storage.LEGACY_ROOT_RESERVE if partition == "/" else 25 * 1024 * 1024
+        reused = budget.runtime_bytes if reuse_runtime and not staged else 0
         storage.require_capacity(
             partition,
             available,
-            reserve + budget.required_bytes,
+            reserve + budget.required_bytes - reused,
             recovery_kind="shared-capacity",
         )
 
@@ -2792,6 +2794,26 @@ def _assert_home_catalog(runtime, states):
                     raise RuntimeError("汉化扩展需同步更新，请先在“原生简体中文”中修复更新，再操作其他插件。")
 
 
+def _link_shared_runtime(ssh_client, source_base, stage, files):
+    # Never chmod, chown or replace the shared inodes through the staging tree.
+    commands = []
+    for item in files:
+        source = shlex.quote(f"{source_base}/{item.path}")
+        target = shlex.quote(f"{stage}/{item.path}")
+        metadata = f"{0o100000 | item.mode:x}:0:0:{item.size}:1"
+        commands.append(
+            f"[ ! -L {source} ] && "
+            f"[ \"$(stat -c '%f:%u:%g:%s:%h' {source})\" = {metadata} ] && "
+            f"[ ! -e {target} ] && [ ! -L {target} ] && "
+            f"ln {source} {target} && [ {source} -ef {target} ]"
+        )
+    if commands:
+        try:
+            ssh_client.exec_checked(" && ".join(commands))
+        except RuntimeError as exc:
+            raise RuntimeError("无法安全复用已安装的共享 Xovi 基座，未切换插件。") from exc
+
+
 def _stage_shared(
     ssh_client,
     runtime: SharedRuntimeSpec,
@@ -2801,10 +2823,11 @@ def _stage_shared(
     stage: str,
     *,
     controls_only: bool = False,
+    reuse_runtime: bool = False,
 ) -> tuple[str, str]:
     _assert_home_catalog(runtime, states)
     if not controls_only or runtime.platform in {"rm1", "rm2"}:
-        check_shared_capacity(ssh_client, runtime, states, controls_only=controls_only)
+        check_shared_capacity(ssh_client, runtime, states, controls_only=controls_only, reuse_runtime=reuse_runtime)
     enabled = tuple(state.spec for state in states.values() if state.enabled)
     launcher_text = shared_launcher(runtime, enabled)
     dropin_text = shared_dropin(runtime, enabled)
@@ -2829,7 +2852,7 @@ def _stage_shared(
         "mkdir -p " + " ".join(shlex.quote(path) for path in sorted(directories))
     )
     if enabled and not controls_only:
-        for item in runtime.files:
+        for item in (() if reuse_runtime else runtime.files):
             # Every feature package carries the identical common runtime files.
             # Removal transactions have no incoming archive, so they copy these
             # files from the already verified live tree instead.
@@ -2873,6 +2896,8 @@ def _stage_shared(
         )
     _upload_bytes(ssh_client, marker, f"{stage}/package.json", 0o644)
     ssh_client.exec_checked(f"chown -R root:root {shlex.quote(stage)}")
+    if reuse_runtime and enabled and not controls_only:
+        _link_shared_runtime(ssh_client, SHARED_LAYOUT.remote_base, stage, runtime.files)
     for path, item in expected.items():
         remote = f"{stage}/{path}"
         if _remote_sha256(ssh_client, remote) != item.sha256:
@@ -3111,6 +3136,14 @@ class SharedEnablePlan:
     present_legacy: tuple[LegacyStandaloneSpec, ...]
 
 
+def _can_reuse_shared_runtime(runtime, plan):
+    inspection = plan.inspection
+    return (runtime.platform in {"rm1", "rm2"}
+            and inspection.layout == preferred_layout(runtime) == SHARED_LAYOUT
+            and inspection.dropin_present and not inspection.legacy_templates
+            and any(state.enabled for state in inspection.states.values()))
+
+
 def _shared_enable_plan(
     ssh_client,
     runtime: SharedRuntimeSpec,
@@ -3260,7 +3293,7 @@ def check_shared_enable_capacity(
     )
     if isinstance(plan, SharedEnablePlan):
         try:
-            check_shared_capacity(ssh_client, runtime, plan.states)
+            check_shared_capacity(ssh_client, runtime, plan.states, reuse_runtime=_can_reuse_shared_runtime(runtime, plan))
         except RuntimeError as exc:
             exc.shared_enable_plan = plan
             raise
@@ -3317,6 +3350,7 @@ def _enable_shared_locked(
             },
             previous_sources,
             stage,
+            reuse_runtime=_can_reuse_shared_runtime(runtime, plan),
         )
         migrated_layouts = [item.layout for item in present_legacy]
         if inspection.states and inspection.layout != layout:

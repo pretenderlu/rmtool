@@ -351,6 +351,56 @@ class LegacyPluginCapacityTests(unittest.TestCase):
                 "shortfall": 1,
             })
 
+    def test_reported_rm2_app_load_fits_without_copying_the_verified_shared_base(self):
+        package = next(p for p in native._trusted_catalog()
+                       if p.platform == "rm2" and p.release_version == "3.29.1.0")
+        identity = tap.DeviceIdentity(package.firmware, package.platform, package.architecture, package.xochitl_sha256)
+        runtime, trusted, _ = tap._trusted_shared_context(identity)
+        states = {fid: shared.SharedFeatureState(trusted[fid], True, "token") for fid in ("native-chinese", "appload")}
+        installed = shared.SharedInspection({"native-chinese": states["native-chinese"]}, True, True)
+        plan = shared.SharedEnablePlan(installed, trusted, states, {}, ())
+        self.assertTrue(shared._can_reuse_shared_runtime(runtime, plan))
+        for invalid in (replace(installed, dropin_present=False), replace(installed, legacy_templates=True),
+                        replace(installed, states={}), replace(installed, layout=shared.LEGACY_SHARED_LAYOUT)):
+            self.assertFalse(shared._can_reuse_shared_runtime(runtime, replace(plan, inspection=invalid)))
+        with (patch.object(shared, "_shared_enable_plan", return_value=plan),
+              patch.object(storage, "system_free_bytes", return_value=("/", int(22.05 * 1048576))) as space):
+            with self.assertRaisesRegex(RuntimeError, "30.37 MiB"):
+                shared.check_shared_capacity(Mock(), runtime, states)
+            self.assertIs(shared.check_shared_enable_capacity(Mock(), runtime, trusted["appload"], trusted, ()), plan)
+            space.return_value = ("/", storage.LEGACY_ROOT_RESERVE)
+            with self.assertRaisesRegex(RuntimeError, "空间不足"):
+                shared.check_shared_capacity(Mock(), runtime, states, staged=True, reuse_runtime=True)
+
+    def test_reused_runtime_shell_leaves_source_unchanged_on_abort_and_refuses_existing_links(self):
+        git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
+        shell = str(git_bash) if git_bash.is_file() else shutil.which("bash")
+        if shell is None or (os.name != "nt" and subprocess.run([shell, "-c", "stat -c '%h' /"], capture_output=True).returncode):
+            self.skipTest("requires Bash and GNU-compatible stat")
+        # Keep inode/size checks real on hosts without Linux root ownership.
+        stat_fixture = ""
+        if os.name == "nt" or os.geteuid() != 0:
+            stat_fixture = "stat() { printf '81a4:0:0:'; command stat -c '%s:%h' \"$3\"; }; "
+        with tempfile.TemporaryDirectory() as folder:
+            base, stage = (Path(folder) / name for name in ("live", "stage"))
+            base.mkdir()
+            stage.mkdir()
+            source, target = base / "runtime", stage / "runtime"
+            source.write_bytes(b"original")
+            source.chmod(0o644)
+            spec = shared.SharedFileSpec("runtime", hashlib.sha256(b"original").hexdigest(), 8, 0o644)
+            ssh = Mock()
+            ssh.exec_checked.side_effect = lambda command: subprocess.run([shell, "-c", stat_fixture + command], check=True)
+            shared._link_shared_runtime(ssh, base.as_posix(), stage.as_posix(), (spec,))
+            self.assertTrue(source.samefile(target))
+            target.rename(stage / "backup-alias")
+            with self.assertRaises(subprocess.CalledProcessError):
+                shared._link_shared_runtime(ssh, base.as_posix(), stage.as_posix(), (spec,))
+            self.assertFalse(target.exists())
+            (stage / "backup-alias").unlink()
+            self.assertEqual(source.read_bytes(), b"original")
+            self.assertEqual(source.stat().st_nlink, 1)
+
     def test_enable_capacity_error_and_success_share_the_same_real_plan(self):
         trusted = {self.feature.feature_id: self.feature}
         budget = shared.shared_capacity_budget(self.runtime, self.states)

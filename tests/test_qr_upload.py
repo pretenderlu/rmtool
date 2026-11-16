@@ -188,9 +188,10 @@ class QrUploadTests(unittest.TestCase):
             "native-chinese": shared.SharedFeatureState(native_feature, True, "token"),
             qr.FEATURE_ID: shared.SharedFeatureState(feature, True, "token"),
         }
+        budget = shared.shared_capacity_budget(runtime, states)
         self.assertEqual(
             raised.exception.recovery_context["required"],
-            shared.shared_capacity_budget(runtime, states).required_bytes + shared.storage.LEGACY_ROOT_RESERVE,
+            budget.required_bytes - budget.runtime_bytes + shared.storage.LEGACY_ROOT_RESERVE,
         )
         download.assert_not_called()
         install.assert_not_called()
