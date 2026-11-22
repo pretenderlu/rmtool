@@ -5,6 +5,7 @@ from dataclasses import replace
 import hashlib
 import os
 from pathlib import Path
+import shlex
 import shutil
 import stat
 import subprocess
@@ -14,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 import _capacity_recovery as recovery
-import _recovery_wenkai as w
+import _recovery_custom_font as w
 import _rmkit_cn as fonts
 
 
@@ -28,14 +29,16 @@ if os.name == "nt":
 
 
 class Device:
-    def __init__(self, root):
+    def __init__(self, root, name="用户's $(自选) 字体.otf"):
         self.root = root
+        self.source = w.ROOT_FONTS + "/" + name
+        self.backup = fonts.USER_FONT_REPOSITORY + "/" + name
         self.mounts = ROOT + "\n" + HOME
         self.fail = ""
         self.family = "Noto Sans CJK SC"
         self.source_stat = "456:8362:1:19639344:38360:0:0:644"
-        self.active = w.SOURCE
-        self.early = w.SOURCE
+        self.active = self.source
+        self.early = self.source
         self.mutations = []
 
     def path(self, p):
@@ -52,6 +55,9 @@ class Device:
     def listdir(self, p):
         return [f.name for f in self.path(p).iterdir()]
 
+    def open(self, p, mode):
+        return self.path(p).open(mode)
+
     def lstat(self, p):
         s = self.path(p).lstat()
         return SimpleNamespace(st_size=s.st_size, st_uid=0, st_gid=0,
@@ -59,7 +65,7 @@ class Device:
 
     def install(self, ssh, local, directory, name, *, lock_screen_support):
         assert ssh is self and lock_screen_support and directory + "/" + name == w.SMALL
-        assert self.path(w.BACKUP).read_bytes() == self.path(w.SOURCE).read_bytes()
+        assert self.path(self.backup).read_bytes() == self.path(self.source).read_bytes()
         self.mutations.append("configure")
         if self.fail == "install":
             raise RuntimeError("failed deployment")
@@ -78,9 +84,9 @@ class Device:
         if cmd == "cat /proc/self/mountinfo":
             return self.mounts
         if cmd.startswith("stat -c "):
-            return self.source_stat if cmd.endswith(w.SOURCE) else "999:55:1:100:8:0:0:644"
+            return self.source_stat if shlex.split(cmd)[-1] == self.source else "999:55:1:100:8:0:0:644"
         if cmd.startswith("sha256sum "):
-            return hashlib.sha256(self.path(cmd.split()[1]).read_bytes()).hexdigest()
+            return hashlib.sha256(self.path(shlex.split(cmd)[1]).read_bytes()).hexdigest()
         if cmd.startswith("fc-scan "):
             return ' family: "' + self.family + '"'
         if "fc-match " in cmd and not cmd.startswith("set -eu"):
@@ -89,11 +95,12 @@ class Device:
             return self.active
         if not cmd.startswith("set -eu"):
             raise AssertionError(cmd)
-        copying = "mktemp" in cmd
-        self.mutations.append("backup" if copying else "unlink")
-        if not copying and self.fail == "drift":
-            self.put(w.SOURCE, b"changed after verification")
-        script = cmd.replace("/home", '"$base"/home').replace("/usr/share/fonts", '"$base"/usr/share/fonts').replace("/data/", '"$base"/data/')
+        op = "backup" if ".font-backup.XXXXXX" in cmd else "record" if "mktemp" in cmd else "unlink"
+        self.mutations.append(op)
+        if op == "unlink" and self.fail == "drift":
+            self.put(self.source, b"changed after verification")
+        base = subprocess.check_output([SH, "-c", "pwd -P"], cwd=self.root, text=True).strip()
+        script = cmd.replace("/home", base + "/home").replace("/usr/share/fonts", base + "/usr/share/fonts").replace("/data/", base + "/data/")
         script = script.replace("fc-match ", "fc_match ")
         prefix = """
 set -eux
@@ -105,29 +112,28 @@ stat() {
     else echo STATVALUE; fi
 }
 fc_match() { if [ "$HOME" = /nonexistent ]; then printf '%s' "$base"EARLY; else printf '%s' "$base"ACTIVE; fi; }
-""".replace("STATVALUE", self.source_stat).replace("EARLY", self.early).replace("ACTIVE", self.active)
+""".replace("STATVALUE", self.source_stat).replace("EARLY", shlex.quote(self.early)).replace("ACTIVE", shlex.quote(self.active))
         if self.fail == "backup":
             prefix += '\ncp() { printf partial > "$2"; }\n'
         result = subprocess.run([SH, "-c", prefix + script], cwd=self.root,
-                                capture_output=True, text=True, timeout=30)
+                                capture_output=True, encoding="utf-8", errors="replace", timeout=30)
         if result.returncode:
             raise RuntimeError(f"script failed: {result.stderr}")
         return result.stdout
 
 
 @unittest.skipUnless(SH, "POSIX shell or Git Bash required")
-class WenKaiRecoveryTests(unittest.TestCase):
+class CustomFontRecoveryTests(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.ssh = Device(Path(tmp.name))
-        # Synthetic font at the recorded mapping's v1.511 file size; no customer payload.
+        # Same disk usage as the reported RM2, unrelated name and bytes.
         self.original = b"x" * 19639344
-        self.ssh.put(w.SOURCE, self.original)
+        self.ssh.put(self.ssh.source, self.original)
         self.ssh.path("/home").mkdir()
         self.digest = hashlib.sha256(self.original).hexdigest()
         for mocker in (
-            patch.dict(w.RELEASES, {len(self.original): self.digest}),
             patch.object(fonts, "install_user_font_override", side_effect=self.ssh.install),
             patch("rmtool.resource_path", side_effect=lambda *p: Path(__file__).resolve().parents[1].joinpath(*p)),
             patch("_xovi_standalone._operation_lock", return_value=nullcontext()),
@@ -145,21 +151,74 @@ class WenKaiRecoveryTests(unittest.TestCase):
         self.assertEqual(self.ssh.mutations, [])
         self.assertGreater(plan.estimated_reclaim_bytes, 8.22 * 1048576)
         w.apply(self.ssh, w.TARGET, plan)
-        self.assertEqual(self.ssh.mutations, ["backup", "configure", "unlink"])
-        self.assertEqual(self.ssh.path(w.BACKUP).read_bytes(), self.original)
-        self.assertFalse(self.ssh.path(w.SOURCE).exists())
+        self.assertEqual(self.ssh.mutations, ["backup", "record", "configure", "unlink"])
+        self.assertEqual(self.ssh.path(self.ssh.backup).read_bytes(), self.original)
+        self.assertFalse(self.ssh.path(self.ssh.source).exists())
+        self.assertFalse(self.ssh.path(w.PENDING).exists())
         self.assertEqual(self.ssh.early, w.MIRROR)
         self.assertIsNone(self.scan())
 
-    def test_existing_verified_home_preference_keeps_wenkai(self):
-        self.ssh.put(w.BACKUP, self.original)
-        self.ssh.put(fonts.FONTCONFIG_FILE, fonts.fontconfig_override(self.ssh.family, w.BACKUP).encode())
-        self.ssh.active = w.BACKUP
+    def test_existing_verified_home_preference_keeps_custom_font(self):
+        self.ssh.put(self.ssh.backup, self.original)
+        self.ssh.put(fonts.FONTCONFIG_FILE, fonts.fontconfig_override(self.ssh.family, self.ssh.backup).encode())
+        self.ssh.active = self.ssh.backup
         plan = self.scan()
         self.assertEqual(plan.layout, "home")
         w.apply(self.ssh, w.TARGET, plan)
         self.assertEqual(self.ssh.mutations, ["unlink"])
         self.assertFalse(self.ssh.path(w.MIRROR).exists())
+
+    def test_other_families_and_sizes_do_not_require_a_hash_allowlist(self):
+        for name, data in (("Bookerly.ttf", b"A" * 8192), ("思源黑体.OTF", b"B" * 12288),
+                           ("LXGWWenKaiMonoGB-Regular.ttf", b"C" * 16384)):
+            with self.subTest(name=name):
+                self.ssh.source = w.ROOT_FONTS + "/" + name
+                self.ssh.active = self.ssh.source
+                self.ssh.put(self.ssh.source, data)
+                self.ssh.source_stat = f"456:8362:1:{len(data)}:32:0:0:644"
+                plan = self.scan()
+                self.assertEqual((plan.name, plan.digest), (name, hashlib.sha256(data).hexdigest()))
+                self.assertIn(name, plan.description)
+        self.assertFalse(self.ssh.mutations)
+
+    def test_stock_epub_only_and_unselected_fonts_are_not_candidates(self):
+        for path in (w.ROOT_FONTS + "/noto/NotoSans.ttf",
+                     w.ROOT_FONTS + "/ebgaramond/EBGaramond.ttf",
+                     fonts.USER_FONT_REPOSITORY + "/OnlyInEPUB.ttf"):
+            self.ssh.put(path, b"keep")
+            self.ssh.active = path
+            self.assertIsNone(self.scan())
+            self.assertTrue(self.ssh.path(path).exists())
+        self.assertTrue(self.ssh.path(self.ssh.source).exists())
+
+    def test_two_active_custom_fonts_and_invalid_font_metadata_are_not_adopted(self):
+        other = w.ROOT_FONTS + "/Other.ttf"
+        self.ssh.put(other, b"keep")
+        with patch.object(fonts, "_matched_font_path", side_effect=(self.ssh.source, other)):
+            with self.assertRaisesRegex(RuntimeError, "多个"):
+                self.scan()
+        with patch.object(fonts, "_scan_font_family", side_effect=RuntimeError("unreadable font")):
+            with self.assertRaisesRegex(RuntimeError, "unreadable"):
+                self.scan()
+        self.assertFalse(self.ssh.mutations)
+
+    def test_managed_mirror_keeps_its_normal_recovery_even_with_same_named_root_file(self):
+        self.ssh.put(self.ssh.backup, self.original)
+        self.ssh.active = self.ssh.backup
+        self.ssh.put(fonts.SYSTEM_FONTCONFIG_FILE, b"managed separately")
+        self.assertIsNone(self.scan())
+        self.assertFalse(self.ssh.mutations)
+
+    def test_pending_record_cannot_authorize_other_paths_or_different_bytes(self):
+        for name in ("../noto/Stock.ttf", self.ssh.source, fonts.BUNDLED_FALLBACK_FONT_NAME):
+            self.ssh.put(w.PENDING, f"{name}\n{self.ssh.source_stat}\n{self.digest}\n".encode())
+            with self.assertRaisesRegex(RuntimeError, "记录"):
+                self.scan()
+        self.ssh.put(self.ssh.backup, self.original)
+        self.ssh.put(w.PENDING, f"{self.ssh.source.split('/')[-1]}\n{self.ssh.source_stat}\n{'0' * 64}\n".encode())
+        with self.assertRaisesRegex(RuntimeError, "已变化"):
+            self.scan()
+        self.assertFalse(self.ssh.mutations)
 
     def test_failures_keep_source_and_verified_backup_is_reusable(self):
         for failure in ("backup", "install", "early"):
@@ -167,8 +226,8 @@ class WenKaiRecoveryTests(unittest.TestCase):
                 self.ssh.fail = failure
                 with self.assertRaises(RuntimeError):
                     w.apply(self.ssh, w.TARGET, self.scan())
-                self.assertEqual(self.ssh.path(w.SOURCE).read_bytes(), self.original)
-                self.assertEqual(self.ssh.path(w.BACKUP).exists(), failure != "backup")
+                self.assertEqual(self.ssh.path(self.ssh.source).read_bytes(), self.original)
+                self.assertEqual(self.ssh.path(self.ssh.backup).exists(), failure != "backup")
         self.ssh.fail = ""
         self.ssh.early = w.MIRROR
         retry = self.scan()
@@ -180,8 +239,8 @@ class WenKaiRecoveryTests(unittest.TestCase):
         self.ssh.fail = "drift"
         with self.assertRaises(RuntimeError):
             w.apply(self.ssh, w.TARGET, self.scan())
-        self.assertEqual(self.ssh.path(w.SOURCE).read_bytes(), b"changed after verification")
-        self.assertEqual(self.ssh.path(w.BACKUP).read_bytes(), self.original)
+        self.assertEqual(self.ssh.path(self.ssh.source).read_bytes(), b"changed after verification")
+        self.assertEqual(self.ssh.path(self.ssh.backup).read_bytes(), self.original)
         with self.assertRaises(RuntimeError):
             self.scan()
 
@@ -194,24 +253,25 @@ class WenKaiRecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "持久"):
             self.scan()
         self.ssh.mounts = ROOT + "\n" + HOME
-        self.ssh.put(w.BACKUP, b"somebody else's file")
+        self.ssh.put(self.ssh.backup, b"somebody else's file")
         with self.assertRaisesRegex(RuntimeError, "未覆盖"):
             self.scan()
-        self.assertEqual(self.ssh.path(w.BACKUP).read_bytes(), b"somebody else's file")
-        self.ssh.path(w.BACKUP).unlink()
+        self.assertEqual(self.ssh.path(self.ssh.backup).read_bytes(), b"somebody else's file")
+        self.ssh.path(self.ssh.backup).unlink()
         with patch.object(w.storage, "df_free_bytes", return_value=1024), self.assertRaisesRegex(RuntimeError, "空间不足"):
             w.apply(self.ssh, w.TARGET, self.scan())
         self.assertEqual(self.ssh.mutations, [])
 
-    def test_same_filename_and_size_are_not_proof_and_hardlinks_are_rejected(self):
+    def test_changed_content_after_scan_and_hardlinks_are_rejected(self):
         self.ssh.source_stat = self.ssh.source_stat.replace(":8362:1:", ":8362:2:")
         with self.assertRaisesRegex(RuntimeError, "硬链接"):
             self.scan()
         self.ssh.source_stat = self.ssh.source_stat.replace(":8362:2:", ":8362:1:")
-        with self.ssh.path(w.SOURCE).open("r+b") as stream:
+        plan = self.scan()
+        with self.ssh.path(self.ssh.source).open("r+b") as stream:
             stream.write(b"y")
-        with self.assertRaisesRegex(RuntimeError, "上游字体不一致"):
-            self.scan()
+        with self.assertRaisesRegex(RuntimeError, "已变化"):
+            w.apply(self.ssh, w.TARGET, plan)
         self.assertEqual(self.ssh.mutations, [])
 
     def test_capacity_plan_binds_source_even_if_required_bytes_unchanged(self):
@@ -232,7 +292,7 @@ class WenKaiRecoveryTests(unittest.TestCase):
                 patch.object(recovery, "_run_preflight", side_effect=(error, error, "qr")), \
                 patch.object(recovery, "_run_original") as install:
             plan = recovery.scan(self.ssh, intent)
-            self.assertIsInstance(plan.home_only, w.WenKaiPlan)
+            self.assertIsInstance(plan.home_only, w.CustomFontPlan)
             # Simulate xochitl still holding the unlinked inode.
             result = recovery.execute(self.ssh, plan)
         self.assertEqual(result.state, "insufficient")

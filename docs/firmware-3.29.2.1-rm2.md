@@ -40,6 +40,12 @@ firmware write, home/data font and startup-protection rules are unchanged.
 
 ## Clean-install capacity
 
+The stock ext4 directory listing has only two entries directly under
+`/usr/share/fonts/ttf`: the directories `ebgaramond` and `noto`.
+Root-font recovery considers only an active custom TTF/OTF file directly
+in that directory on this exact firmware. It does not scan the stock
+subdirectories or use a family-name or upstream font hash allowlist.
+
 Replaying the reported RM2's read-only capacity probe with rmtool gives
 18.67 MiB of privileged usable space before the 8 MiB safety reserve.
 There is no existing verified Xovi runtime to reuse. Each row is a separate

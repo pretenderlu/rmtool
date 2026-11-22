@@ -9,7 +9,7 @@ import json
 from typing import Optional
 
 import _device_storage as storage
-import _recovery_wenkai as wenkai
+import _recovery_custom_font as custom_font
 import _rmkit_cn
 import _tap_page_turn as tap
 
@@ -127,7 +127,7 @@ def _json_default(value):
 
 def _fingerprint(intent, capacity, home_only, enable_plan) -> str:
     package_id = getattr(intent.package, "package_id", "")
-    external = isinstance(home_only, wenkai.WenKaiPlan)
+    external = isinstance(home_only, custom_font.CustomFontPlan)
     snapshot = home_only.snapshot if isinstance(home_only, HomeOnlyFontPlan) else None
     value = {
         "device": intent.device,
@@ -135,7 +135,7 @@ def _fingerprint(intent, capacity, home_only, enable_plan) -> str:
         "package_id": package_id,
         "partition": capacity.partition,
         "required": capacity.required,
-        "wenkai": asdict(home_only) if external else None,
+        "custom_font": asdict(home_only) if external else None,
         "enable_plan": asdict(enable_plan) if is_dataclass(enable_plan) else enable_plan,
         "home_only": None if snapshot is None else {
             "remote_path": snapshot.remote_path,
@@ -161,7 +161,7 @@ def _fingerprint(intent, capacity, home_only, enable_plan) -> str:
 class CapacityPlan:
     intent: OriginalIntent
     capacity: CapacityContext
-    home_only: HomeOnlyFontPlan | wenkai.WenKaiPlan | None
+    home_only: HomeOnlyFontPlan | custom_font.CustomFontPlan | None
     enable_plan: object
     fingerprint: str = field(init=False)
 
@@ -274,10 +274,10 @@ def scan(ssh_client, intent: OriginalIntent) -> CapacityPlan | CapacityResult:
     if enable_plan is None:
         return CapacityResult("preflight_failed", "无法确认完整共享安装目标，已停止。", context)
     try:
-        external = wenkai.inspect(ssh_client, intent.device) if context.partition == "/" else None
+        external = custom_font.inspect(ssh_client, intent.device) if context.partition == "/" else None
         if external is not None:
             if external.estimated_reclaim_bytes < context.shortfall:
-                return CapacityResult("no_candidate", "迁移文楷后预计空间仍不足，保留原件。", context)
+                return CapacityResult("no_candidate", "迁移自定义字体后预计空间仍不足，保留原件。", context)
             return CapacityPlan(intent, context, external, enable_plan)
         snapshot = _rmkit_cn.inspect_home_only_font(ssh_client)
         refusal = _font_reclaim_refusal(ssh_client, context, snapshot)
@@ -306,7 +306,7 @@ def execute(ssh_client, plan: CapacityPlan) -> CapacityResult:
             return CapacityResult("preflight_failed", f"原安装预检未通过：{error}")
         if plan.home_only is None or not _matches_plan(plan, context, enable_plan):
             return CapacityResult("state_drift", "共享安装目标已变化，请重新检测。", context)
-        external = isinstance(plan.home_only, wenkai.WenKaiPlan)
+        external = isinstance(plan.home_only, custom_font.CustomFontPlan)
         if not external:
             try:
                 snapshot = _rmkit_cn.inspect_home_only_font(ssh_client)
@@ -318,10 +318,10 @@ def execute(ssh_client, plan: CapacityPlan) -> CapacityResult:
             except Exception as exc:
                 return CapacityResult("state_drift", str(exc), context)
         elif plan.home_only.estimated_reclaim_bytes < context.shortfall:
-            return CapacityResult("no_candidate", "空间缺口已变化，未迁移文楷。", context)
+            return CapacityResult("no_candidate", "空间缺口已变化，未迁移自定义字体。", context)
         try:
             if external:
-                wenkai.apply(ssh_client, plan.intent.device, plan.home_only)
+                custom_font.apply(ssh_client, plan.intent.device, plan.home_only)
             else:
                 _rmkit_cn.set_active_user_font(
                     ssh_client,

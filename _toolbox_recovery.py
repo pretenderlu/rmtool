@@ -23,6 +23,7 @@ class CapacityRecoverySection(QtWidgets.QWidget):
         self.status_label = _ui.ToolboxStatusLabel(
             "选择要检查的功能，或从对应的容量错误进入。"
         )
+        self.status_label.setTextFormat(QtCore.Qt.PlainText)
         self.status_label.setWordWrap(True)
         self.capacity_label = QtWidgets.QLabel()
         self.capacity_label.setWordWrap(True)
