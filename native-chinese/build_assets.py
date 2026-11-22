@@ -48,6 +48,7 @@ QMD_VARIANTS = {
     ),
 }
 CATALOG_PATHS = {
+    ("rm2", "3.29.2.1"): REPO_ROOT / "translations/reMarkable_zh_CN-3.29.1.0-rm2.qm",
     ("ferrari", "3.30.0.108"): REPO_ROOT / "translations/reMarkable_zh_CN-3.30.0.108-ferrari-sha256-a03c4f5915e10a583c610c62a9ed4ee5a4efb2d82eb57d8881a63aab25eb012a.qm",
     ("chiappa", "3.30.0.108"): REPO_ROOT / "translations/reMarkable_zh_CN-3.30.0.108-chiappa-sha256-ef081995f4966e87300aba3c6b9f2de09fa65e18ef612efc165f7e580292881b.qm",
     ("tatsu", "3.30.0.108"): REPO_ROOT / "translations/reMarkable_zh_CN-3.30.0.108-tatsu-sha256-ef081995f4966e87300aba3c6b9f2de09fa65e18ef612efc165f7e580292881b.qm",
@@ -111,7 +112,7 @@ def _variant(package: tap.TapPageTurnPackage | str) -> str:
     platform = None if isinstance(package, str) else package.platform
     if release_version in ("3.30.0.108", "3.30.0.109"):
         return "3.30"
-    if release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0"):
+    if release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0", "3.29.2.1"):
         return "3.29"
     if release_version == "3.28.0.166" or (
         release_version == "3.28.0.172"

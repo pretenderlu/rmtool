@@ -74,6 +74,7 @@ def main():
     parser.add_argument("--receiver", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    args.qt_host = args.qt_host.resolve()
     hashtab = args.target / "hashtab"
     record = json.loads((args.identity or args.target / "identity.json").read_text(encoding="utf-8"))
     identity = tap.DeviceIdentity(*(record[k] for k in ("firmware", "platform", "architecture", "xochitl_sha256")))

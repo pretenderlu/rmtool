@@ -42,6 +42,9 @@ TARGETS_BY_RELEASE = {
         'rm1': ('armv7l', '215d43ec9d72dd296e729b0d18dea4bdd8946c6f9c8e8e1b4bcbf7278c624a5f', '2bc210bd4e05b709ea15d7e4f357b816505a40fb1838c02f6b60040ea3c87690'),
         'rm2': ('armv7l', '7a0af4173d90bae0adf0c5a9e94e7eaf5e86cf741e38bdbec4e3788315c9da6f', '4ab39bdf42503fe8d9e10a31a415b28b9aed6f25bd32788226c02ee23879fd13'),
     },
+    '3.29.2.1': {
+        'rm2': ('armv7l', 'e0e5c17c0ba8af673265d937085cb40a8e1391b363a2d02261008e54d5be28c7', 'dec257e07b443685a612a058119a88ede6dcba5365b81e265180785851ada6cc'),
+    },
     '3.30.0.108': {
         'ferrari': ('aarch64', '5cd2c255d7e712d2d4a52d215ab8d7c44ef5856480478ada1ddff69c49c05d55', '31d33b05e85af85b06a5a92edf710532a0a122ed4cf51e702c19eed0feb6753b'),
         'chiappa': ('aarch64', '40ba6de1eadf51281db714db9096aafbf96ec0c86eeb9ef92f1c7c1ffc031390', 'a9a9c4f01902c30ddc16260d1ac6ef0f7938b7f1094dbb0bb0b78f474c5b17bf'),
@@ -56,6 +59,7 @@ FIRMWARE_BY_RELEASE = {
     '3.29.0.152': FIRMWARE,
     '3.29.0.153': FIRMWARE,
     '3.29.1.0': '20261028104944',
+    '3.29.2.1': '20261110104847',
     '3.30.0.108': '20261028121323',
     '3.30.0.109': '20261028121323',
 }
@@ -63,6 +67,7 @@ CHANNEL_BY_RELEASE = {
     '3.29.0.152': 'beta',
     '3.29.0.153': 'beta',
     '3.29.1.0': 'stable',
+    '3.29.2.1': 'stable',
     '3.30.0.108': 'beta',
     '3.30.0.109': 'beta',
 }
@@ -296,7 +301,7 @@ def main():
             # New targets are not registered yet; verify predecessor archives below.
             catalog = json.loads((ROOT / feature / 'manifest.json').read_text(encoding='utf-8'))
             packages = [base_builder._package(p) for p in catalog['packages']]
-            predecessor = '3.29.1.0' if release.startswith('3.30.') else '3.28.0.172'
+            predecessor = '3.29.1.0' if release == '3.29.2.1' or release.startswith('3.30.') else '3.28.0.172'
             previous = [p for p in packages if p.platform == platform and p.release_version == predecessor]
             if len(previous) != 1:
                 raise RuntimeError(f'Missing unique predecessor: {feature}/{platform}')
@@ -353,6 +358,8 @@ def main():
                     merged = temp / 'merged.ts'
                     if release.startswith('3.30.'):
                         supplements = [ROOT / 'translations/reMarkable_zh_CN_3_30_supplement.ts']
+                    elif release == '3.29.2.1':
+                        supplements = []
                     else:
                         supplements = [ROOT / 'translations/reMarkable_zh_CN_3_29_0_152_supplement.ts']
                         if release in ('3.29.0.153', '3.29.1.0'):

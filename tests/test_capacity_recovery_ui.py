@@ -115,22 +115,19 @@ class CapacityRecoveryUiTests(unittest.TestCase):
     def queue_execute(self):
         self.scan()
         self.pool.reset_mock()
-        self.section.home_only_checkbox.setChecked(True)
-        with mock.patch.object(toolbox_common, "ask_confirmation", return_value=True):
+        with mock.patch.object(toolbox_common, "ask_confirmation", return_value=True) as confirm:
             self.section._execute()
+        confirm.assert_called_once()
         return self.pool.start.call_args.args[0]
 
-    def test_error_entry_is_single_scan_and_candidate_defaults_unselected(self):
+    def test_error_entry_is_single_read_only_scan_with_one_confirmation(self):
         self.scan()
-        self.assertTrue(self.section.home_only_checkbox.isVisibleTo(self.section))
-        self.assertFalse(self.section.home_only_checkbox.isChecked())
-        self.assertFalse(self.section.execute_button.isEnabled())
-        self.assertIn("锁屏用默认字体", self.section.home_only_checkbox.text())
+        self.assertTrue(self.section.execute_button.isEnabled())
+        self.assertIn(self.plan.home_only.description, self.section.status_label.text())
 
     def test_cancel_and_confirmation_drift_start_no_worker(self):
         self.scan()
         self.pool.reset_mock()
-        self.section.home_only_checkbox.setChecked(True)
         with mock.patch.object(
             toolbox_common, "ask_confirmation", return_value=False
         ) as confirm:
@@ -222,7 +219,6 @@ class CapacityRecoveryUiTests(unittest.TestCase):
         self.assertIsNot(self.section._intent, self.intent)
 
         self.pool.reset_mock()
-        self.section.home_only_checkbox.setChecked(True)
         with mock.patch.object(toolbox_common, "ask_confirmation", return_value=True), \
                 mock.patch.object(recovery, "execute") as execute:
             self.section._execute()
@@ -361,7 +357,6 @@ class CapacityRecoveryUiTests(unittest.TestCase):
         self.assertIs(show.call_args.kwargs["recovery_intent"], self.intent)
 
     def test_compact_and_high_scale_layouts_keep_actions_inside_viewport(self):
-        self.section.home_only_checkbox.setVisible(True)
         self.section.show()
         self.addCleanup(self.section.hide)
         for width, height, scale in ((1024, 640, 1), (740, 600, 1), (740, 600, 2)):
@@ -374,7 +369,6 @@ class CapacityRecoveryUiTests(unittest.TestCase):
                 QtWidgets.QApplication.processEvents()
                 self.assertLessEqual(self.section.minimumSizeHint().width(), width)
                 for widget in (
-                    self.section.home_only_checkbox,
                     self.section.detect_button,
                     self.section.execute_button,
                     self.section.diagnostics_button,

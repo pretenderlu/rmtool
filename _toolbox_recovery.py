@@ -29,13 +29,8 @@ class CapacityRecoverySection(QtWidgets.QWidget):
         self.feature_combo = QtWidgets.QComboBox()
         self.feature_combo.addItem("拼音输入法", "pinyin-input")
         self.feature_combo.addItem("扫码传输", "qr-upload")
-        self.home_only_checkbox = QtWidgets.QCheckBox(
-            "解锁后保留当前字体，锁屏用默认字体"
-        )
-        self.home_only_checkbox.setChecked(False)
-        self.home_only_checkbox.setVisible(False)
         self.detect_button = QtWidgets.QPushButton("开始检测")
-        self.execute_button = QtWidgets.QPushButton("确认字体取舍并继续原安装")
+        self.execute_button = QtWidgets.QPushButton("修复空间并继续安装")
         self.diagnostics_button = QtWidgets.QPushButton("保存诊断包并反馈")
 
         layout = QtWidgets.QVBoxLayout(self)
@@ -43,7 +38,6 @@ class CapacityRecoverySection(QtWidgets.QWidget):
         layout.addWidget(self.status_label)
         layout.addWidget(self.capacity_label)
         layout.addWidget(self.feature_combo)
-        layout.addWidget(self.home_only_checkbox)
         layout.addWidget(self.detect_button)
         layout.addWidget(self.execute_button)
         layout.addWidget(self.diagnostics_button)
@@ -52,7 +46,6 @@ class CapacityRecoverySection(QtWidgets.QWidget):
         self.detect_button.clicked.connect(self._start_scan)
         self.execute_button.clicked.connect(self._execute)
         self.diagnostics_button.clicked.connect(self._show_diagnostics)
-        self.home_only_checkbox.toggled.connect(self._update_buttons)
         self.feature_combo.currentIndexChanged.connect(self._feature_changed)
         self.ssh_client.connection_changed.connect(self._on_connection_changed)
         self._update_buttons()
@@ -100,15 +93,12 @@ class CapacityRecoverySection(QtWidgets.QWidget):
             self._current_intent()
             and not self._busy
             and self._plan is not None
-            and self.home_only_checkbox.isChecked()
         )
 
     def _feature_changed(self):
         self._intent = None
         self._plan = None
         self._status = None
-        self.home_only_checkbox.setChecked(False)
-        self.home_only_checkbox.setVisible(False)
         self.capacity_label.clear()
         self._update_buttons()
 
@@ -121,8 +111,6 @@ class CapacityRecoverySection(QtWidgets.QWidget):
         self._status = None
         context = recovery.capacity_context(error)
         self.capacity_label.setText(self._capacity_text(context))
-        self.home_only_checkbox.setChecked(False)
-        self.home_only_checkbox.setVisible(False)
         self.status_label.setText("正在重新检查空间与可安全处理的字体选项…")
         self._update_buttons()
         if self._current_intent():
@@ -136,8 +124,6 @@ class CapacityRecoverySection(QtWidgets.QWidget):
         if not self._current_intent():
             return self._start_fresh_intent()
         self._plan = None
-        self.home_only_checkbox.setChecked(False)
-        self.home_only_checkbox.setVisible(False)
         return _ui.start_plugin_worker(
             self,
             recovery.scan,
@@ -150,8 +136,6 @@ class CapacityRecoverySection(QtWidgets.QWidget):
     def _start_fresh_intent(self):
         self._plan = None
         self._fresh_ready = False
-        self.home_only_checkbox.setChecked(False)
-        self.home_only_checkbox.setVisible(False)
         return _ui.start_plugin_worker(
             self,
             recovery.fresh_intent,
@@ -176,32 +160,27 @@ class CapacityRecoverySection(QtWidgets.QWidget):
 
     def _apply_scan(self, result):
         self._plan = None
-        self.home_only_checkbox.setChecked(False)
         if isinstance(result, recovery.CapacityPlan):
             self._plan = result
             self.capacity_label.setText(self._capacity_text(result.capacity))
             self.status_label.setText(
-                f"继续安装“{result.intent.feature_label}”前，可选择仅保留 home 字体。"
-                "该操作会移除 rmtool 的锁屏字体镜像；书籍、文档和其他设置不会被删除。"
+                f"继续安装“{result.intent.feature_label}”前：{result.home_only.description}"
             )
-            self.home_only_checkbox.setVisible(True)
         else:
             self._status = result
             self.status_label.setText(result.detail)
             self.capacity_label.setText(self._capacity_text(result.capacity))
-            self.home_only_checkbox.setVisible(False)
         self._update_buttons()
 
     def _execute(self):
         plan = self._plan
-        if plan is None or not self.home_only_checkbox.isChecked() or not self._current_intent():
+        if plan is None or self._busy or not self._current_intent():
             return
         if not _ui.ask_confirmation(
             self,
             _rmtool.APP_NAME,
-            "将保留解锁后的当前字体，但密码锁屏界面改用默认字体。"
-            "随后重新检查空间，只有满足原安装要求才继续；不会自动重启设备。是否继续？",
-            confirm_text="确认锁屏取舍并继续",
+            plan.home_only.description + "不会删除书籍、更改密码或自动重启；实测空间足够才继续安装。",
+            confirm_text="确认修复并继续",
             cancel_text="取消",
             danger=True,
         ):
@@ -223,8 +202,6 @@ class CapacityRecoverySection(QtWidgets.QWidget):
     def _apply_result(self, result):
         self._status = result
         self._plan = None
-        self.home_only_checkbox.setChecked(False)
-        self.home_only_checkbox.setVisible(False)
         self.status_label.setText(result.detail)
         self.capacity_label.setText(self._result_capacity_text(result))
         self._update_buttons()
@@ -237,8 +214,6 @@ class CapacityRecoverySection(QtWidgets.QWidget):
 
     def _on_connection_changed(self, _connected):
         self._plan = None
-        self.home_only_checkbox.setChecked(False)
-        self.home_only_checkbox.setVisible(False)
         if self._status is not None and self._status.state == "deployed":
             self._update_buttons()
             return

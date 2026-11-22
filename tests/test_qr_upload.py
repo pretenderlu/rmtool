@@ -56,7 +56,7 @@ class QrUploadTests(unittest.TestCase):
         self.runtime, self.trusted, self.legacies, self.feature = qr._context(self.identity, p)
 
     def test_manifest_and_shared_peers_are_exact(self):
-        self.assertEqual(len(self.catalog), 16)
+        self.assertEqual(len(self.catalog), 17)
         self.assertEqual(self.package.platform, "chiappa")
         self.assertEqual(self.package.release_version, "3.28.0.172")
         self.assertFalse(self.package.device_verified)

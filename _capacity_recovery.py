@@ -9,6 +9,7 @@ import json
 from typing import Optional
 
 import _device_storage as storage
+import _recovery_wenkai as wenkai
 import _rmkit_cn
 import _tap_page_turn as tap
 
@@ -113,6 +114,10 @@ class HomeOnlyFontPlan:
     def estimated_reclaim_bytes(self) -> int:
         return self.snapshot.size
 
+    @property
+    def description(self):
+        return "保留解锁后的当前字体；移除已验证的 rmtool 镜像，密码锁屏界面改用默认字体。"
+
 
 def _json_default(value):
     if isinstance(value, frozenset):
@@ -122,13 +127,15 @@ def _json_default(value):
 
 def _fingerprint(intent, capacity, home_only, enable_plan) -> str:
     package_id = getattr(intent.package, "package_id", "")
-    snapshot = home_only.snapshot if home_only is not None else None
+    external = isinstance(home_only, wenkai.WenKaiPlan)
+    snapshot = home_only.snapshot if isinstance(home_only, HomeOnlyFontPlan) else None
     value = {
         "device": intent.device,
         "feature_id": intent.feature_id,
         "package_id": package_id,
         "partition": capacity.partition,
         "required": capacity.required,
+        "wenkai": asdict(home_only) if external else None,
         "enable_plan": asdict(enable_plan) if is_dataclass(enable_plan) else enable_plan,
         "home_only": None if snapshot is None else {
             "remote_path": snapshot.remote_path,
@@ -154,7 +161,7 @@ def _fingerprint(intent, capacity, home_only, enable_plan) -> str:
 class CapacityPlan:
     intent: OriginalIntent
     capacity: CapacityContext
-    home_only: Optional[HomeOnlyFontPlan]
+    home_only: HomeOnlyFontPlan | wenkai.WenKaiPlan | None
     enable_plan: object
     fingerprint: str = field(init=False)
 
@@ -267,6 +274,11 @@ def scan(ssh_client, intent: OriginalIntent) -> CapacityPlan | CapacityResult:
     if enable_plan is None:
         return CapacityResult("preflight_failed", "无法确认完整共享安装目标，已停止。", context)
     try:
+        external = wenkai.inspect(ssh_client, intent.device) if context.partition == "/" else None
+        if external is not None:
+            if external.estimated_reclaim_bytes < context.shortfall:
+                return CapacityResult("no_candidate", "迁移文楷后预计空间仍不足，保留原件。", context)
+            return CapacityPlan(intent, context, external, enable_plan)
         snapshot = _rmkit_cn.inspect_home_only_font(ssh_client)
         refusal = _font_reclaim_refusal(ssh_client, context, snapshot)
         if refusal:
@@ -274,7 +286,7 @@ def scan(ssh_client, intent: OriginalIntent) -> CapacityPlan | CapacityResult:
     except Exception as exc:
         return CapacityResult(
             "no_candidate",
-            f"没有找到可安全处理的 home-only 字体候选：{exc}",
+            f"没有找到可安全迁移的字体：{exc}",
             context,
         )
     return CapacityPlan(intent, context, HomeOnlyFontPlan(snapshot), enable_plan)
@@ -294,27 +306,34 @@ def execute(ssh_client, plan: CapacityPlan) -> CapacityResult:
             return CapacityResult("preflight_failed", f"原安装预检未通过：{error}")
         if plan.home_only is None or not _matches_plan(plan, context, enable_plan):
             return CapacityResult("state_drift", "共享安装目标已变化，请重新检测。", context)
+        external = isinstance(plan.home_only, wenkai.WenKaiPlan)
+        if not external:
+            try:
+                snapshot = _rmkit_cn.inspect_home_only_font(ssh_client)
+                if snapshot != plan.home_only.snapshot:
+                    raise RuntimeError("字体状态已变化，请重新检测。")
+                refusal = _font_reclaim_refusal(ssh_client, context, snapshot)
+                if refusal:
+                    return CapacityResult("no_candidate", refusal, context)
+            except Exception as exc:
+                return CapacityResult("state_drift", str(exc), context)
+        elif plan.home_only.estimated_reclaim_bytes < context.shortfall:
+            return CapacityResult("no_candidate", "空间缺口已变化，未迁移文楷。", context)
         try:
-            snapshot = _rmkit_cn.inspect_home_only_font(ssh_client)
-            if snapshot != plan.home_only.snapshot:
-                raise RuntimeError("字体状态已变化，请重新检测。")
-            refusal = _font_reclaim_refusal(ssh_client, context, snapshot)
-            if refusal:
-                return CapacityResult("no_candidate", refusal, context)
-        except Exception as exc:
-            return CapacityResult("state_drift", str(exc), context)
-        try:
-            _rmkit_cn.set_active_user_font(
-                ssh_client,
-                plan.home_only.snapshot.remote_dir,
-                plan.home_only.snapshot.filename,
-                False,
-                expected_home_only=plan.home_only.snapshot,
-            )
+            if external:
+                wenkai.apply(ssh_client, plan.intent.device, plan.home_only)
+            else:
+                _rmkit_cn.set_active_user_font(
+                    ssh_client,
+                    plan.home_only.snapshot.remote_dir,
+                    plan.home_only.snapshot.filename,
+                    False,
+                    expected_home_only=plan.home_only.snapshot,
+                )
         except Exception as exc:
             return CapacityResult(
                 "cleanup_failed",
-                f"home-only 字体事务失败，未继续原安装：{exc}",
+                f"字体迁移未完成，未继续原安装：{exc}",
                 context,
             )
         context, error, enable_plan = _preflight_result(plan.intent)
@@ -326,7 +345,7 @@ def execute(ssh_client, plan: CapacityPlan) -> CapacityResult:
                     )
                 return _post_cleanup_result(
                     "insufficient",
-                    "字体布局已调整，但空间仍不足；没有更多候选，未继续原安装。",
+                    "字体布局已调整，但实测空间仍不足，未继续安装。旧字体可能仍被阅读界面占用，请保存文档并手动重启后再检测。",
                     plan,
                     context,
                 )
@@ -344,6 +363,8 @@ def execute(ssh_client, plan: CapacityPlan) -> CapacityResult:
             return _post_cleanup_result(
                 "state_drift", f"清理后无法重新确认实际容量：{exc}", plan, None
             )
+        if after.shortfall:
+            return _post_cleanup_result("insufficient", "实测空间不足，未继续安装。", plan, after)
         if not _matches_plan(plan, plan.capacity, enable_plan):
             return _post_cleanup_result(
                 "state_drift", "清理后共享安装目标已变化，未继续原安装。", plan, after

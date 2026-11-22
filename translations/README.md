@@ -25,6 +25,12 @@ stock-translation checks passed; hardware acceptance remains separate. See the
 [stable adaptation report](../docs/firmware-3.29.1.0.md) and
 [legacy-device report](../docs/firmware-3.29.1.0-legacy.md).
 
+RM2 stable `3.29.2.1` has its own exact carrier record for build
+`20261110104847`. Its four stock Qt catalogs match 3.29.1.0 byte-for-byte, and
+recompilation after checking the new QML identities yields the same Chinese
+catalog. The French carrier remains read-only. See the
+[RM2 adaptation report](../docs/firmware-3.29.2.1-rm2.md).
+
 Beta `3.30.0.108` (Paper Pro/Move/Pure and RM1) and `3.30.0.109` (RM2)
 use build `20261028121323`. The supplement covers 96 exact stock and embedded
 QML identities. Each platform has its own stock French fingerprint and

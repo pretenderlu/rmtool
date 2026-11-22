@@ -354,6 +354,16 @@
         }
       ]
     },
+    "20261110104847": {
+      "platform": "rm2",
+      "release_version": "3.29.2.1",
+      "channel": "stable",
+      "asset": "reMarkable_zh_CN-3.29.1.0-rm2.qm",
+      "size": 223398,
+      "sha256": "0897282056ec44dd45bfa95da54d5d168379e9863274cc4cbcf021a54c18c18c",
+      "xochitl_sha256": "dec257e07b443685a612a058119a88ede6dcba5365b81e265180785851ada6cc",
+      "stock_french_sha256": "a7a096cd6b3ba3fc248a4926c2277ab7f0ba2bab38b25615e84f6051f49575ea"
+    },
     "20261028121323": {
       "platform": "ferrari",
       "release_version": "3.30.0.108",

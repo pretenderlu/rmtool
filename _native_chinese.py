@@ -71,6 +71,7 @@ CHIAPPA_169_IDENTITY = (
 # Kept for callers/tests that use the first exact target as a fixture.
 SUPPORTED_IDENTITY = FERRARI_166_IDENTITY
 ALLOWED_TARGETS = {
+    ("20261110104847", "rm2", "armv7l", "dec257e07b443685a612a058119a88ede6dcba5365b81e265180785851ada6cc"): ("3.29.2.1", "stable", True, False),
     ("20261028121323", "ferrari", "aarch64", "31d33b05e85af85b06a5a92edf710532a0a122ed4cf51e702c19eed0feb6753b"): ("3.30.0.108", "beta", True, False),
     ("20261028121323", "chiappa", "aarch64", "a9a9c4f01902c30ddc16260d1ac6ef0f7938b7f1094dbb0bb0b78f474c5b17bf"): ("3.30.0.108", "beta", True, False),
     ("20261028121323", "tatsu", "aarch64", "ceb3c74c64081289c53ff3573d7228489e1d890c69c05ad610e650e5dc5b8b2e"): ("3.30.0.108", "beta", True, False),

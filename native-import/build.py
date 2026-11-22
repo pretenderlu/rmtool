@@ -81,7 +81,7 @@ def build_bridge(args, architecture, output):
 
 
 def stock_libraries(args, platform, release, output):
-    channel = "official" if release in ("3.28.0.172", "3.29.1.0") else "official-beta"
+    channel = "official" if release in ("3.28.0.172", "3.29.1.0", "3.29.2.1") else "official-beta"
     cache = args.firmware_cache / channel / release / platform
     record = json.loads((cache / "download.json").read_text(encoding="utf-8"))
     image = (cache / record["filename"]).read_bytes()
@@ -133,7 +133,7 @@ def check_bridge(bridge, libraries, architecture, ELFFile):
 
 
 def resource_root(args, platform, firmware, release):
-    if release in ("3.29.0.153", "3.29.1.0", "3.30.0.108", "3.30.0.109"):
+    if release in ("3.29.0.153", "3.29.1.0", "3.29.2.1", "3.30.0.108", "3.30.0.109"):
         versioned = args.beta_resources / ("beta-" + release) / platform
         if versioned.is_dir():
             return versioned

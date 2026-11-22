@@ -544,12 +544,16 @@ class ResidueMigrationTests(unittest.TestCase):
                 "native-chinese", "pinyin-input", "reading-enhancements",
                 "note-enhancements", "qr-upload", "native-import", "weread-launcher",
             }),
+            ("3.29.1.0", "3.29.2.1", set(), {
+                "native-chinese", "pinyin-input", "tap-page-turn", "qr-upload", "native-import",
+            }),
         )
         for old_release, new_release, skipped, kept in cases:
             for failure in (None, "verify", "stage", "transaction"):
                 with self.subTest(target=new_release, failure=failure), ExitStack() as stack:
-                    old = _identity_for(old_release)
-                    new = _identity_for(new_release)
+                    platform = "rm2" if new_release == "3.29.2.1" else "chiappa"
+                    old = _identity_for(old_release, platform)
+                    new = _identity_for(new_release, platform)
                     old_runtime, old_trusted, _ = tap._trusted_shared_context(old)
                     new_runtime, new_trusted, _ = tap._trusted_shared_context(new)
                     residue = shared.SharedInspection({

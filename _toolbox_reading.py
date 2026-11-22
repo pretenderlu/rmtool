@@ -555,7 +555,7 @@ class QrUploadSection(ReadingEnhancementsSection):
             installer=_install_qr_upload, cleaner=_qr_upload.cleanup_legacy,
             feature_name="扫码传输",
             description="同一可信 Wi-Fi 下接收手机发送的 PDF / EPUB，单个文件最多 200 MB。"
-                "传输未加密，更大文件推荐使用 USB。支持五款设备的 3.29.1.0 和已适配的 3.29 / 3.30 测试版，以及 Paper Pro Move 3.28.0.172。",
+                "传输未加密，更大文件推荐使用 USB。固件支持以设备检测结果为准。",
             explanation="安装后手动重启设备，在“设置 > 扫码传输”开启接收。手机与设备须连接同一可信 Wi-Fi；"
                 "接收时不需要电脑、rmtool 或 USB 连接。停止接收或退出页面后链接失效。"
                 "RM1 / RM2 未安装中文字体时，请先通过“原生简体中文”准备内置兜底字体，或设置自定义中文系统字体。"

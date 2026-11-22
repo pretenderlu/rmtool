@@ -11,7 +11,7 @@ library writes, SFTP fallback, automatic retry, or upload-triggered restart.
 | Device | Stable firmware | Beta firmware | Architecture |
 | --- | --- | --- | --- |
 | reMarkable 1 | 3.28.0.172, 3.29.1.0 | 3.29.0.153, 3.30.0.108 | ARMv7 |
-| reMarkable 2 | 3.28.0.172, 3.29.1.0 | 3.29.0.153, 3.30.0.109 | ARMv7 |
+| reMarkable 2 | 3.28.0.172, 3.29.1.0, 3.29.2.1 | 3.29.0.153, 3.30.0.109 | ARMv7 |
 | Paper Pure | 3.28.0.172, 3.29.1.0 | 3.29.0.153, 3.30.0.108 | AArch64 |
 | Paper Pro | 3.28.0.172, 3.29.1.0 | 3.29.0.153, 3.30.0.108 | AArch64 |
 | Paper Pro Move | 3.28.0.172, 3.29.1.0 | 3.29.0.153, 3.30.0.108 | AArch64 |
@@ -62,8 +62,8 @@ Use `build.py --help` for explicit Go, Zig, Qt moc, qmd-tool, qmldiff, 7-Zip and
 cached firmware/resource paths. Output must remain under the repository's
 `build/` directory. The builder verifies cached SWU bytes, exact xochitl/build
 identities, native web-upload framing, stock network prefixes, all strong ELF
-imports, architecture and QMD/hashtab replay. Stable .172 uses `/27`; beta .153
-uses `/29`. Existing `/27` or `/29` addresses are never replaced.
+imports, architecture and QMD/hashtab replay. Stable .172 uses `/27`; .153 and the
+supported later builds use `/29`. Existing `/27` or `/29` addresses are never replaced.
 
 `--beta-resources` points to the version directory containing one resource tree
 per platform. Where no exact localization carrier exists, only the previously
@@ -71,7 +71,7 @@ verified architecture-matched .152 shared core is reused; its ELF imports are
 checked against the new stock libraries and its hashtab is replaced by the
 new firmware's own provenance-checked resource map. No language plugin is installed.
 
-The complete ten-target manifest is written only after all checks succeed and
+The manifest is written only after all checks succeed and
 the archives are imported into normal local caches. Nothing is published or
 deployed by this build. Repeat it and compare manifest/archive hashes before
 publication. Windows/macOS packaging includes only the manifest, not payloads.

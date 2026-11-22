@@ -177,7 +177,7 @@ def _strip_highlighter(source: str) -> str:
 
 
 def _tap_source_for_release(text: str, release_version: str) -> str:
-    if release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0", "3.30.0.108", "3.30.0.109"):
+    if release_version in ("3.29.0.152", "3.29.0.153", "3.29.1.0", "3.29.2.1", "3.30.0.108", "3.30.0.109"):
         # DeviceSceneView now forwards the same signals used by stock swipes.
         for old, new in (("moveBackward", "leftPageRequested"),
                          ("moveForward", "rightPageRequested")):

@@ -48,20 +48,21 @@ BETA_329_COLOR_TARGETS = {(platform, release) for platform in COLOR_PLATFORMS
                           for release in ("3.29.0.152", "3.29.0.153")}
 STABLE_32910_COLOR_TARGETS = {(platform, "3.29.1.0") for platform in COLOR_PLATFORMS}
 STABLE_32910_MONO_TARGETS = {(platform, "3.29.1.0") for platform in MONO_PLATFORMS}
+STABLE_32921_TARGETS = {("rm2", "3.29.2.1")}
 BETA_330_COLOR_TARGETS = {(platform, "3.30.0.108") for platform in COLOR_PLATFORMS}
 BETA_330_TARGETS = BETA_330_COLOR_TARGETS | {("tatsu", "3.30.0.108"), ("rm1", "3.30.0.108"), ("rm2", "3.30.0.109")}
 EXPECTED_COVERAGE = {
-    "tap-page-turn": COLOR_TARGETS | MONO_TARGETS | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS | BETA_330_TARGETS,
+    "tap-page-turn": COLOR_TARGETS | MONO_TARGETS | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS | STABLE_32921_TARGETS | BETA_330_TARGETS,
     "fast-mono-reading": COLOR_TARGETS,
-    "native-chinese": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS} | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS | BETA_330_TARGETS,
-    "pinyin-input": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS} | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS | BETA_330_TARGETS,
+    "native-chinese": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS} | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS | STABLE_32921_TARGETS | BETA_330_TARGETS,
+    "pinyin-input": COLOR_TARGETS | {(platform, "3.28.0.172") for platform in MONO_PLATFORMS} | BETA_329_TARGETS | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS | STABLE_32921_TARGETS | BETA_330_TARGETS,
     "reading-enhancements": COLOR_TARGETS | BETA_329_COLOR_TARGETS | STABLE_32910_COLOR_TARGETS | BETA_330_COLOR_TARGETS,
     "note-enhancements": COLOR_TARGETS | BETA_329_COLOR_TARGETS | STABLE_32910_COLOR_TARGETS | BETA_330_COLOR_TARGETS,
     "weread-launcher": {(platform, "3.28.0.172") for platform in COLOR_PLATFORMS} | BETA_329_COLOR_TARGETS | STABLE_32910_COLOR_TARGETS | BETA_330_COLOR_TARGETS,
     "qr-upload": {("chiappa", "3.28.0.172")} | {
-        (platform, "3.29.0.153") for platform in COLOR_PLATFORMS | MONO_PLATFORMS} | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS | BETA_330_TARGETS,
+        (platform, "3.29.0.153") for platform in COLOR_PLATFORMS | MONO_PLATFORMS} | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS | STABLE_32921_TARGETS | BETA_330_TARGETS,
     "native-import": {(platform, release) for platform in COLOR_PLATFORMS | MONO_PLATFORMS
-                      for release in ("3.28.0.172", "3.29.0.153")} | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS | BETA_330_TARGETS,
+                      for release in ("3.28.0.172", "3.29.0.153")} | STABLE_32910_COLOR_TARGETS | STABLE_32910_MONO_TARGETS | STABLE_32921_TARGETS | BETA_330_TARGETS,
 }
 
 # These are the official 3.28.0.172 identities extracted from the five cached
@@ -202,6 +203,13 @@ OFFICIAL_32910 = {
     },
 }
 
+
+OFFICIAL_32921 = {
+    "rm2": {
+        **OFFICIAL_32910["rm2"],
+        "xochitl_sha256": "dec257e07b443685a612a058119a88ede6dcba5365b81e265180785851ada6cc",
+    },
+}
 
 OFFICIAL_330 = {
     "ferrari": {
@@ -510,6 +518,7 @@ def validate() -> None:
     _validate_localization("20261009073202", "3.29.0.152", OFFICIAL_329)
     _validate_localization("20261009073202", "3.29.0.153", OFFICIAL_329_153)
     _validate_localization("20261028104944", "3.29.1.0", OFFICIAL_32910)
+    _validate_localization("20261110104847", "3.29.2.1", OFFICIAL_32921)
     for release in ("3.30.0.108", "3.30.0.109"):
         targets = {platform: OFFICIAL_330[platform]
                    for platform, version in BETA_330_TARGETS if version == release}
@@ -530,7 +539,7 @@ def main() -> int:
     print(
         f"PASS: {len(EXPECTED_COVERAGE['tap-page-turn'])} device/firmware targets, {len(FEATURE_MODULES)} plugin matrices, shared runtimes, "
         "AppLoad/KOReader and WeRead boundaries, five preview profiles, and "
-        "25 official localization carriers, including five 3.30 beta targets."
+        "26 official localization carriers, including the RM2 3.29.2.1 target."
     )
     return 0
 

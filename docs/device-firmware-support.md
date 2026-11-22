@@ -1,6 +1,6 @@
 # Device, Firmware and Feature Support
 
-Updated on 2026-10-29 for stable 3.29.1.0 on Paper Pro and Move, and on 2026-10-30 for stable 3.29.1.0 on Paper Pure, reMarkable 1 and reMarkable 2.
+Updated on 2026-11-22 for the RM2-only stable 3.29.2.1 target.
 This describes **rmtool's installation gates**,
 not everything an upstream application might run on. A package requires the
 exact platform, architecture, internal build and stock xochitl SHA-256.
@@ -25,6 +25,7 @@ v1.18.2 publication. This is not confirmation of phone uploads on every model.
 | 3.29.0.152 | 20261009073202 | ferrari, chiappa, tatsu, rm1, rm2 | beta |
 | 3.29.0.153 | 20261009073202 | ferrari, chiappa, tatsu, rm1, rm2 | beta; offline coverage below |
 | 3.29.1.0 | 20261028104944 | ferrari, chiappa, tatsu, rm1, rm2 | stable; offline coverage below |
+| 3.29.2.1 | 20261110104847 | rm2 only | stable; [offline](firmware-3.29.2.1-rm2.md) |
 | 3.30.0.108 | 20261028121323 | ferrari, chiappa, tatsu, rm1 | beta; [offline; Move desktop native import tested on hardware](firmware-3.30-beta.md) |
 | 3.30.0.109 | 20261028121323 | rm2 | beta; [offline](firmware-3.30-beta.md) |
 
@@ -34,7 +35,7 @@ the other three use aarch64. Internal builds are not unique firmware identities:
 Unlisted device/release combinations are not inferred from a neighboring model.
 
 The [official public inventory](https://remarkable-software.s3.us-east-2.amazonaws.com/?list-type=2)
-currently lists 3.29.1.0, 3.28.0.172 and 3.27.3.0 for all five models. Inventory presence
+lists 3.29.1.0, 3.28.0.172 and 3.27.3.0 for all five models and 3.29.2.1 for RM2 only. Inventory presence
 does not establish the stable/beta channel; the table retains the project's
 previously verified channel records. It also does not promise an OTA rollout.
 
@@ -57,6 +58,7 @@ does not apply to a monochrome screen.
 | Paper Pro, Move | 3.29.1.0 stable | Yes (offline) | Yes (offline) | In reading | Yes (offline) | Yes (offline) | Yes (offline) | Yes (offline) | Yes (offline) | Yes (Move hardware; Paper Pro offline) | Yes (offline) |
 | Pure, RM1, RM2 | 3.29.0.153 beta (offline) | Yes | Yes | Yes | No | N/A | No | No | No | No | Yes (offline) |
 | Pure, RM1, RM2 | 3.29.1.0 stable (offline) | Yes | Yes | Yes | No | N/A | No | No | No | No | Yes (offline) |
+| RM2 | 3.29.2.1 stable (offline) | Yes | Yes | Yes | No | N/A | No | No | No | No | Yes (offline) |
 | Paper Pro, Move | 3.30.0.108 beta (offline) | Yes | Yes | In reading | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 | Pure, RM1, RM2 | 3.30 beta (offline) | Yes | Yes | Yes | No | N/A | No | No | No | No | Yes |
 
@@ -103,7 +105,7 @@ does not apply to a monochrome screen.
 On the older models, adding a plugin to an existing verified shared install can
 reuse the unchanged Xovi runtime rather than stage a second physical copy. This
 reduces installation space without lowering the reserve or changing the boot
-layout. New payloads still need free space. On RM2 3.29.1.0, stock firmware
+layout. New payloads still need free space. On RM2 3.29.1.0 and 3.29.2.1, stock firmware
 orders `/home` after xochitl; the pre-unlock runtime cannot simply move there.
 
 ### Native Desktop Import (v1.18.0)
@@ -114,7 +116,8 @@ system; rmtool does not fall back to direct library writes or restart the reader
 
 Automatic preparation has independent exact-target packages for **RM1, RM2,
 Paper Pure, Paper Pro and Move on stable 3.28.0.172, beta 3.29.0.153, and
-stable 3.29.1.0**. The [3.30 beta packages](firmware-3.30-beta.md) cover the
+stable 3.29.1.0**. RM2 also has a [3.29.2.1 package](firmware-3.29.2.1-rm2.md).
+The [3.30 beta packages](firmware-3.30-beta.md) cover the
 same five models. On Move 3.30.0.108, desktop native import and restoration
 of the previously disabled USB web interface were tested on hardware.
 First deployment, if needed, is offered only when uploading and needs one
@@ -138,7 +141,7 @@ activation support on other builds from the shared public version number.
 | SSH, documents, wallpapers, time, diagnostics | Runtime checks | Runtime checks | Runtime checks |
 | Font upload and system-font selection | Runtime checks | Runtime checks | Runtime checks; small /data |
 | Screen preview | DRM mapping probe | DRM mapping probe | Legacy framebuffer probe |
-| Phone QR reception | Stable 3.29.1.0 (offline); both .153; Move .172 | Stable 3.29.1.0 and .153 (offline) | Stable 3.29.1.0 and .153 (offline) |
+| Phone QR reception | Stable 3.29.1.0 (offline); both .153; Move .172 | Stable 3.29.1.0 and .153 (offline) | Stable 3.29.1.0 and .153; RM2-only 3.29.2.1 (offline) |
 | Firmware catalog / download in the UI | Available | Not exposed | Not exposed |
 | Firmware write / A-B switching | Validated new A-B layout only | Not enabled | Not enabled |
 

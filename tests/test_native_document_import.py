@@ -277,7 +277,7 @@ class NativeImportTests(unittest.TestCase):
              for release in ("3.28.0.172", "3.29.0.153")}
             | {(platform, "3.29.1.0") for platform in ("ferrari", "chiappa", "tatsu", "rm1", "rm2")}
             | {(platform, "3.30.0.108") for platform in ("ferrari", "chiappa", "tatsu", "rm1")}
-            | {("rm2", "3.30.0.109")},
+            | {("rm2", "3.30.0.109"), ("rm2", "3.29.2.1")},
         )
         for package in catalog:
             with self.subTest(platform=package.platform, release=package.release_version):

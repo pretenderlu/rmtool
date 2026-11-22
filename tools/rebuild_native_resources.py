@@ -36,6 +36,8 @@ def run(command):
 def resource_for(package, args):
     if package.release_version == "3.29.1.0":
         root, hashtab = args.stable_resources / package.platform, "hashtab"
+    elif package.release_version == "3.29.2.1":
+        root, hashtab = args.stable_resources.with_name("resources-3.29.2.1") / package.platform, "hashtab"
     elif package.release_version.startswith(("3.29.", "3.30.")):
         root, hashtab = args.firmware_work / ("beta-" + package.release_version) / package.platform, "hashtab"
     else:

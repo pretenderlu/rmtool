@@ -1,7 +1,7 @@
 # QR document upload
 
 The source includes rmtool-managed installation for **all five models on
-stable 3.29.1.0 and 3.29.0.153, and Paper Pro Move on 3.28.0.172**. Phone uploads and the device page passed Move .172
+stable 3.29.1.0 and beta 3.29.0.153, RM2 on 3.29.2.1, and Paper Pro Move on 3.28.0.172**. Phone uploads and the device page passed Move .172
 manual-deployment tests. The .153 controller passed USB/Wi-Fi desktop native
 imports and restoration checks; .153 phone reception and complete managed
 installation/post-reboot acceptance remain separate hardware tests.
@@ -10,8 +10,9 @@ are included in v1.18.2 and passed offline verification. The user confirmed
 Paper Pro .153 plugin migration and installation. The stable 3.29.1.0 packages
 completed full stock-QML replay and remain offline-only pending hardware
 acceptance. The [3.30 beta packages](../docs/firmware-3.30-beta.md) also cover
-all five models and passed offline verification. Phone reception on 3.30
-still needs hardware acceptance. Other firmware
+all five models and passed offline verification. The
+[RM2 3.29.2.1 package](../docs/firmware-3.29.2.1-rm2.md) is also offline-verified.
+Phone reception on these targets still needs hardware acceptance. Other firmware
 is unsupported.
 
 The final experience is tablet-hosted: start reception on the tablet, scan its
