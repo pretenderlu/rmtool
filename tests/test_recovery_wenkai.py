@@ -104,7 +104,7 @@ stat() {
         case "$3" in "$base"/home*) echo 999;; *) echo 456;; esac
     else echo STATVALUE; fi
 }
-fc_match() { if [ "$HOME" = /nonexistent ]; then echo -n "$base"EARLY; else echo -n "$base"ACTIVE; fi; }
+fc_match() { if [ "$HOME" = /nonexistent ]; then printf '%s' "$base"EARLY; else printf '%s' "$base"ACTIVE; fi; }
 """.replace("STATVALUE", self.source_stat).replace("EARLY", self.early).replace("ACTIVE", self.active)
         if self.fail == "backup":
             prefix += '\ncp() { printf partial > "$2"; }\n'
