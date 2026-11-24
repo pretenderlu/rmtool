@@ -210,6 +210,8 @@ class KOReaderUserDataTests(unittest.TestCase):
             mock.patch.object(_koreader, "_test_path", return_value=False),
             mock.patch.object(_koreader._appload, "verify_official_asset", return_value=archive),
             mock.patch.object(_koreader.tap, "_preflight_device"),
+            mock.patch.object(_koreader.shared, "check_shared_enable_capacity"),
+            mock.patch.object(_koreader.storage, "df_free_bytes", return_value=2**30),
             mock.patch.object(
                 _koreader._appload, "extract_official_zip", return_value=app.parent
             ),

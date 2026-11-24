@@ -104,11 +104,12 @@ class InstallSafetyTests(unittest.TestCase):
             patches = (
                 (koreader.tap, "get_device_identity", identity),
                 (_appload, "koreader_asset", asset),
-                (_appload, "get_status", SimpleNamespace(state=_appload.AppLoadState.ENABLED)),
+                (_appload, "get_status", SimpleNamespace(state=_appload.AppLoadState.ENABLE_PENDING_REBOOT)),
                 (koreader, "get_managed_status", status),
                 (koreader, "_koreader_running", running),
                 (_appload, "verify_official_asset", root / "unused.zip"),
                 (koreader.tap, "_preflight_device", None),
+                (koreader.storage, "df_free_bytes", 0 if failure == "home-full" else 2**30),
                 (_appload, "extract_official_zip", app.parent),
                 (koreader, "_validate_koreader_tree", app),
                 (koreader, "_official_zip_modes", {}),
@@ -120,6 +121,9 @@ class InstallSafetyTests(unittest.TestCase):
             )
             for module, name, value in patches:
                 stack.enter_context(mock.patch.object(module, name, return_value=value))
+            preflight = stack.enter_context(mock.patch.object(shared, "check_shared_enable_capacity"))
+            if failure == "root-full":
+                preflight.side_effect = RuntimeError("/ 空间不足")
             enable = stack.enter_context(mock.patch.object(shared, "enable_shared"))
             if failure == "bridge":
                 enable.side_effect = RuntimeError("injected bridge failure")
@@ -155,8 +159,8 @@ rmdir() {{
                 local, device / remote.removeprefix("/home/root/")
             )
             if failure or running:
-                with self.assertRaisesRegex(RuntimeError, "injected|正在运行"):
-                    koreader.install_managed(ssh, root / "unused.zip", str(root))
+                with self.assertRaisesRegex(RuntimeError, "injected|正在运行|空间不足"):
+                    koreader.install_managed(ssh, root / "unused.zip", str(root), first_install_only=not existing)
                 if existing:
                     self.assertEqual((target / "old-payload").read_bytes(), b"healthy old payload")
                     self.assertEqual((target / "settings.reader.lua").read_bytes(), b"user settings")
@@ -164,14 +168,14 @@ rmdir() {{
                 else:
                     self.assertFalse(target.exists())
             else:
-                koreader.install_managed(ssh, root / "unused.zip", str(root))
+                koreader.install_managed(ssh, root / "unused.zip", str(root), first_install_only=not existing)
                 self.assertEqual((target / "git-rev").read_bytes(), b"v1")
                 if existing:
                     self.assertEqual((target / "settings.reader.lua").read_bytes(), b"user settings")
                 self.assertFalse((target / "old-payload").exists())
             self.assertFalse(list(device.rglob("*.rmtool-backup-*")))
             self.assertFalse(list(device.rglob("koreader-stage-*")))
-            if running:
+            if running or failure in ("home-full", "root-full"):
                 ssh.transfer_file.assert_not_called()
                 ssh.exec_checked.assert_not_called()
             else:
@@ -193,6 +197,11 @@ rmdir() {{
 
     def test_running_reader_refuses_before_transfer(self):
         self.exercise_install(running=True)
+
+    def test_no_transfer_or_device_changes_when_either_partition_is_full(self):
+        for failure in ("home-full", "root-full"):
+            with self.subTest(failure=failure):
+                self.exercise_install(failure=failure)
 
 
 class SharedMigrationSafetyTests(unittest.TestCase):

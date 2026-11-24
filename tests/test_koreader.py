@@ -356,6 +356,19 @@ class DetectionTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "明确选择迁移"):
                 _koreader.install_managed(ssh, "unused.zip", "unused")
 
+    def test_first_install_cannot_replace_data_found_after_the_click(self):
+        ssh = mock.Mock()
+        with (mock.patch.object(_koreader.tap, "get_device_identity"),
+              mock.patch.object(_appload, "koreader_asset"),
+              mock.patch.object(_appload, "get_status", return_value=SimpleNamespace(state=_appload.AppLoadState.ENABLED)),
+              mock.patch.object(_koreader, "get_managed_status") as status):
+            for state, detail in ((_koreader.ManagedState.INSTALLED, ""),
+                                  (_koreader.ManagedState.NOT_INSTALLED, "已保留上次用户数据")):
+                status.return_value = _koreader.ManagedStatus(state, None, detail=detail)
+                with self.assertRaisesRegex(RuntimeError, "未覆盖"):
+                    _koreader.install_managed(ssh, "unused.zip", "unused", first_install_only=True)
+        self.assertFalse(ssh.mock_calls)
+
     def test_purge_legacy_install_uses_only_fixed_target(self):
         identity = SimpleNamespace(architecture="aarch64")
         asset = SimpleNamespace(version="v1")
@@ -503,6 +516,10 @@ class DetectionTests(unittest.TestCase):
                 _koreader._appload, "verify_official_asset", return_value=root / "x"
             ), mock.patch.object(
                 _koreader.tap, "_preflight_device"
+            ), mock.patch.object(
+                _koreader.shared, "check_shared_enable_capacity"
+            ), mock.patch.object(
+                _koreader.storage, "df_free_bytes", return_value=2**30
             ), mock.patch.object(
                 _koreader._appload, "extract_official_zip", return_value=root
             ), mock.patch.object(
@@ -1080,6 +1097,26 @@ class TabStateTests(TabTestBase):
         self.assertFalse(self.tab.delete_button.isEnabled())
         # Offscreen: the tab itself is never shown, so check the hidden flag.
         self.assertFalse(self.tab.empty_state_label.isHidden())
+
+    def test_only_clean_install_starts_immediately(self):
+        self.tab.set_connection_state(True)
+        for state, detail, immediate in (
+            (_koreader.ManagedState.NOT_INSTALLED, "", True),
+            (_koreader.ManagedState.NOT_INSTALLED, "已保留上次用户数据", False),
+            (_koreader.ManagedState.INSTALLED, "", False),
+            (_koreader.ManagedState.LEGACY_DATA, "", False),
+        ):
+            self.tab._managed_status = _koreader.ManagedStatus(state, None, None, detail=detail)
+            with (self.subTest(state=state, detail=detail),
+                  mock.patch.object(_tab_koreader, "ask_confirmation", return_value=False) as ask,
+                  mock.patch.object(self.tab, "_run_management_operation") as start,
+                  mock.patch.object(_koreader, "install_managed_cloud") as install):
+                self.tab._install_koreader()
+                self.assertEqual(ask.called, not immediate)
+                self.assertEqual(start.called, immediate)
+                if immediate:
+                    start.call_args.args[2]()
+                    self.assertTrue(install.call_args.kwargs["first_install_only"])
 
     def test_management_actions_follow_verified_status(self):
         package = next(

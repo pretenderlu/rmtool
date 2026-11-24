@@ -572,7 +572,10 @@ class KOReaderTab(QtWidgets.QWidget):
                 "只替换官方程序文件；操作不会自动重启设备，是否继续？"
             )
         )
-        if not ask_confirmation(
+        clean_install = (self._managed_status is not None
+                         and self._managed_status.state == _koreader.ManagedState.NOT_INSTALLED
+                         and not self._managed_status.detail)
+        if not clean_install and not ask_confirmation(
             self,
             _rmtool.APP_NAME,
             message,
@@ -587,6 +590,7 @@ class KOReaderTab(QtWidgets.QWidget):
                 self.ssh_client,
                 str(_rmtool.app_state_dir()),
                 migrate_existing=migrate,
+                first_install_only=clean_install,
             ),
             token=token,
         )

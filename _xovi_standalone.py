@@ -2315,6 +2315,7 @@ def shared_transaction_script(
     controls_only: bool = False,
     stop_units: Iterable[str] = (),
     pinyin_stage: str | None = None,
+    appload_files: tuple[SharedFileSpec, ...] = (),
 ) -> str:
     external_commit = external_restore = external_cleanup = ""
     external_flags = ""
@@ -2367,6 +2368,9 @@ done
         fi
 '''
     layouts = tuple(legacy_layouts)
+    if appload_files and (controls_only or retain_backup or remove_base or not enable_dropin or layouts
+                          or layout != SHARED_LAYOUT or pinyin_stage is not None):
+        raise ValueError("只能在原共享目录内安装 KOReader 入口时复用 AppLoad。")
     if controls_only and (layouts or remove_base or not retain_backup or not enable_dropin):
         raise ValueError("启动配置修复不能同时迁移布局、删除主体或丢弃备份。")
     bases = tuple(dict.fromkeys(
@@ -2616,6 +2620,7 @@ DROPINS_SNAPSHOTTED=1
 
 {stop_sidecars}
 {external_commit}
+{_verified_link_command(layout.remote_base, stage, appload_files, verify_digest=True)}
 {base_backup}
 {stage_commit}
 
@@ -2747,7 +2752,7 @@ def shared_capacity_budget(
 
 
 def check_shared_capacity(ssh_client, runtime, states, *, staged=False, controls_only=False,
-                          reuse_runtime=False):
+                          reuse_runtime=False, appload_files=()):
     """Budget legacy installs and repairs without changing boot-time storage."""
     if runtime.platform not in {"rm1", "rm2"}:
         return
@@ -2775,6 +2780,8 @@ def check_shared_capacity(ssh_client, runtime, states, *, staged=False, controls
         partition, available = storage.system_free_bytes(ssh_client)
         reserve = storage.LEGACY_ROOT_RESERVE if partition == "/" else 25 * 1024 * 1024
         reused = budget.runtime_bytes if reuse_runtime and not staged else 0
+        if reuse_runtime and not staged and not controls_only:
+            reused += _allocated_sizes(item.size for item in appload_files)
         storage.require_capacity(
             partition,
             available,
@@ -2794,7 +2801,7 @@ def _assert_home_catalog(runtime, states):
                     raise RuntimeError("汉化扩展需同步更新，请先在“原生简体中文”中修复更新，再操作其他插件。")
 
 
-def _link_shared_runtime(ssh_client, source_base, stage, files):
+def _verified_link_command(source_base, stage, files, *, verify_digest=False):
     # Never chmod, chown or replace the shared inodes through the staging tree.
     commands = []
     for item in files:
@@ -2807,9 +2814,15 @@ def _link_shared_runtime(ssh_client, source_base, stage, files):
             f"[ ! -e {target} ] && [ ! -L {target} ] && "
             f"ln {source} {target} && [ {source} -ef {target} ]"
         )
-    if commands:
+        if verify_digest:
+            commands.append(f'[ "$(sha256sum {target} | cut -d\' \' -f1)" = {shlex.quote(item.sha256)} ]')
+    return (" && ".join(commands) + " || exit 1") if commands else ":"
+
+
+def _link_shared_runtime(ssh_client, source_base, stage, files):
+    if files:
         try:
-            ssh_client.exec_checked(" && ".join(commands))
+            ssh_client.exec_checked(_verified_link_command(source_base, stage, files))
         except RuntimeError as exc:
             raise RuntimeError("无法安全复用已安装的共享 Xovi 基座，未切换插件。") from exc
 
@@ -2824,10 +2837,13 @@ def _stage_shared(
     *,
     controls_only: bool = False,
     reuse_runtime: bool = False,
+    appload_files: tuple[SharedFileSpec, ...] = (),
 ) -> tuple[str, str]:
     _assert_home_catalog(runtime, states)
     if not controls_only or runtime.platform in {"rm1", "rm2"}:
-        check_shared_capacity(ssh_client, runtime, states, controls_only=controls_only, reuse_runtime=reuse_runtime)
+        check_shared_capacity(ssh_client, runtime, states, controls_only=controls_only,
+                              reuse_runtime=reuse_runtime, appload_files=appload_files)
+    deferred = {item.path for item in appload_files}
     enabled = tuple(state.spec for state in states.values() if state.enabled)
     launcher_text = shared_launcher(runtime, enabled)
     dropin_text = shared_dropin(runtime, enabled)
@@ -2872,6 +2888,8 @@ def _stage_shared(
             root = incoming_roots.get(feature.feature_id)
             for item in feature.files:
                 remote = f"{stage}/{item.runtime_path}"
+                if item.runtime_path in deferred:
+                    continue
                 if root is not None:
                     local = root.joinpath(*PurePosixPath(item.archive_path).parts)
                     _upload_path(ssh_client, local, remote, item.mode)
@@ -2899,6 +2917,9 @@ def _stage_shared(
     if reuse_runtime and enabled and not controls_only:
         _link_shared_runtime(ssh_client, SHARED_LAYOUT.remote_base, stage, runtime.files)
     for path, item in expected.items():
+        if path in deferred:
+            # Link and hash under the on-device rollback trap, not between SSH calls.
+            continue
         remote = f"{stage}/{path}"
         if _remote_sha256(ssh_client, remote) != item.sha256:
             raise RuntimeError(f"设备端共享 Xovi 资源 {path} 上传校验失败。")
@@ -3144,6 +3165,18 @@ def _can_reuse_shared_runtime(runtime, plan):
             and any(state.enabled for state in inspection.states.values()))
 
 
+def _appload_files_for_bridge(runtime, plan, feature_id, additional=()):
+    if feature_id != "koreader" or additional or not _can_reuse_shared_runtime(runtime, plan):
+        return ()
+    installed = plan.inspection.states.get("appload")
+    if (not installed or not installed.enabled or installed != plan.states.get("appload")
+            or installed.spec != plan.target_trusted.get("appload")):
+        return ()
+    if any(f.runtime_path.endswith(".qmd") for f in installed.spec.files):
+        return ()  # The QMD staging check needs its input before commit.
+    return tuple(SharedFileSpec(f.runtime_path, f.sha256, f.size, f.mode) for f in installed.spec.files)
+
+
 def _shared_enable_plan(
     ssh_client,
     runtime: SharedRuntimeSpec,
@@ -3293,7 +3326,8 @@ def check_shared_enable_capacity(
     )
     if isinstance(plan, SharedEnablePlan):
         try:
-            check_shared_capacity(ssh_client, runtime, plan.states, reuse_runtime=_can_reuse_shared_runtime(runtime, plan))
+            check_shared_capacity(ssh_client, runtime, plan.states, reuse_runtime=_can_reuse_shared_runtime(runtime, plan),
+                                  appload_files=_appload_files_for_bridge(runtime, plan, feature.feature_id))
         except RuntimeError as exc:
             exc.shared_enable_plan = plan
             raise
@@ -3332,6 +3366,7 @@ def _enable_shared_locked(
     present_legacy = plan.present_legacy
     layout = preferred_layout(runtime)
 
+    appload_files = _appload_files_for_bridge(runtime, plan, feature.feature_id, additional_roots)
     token = uuid.uuid4().hex
     stage = f"{layout.remote_base}.staging-{token}"
     remote_script = f"/tmp/rmtool-xovi-activate-{token}.sh"
@@ -3351,6 +3386,7 @@ def _enable_shared_locked(
             previous_sources,
             stage,
             reuse_runtime=_can_reuse_shared_runtime(runtime, plan),
+            appload_files=appload_files,
         )
         migrated_layouts = [item.layout for item in present_legacy]
         if inspection.states and inspection.layout != layout:
@@ -3359,6 +3395,7 @@ def _enable_shared_locked(
             stage, token, migrated_layouts, enable_dropin=True, layout=layout,
             retain_backup=pinyin_stage is not None,
             pinyin_stage=pinyin_stage,
+            appload_files=appload_files,
             stop_units=("rmtool-pinyin-input.service",) if pinyin_stage else (),
         )
         _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)

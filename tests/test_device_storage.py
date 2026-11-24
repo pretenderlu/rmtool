@@ -372,6 +372,60 @@ class LegacyPluginCapacityTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "空间不足"):
                 shared.check_shared_capacity(Mock(), runtime, states, staged=True, reuse_runtime=True)
 
+    def test_issue27_rm2_can_register_koreader_bridge_with_11_mib_free(self):
+        package = next(p for p in native._trusted_catalog()
+                       if p.platform == "rm2" and p.release_version == "3.29.1.0")
+        identity = tap.DeviceIdentity(package.firmware, package.platform, package.architecture, package.xochitl_sha256)
+        runtime, trusted, _ = tap._trusted_shared_context(identity)
+        token = "abcd1234-abcd-1234-abcd-0123456789ab:1255:123456"
+        installed = {fid: shared.SharedFeatureState(trusted[fid], True, token) for fid in ("native-chinese", "appload")}
+        inspection = shared.SharedInspection(installed, True, True, receipt_features=frozenset(installed))
+        states = {**installed, "koreader": shared.SharedFeatureState(trusted["koreader"], True, token)}
+        plan = shared.SharedEnablePlan(inspection, trusted, states, {}, ())
+        files = shared._appload_files_for_bridge(runtime, plan, "koreader")
+        self.assertEqual({f.path for f in files}, {f.runtime_path for f in trusted["appload"].files})
+        self.assertEqual(shared._allocated_sizes(f.size for f in files), 11206656)
+        with (patch.object(shared, "_shared_enable_plan", return_value=plan),
+              patch.object(storage, "system_free_bytes", return_value=("/", 11739 * 1024)) as free):
+            with self.assertRaisesRegex(RuntimeError, "19.60 MiB"):
+                shared.check_shared_capacity(Mock(), runtime, states, reuse_runtime=True)
+            self.assertIs(shared.check_shared_enable_capacity(Mock(), runtime, trusted["koreader"], trusted, ()), plan)
+            free.return_value = ("/", 0)
+            with self.assertRaisesRegex(RuntimeError, "8.91 MiB"):
+                shared.check_shared_enable_capacity(Mock(), runtime, trusted["koreader"], trusted, ())
+            with self.assertRaises(RuntimeError):
+                shared.check_shared_capacity(Mock(), runtime, states, staged=True, reuse_runtime=True, appload_files=files)
+        for target, additional, changed in (
+            ("appload", (), plan), ("koreader", ("appload",), plan),
+            ("koreader", (), replace(plan, inspection=replace(inspection, layout=shared.LEGACY_SHARED_LAYOUT))),
+            ("koreader", (), replace(plan, target_trusted={**trusted, "appload": replace(trusted["appload"], package_id="other")})),
+            ("koreader", (), replace(plan, states={**states, "appload": replace(installed["appload"], enabled=False)})),
+        ):
+            with self.subTest(target=target, additional=additional):
+                self.assertEqual(shared._appload_files_for_bridge(runtime, changed, target, additional), ())
+
+        # The real staging path must omit exactly those files credited in the
+        # budget, otherwise even the first write can exhaust this RM2.
+        stage = "/test-stage"
+        digests = {f"{stage}/{i.path}": i.sha256 for i in runtime.files}
+        digests.update({f"{stage}/{f.runtime_path}": f.sha256 for s in states.values() for f in s.spec.files})
+        previous = {f.runtime_path: f"/live/{f.runtime_path}" for s in installed.values() for f in s.spec.files}
+        def uploaded(_, data, dest, mode):
+            digests[dest] = hashlib.sha256(data).hexdigest()
+
+        ssh = Mock()
+        with (patch.object(storage, "system_free_bytes", return_value=("/", 11739 * 1024)),
+              patch.object(shared, "_upload_bytes", side_effect=uploaded),
+              patch.object(shared, "_remote_sha256", side_effect=lambda _, path: digests[path]),
+              patch.object(shared, "_upload_path") as upload):
+            shared._stage_shared(ssh, runtime, states, {"koreader": Path("bridge")}, previous, stage,
+                                 reuse_runtime=True, appload_files=files)
+        self.assertEqual({c.args[2] for c in upload.call_args_list},
+                         {f"{stage}/{f.runtime_path}" for f in trusted["koreader"].files})
+        commands = "\n".join(c.args[0] for c in ssh.exec_checked.call_args_list)
+        for f in files:
+            self.assertNotIn(f"{stage}/{f.path}", commands)
+
     def test_reused_runtime_shell_leaves_source_unchanged_on_abort_and_refuses_existing_links(self):
         git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
         shell = str(git_bash) if git_bash.is_file() else shutil.which("bash")

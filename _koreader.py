@@ -20,6 +20,7 @@ from typing import Callable, List, Optional
 
 from _ssh import SSHClientWrapper, quick_exec
 import _appload
+import _device_storage as storage
 import _tap_page_turn as tap
 import _xovi_standalone as shared
 
@@ -434,12 +435,24 @@ def _rollback_payload(
     )
 
 
+def _check_home_install_capacity(ssh_client, app: Path, payload: Path) -> None:
+    # Archive and unpacked tree coexist until the bridge transaction commits.
+    def blocks(size):
+        return ((size + 4095) // 4096) * 4096
+
+    required = blocks(payload.stat().st_size) + 4096 + 24 * 1024 * 1024
+    for path in app.rglob("*"):
+        required += 4096 if path.is_dir() else blocks(path.lstat().st_size)
+    storage.require_capacity("/home", storage.df_free_bytes(ssh_client, "/home"), required)
+
+
 def install_managed(
     ssh_client: SSHClientWrapper,
     archive_path: str | Path,
     state_dir: str,
     *,
     migrate_existing: bool = False,
+    first_install_only: bool = False,
 ) -> ManagedStatus:
     identity = tap.get_device_identity(ssh_client)
     asset = _appload.koreader_asset(identity)
@@ -452,6 +465,8 @@ def install_managed(
     ):
         raise RuntimeError("请先安装并启用 AppLoad。")
     current = get_managed_status(ssh_client)
+    if first_install_only and (current.state != ManagedState.NOT_INSTALLED or current.detail):
+        raise RuntimeError("KOReader 状态已变化，未覆盖现有安装或保留数据。请刷新后确认。")
     legacy_states = (ManagedState.LEGACY_DATA, ManagedState.EXTERNAL)
     if current.state in legacy_states and not migrate_existing:
         raise RuntimeError("检测到旧版 KOReader，请明确选择迁移后再安装。")
@@ -468,6 +483,9 @@ def install_managed(
         raise RuntimeError("KOReader 正在运行，请退出后重试。")
     archive = _appload.verify_official_asset(archive_path, asset)
     tap._preflight_device(ssh_client)
+    runtime, trusted, legacies = tap._trusted_shared_context(identity)
+    feature = trusted[_appload.KOREADER_FEATURE_ID]
+    shared.check_shared_enable_capacity(ssh_client, runtime, feature, trusted, legacies)
 
     token = uuid.uuid4().hex
     remote_archive = f"/home/root/.cache/rmtool/koreader-{token}.tar.gz"
@@ -493,6 +511,7 @@ def install_managed(
             Path(temporary) / "koreader.tar.gz",
             official_modes,
         )
+        _check_home_install_capacity(ssh_client, app, payload)
         payload_sha = hashlib.sha256(payload.read_bytes()).hexdigest()
         bridge_root = _prepare_bridge_root(
             identity,
@@ -504,15 +523,10 @@ def install_managed(
             "mkdir -p /home/root/.cache/rmtool; "
             f"rm -rf {shlex.quote(stage)} {shlex.quote(backup)}"
         )
-        ssh_client.transfer_file(str(payload), remote_archive)
-        if (
-            ssh_client.exec_checked(
-                f"sha256sum {shlex.quote(remote_archive)}"
-            ).split()[0]
-            != payload_sha
-        ):
-            raise RuntimeError("KOReader 设备端上传校验失败。")
         try:
+            ssh_client.transfer_file(str(payload), remote_archive)
+            if ssh_client.exec_checked(f"sha256sum {shlex.quote(remote_archive)}").split()[:1] != [payload_sha]:
+                raise RuntimeError("KOReader 设备端上传校验失败。")
             migration_paths = " ".join(
                 shlex.quote(path) for path in MIGRATED_USER_PATHS
             )
@@ -538,6 +552,13 @@ BACKUP={shlex.quote(backup)}
 LIST={shlex.quote(lists)}
 MIGRATION={migration_mode}
 KEEP_COMPLETE={int(current.state in legacy_states or bool(current.version and current.version != asset.version))}
+check_install_target() {{
+    [ {int(first_install_only)} -eq 1 ] || return 0
+    for path in "$TARGET" "$PRESERVED"; do
+        [ ! -e "$path" ] && [ ! -L "$path" ] || {{ echo "KOReader install state changed" >&2; exit 1; }}
+    done
+}}
+check_install_target
 {_USER_DATA_SHELL}
 mkdir -p "$STAGE"
 tar -xzf "$ARCHIVE" -C "$STAGE"
@@ -590,6 +611,7 @@ for directory in /home/root/xovi /home/root/xovi/exthome "$TARGET_PARENT"; do
     fi
 done
 # Keep rollback on the device: the client cannot observe a half-finished swap.
+check_install_target
 HAD_TARGET=0
 [ ! -d "$TARGET" ] || HAD_TARGET=1
 SWAPPING=0
@@ -627,8 +649,6 @@ if [ "$SOURCE" = "$PRESERVED" ]; then echo rmtool-koreader-used-preserved; fi
                 )
                 rollback_backup = LEGACY_BACKUP_DIR
             _appload.ensure_shim_links(ssh_client, identity)
-            runtime, trusted, legacies = tap._trusted_shared_context(identity)
-            feature = trusted[_appload.KOREADER_FEATURE_ID]
             shared.enable_shared(
                 ssh_client,
                 runtime,
@@ -676,6 +696,7 @@ def install_managed_cloud(
     state_dir: str,
     *,
     migrate_existing: bool = False,
+    first_install_only: bool = False,
 ) -> ManagedStatus:
     identity = tap.get_device_identity(ssh_client)
     asset = _appload.koreader_asset(identity)
@@ -687,6 +708,7 @@ def install_managed_cloud(
         archive,
         state_dir,
         migrate_existing=migrate_existing,
+        first_install_only=first_install_only,
     )
 
 

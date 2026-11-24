@@ -65,14 +65,15 @@ class RecoveryTransactionTests(unittest.TestCase):
                 for path in directory.rglob("*") if path.is_file()}
 
     def execute(self, failure="", *, enable_dropin=True, root_mode="ro", legacy_layouts=(), controls_only=False,
-                stop_units=(), pinyin_stage=None, runtime_pid=False):
+                stop_units=(), pinyin_stage=None, runtime_pid=False, appload_files=()):
         script = shared.shared_transaction_script(
             self.LAYOUT.remote_base + ".staging-" + self.TOKEN,
-            self.TOKEN, legacy_layouts, enable_dropin=enable_dropin, retain_backup=True,
+            self.TOKEN, legacy_layouts, enable_dropin=enable_dropin, retain_backup=not appload_files,
             layout=self.LAYOUT,
             controls_only=controls_only,
             stop_units=stop_units,
             pinyin_stage=pinyin_stage,
+            appload_files=appload_files,
         )
         self.assertNotRegex(script, r"\b(?:reboot|shutdown)\b|systemctl\s+(?:start|restart|try-restart)\s+xochitl")
         # The trailing slash preserves concatenated lower-root paths after the
@@ -213,6 +214,13 @@ stat() {
     case "$2" in '%u:%g') echo 0:0 ;; '%a:%u:%g:%h') echo 600:0:0:1 ;; *) command stat "$@" ;; esac
 }
 '''
+        if appload_files:
+            # Model the device's root ownership and mode; sizes, link counts,
+            # hashes and renames come from real files on all test hosts.
+            prelude += """
+stat() { LC_ALL=C ls -ldn "$3" | awk '{print "81a4:0:0:" $5 ":" $2}'; }
+command -v sha256sum >/dev/null || sha256sum() { shasum -a 256 "$@"; }
+"""
         command = prelude + script
         (self.root / "sandbox/unit-state").write_text("active\n", encoding="ascii")
         syntax = subprocess.run([SH, "-n"], input=command, cwd=self.root,
@@ -265,6 +273,38 @@ stat() {
         self.assertEqual((self.backup / "lower-0").read_bytes(), b"old lower\n")
         self.assertEqual(self.upper.read_bytes(), b"new dropin\n")
         self.assertEqual(self.lower.read_bytes(), b"new dropin\n")
+
+    def exercise_appload_links(self, *, failure="", modified=False):
+        files = []
+        for name in ("appload.so", "shim.so"):
+            data = name.encode()
+            path = self.base / name
+            path.write_bytes(b"x" * len(data) if modified and name == "shim.so" else data)
+            self.old_tree[name] = path.read_bytes()
+            files.append(shared.SharedFileSpec(name, hashlib.sha256(data).hexdigest(), len(data), 0o644))
+        if self.LAYOUT != shared.SHARED_LAYOUT:
+            with self.assertRaises(ValueError):
+                self.execute(appload_files=files)
+            return
+        inode = (self.base / "appload.so").stat().st_ino
+        result = self.execute(failure, appload_files=files)
+        if failure or modified:
+            self.assertNotEqual(result.returncode, 0)
+            self.assert_restored()
+        else:
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.tree(self.base), {**self.new_tree, **{f.path: f.path.encode() for f in files}})
+        self.assertEqual((self.base / "appload.so").stat().st_ino, inode)
+        self.assertTrue(all((self.base / f.path).stat().st_nlink == 1 for f in files))
+
+    def test_bridge_commits_verified_appload_inodes_without_copying(self):
+        self.exercise_appload_links()
+
+    def test_bridge_rejects_same_size_changed_content_without_partial_links(self):
+        self.exercise_appload_links(modified=True)
+
+    def test_bridge_rollback_drops_verified_links_on_hangup(self):
+        self.exercise_appload_links(failure="hangup")
 
     def test_pinyin_stop_commits_with_shared_state(self):
         result = self.execute(stop_units=("rmtool-pinyin-input.service",))
