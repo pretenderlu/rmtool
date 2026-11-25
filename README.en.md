@@ -14,7 +14,7 @@ rmtool manages reMarkable Paper Pro, Paper Pro Move, Paper Pure, reMarkable 1, a
 classic offline-verified tap-to-turn plugin for Paper Pure, reMarkable 1,
 and reMarkable 2, plus a one-click read-only diagnostic bundle for support. Device operations do not depend on reMarkable cloud services. Release builds include baseline trusted manifests for these firmware-specific features, enabling offline support discovery and verified cache reuse. Payloads are not bundled and still require a network download or an existing validated cache.
 
-The current release is [v1.21.12](https://github.com/pretenderlu/rmtool/releases/tag/v1.21.12). Installing KOReader on RM2 now reuses verified AppLoad files, reducing temporary space usage on the system partition. See the [release notes](docs/releases/v1.21.12.md).
+The current release is [v1.21.13](https://github.com/pretenderlu/rmtool/releases/tag/v1.21.13). On RM2, QR Upload now stores its receiver in `/home`, so installation needs less space on the system partition. AppLoad is not required. See the [release notes](docs/releases/v1.21.13.md).
 
 [QR transfer](qr-upload/README.md) supports all five models on 3.29.1.0, 3.29.0.153 and their supported 3.30 betas, plus RM2 on 3.29.2.1 and Paper Pro Move on 3.28.0.172. It provides phone-to-tablet PDF/EPUB uploads over trusted Wi-Fi, up to 200 MB per file, without a computer after installation. It uses unencrypted local HTTP and requires a trusted network. Move phone uploads on .172 and USB/Wi-Fi desktop native imports on .153 passed hardware tests. The user confirmed Paper Pro .153 plugin migration and installation; phone uploads on newly supported targets still need individual hardware tests. See the [compatibility notes](docs/device-firmware-support.md).
 
