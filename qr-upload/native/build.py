@@ -84,9 +84,12 @@ def main():
             or hashlib.sha256(hashtab.read_bytes()).hexdigest() != carrier.file("exthome/qt-resource-rebuilder/hashtab").sha256):
         raise RuntimeError("QR settings require exact verified firmware resources")
     beta_330 = qr.ALLOWED_TARGETS[key][0].startswith("3.30.")
+    rm2 = identity.platform == "rm2"
     target = "aarch64-linux-gnu.2.17" if identity.architecture == "aarch64" else "arm-linux-gnueabihf.2.4"
     machine = 183 if identity.architecture == "aarch64" else 40
     receiver = args.receiver.read_bytes()
+    if rm2 and len(receiver) > 10 * 1024 * 1024:
+        raise RuntimeError("RM2 receiver exceeds the managed executable size limit")
     elf_header = b"\x7fELF" + bytes((2 if identity.architecture == "aarch64" else 1, 1))
     if len(receiver) < 20 or receiver[:6] != elf_header or struct.unpack_from("<H", receiver, 18)[0] != machine:
         raise RuntimeError("Receiver architecture differs from the target")
@@ -104,14 +107,19 @@ def main():
         bridge = args.output / "rmtool-qr-upload.so"
         run([args.zig, "c++", "-target", target, "-std=c++17", "-shared", "-fPIC",
              "-O2", "-s", "-Wl,--allow-shlib-undefined", f'-DRMTOOL_QR_RECEIVER_SHA256="{digest}"',
+             *(["-DRMTOOL_QR_RM2_HOME", f"-DRMTOOL_QR_RECEIVER_SIZE={len(receiver)}"] if rm2 else []),
              *prefix_maps((work, "qr-upload-generated"), (args.qt_host, "qt"), (args.zig.parent, "zig")),
              "-I", include, "-I", include / "QtCore", "-I", include / "QtQml", "-I", include / "QtNetwork", "-I", work,
              here / "main.cpp", here / "ImportControl.cpp", "-o", bridge])
         check_no_build_paths(bridge, work, args.qt_host, args.zig.parent)
         source = here / "qr-upload-3.28.qmd"
-        if beta_330:
-            text = settings_source_330(source.read_text(encoding="utf-8"))
-            source = work / "qr-upload-3.30.qmd"
+        if beta_330 or rm2:
+            text = source.read_text(encoding="utf-8")
+            if beta_330:
+                text = settings_source_330(text)
+            if rm2:
+                text = f"; rmtool RM2 QR revision 2: {identity.xochitl_sha256}\n" + text
+            source = work / "qr-upload.qmd"
             source.write_text(text, encoding="utf-8", newline="\n")
         compiled = run([args.qmd_tool, "hash", "-hashtab", hashtab, source])
         qmd = args.output / "rmtool-qr-upload.qmd"

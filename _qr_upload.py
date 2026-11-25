@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import uuid
 from dataclasses import dataclass, replace
 from enum import Enum
 from functools import lru_cache
@@ -10,6 +11,7 @@ from pathlib import Path
 
 import _package_download
 import _plugin_packages as packages
+import _qr_receiver
 import _rmkit_cn
 import _tap_page_turn as tap
 import _xovi_standalone as shared
@@ -141,7 +143,8 @@ def parse_manifest(data: bytes, *, require_local_match=True):
         validation = tuple(entry[key] for key in ("release_version", "channel", "offline_verified", "device_verified"))
         if (identity in seen or ALLOWED_TARGETS.get(identity) != validation
                 or type(entry["offline_verified"]) is not bool or type(entry["device_verified"]) is not bool
-                or type(entry["package_revision"]) is not int or entry["package_revision"] != PACKAGE_REVISION):
+                or type(entry["package_revision"]) is not int
+                or entry["package_revision"] != (2 if entry["platform"] == "rm2" else PACKAGE_REVISION)):
             raise RuntimeError("扫码传输设备或固件不在精确信任清单中。")
         if type(entry["size"]) is not int or not 0 < entry["size"] <= MAX_PACKAGE_BYTES:
             raise RuntimeError("扫码传输包大小无效。")
@@ -201,9 +204,37 @@ def extract_verified_package(archive_path, package, destination):
 
 
 def _shared_specs(package):
+    if package.platform == "rm2" and package.package_revision == 2:
+        runtime, feature = shared.specs_from_package(package, FEATURE_ID, QMD_PAYLOAD_PATH, (BRIDGE_PAYLOAD_PATH,))
+        return runtime, replace(feature, strict_metadata_paths=(BRIDGE_PAYLOAD_PATH,))
     runtime, feature = shared.specs_from_package(package, FEATURE_ID, QMD_PAYLOAD_PATH,
         (BRIDGE_PAYLOAD_PATH, RECEIVER_PAYLOAD_PATH))
     return runtime, replace(feature, strict_metadata_paths=(BRIDGE_PAYLOAD_PATH, RECEIVER_PAYLOAD_PATH))
+
+
+# Exact inline layout distributed with v1.21.12, not a guess based on a device receipt.
+_INLINE_329 = ("dc5655a1081372d529b8ee8f6cf2df8a38e0b9499632b79c2f4512cae52ceb9d", 12336)
+_INLINE_EARLY = (*_INLINE_329, "ba84484b421c3d2b3aad181468b8ee04e4e8a7e8b462c0f72c7b9c0b5ecf337e", 226992,
+                 "486804ce01fb641df1c886141e012070eabd46bfb94b3321fa08c6544c474117")
+_INLINE_RM2 = {
+    "20261009073202": _INLINE_EARLY,
+    "20261028104944": _INLINE_EARLY,
+    "20261110104847": (*_INLINE_329, "90b4db8e94105fb8290f8bd5be91b6a04d5634ab696635fb3ec3dae9dd8cfc7c", 226704,
+                       "baa3a48e07a57f0c9b6afb8f2b7844f5f8e2f5d19517287d2dced8f3cd4ce6ab"),
+    "20261028121323": ("13dda6c6d209010502075c75e38d82962958e33bde3298c7af490df15abcc884", 12485,
+                       "312e29f348267d06d2d6f8b1d219ebfcc759ae10507ea8a8fbca3593c5d502a9", 226704,
+                       "797b5e055fca42b9d7271acd716353db2ce73808e9d3b732d8b449d62317e735"),
+}
+
+
+def _known_shared_predecessor_specs(package, current):
+    if package.platform != "rm2" or package.package_revision != 2 or package.firmware not in _INLINE_RM2:
+        return ()
+    qmd, qsize, bridge, bsize, receiver = _INLINE_RM2[package.firmware]
+    extras = (shared.SharedFeatureFileSpec(BRIDGE_PAYLOAD_PATH, BRIDGE_PAYLOAD_PATH, bridge, bsize, 0o644),
+              shared.SharedFeatureFileSpec(RECEIVER_PAYLOAD_PATH, RECEIVER_PAYLOAD_PATH, receiver, 7536800, 0o755))
+    return ((1, replace(current, sha256=qmd, size=qsize, extra_files=extras,
+                        strict_metadata_paths=(BRIDGE_PAYLOAD_PATH, RECEIVER_PAYLOAD_PATH))),)
 
 
 def _context(identity, package):
@@ -246,6 +277,10 @@ def get_status(ssh_client, catalog):
         if record.spec != feature or inspection.launcher_update_available:
             return QrUploadStatus(QrUploadState.REPAIR_AVAILABLE, identity, package, catalog,
                 detail="已验证的扫码传输安装可更新。", recovery_available=True)
+        receiver = _qr_receiver.matching(runtime, record.spec)
+        if record.enabled and receiver and not receiver.present(ssh_client):
+            return QrUploadStatus(QrUploadState.REPAIR_AVAILABLE, identity, package, catalog,
+                detail="扫码接收程序缺失，可通过安装按钮修复。", recovery_available=True)
         process = tap._xochitl_process_token(ssh_client)
         if record.enabled:
             shared.assert_startup_guard_not_latched(inspection)
@@ -291,6 +326,9 @@ def preflight(ssh_client, package, *, with_plan=False):
         enable_plan = shared.check_shared_enable_capacity(
             ssh_client, runtime, feature, trusted, (), inspection=inspection
         )
+    receiver = _qr_receiver.matching(runtime, feature)
+    if receiver:
+        receiver.check_capacity(ssh_client)
     if with_plan:
         return runtime, trusted, feature, enable_plan
     return runtime, trusted, feature
@@ -300,7 +338,18 @@ def install(ssh_client, package, archive_path):
     runtime, trusted, feature = preflight(ssh_client, package)
     with tempfile.TemporaryDirectory() as temporary:
         extracted = extract_verified_package(archive_path, package, temporary)
-        shared.enable_shared(ssh_client, runtime, feature, extracted, trusted, ())
+        receiver = _qr_receiver.matching(runtime, feature)
+        if receiver:
+            with shared._operation_lock(ssh_client):
+                _assert_stopped(ssh_client)
+                shared._enable_shared_locked(ssh_client, runtime, feature, extracted, trusted, ())
+                # An intact, enabled entry can short-circuit the shared transaction.
+                if not receiver.present(ssh_client):
+                    with _qr_receiver.prepare(ssh_client, receiver, Path(extracted) / RECEIVER_PAYLOAD_PATH,
+                                              uuid.uuid4().hex) as prepared:
+                        ssh_client.exec_checked(f"set -eu\n{prepared.commit}")
+        else:
+            shared.enable_shared(ssh_client, runtime, feature, extracted, trusted, ())
     return get_status(ssh_client, (package,))
 
 
@@ -322,7 +371,13 @@ def _change(ssh_client, catalog, *, remove):
     inspection, trusted, _selected = _inspect(ssh_client, status.identity, runtime, trusted, check_lower=True)
     if FEATURE_ID in inspection.states:
         if remove:
-            shared.remove_shared_features(ssh_client, runtime, trusted, (FEATURE_ID,))
+            receiver = _qr_receiver.matching(runtime, inspection.states[FEATURE_ID].spec)
+            if receiver:
+                with shared._operation_lock(ssh_client):
+                    _assert_stopped(ssh_client)
+                    shared.remove_shared_features(ssh_client, runtime, trusted, (FEATURE_ID,), _lock_already_held=True)
+            else:
+                shared.remove_shared_features(ssh_client, runtime, trusted, (FEATURE_ID,))
         else:
             shared.disable_shared(ssh_client, runtime, FEATURE_ID, trusted,
                 replacement_spec=feature if inspection.states[FEATURE_ID].spec != feature else None)

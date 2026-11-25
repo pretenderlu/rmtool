@@ -145,6 +145,7 @@ def main():
     parser.add_argument("--stable-resources", type=Path, required=True)
     parser.add_argument("--matrix-config", type=Path, required=True)
     parser.add_argument("--release", action="append", help="Rebuild only these exact public releases; repeat for multiple releases")
+    parser.add_argument("--platform", help="Limit rebuild and cache writes to this exact platform")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     verify_archive_runtime()
@@ -161,12 +162,15 @@ def main():
     carrier_builder = load(ROOT / "native-chinese/build_172.py")
     document = json.loads(module.BUNDLED_MANIFEST.read_bytes())
     catalog = module.parse_manifest(json.dumps(document).encode())
-    if args.release and (missing := set(args.release) - {package.release_version for package in catalog}):
+    targets = [p for p in catalog if not args.platform or p.platform == args.platform]
+    if not targets:
+        parser.error(f"No {args.feature} targets for platform: {args.platform}")
+    if args.release and (missing := set(args.release) - {p.release_version for p in targets}):
         parser.error(f"No {args.feature} targets for: {', '.join(sorted(missing))}")
     args.output.mkdir(parents=True, exist_ok=True)
     report = []
     for index, package in enumerate(catalog):
-        if args.release and package.release_version not in args.release:
+        if package not in targets or (args.release and package.release_version not in args.release):
             continue
         resources, hashtab = resource_for(package, args)
         with tempfile.TemporaryDirectory() as temporary:
@@ -191,12 +195,17 @@ def main():
                     if (work / "one" / name).read_bytes() != (work / "two" / name).read_bytes():
                         raise RuntimeError(f"Non-deterministic QR payload: {name}")
                 carrier_archive = packages.package_cache_path(str(ROOT / ".rmtool"), "native-import", carrier)
+                if not packages.cached_package_is_valid(carrier_archive, carrier):
+                    raise RuntimeError("QR native-import carrier archive differs from its trusted manifest")
                 extracted = packages.extract_verified_package(carrier_archive, carrier, work / "carrier")
                 files = {item.path: ((extracted / item.path).read_bytes(), item.mode) for item in carrier.files
                          if item.path in module.REQUIRED_PATHS}
                 files.update({module.RECEIVER_PAYLOAD_PATH: (receiver.read_bytes(), 0o755),
                               module.BRIDGE_PAYLOAD_PATH: ((work / "one/rmtool-qr-upload.so").read_bytes(), 0o644),
                               module.QMD_PAYLOAD_PATH: ((work / "one/rmtool-qr-upload.qmd").read_bytes(), 0o644)})
+                load(ROOT / "qr-upload/build_assets.py").validate_receiver_binding(
+                    package.platform, package.xochitl_sha256, files[module.RECEIVER_PAYLOAD_PATH][0],
+                    files[module.BRIDGE_PAYLOAD_PATH][0], files[module.QMD_PAYLOAD_PATH][0])
             else:
                 archive, _ = carrier_builder._find_archive(package, (ROOT / ".rmtool", ROOT / "build", args.firmware_work))
                 extracted = packages.extract_verified_package(archive, package, work / "carrier")
@@ -223,6 +232,8 @@ def main():
             if packed != tap._gzip_member(tap._tar_member(files, apk_checksums=False, include_directories=False)):
                 raise RuntimeError("Non-deterministic archive")
             entry = dict(document["packages"][index])
+            if args.feature == "qr-upload" and package.platform == "rm2":
+                entry["package_revision"] = 2
             entry.update(sha256=digest(packed), size=len(packed),
                          asset=packages.content_asset_name(re.sub(r"-sha256-[0-9a-f]{64}(?=\.tar\.gz$)", "", package.asset), digest(packed)),
                          files=[dict(path=p, mode=m, size=len(data), sha256=digest(data)) for p, (data, m) in sorted(files.items())])
@@ -241,7 +252,8 @@ def main():
     manifest = (json.dumps(document, indent=2) + "\n").encode()
     updated = module.parse_manifest(manifest, **parser_options)
     for package in updated:
-        if args.release and package.release_version not in args.release:
+        if ((args.platform and package.platform != args.platform)
+                or (args.release and package.release_version not in args.release)):
             continue
         packages.extract_verified_package(args.output / package.asset, package,
             args.output / "verified" / package.asset.removesuffix(".tar.gz"))

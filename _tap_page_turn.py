@@ -678,6 +678,15 @@ def _published_payload_predecessor(identity, current):
     if record is None:
         return None
     files = record["files"]
+    if current.feature_id == "qr-upload" and identity.platform == "rm2":
+        # v1.21.3 used the inline receiver. Rebuild that exact layout before
+        # applying its published hashes, not the new /home layout.
+        import _qr_upload as qr
+        package = qr.select_package(qr._trusted_catalog(), identity)
+        if package and qr._shared_specs(package)[1] == current:
+            old = qr._known_shared_predecessor_specs(package, current)
+            if old:
+                current = old[0][1]
     if set(files) != {item.archive_path for item in current.files}:
         raise RuntimeError("已发布插件路径与当前功能不一致，需要明确迁移规则。")
     for digest, size, mode in files.values():
@@ -693,7 +702,7 @@ def _published_payload_predecessor(identity, current):
 def _published_feature_revisions(identity, trusted):
     revisions = {}
     for module_name in ("_reading_enhancements", "_note_enhancements", "_native_chinese",
-                        "_pinyin_input", "_weread_launcher", "_fast_mono_reading", "_appload"):
+                        "_pinyin_input", "_weread_launcher", "_fast_mono_reading", "_appload", "_qr_upload"):
         module = __import__(module_name)
         current = trusted.get(module.FEATURE_ID)
         if current is None:

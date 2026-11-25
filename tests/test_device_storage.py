@@ -359,10 +359,12 @@ class LegacyPluginCapacityTests(unittest.TestCase):
         states = {fid: shared.SharedFeatureState(trusted[fid], True, "token") for fid in ("native-chinese", "appload")}
         installed = shared.SharedInspection({"native-chinese": states["native-chinese"]}, True, True)
         plan = shared.SharedEnablePlan(installed, trusted, states, {}, ())
-        self.assertTrue(shared._can_reuse_shared_runtime(runtime, plan))
+        def reuse(inspection):
+            return shared._shared_reuse(runtime, inspection, states, trusted, ("appload",))
+        self.assertTrue(reuse(installed).runtime)
         for invalid in (replace(installed, dropin_present=False), replace(installed, legacy_templates=True),
                         replace(installed, states={}), replace(installed, layout=shared.LEGACY_SHARED_LAYOUT)):
-            self.assertFalse(shared._can_reuse_shared_runtime(runtime, replace(plan, inspection=invalid)))
+            self.assertEqual(reuse(invalid), shared._SharedReuse())
         with (patch.object(shared, "_shared_enable_plan", return_value=plan),
               patch.object(storage, "system_free_bytes", return_value=("/", int(22.05 * 1048576))) as space):
             with self.assertRaisesRegex(RuntimeError, "30.37 MiB"):
@@ -370,7 +372,7 @@ class LegacyPluginCapacityTests(unittest.TestCase):
             self.assertIs(shared.check_shared_enable_capacity(Mock(), runtime, trusted["appload"], trusted, ()), plan)
             space.return_value = ("/", storage.LEGACY_ROOT_RESERVE)
             with self.assertRaisesRegex(RuntimeError, "空间不足"):
-                shared.check_shared_capacity(Mock(), runtime, states, staged=True, reuse_runtime=True)
+                shared.check_shared_capacity(Mock(), runtime, states, staged=True, reuse=reuse(installed))
 
     def test_issue27_rm2_can_register_koreader_bridge_with_11_mib_free(self):
         package = next(p for p in native._trusted_catalog()
@@ -382,27 +384,47 @@ class LegacyPluginCapacityTests(unittest.TestCase):
         inspection = shared.SharedInspection(installed, True, True, receipt_features=frozenset(installed))
         states = {**installed, "koreader": shared.SharedFeatureState(trusted["koreader"], True, token)}
         plan = shared.SharedEnablePlan(inspection, trusted, states, {}, ())
-        files = shared._appload_files_for_bridge(runtime, plan, "koreader")
-        self.assertEqual({f.path for f in files}, {f.runtime_path for f in trusted["appload"].files})
-        self.assertEqual(shared._allocated_sizes(f.size for f in files), 11206656)
+        def select(plan, updating=("koreader",), device=runtime, **kwargs):
+            return shared._shared_reuse(device, plan.inspection, plan.states, plan.target_trusted, updating, **kwargs)
+        reuse = select(plan)
+        files = reuse.peer_files
+        expected = {f.runtime_path for s in installed.values() for f in s.spec.files
+                    if not f.runtime_path.endswith(".qmd")}
+        self.assertEqual({f.path for f in files}, expected)
+        required = (storage.LEGACY_ROOT_RESERVE + shared.shared_capacity_budget(runtime, states).required_bytes
+                    - shared._allocated_sizes(f.size for f in (*runtime.files, *files)))
         with (patch.object(shared, "_shared_enable_plan", return_value=plan),
               patch.object(storage, "system_free_bytes", return_value=("/", 11739 * 1024)) as free):
             with self.assertRaisesRegex(RuntimeError, "19.60 MiB"):
-                shared.check_shared_capacity(Mock(), runtime, states, reuse_runtime=True)
+                shared.check_shared_capacity(Mock(), runtime, states, reuse=shared._SharedReuse(True))
             self.assertIs(shared.check_shared_enable_capacity(Mock(), runtime, trusted["koreader"], trusted, ()), plan)
-            free.return_value = ("/", 0)
-            with self.assertRaisesRegex(RuntimeError, "8.91 MiB"):
+            free.return_value = ("/", required)
+            shared.check_shared_enable_capacity(Mock(), runtime, trusted["koreader"], trusted, ())
+            free.return_value = ("/", required - 1)
+            with self.assertRaises(RuntimeError) as raised:
                 shared.check_shared_enable_capacity(Mock(), runtime, trusted["koreader"], trusted, ())
+            self.assertEqual(raised.exception.recovery_context["shortfall"], 1)
+            free.return_value = ("/", storage.LEGACY_ROOT_RESERVE + 65535)
             with self.assertRaises(RuntimeError):
-                shared.check_shared_capacity(Mock(), runtime, states, staged=True, reuse_runtime=True, appload_files=files)
-        for target, additional, changed in (
-            ("appload", (), plan), ("koreader", ("appload",), plan),
-            ("koreader", (), replace(plan, inspection=replace(inspection, layout=shared.LEGACY_SHARED_LAYOUT))),
-            ("koreader", (), replace(plan, target_trusted={**trusted, "appload": replace(trusted["appload"], package_id="other")})),
-            ("koreader", (), replace(plan, states={**states, "appload": replace(installed["appload"], enabled=False)})),
+                shared.check_shared_capacity(Mock(), runtime, states, staged=True, reuse=reuse)
+        for updating, changed in (
+            (("appload",), plan), (("koreader", "appload"), plan),
+            (("koreader",), replace(plan, target_trusted={**trusted, "appload": replace(trusted["appload"], package_id="other")})),
+            (("koreader",), replace(plan, states={**states, "appload": replace(installed["appload"], enabled=False)})),
         ):
-            with self.subTest(target=target, additional=additional):
-                self.assertEqual(shared._appload_files_for_bridge(runtime, changed, target, additional), ())
+            with self.subTest(updating=updating):
+                self.assertEqual({f.path for f in select(changed, updating).peer_files},
+                                 expected - {f.runtime_path for f in trusted["appload"].files})
+        for platform in ("chiappa", "ferrari", "tatsu"):
+            self.assertEqual(select(plan, device=replace(runtime, platform=platform)), shared._SharedReuse())
+        rm1_data = replace(runtime, platform="rm1", firmware="20260612085811")
+        self.assertEqual(select(plan, device=rm1_data), reuse)
+        home_plan = replace(plan, inspection=replace(inspection, layout=shared.LEGACY_SHARED_LAYOUT))
+        rm1_home = replace(rm1_data, firmware=next(iter(shared.HOME_LAYOUT_RM1_FIRMWARE)))
+        self.assertEqual(select(home_plan, device=rm1_home), shared._SharedReuse())
+        self.assertEqual(select(home_plan), shared._SharedReuse())
+        self.assertEqual(select(plan, retain_backup=True), shared._SharedReuse(runtime=True))
+        self.assertEqual(select(plan, legacy_layouts=(shared.LEGACY_SHARED_LAYOUT,)), shared._SharedReuse())
 
         # The real staging path must omit exactly those files credited in the
         # budget, otherwise even the first write can exhaust this RM2.
@@ -419,12 +441,72 @@ class LegacyPluginCapacityTests(unittest.TestCase):
               patch.object(shared, "_remote_sha256", side_effect=lambda _, path: digests[path]),
               patch.object(shared, "_upload_path") as upload):
             shared._stage_shared(ssh, runtime, states, {"koreader": Path("bridge")}, previous, stage,
-                                 reuse_runtime=True, appload_files=files)
+                                 reuse=reuse)
         self.assertEqual({c.args[2] for c in upload.call_args_list},
                          {f"{stage}/{f.runtime_path}" for f in trusted["koreader"].files})
         commands = "\n".join(c.args[0] for c in ssh.exec_checked.call_args_list)
         for f in files:
             self.assertNotIn(f"{stage}/{f.path}", commands)
+        qmd = trusted["native-chinese"].runtime_path
+        self.assertIn(f"cp /live/{qmd} {stage}/{qmd}", commands)
+        self.assertIn(f"cp {stage}/{qmd} {stage}/check/qmd/", commands)
+        self.assertIn(f"{stage}/qmd-tool check", commands)
+
+        with (patch.object(shared, "_shared_enable_plan", return_value=plan) as planner,
+              patch.object(shared, "check_shared_capacity") as check):
+            shared.check_shared_enable_capacity(Mock(), runtime, trusted["koreader"], trusted, (),
+                                                additional_features=("appload",))
+            self.assertEqual(planner.call_args.kwargs["additional_features"], ("appload",))
+            self.assertEqual(check.call_args.kwargs["reuse"], select(plan, ("appload", "koreader")))
+
+    def test_rm2_disable_remove_and_replace_keep_peers_with_13_mib_free(self):
+        package = next(p for p in native._trusted_catalog()
+                       if p.platform == "rm2" and p.release_version == "3.29.1.0")
+        runtime, specs, _ = tap._trusted_shared_context(native._package_identity(package))
+        fid = "native-chinese"
+        trusted = {k: specs[k] for k in (fid, "appload", "tap-page-turn", "koreader")}
+        states = {k: shared.SharedFeatureState(s, True, "token") for k, s in trusted.items()}
+        installed = shared.SharedInspection(states, True, True, receipt_features=frozenset(states))
+        peers = {f.runtime_path for k, s in trusted.items() if k != fid for f in s.files
+                 if not f.runtime_path.endswith(".qmd")}
+        for operation in ("disable", "remove", "replace"):
+            ssh = Mock()
+            ssh.exec_checked.return_value = ""
+            digests = {f.path: f.sha256 for f in runtime.files}
+            digests.update({f.runtime_path: f.sha256 for s in trusted.values() for f in s.files})
+            def upload(_ssh, data, path, mode):
+                digests[path] = hashlib.sha256(data).hexdigest()
+            def digest(_ssh, path):
+                return next(v for k, v in digests.items() if path == k or path.endswith("/" + k))
+            with (self.subTest(operation=operation),
+                  patch.object(storage, "system_free_bytes", return_value=("/", 13 * 1048576)) as capacity,
+                  patch.object(shared, "_assert_managed_dropins"),
+                  patch.object(shared, "has_shared_artifacts", return_value=True),
+                  patch.object(shared, "inspect_shared", return_value=installed),
+                  patch.object(shared, "_process_token", return_value="token"),
+                  patch.object(shared, "_remote_sha256", side_effect=digest),
+                  patch.object(shared, "_upload_bytes", side_effect=upload),
+                  patch.object(shared, "_upload_path") as payload,
+                  patch.object(shared, "shared_transaction_script", wraps=shared.shared_transaction_script) as commit):
+                if operation == "disable":
+                    shared._disable_shared_locked(ssh, runtime, fid, trusted)
+                elif operation == "remove":
+                    shared.remove_shared_features(ssh, runtime, trusted, (fid,), _lock_already_held=True)
+                else:
+                    shared.replace_shared_features(ssh, runtime, trusted, runtime, trusted, states,
+                                                   {fid: Path("incoming")}, _lock_already_held=True)
+                stage = commit.call_args.args[0]
+                self.assertEqual(capacity.call_count, 2)
+                self.assertEqual({f.path for f in commit.call_args.kwargs["peer_files"]}, peers)
+                self.assertEqual({c.args[2] for c in payload.call_args_list},
+                                 {f"{stage}/{f.runtime_path}" for f in trusted[fid].files}
+                                 if operation == "replace" else set())
+                commands = "\n".join(c.args[0] for c in ssh.exec_checked.call_args_list)
+                self.assertNotIn("cp -a ", commands)
+                for path in peers:
+                    self.assertNotIn(f"{stage}/{path}", commands)
+                qmd = trusted["tap-page-turn"].runtime_path
+                self.assertIn(f"cp {stage}/{qmd} {stage}/check/qmd/", commands)
 
     def test_reused_runtime_shell_leaves_source_unchanged_on_abort_and_refuses_existing_links(self):
         git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"

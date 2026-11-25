@@ -19,12 +19,58 @@
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <unistd.h>
+#ifdef RMTOOL_QR_RM2_HOME
+#include "ReceiverProcess.h"
+#include <fcntl.h>
+#include <sys/stat.h>
+#endif
 
 #ifndef RMTOOL_QR_RECEIVER_SHA256
 #error RMTOOL_QR_RECEIVER_SHA256 must be supplied by the canary build
 #endif
 
 namespace {
+#ifdef RMTOOL_QR_RM2_HOME
+bool trustedDir(int fd, struct stat &st)
+{
+    return fstat(fd, &st) == 0 && st.st_uid == 0 && st.st_gid == 0 && !(st.st_mode & 0022);
+}
+
+bool openTrustedReceiver(QFile &file)
+{
+    constexpr char directory[] = "/home/root/.local/share/rmtool/qr-upload/receivers";
+    constexpr int dirFlags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC;
+    int dir = open("/", dirFlags);
+    if (dir < 0) return false;
+    struct stat st{};
+    if (!trustedDir(dir, st)) { close(dir); return false; }
+    const auto rootDevice = st.st_dev;
+    // Check each directory before using it as the anchor for the next lookup.
+    for (const QByteArray &part : QByteArray(directory).split('/')) {
+        if (part.isEmpty()) continue;
+        const int next = openat(dir, part.constData(), dirFlags);
+        close(dir);
+        if (next < 0) return false;
+        dir = next;
+        if (!trustedDir(dir, st) || (part == "home" && st.st_dev == rootDevice)) {
+            close(dir);
+            return false;
+        }
+    }
+    const int fd = openat(dir, RMTOOL_QR_RECEIVER_SHA256, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    close(dir);
+    if (fd < 0) return false;
+    if (fd <= STDERR_FILENO || fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 || st.st_gid != 0
+        || (st.st_mode & 07777) != 0755 || st.st_nlink != 1
+        || st.st_size != RMTOOL_QR_RECEIVER_SIZE
+        || !file.open(fd, QIODevice::ReadOnly, QFileDevice::AutoCloseHandle)) {
+        close(fd);
+        return false;
+    }
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    return hash.addData(&file) && hash.result().toHex() == QByteArray(RMTOOL_QR_RECEIVER_SHA256);
+}
+#else
 QString receiverPath()
 {
     const QString root = QString::fromUtf8(qgetenv("XOVI_ROOT"));
@@ -32,6 +78,7 @@ QString receiverPath()
         && root != QStringLiteral("/home/root/.local/share/rmtool/xovi-standalone")) return {};
     return root + QStringLiteral("/helpers/rmtool-qr-upload");
 }
+#endif
 constexpr auto kPreference = "/home/root/.rmtool-qr-upload-web-state";
 constexpr auto kRestoreDisabled = "rmtool-qr-upload:restore-web-disabled:v1\n";
 constexpr auto kStateDir = "/run/rmtool-qr-upload-ui";
@@ -58,6 +105,7 @@ QString wifiAddress()
     return result;
 }
 
+#ifndef RMTOOL_QR_RM2_HOME
 bool trustedReceiver()
 {
     QFileInfo info(receiverPath());
@@ -69,6 +117,7 @@ bool trustedReceiver()
     return file.open(QIODevice::ReadOnly) && hash.addData(&file)
         && hash.result().toHex() == QByteArray(RMTOOL_QR_RECEIVER_SHA256);
 }
+#endif
 }
 
 QrUpload::QrUpload(QObject *parent) : QObject(parent), m_status(QStringLiteral("未开启"))
@@ -131,7 +180,12 @@ void QrUpload::start()
         emit changed();
         return;
     }
+#ifdef RMTOOL_QR_RM2_HOME
+    auto receiver = std::make_unique<QFile>();
+    if (!openTrustedReceiver(*receiver)) {
+#else
     if (!trustedReceiver()) {
+#endif
         m_status = QStringLiteral("接收程序校验失败，请通过 rmtool 修复");
         emit changed();
         return;
@@ -182,15 +236,22 @@ void QrUpload::start()
         m_poll.stop();
         m_process = nullptr;
         m_status = QStringLiteral("无法启动接收程序");
+#ifndef RMTOOL_QR_RM2_HOME
         process->deleteLater();
+#endif
         emit changed();
     });
+#ifdef RMTOOL_QR_RM2_HOME
+    // Execute the verified inode, even if the installer replaces the directory entry.
+    process->start(adoptVerifiedReceiver(process, std::move(receiver)),
+#else
     process->start(receiverPath(),
+#endif
         {QStringLiteral("--listen"), address + QStringLiteral(":8765"),
          QStringLiteral("--state-dir"), QString::fromLatin1(kStateDir),
          QStringLiteral("--activate-native"),
          QStringLiteral("--parent-pid"), QString::number(::getpid())});
-    m_poll.start();
+    if (m_process) m_poll.start();
     emit changed();
 }
 

@@ -589,6 +589,9 @@ class ResidueMigrationTests(unittest.TestCase):
                             ))
                     stack.enter_context(mock.patch.object(shared, "_process_token", return_value=self.TOKEN))
                     stage = stack.enter_context(mock.patch.object(shared, "_stage_shared"))
+                    # The device model holds both valid content-addressed receivers.
+                    # Its default exec_checked response isn't a /home filesystem probe.
+                    stack.enter_context(mock.patch.object(shared._qr_receiver.Receiver, "present", return_value=True))
                     if failure == "stage":
                         stage.side_effect = RuntimeError("staging failed")
                     upload = stack.enter_context(mock.patch.object(shared, "_upload_bytes"))
@@ -631,6 +634,14 @@ class ResidueMigrationTests(unittest.TestCase):
                         self.assertTrue(state.enabled)
                     self.assertEqual(transaction.call_args.kwargs["enable_dropin"], bool(kept))
                     script = upload.call_args.args[1].decode()
+                    if platform == "rm2":
+                        target = shared._qr_receiver.matching(new_runtime, new_trusted["qr-upload"])
+                        previous = shared._qr_receiver.matching(old_runtime, old_trusted["qr-upload"])
+                        self.assertIn(transaction.call_args.kwargs["qr_receiver"].commit, script)
+                        if target == previous:
+                            self.assertNotIn("qr_retired", transaction.call_args.kwargs)
+                        else:
+                            self.assertIn(transaction.call_args.kwargs["qr_retired"].undo, script)
                     self.assertIn("trap rollback EXIT\n", script)
                     self.assertIn("trap 'exit 129' HUP", script)
                     for external in (

@@ -16,6 +16,21 @@ import _tap_page_turn as tap
 from tools.native_build import verify_archive_runtime
 
 
+def validate_receiver_binding(platform, stock, receiver, bridge, qmd):
+    if hashlib.sha256(receiver).hexdigest().encode() not in bridge:
+        raise RuntimeError("Bridge does not pin this exact receiver")
+    home = b"/home/root/.local/share/rmtool/qr-upload/receivers"
+    legacy = tuple(path.encode("utf-16le") for path in (
+        "/data/rmtool/xovi-standalone", "/home/root/.local/share/rmtool/xovi-standalone", "/helpers/rmtool-qr-upload"))
+    marker = b"; rmtool RM2 QR revision 2: "
+    if platform == "rm2":
+        if (home not in bridge or any(path in bridge for path in legacy)
+                or qmd.splitlines()[:1] != [marker + stock.encode("ascii")]):
+            raise RuntimeError("RM2 requires its exact revision-2 QMD and home-only receiver bridge")
+    elif home in bridge or marker in qmd or not all(path in bridge for path in legacy):
+        raise RuntimeError("Bridge is missing its original managed runtime binding")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--receiver", type=Path, required=True)
@@ -34,23 +49,22 @@ def main():
     identity, verification = target
     platform, firmware, architecture, stock = identity
     carrier = control.select_package(control._trusted_catalog(), tap.DeviceIdentity(firmware, platform, architecture, stock))
+    if carrier is None or not packages.cached_package_is_valid(args.carrier, carrier):
+        raise RuntimeError("Native-import carrier archive differs from its trusted manifest")
     receiver = args.receiver.read_bytes()
     bridge = (args.native_dir / "rmtool-qr-upload.so").read_bytes()
     for data in (receiver, bridge):
         machine, elf_class = (183, 2) if architecture == "aarch64" else (40, 1)
         if len(data) < 20 or data[:6] != b"\x7fELF" + bytes((elf_class, 1)) or int.from_bytes(data[18:20], "little") != machine:
             raise RuntimeError("QR package ELF architecture differs from its target")
-    if hashlib.sha256(receiver).hexdigest().encode() not in bridge:
-        raise RuntimeError("Bridge does not pin this exact receiver")
-    for required in ("/data/rmtool/xovi-standalone", "/home/root/.local/share/rmtool/xovi-standalone", "/helpers/rmtool-qr-upload"):
-        if required.encode("utf-16le") not in bridge:
-            raise RuntimeError("Bridge is missing a managed runtime path")
+    qmd = (args.native_dir / "rmtool-qr-upload.qmd").read_bytes()
+    validate_receiver_binding(platform, stock, receiver, bridge, qmd)
     with tempfile.TemporaryDirectory() as temp:
         extracted = control.extract_verified_package(args.carrier, carrier, temp)
         files = {item.path: ((extracted / item.path).read_bytes(), item.mode)
                  for item in carrier.files if item.path in qr.REQUIRED_PATHS}
     files.update({
-        qr.QMD_PAYLOAD_PATH: ((args.native_dir / "rmtool-qr-upload.qmd").read_bytes(), 0o644),
+        qr.QMD_PAYLOAD_PATH: (qmd, 0o644),
         qr.BRIDGE_PAYLOAD_PATH: (bridge, 0o644),
         qr.RECEIVER_PAYLOAD_PATH: (receiver, 0o755),
     })
@@ -61,7 +75,7 @@ def main():
     asset = packages.content_asset_name(qr._expected_asset_name(platform, firmware, release), hashlib.sha256(archive).hexdigest())
     entry = dict(firmware=firmware, platform=platform, architecture=architecture, xochitl_sha256=stock,
         release_version=release, channel=channel, offline_verified=offline, device_verified=device,
-        package_revision=qr.PACKAGE_REVISION, asset=asset, sha256=hashlib.sha256(archive).hexdigest(),
+        package_revision=2 if platform == "rm2" else 1, asset=asset, sha256=hashlib.sha256(archive).hexdigest(),
         size=len(archive), urls=[f"{base}/{asset}" for base in qr.REMOTE_BASE_URLS],
         files=[dict(path=p, mode=m, size=len(d), sha256=hashlib.sha256(d).hexdigest()) for p,(d,m) in sorted(files.items())])
     packages.write_atomic(args.output_dir / asset, archive)

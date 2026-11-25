@@ -12,13 +12,14 @@ import re
 import shlex
 import tempfile
 import uuid
-from contextlib import contextmanager, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass
 from itertools import product
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Mapping, Optional
 
 import _device_storage as storage
+import _qr_receiver
 
 RUNTIME_MOVES_PATH = "/run/rmtool-xovi-runtime-moves"
 
@@ -2303,6 +2304,48 @@ systemctl daemon-reload
 """
 
 
+@dataclass(frozen=True)
+class _SharedReuse:
+    runtime: bool = False
+    peer_files: tuple[SharedFileSpec, ...] = ()
+
+
+def _shared_reuse(runtime, inspection, states, trusted, updating, *, legacy_layouts=(), retain_backup=False):
+    """Only unchanged, non-incoming peers in the inspected /data layout can be linked."""
+    if (legacy_layouts or runtime.platform not in {"rm1", "rm2"}
+            or inspection.layout != SHARED_LAYOUT or preferred_layout(runtime) != SHARED_LAYOUT
+            or not inspection.dropin_present or inspection.legacy_templates
+            or not any(s.enabled for s in inspection.states.values())
+            or not any(s.enabled for s in states.values())):
+        return _SharedReuse()
+    if retain_backup:
+        # Keep the existing common-runtime policy, never alias peer payloads to a retained backup.
+        return _SharedReuse(runtime=True)
+    updating = frozenset(updating)
+    return _SharedReuse(True, tuple(
+        SharedFileSpec(f.runtime_path, f.sha256, f.size, f.mode)
+        for fid, old in inspection.states.items()
+        if fid not in updating and old.enabled and old == states.get(fid) and old.spec == trusted.get(fid)
+        for f in old.spec.files if not f.runtime_path.endswith(".qmd")  # qmd-tool runs before the switch.
+    ))
+
+
+def _qr_transaction_args(resources, ssh, runtime, states, roots, token, *, previous=None):
+    state = states.get("qr-upload")
+    receiver = _qr_receiver.matching(runtime, state.spec) if state else None
+    args = {}
+    if receiver and state.enabled and "qr-upload" in roots:
+        source = Path(roots["qr-upload"]) / _qr_receiver.ARCHIVE_PATH
+        args["qr_receiver"] = resources.enter_context(_qr_receiver.prepare(ssh, receiver, source, token))
+    if previous is not None:
+        old_runtime, old_states = previous
+        old_state = old_states.get("qr-upload")
+        old = _qr_receiver.matching(old_runtime, old_state.spec) if old_state else None
+        if old and old != receiver:
+            args["qr_retired"] = _qr_receiver.retire(ssh, old, token)
+    return args
+
+
 def shared_transaction_script(
     stage: str,
     token: str,
@@ -2315,7 +2358,9 @@ def shared_transaction_script(
     controls_only: bool = False,
     stop_units: Iterable[str] = (),
     pinyin_stage: str | None = None,
-    appload_files: tuple[SharedFileSpec, ...] = (),
+    qr_receiver: _qr_receiver.Prepared | None = None,
+    qr_retired: _qr_receiver.Retirement | None = None,
+    peer_files: tuple[SharedFileSpec, ...] = (),
 ) -> str:
     external_commit = external_restore = external_cleanup = ""
     external_flags = ""
@@ -2368,9 +2413,11 @@ done
         fi
 '''
     layouts = tuple(legacy_layouts)
-    if appload_files and (controls_only or retain_backup or remove_base or not enable_dropin or layouts
-                          or layout != SHARED_LAYOUT or pinyin_stage is not None):
-        raise ValueError("只能在原共享目录内安装 KOReader 入口时复用 AppLoad。")
+    if peer_files and (
+        controls_only or retain_backup or remove_base or not enable_dropin or layouts
+        or layout != SHARED_LAYOUT or pinyin_stage is not None
+    ):
+        raise ValueError("只有在原共享目录内切换且不保留备份时才能复用文件。")
     if controls_only and (layouts or remove_base or not retain_backup or not enable_dropin):
         raise ValueError("启动配置修复不能同时迁移布局、删除主体或丢弃备份。")
     bases = tuple(dict.fromkeys(
@@ -2483,6 +2530,8 @@ BACKUPS_CREATED=0
 MOUNTED=0
 COMMITTED=0
 STAGE_MOVED=0
+QR_CREATED=0
+QR_RETIRING=0
 DROPINS_SNAPSHOTTED=0
 CONTROLS_SNAPSHOTTED=0
 ROOT_RELEASED=1
@@ -2593,6 +2642,8 @@ rollback() {{
             systemctl daemon-reload 2>/dev/null || ROLLBACK_OK=0
         fi
         {external_restore}
+        {qr_receiver.undo if qr_receiver else ''}
+        {qr_retired.undo if qr_retired else ''}
         {restore_sidecars}
     fi
     rm -rf "$STAGE" || ROLLBACK_OK=0
@@ -2620,7 +2671,9 @@ DROPINS_SNAPSHOTTED=1
 
 {stop_sidecars}
 {external_commit}
-{_verified_link_command(layout.remote_base, stage, appload_files, verify_digest=True)}
+{qr_receiver.commit if qr_receiver else ''}
+{qr_retired.commit if qr_retired else ''}
+{_verified_link_command(layout.remote_base, stage, peer_files, verify_digest=True)}
 {base_backup}
 {stage_commit}
 
@@ -2635,6 +2688,7 @@ systemctl daemon-reload
 
 COMMITTED=1
 {external_cleanup}
+{qr_retired.finish if qr_retired else ''}
 {commit_cleanup}
 trap - EXIT HUP INT PIPE TERM
 """
@@ -2752,7 +2806,7 @@ def shared_capacity_budget(
 
 
 def check_shared_capacity(ssh_client, runtime, states, *, staged=False, controls_only=False,
-                          reuse_runtime=False, appload_files=()):
+                          reuse=_SharedReuse()):
     """Budget legacy installs and repairs without changing boot-time storage."""
     if runtime.platform not in {"rm1", "rm2"}:
         return
@@ -2779,9 +2833,9 @@ def check_shared_capacity(ssh_client, runtime, states, *, staged=False, controls
     else:
         partition, available = storage.system_free_bytes(ssh_client)
         reserve = storage.LEGACY_ROOT_RESERVE if partition == "/" else 25 * 1024 * 1024
-        reused = budget.runtime_bytes if reuse_runtime and not staged else 0
-        if reuse_runtime and not staged and not controls_only:
-            reused += _allocated_sizes(item.size for item in appload_files)
+        reused = 0
+        if reuse.runtime and not staged and not controls_only:
+            reused = budget.runtime_bytes + _allocated_sizes(item.size for item in reuse.peer_files)
         storage.require_capacity(
             partition,
             available,
@@ -2804,18 +2858,24 @@ def _assert_home_catalog(runtime, states):
 def _verified_link_command(source_base, stage, files, *, verify_digest=False):
     # Never chmod, chown or replace the shared inodes through the staging tree.
     commands = []
+    if files:
+        for parent in sorted({""} | _parent_directories(item.path for item in files)):
+            for base in (source_base, stage):
+                directory = shlex.quote(posixpath.join(base, parent) if parent else base)
+                commands.append(f"[ -d {directory} ] && [ ! -L {directory} ]")
     for item in files:
         source = shlex.quote(f"{source_base}/{item.path}")
         target = shlex.quote(f"{stage}/{item.path}")
-        metadata = f"{0o100000 | item.mode:x}:0:0:{item.size}:1"
+        metadata = f"{0o100000 | item.mode:x}:0:0:{item.size}"
         commands.append(
             f"[ ! -L {source} ] && "
-            f"[ \"$(stat -c '%f:%u:%g:%s:%h' {source})\" = {metadata} ] && "
+            f"[ \"$(stat -c '%f:%u:%g:%s:%h' {source})\" = {metadata}:1 ] && "
             f"[ ! -e {target} ] && [ ! -L {target} ] && "
-            f"ln {source} {target} && [ {source} -ef {target} ]"
+            f"ln {source} {target} && [ {source} -ef {target} ] && "
+            f"[ \"$(stat -c '%f:%u:%g:%s:%h' {target})\" = {metadata}:2 ]"
         )
         if verify_digest:
-            commands.append(f'[ "$(sha256sum {target} | cut -d\' \' -f1)" = {shlex.quote(item.sha256)} ]')
+            commands.append(f'digest=$(sha256sum {target}) && [ "${{digest%% *}}" = {shlex.quote(item.sha256)} ]')
     return (" && ".join(commands) + " || exit 1") if commands else ":"
 
 
@@ -2836,14 +2896,13 @@ def _stage_shared(
     stage: str,
     *,
     controls_only: bool = False,
-    reuse_runtime: bool = False,
-    appload_files: tuple[SharedFileSpec, ...] = (),
+    reuse: _SharedReuse = _SharedReuse(),
 ) -> tuple[str, str]:
     _assert_home_catalog(runtime, states)
     if not controls_only or runtime.platform in {"rm1", "rm2"}:
         check_shared_capacity(ssh_client, runtime, states, controls_only=controls_only,
-                              reuse_runtime=reuse_runtime, appload_files=appload_files)
-    deferred = {item.path for item in appload_files}
+                              reuse=reuse)
+    deferred = {item.path for item in reuse.peer_files}
     enabled = tuple(state.spec for state in states.values() if state.enabled)
     launcher_text = shared_launcher(runtime, enabled)
     dropin_text = shared_dropin(runtime, enabled)
@@ -2868,7 +2927,7 @@ def _stage_shared(
         "mkdir -p " + " ".join(shlex.quote(path) for path in sorted(directories))
     )
     if enabled and not controls_only:
-        for item in (() if reuse_runtime else runtime.files):
+        for item in (() if reuse.runtime else runtime.files):
             # Every feature package carries the identical common runtime files.
             # Removal transactions have no incoming archive, so they copy these
             # files from the already verified live tree instead.
@@ -2914,7 +2973,7 @@ def _stage_shared(
         )
     _upload_bytes(ssh_client, marker, f"{stage}/package.json", 0o644)
     ssh_client.exec_checked(f"chown -R root:root {shlex.quote(stage)}")
-    if reuse_runtime and enabled and not controls_only:
+    if reuse.runtime and enabled and not controls_only:
         _link_shared_runtime(ssh_client, SHARED_LAYOUT.remote_base, stage, runtime.files)
     for path, item in expected.items():
         if path in deferred:
@@ -2944,6 +3003,18 @@ def _stage_shared(
     return launcher_sha, dropin_sha
 
 
+def _installed_sources(runtime, inspection):
+    base = inspection.layout.remote_base
+    sources = {}
+    for fid, state in inspection.states.items():
+        if state.enabled:
+            sources.update({f.runtime_path: f"{base}/{f.runtime_path}" for f in state.spec.files})
+            sources[fid] = sources[state.spec.runtime_path]
+    if sources:
+        sources.update({item.path: f"{base}/{item.path}" for item in runtime.files})
+    return sources
+
+
 def replace_shared_features(
     ssh_client,
     current_runtime: SharedRuntimeSpec,
@@ -2960,14 +3031,14 @@ def replace_shared_features(
     """Atomically replace a verified shared feature set.
 
     The caller supplies the complete target marker state.  Existing enabled
-    files are copied only after the current tree has passed the trusted
+    files are staged only after the current tree has passed the trusted
     inspection, so an unknown or mixed installation is rejected before any
     live path is changed.  This is deliberately a lower-level transaction;
     feature-specific modules remain responsible for package selection and
     migration policy.
     """
     lock = nullcontext() if _lock_already_held else _operation_lock(ssh_client)
-    with lock:
+    with lock, ExitStack() as resources:
         if not set(current_trusted) <= MIGRATABLE_FEATURE_IDS:
             raise RuntimeError("共享 Xovi 包含不受支持的功能。")
         if not set(target_trusted) <= MIGRATABLE_FEATURE_IDS:
@@ -3007,21 +3078,7 @@ def replace_shared_features(
             # Relocate only a fully inspected source, preserving rollback.
             legacy_layouts = tuple(dict.fromkeys((*legacy_layouts, inspection.layout)))
 
-        previous_sources = {
-            item.runtime_path: f"{inspection.layout.remote_base}/{item.runtime_path}"
-            for state in inspection.states.values()
-            if state.enabled
-            for item in state.spec.files
-        }
-        previous_sources.update({
-            state.spec.feature_id: f"{inspection.layout.remote_base}/{state.spec.runtime_path}"
-            for state in inspection.states.values()
-            if state.enabled
-        })
-        previous_sources.update({
-            item.path: f"{inspection.layout.remote_base}/{item.path}"
-            for item in current_runtime.files
-        })
+        previous_sources = _installed_sources(current_runtime, inspection)
         enabled = tuple(state.spec for state in target_states.values() if state.enabled)
         if enabled and not incoming_roots and not previous_sources:
             raise RuntimeError("目标共享 Xovi 缺少可验证的资源来源。")
@@ -3033,6 +3090,8 @@ def replace_shared_features(
             ):
                 raise RuntimeError(f"无法从已验证安装中保留 {state.spec.feature_id}。")
 
+        reuse = _shared_reuse(target_runtime, inspection, target_states, target_trusted, incoming_roots,
+                              legacy_layouts=legacy_layouts)
         token = uuid.uuid4().hex
         stage = f"{layout.remote_base}.staging-{token}"
         remote_script = f"/tmp/rmtool-xovi-replace-{token}.sh"
@@ -3045,6 +3104,7 @@ def replace_shared_features(
                 {feature_id: Path(root) for feature_id, root in incoming_roots.items()},
                 previous_sources,
                 stage,
+                reuse=reuse,
             )
             stop_units = {
                 sidecar.unit_name for fid, old in inspection.states.items()
@@ -3059,6 +3119,9 @@ def replace_shared_features(
                 remove_base=remove_base_when_empty and not enabled,
                 layout=layout,
                 stop_units=sorted(stop_units),
+                peer_files=reuse.peer_files,
+                **_qr_transaction_args(resources, ssh_client, target_runtime, target_states, incoming_roots, token,
+                                       previous=(current_runtime, inspection.states)),
             )
             _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
             ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
@@ -3157,26 +3220,6 @@ class SharedEnablePlan:
     present_legacy: tuple[LegacyStandaloneSpec, ...]
 
 
-def _can_reuse_shared_runtime(runtime, plan):
-    inspection = plan.inspection
-    return (runtime.platform in {"rm1", "rm2"}
-            and inspection.layout == preferred_layout(runtime) == SHARED_LAYOUT
-            and inspection.dropin_present and not inspection.legacy_templates
-            and any(state.enabled for state in inspection.states.values()))
-
-
-def _appload_files_for_bridge(runtime, plan, feature_id, additional=()):
-    if feature_id != "koreader" or additional or not _can_reuse_shared_runtime(runtime, plan):
-        return ()
-    installed = plan.inspection.states.get("appload")
-    if (not installed or not installed.enabled or installed != plan.states.get("appload")
-            or installed.spec != plan.target_trusted.get("appload")):
-        return ()
-    if any(f.runtime_path.endswith(".qmd") for f in installed.spec.files):
-        return ()  # The QMD staging check needs its input before commit.
-    return tuple(SharedFileSpec(f.runtime_path, f.sha256, f.size, f.mode) for f in installed.spec.files)
-
-
 def _shared_enable_plan(
     ssh_client,
     runtime: SharedRuntimeSpec,
@@ -3265,15 +3308,7 @@ def _shared_enable_plan(
         return inspection
     current = _process_token(ssh_client)
     states = dict(inspection.states)
-    previous_sources = {
-        item.runtime_path: f"{inspection.layout.remote_base}/{item.runtime_path}"
-        for state in inspection.states.values() if state.enabled
-        for item in state.spec.files
-    }
-    previous_sources.update({
-        state.spec.feature_id: f"{inspection.layout.remote_base}/{state.spec.runtime_path}"
-        for state in inspection.states.values() if state.enabled
-    })
+    previous_sources = _installed_sources(runtime, inspection)
     for legacy in present_legacy:
         enabled = ssh_client.file_exists(legacy.layout.dropin_path)
         states[legacy.feature.feature_id] = SharedFeatureState(
@@ -3314,7 +3349,9 @@ def check_shared_enable_capacity(
     legacy_specs: Iterable[LegacyStandaloneSpec],
     *,
     inspection: SharedInspection | None = None,
+    additional_features: Iterable[str] = (),
 ) -> SharedEnablePlan | SharedInspection:
+    additional_features = tuple(additional_features)
     plan = _shared_enable_plan(
         ssh_client,
         runtime,
@@ -3323,11 +3360,17 @@ def check_shared_enable_capacity(
         legacy_specs,
         inspection=inspection,
         check_lower=False,
+        additional_features=additional_features,
     )
     if isinstance(plan, SharedEnablePlan):
         try:
-            check_shared_capacity(ssh_client, runtime, plan.states, reuse_runtime=_can_reuse_shared_runtime(runtime, plan),
-                                  appload_files=_appload_files_for_bridge(runtime, plan, feature.feature_id))
+            # Installing a managed service can retain both trees until post-commit inspection.
+            reuse = _shared_reuse(
+                runtime, plan.inspection, plan.states, plan.target_trusted,
+                (feature.feature_id, *additional_features), legacy_layouts=plan.present_legacy,
+                retain_backup=any(s.unit_name for s in feature.sidecars),
+            )
+            check_shared_capacity(ssh_client, runtime, plan.states, reuse=reuse)
         except RuntimeError as exc:
             exc.shared_enable_plan = plan
             raise
@@ -3366,11 +3409,13 @@ def _enable_shared_locked(
     present_legacy = plan.present_legacy
     layout = preferred_layout(runtime)
 
-    appload_files = _appload_files_for_bridge(runtime, plan, feature.feature_id, additional_roots)
+    reuse = _shared_reuse(runtime, inspection, states, target_trusted, (feature.feature_id, *additional_roots),
+                          legacy_layouts=present_legacy, retain_backup=pinyin_stage is not None)
     token = uuid.uuid4().hex
     stage = f"{layout.remote_base}.staging-{token}"
     remote_script = f"/tmp/rmtool-xovi-activate-{token}.sh"
     ssh_client.exec_checked(f"rm -rf {shlex.quote(stage)}")
+    resources = ExitStack()
     try:
         _stage_shared(
             ssh_client,
@@ -3385,8 +3430,7 @@ def _enable_shared_locked(
             },
             previous_sources,
             stage,
-            reuse_runtime=_can_reuse_shared_runtime(runtime, plan),
-            appload_files=appload_files,
+            reuse=reuse,
         )
         migrated_layouts = [item.layout for item in present_legacy]
         if inspection.states and inspection.layout != layout:
@@ -3395,8 +3439,10 @@ def _enable_shared_locked(
             stage, token, migrated_layouts, enable_dropin=True, layout=layout,
             retain_backup=pinyin_stage is not None,
             pinyin_stage=pinyin_stage,
-            appload_files=appload_files,
+            peer_files=reuse.peer_files,
             stop_units=("rmtool-pinyin-input.service",) if pinyin_stage else (),
+            **_qr_transaction_args(resources, ssh_client, runtime, states,
+                                   {feature.feature_id: extracted_root, **additional_roots}, token),
         )
         _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
         ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
@@ -3407,6 +3453,7 @@ def _enable_shared_locked(
             logging.exception("Could not clean shared Xovi staging directory")
         raise
     finally:
+        resources.close()
         try:
             ssh_client.exec_checked(f"rm -f {shlex.quote(remote_script)}")
         except Exception:
@@ -3492,88 +3539,12 @@ def _disable_shared_locked(
     token = uuid.uuid4().hex
     stage = f"{layout.remote_base}.staging-{token}"
     remote_script = f"/tmp/rmtool-xovi-disable-{token}.sh"
-    _assert_home_catalog(runtime, states)
-    check_shared_capacity(ssh_client, runtime, inspection.states)
-    ssh_client.exec_checked(f"rm -rf {shlex.quote(stage)}")
+    migrated_layouts = (inspection.layout,) if inspection.layout != layout else ()
+    reuse = _shared_reuse(runtime, inspection, states, target_trusted, (feature_id,),
+                          legacy_layouts=migrated_layouts)
+    ssh_client.exec_checked(f"test ! -e {shlex.quote(stage)} && test ! -L {shlex.quote(stage)}")
     try:
-        ssh_client.exec_checked(
-            f"cp -a {shlex.quote(inspection.layout.remote_base)} {shlex.quote(stage)}"
-        )
-        ssh_client.exec_checked(
-            f"rm -f {shlex.quote(stage + '/startup.pending')}"
-        )
-        launcher_text = shared_launcher(runtime, enabled)
-        dropin_text = shared_dropin(runtime, enabled)
-        launcher_sha = hashlib.sha256(launcher_text.encode()).hexdigest()
-        dropin_sha = hashlib.sha256(dropin_text.encode()).hexdigest()
-        marker = shared_marker(runtime, states, launcher_sha, dropin_sha)
-        if enabled:
-            for item in state.spec.files:
-                ssh_client.exec_checked(
-                    f"rm -f {shlex.quote(stage + '/' + item.runtime_path)}"
-                )
-                ssh_client.exec_checked(
-                    f"test ! -e {shlex.quote(stage + '/' + item.runtime_path)}"
-                )
-            remaining_dirs = _parent_directories(
-                item.path for item in runtime.files
-            ) | _parent_directories(
-                item.runtime_path for peer in enabled for item in peer.files
-            )
-            obsolete_dirs = _parent_directories(
-                item.runtime_path for item in state.spec.files
-            ) - remaining_dirs
-            for directory in sorted(
-                obsolete_dirs,
-                key=lambda value: (value.count("/"), value),
-                reverse=True,
-            ):
-                remote = shlex.quote(f"{stage}/{directory}")
-                ssh_client.exec_checked(f"rmdir {remote}")
-                ssh_client.exec_checked(f"test ! -e {remote}")
-            _upload_bytes(
-                ssh_client, launcher_text.encode(), f"{stage}/launcher.sh", 0o755
-            )
-            _upload_bytes(
-                ssh_client,
-                dropin_text.encode(),
-                f"{stage}/systemd/{SHARED_LAYOUT.dropin_name}",
-                0o644,
-            )
-        else:
-            ssh_client.exec_checked(
-                f"find {shlex.quote(stage)} -mindepth 1 -maxdepth 1 -exec rm -rf {{}} +"
-            )
-        _upload_bytes(ssh_client, marker, f"{stage}/package.json", 0o644)
-        ssh_client.exec_checked(f"chown -R root:root {shlex.quote(stage)}")
-        expected_generated = [("package.json", hashlib.sha256(marker).hexdigest())]
-        if enabled:
-            expected_generated.extend(
-                (
-                    ("launcher.sh", launcher_sha),
-                    (f"systemd/{SHARED_LAYOUT.dropin_name}", dropin_sha),
-                )
-            )
-        for path, digest in expected_generated:
-            if _remote_sha256(ssh_client, f"{stage}/{path}") != digest:
-                raise RuntimeError(f"设备端共享 Xovi 文件 {path} 更新校验失败。")
-        for peer in enabled:
-            for item in peer.files:
-                if _remote_sha256(
-                    ssh_client, f"{stage}/{item.runtime_path}"
-                ) != item.sha256:
-                    raise RuntimeError(f"共享 Xovi 未能完整保留 {peer.feature_id}。")
-        if any(
-            item.runtime_path.endswith(".qmd")
-            for feature in enabled
-            for item in feature.files
-        ):
-            ssh_client.exec_checked(_qmd_check_command(stage, enabled))
-        ssh_client.exec_checked(f"rm -rf {shlex.quote(stage + '/check')}")
-        check_shared_capacity(ssh_client, runtime, states, staged=True)
-        migrated_layouts = (
-            (inspection.layout,) if inspection.layout != layout else ()
-        )
+        _stage_shared(ssh_client, runtime, states, {}, _installed_sources(runtime, inspection), stage, reuse=reuse)
         script = shared_transaction_script(
             stage,
             token,
@@ -3582,6 +3553,7 @@ def _disable_shared_locked(
             layout=layout,
             stop_units=tuple(sidecar.unit_name for sidecar in state.spec.sidecars
                              if state.enabled and sidecar.unit_name),
+            peer_files=reuse.peer_files,
         )
         _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
         ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
@@ -3637,6 +3609,7 @@ def remove_shared_firmware_residue(
                 enable_dropin=False,
                 remove_base=True,
                 layout=layout,
+                **_qr_transaction_args(None, ssh_client, runtime, {}, {}, token, previous=(runtime, inspection.states)),
             )
             _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
             ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")
@@ -3704,7 +3677,7 @@ def migrate_shared(
     inspect_shared_firmware_residue); the rebuilt tree always uses the
     current templates.
     """
-    with _operation_lock(ssh_client):
+    with _operation_lock(ssh_client), ExitStack() as resources:
         skipped_ids = frozenset(skipped_feature_ids)
         if (
             not skipped_ids <= OPTIONAL_MIGRATION_FEATURE_IDS
@@ -3779,7 +3752,9 @@ def migrate_shared(
                 (residue.layout,) if residue.layout != layout else ()
             )
             script = shared_transaction_script(
-                stage, token, migrated_layouts, enable_dropin=bool(enabled_ids), layout=layout
+                stage, token, migrated_layouts, enable_dropin=bool(enabled_ids), layout=layout,
+                **_qr_transaction_args(resources, ssh_client, new_runtime, states, roots, token,
+                                       previous=(old_runtime, residue.states)),
             )
             _upload_bytes(ssh_client, script.encode(), remote_script, 0o755)
             ssh_client.exec_checked(f"/bin/sh {shlex.quote(remote_script)}")

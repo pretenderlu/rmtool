@@ -27,13 +27,16 @@ class SharedXoviTests(unittest.TestCase):
     TOKEN = "12345678-1234-1234-1234-123456789abc:778:1000"
 
     def test_pinyin_committed_but_unverified_keeps_both_transaction_backups(self):
-        package = next(item for item in pinyin._trusted_catalog() if item.platform == "chiappa")
+        package = next(item for item in pinyin._trusted_catalog() if item.platform == "rm2")
         runtime, feature = pinyin._shared_specs(package)
-        trusted = {feature.feature_id: feature}
+        peer = tap._trusted_shared_context(tap.DeviceIdentity(
+            runtime.firmware, runtime.platform, runtime.architecture, runtime.xochitl_sha256
+        ))[1]["native-chinese"]
+        trusted = {s.feature_id: s for s in (peer, feature)}
+        installed = shared.SharedInspection({peer.feature_id: shared.SharedFeatureState(peer, True, self.TOKEN)},
+                                            True, True)
         states = {feature.feature_id: shared.SharedFeatureState(feature, True, self.TOKEN)}
-        plan = shared.SharedEnablePlan(
-            shared.SharedInspection({}, False, False), trusted, states, {}, ()
-        )
+        plan = shared.SharedEnablePlan(installed, trusted, {**installed.states, **states}, {}, ())
         ssh = Mock(exec_checked=Mock(return_value=""))
         stage = "/home/root/.local/share/rmtool/pinyin-input.staging-" + "a" * 32
         for verification_error in (False, True):
@@ -41,17 +44,22 @@ class SharedXoviTests(unittest.TestCase):
                 ssh.reset_mock()
                 with (
                     patch.object(shared, "_shared_enable_plan", return_value=plan),
-                    patch.object(shared, "_stage_shared"),
+                    patch.object(shared, "_stage_shared") as staging,
+                    patch.object(shared, "check_shared_capacity") as budget,
                     patch.object(shared, "_upload_bytes"),
                     patch.object(shared, "shared_transaction_script", return_value="script") as script,
                     patch.object(shared, "inspect_shared", side_effect=OSError("link lost") if verification_error else None) as inspect,
                 ):
+                    shared.check_shared_enable_capacity(ssh, runtime, feature, trusted, ())
+                    self.assertEqual(budget.call_args.kwargs["reuse"], shared._SharedReuse(runtime=True))
                     if verification_error:
                         with self.assertRaisesRegex(RuntimeError, "已提交.*恢复备份"):
                             shared._enable_shared_locked(ssh, runtime, feature, Path("unused"), trusted, (), pinyin_stage=stage)
                     else:
                         self.assertIs(shared._enable_shared_locked(ssh, runtime, feature, Path("unused"), trusted, (), pinyin_stage=stage), inspect.return_value)
                     self.assertTrue(script.call_args.kwargs["retain_backup"])
+                    self.assertEqual(staging.call_args.kwargs["reuse"], budget.call_args.kwargs["reuse"])
+                    self.assertEqual(script.call_args.kwargs["peer_files"], ())
                 cleanup = [call.args[0] for call in ssh.exec_checked.call_args_list
                            if call.args[0].startswith("rm -rf -- ")]
                 self.assertEqual(len(cleanup), 0 if verification_error else 1)
@@ -2294,6 +2302,9 @@ class SharedXoviTests(unittest.TestCase):
         marker = b"marker"
 
         def remote_sha(_ssh, path):
+            for item in runtime.files:
+                if path.endswith("/" + item.path):
+                    return item.sha256
             if path.endswith("/" + tap_feature.runtime_path):
                 return tap_feature.sha256
             if path.endswith("/launcher.sh"):
@@ -2329,20 +2340,10 @@ class SharedXoviTests(unittest.TestCase):
             call.args[0] for call in ssh.exec_checked.call_args_list
         )
         for item in native_feature.files:
-            self.assertIn(
-                f"rm -f {shared.SHARED_LAYOUT.remote_base}.staging-",
-                commands,
-            )
-            self.assertIn(item.runtime_path, commands)
-        self.assertIn(
-            f"rmdir {shared.SHARED_LAYOUT.remote_base}.staging-",
-            commands,
-        )
-        self.assertIn("/native-chinese", commands)
-        self.assertNotIn(
-            f"rm -f {shared.SHARED_LAYOUT.remote_base}.staging-" + tap_feature.runtime_path,
-            commands,
-        )
+            self.assertNotIn(item.runtime_path, commands)
+        self.assertNotIn("cp -a ", commands)
+        self.assertIn(f"cp {shared.SHARED_LAYOUT.remote_base}/{tap_feature.runtime_path} ", commands)
+        self.assertIn("/qmd-tool check", commands)
 
     def test_legacy_early_and_formal_plans_have_identical_states_and_budget(self):
         tap_package, fast_package = next(iter(self.contexts()))
@@ -2511,29 +2512,23 @@ class SharedXoviTests(unittest.TestCase):
             ssh = MagicMock()
             ssh.exec_checked.return_value = ""
             transaction = Mock(return_value="#!/bin/sh\n:")
+            enabled = (fast_feature,) if expected_dropin else ()
+            launcher = hashlib.sha256(shared.shared_launcher(runtime, enabled).encode()).hexdigest()
+            dropin = hashlib.sha256(shared.shared_dropin(runtime, enabled).encode()).hexdigest()
+            target = {**states, feature_id: replace(states[feature_id], enabled=False)}
+            digests = {
+                **{item.path: item.sha256 for item in runtime.files},
+                fast_feature.runtime_path: fast_feature.sha256,
+                "launcher.sh": launcher,
+                "systemd/" + shared.SHARED_LAYOUT.dropin_name: dropin,
+                "package.json": hashlib.sha256(shared.shared_marker(runtime, target, launcher, dropin)).hexdigest(),
+            }
             with (
                 patch.object(shared, "inspect_shared", side_effect=(inspection, final)),
                 patch.object(shared, "_process_token", return_value=self.TOKEN),
                 patch.object(shared, "_upload_bytes"),
-                patch.object(shared, "_remote_sha256", side_effect=lambda _ssh, path: (
-                    fast_feature.sha256 if path.endswith(fast_feature.runtime_path)
-                    else hashlib.sha256(shared.shared_launcher(runtime, (
-                        fast_feature,
-                    ) if expected_dropin else ()).encode()).hexdigest() if path.endswith("launcher.sh")
-                    else hashlib.sha256(shared.shared_dropin(runtime, (
-                        fast_feature,
-                    ) if expected_dropin else ()).encode()).hexdigest() if path.endswith(shared.SHARED_LAYOUT.dropin_name)
-                    else hashlib.sha256(shared.shared_marker(
-                        runtime,
-                        {
-                            key: shared.SharedFeatureState(value.spec, False, self.TOKEN)
-                            if key == feature_id else value
-                            for key, value in states.items()
-                        },
-                        hashlib.sha256(shared.shared_launcher(runtime, (fast_feature,) if expected_dropin else ()).encode()).hexdigest(),
-                        hashlib.sha256(shared.shared_dropin(runtime, (fast_feature,) if expected_dropin else ()).encode()).hexdigest(),
-                    )).hexdigest()
-                )),
+                patch.object(shared, "_remote_sha256", side_effect=lambda _ssh, path: next(
+                    digest for name, digest in digests.items() if path.endswith("/" + name))),
                 patch.object(shared, "shared_transaction_script", transaction),
             ):
                 result = shared.disable_shared(
@@ -2567,6 +2562,9 @@ class SharedXoviTests(unittest.TestCase):
         marker = Mock(return_value=b"marker")
 
         def remote_sha(_ssh, path):
+            for item in runtime.files:
+                if path.endswith("/" + item.path):
+                    return item.sha256
             if path.endswith(tap_feature.runtime_path):
                 return tap_feature.sha256
             if path.endswith("launcher.sh"):

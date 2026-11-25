@@ -10,6 +10,7 @@ from pathlib import Path
 
 import _xovi_standalone as shared
 import _plugin_recovery as recovery
+import _qr_receiver as qr_home
 
 
 SH = shutil.which("sh")
@@ -65,15 +66,16 @@ class RecoveryTransactionTests(unittest.TestCase):
                 for path in directory.rglob("*") if path.is_file()}
 
     def execute(self, failure="", *, enable_dropin=True, root_mode="ro", legacy_layouts=(), controls_only=False,
-                stop_units=(), pinyin_stage=None, runtime_pid=False, appload_files=()):
+                stop_units=(), pinyin_stage=None, runtime_pid=False, peer_files=(), qr_receiver=None):
         script = shared.shared_transaction_script(
             self.LAYOUT.remote_base + ".staging-" + self.TOKEN,
-            self.TOKEN, legacy_layouts, enable_dropin=enable_dropin, retain_backup=not appload_files,
+            self.TOKEN, legacy_layouts, enable_dropin=enable_dropin, retain_backup=not peer_files,
             layout=self.LAYOUT,
             controls_only=controls_only,
             stop_units=stop_units,
             pinyin_stage=pinyin_stage,
-            appload_files=appload_files,
+            peer_files=tuple(peer_files),
+            qr_receiver=qr_receiver,
         )
         self.assertNotRegex(script, r"\b(?:reboot|shutdown)\b|systemctl\s+(?:start|restart|try-restart)\s+xochitl")
         # The trailing slash preserves concatenated lower-root paths after the
@@ -81,6 +83,10 @@ class RecoveryTransactionTests(unittest.TestCase):
         script = script.replace("/tmp/rmtool-xovi-rootfs-" + self.TOKEN, "./sandbox/mount/")
         for prefix in ("/data/", "/etc/", "/tmp/", "/home/"):
             script = script.replace(prefix, "./sandbox" + prefix)
+        if qr_receiver:
+            script = script.replace('"/home"', '"./sandbox/home"').replace('/home ', './sandbox/home ')
+            script = script.replace("/proc/self/mountinfo", "./sandbox/mountinfo")
+            (self.root / "sandbox/mountinfo").write_text("0 1 2 3 ./sandbox/home rw\n")
         script = script.replace("mount --bind / ", "mount --bind ./sandbox/root ")
         script = script.replace("/proc/mounts", "./sandbox/proc-mounts")
         if runtime_pid:
@@ -214,11 +220,25 @@ stat() {
     case "$2" in '%u:%g') echo 0:0 ;; '%a:%u:%g:%h') echo 600:0:0:1 ;; *) command stat "$@" ;; esac
 }
 '''
-        if appload_files:
+        if peer_files:
             # Model the device's root ownership and mode; sizes, link counts,
             # hashes and renames come from real files on all test hosts.
             prelude += """
 stat() { LC_ALL=C ls -ldn "$3" | awk '{print "81a4:0:0:" $5 ":" $2}'; }
+command -v sha256sum >/dev/null || sha256sum() { shasum -a 256 "$@"; }
+"""
+        if qr_receiver:
+            prelude += """
+stat() {
+    case "$2" in
+        '%u:%g') echo 0:0 ;;
+        '%a') echo 755 ;;
+        '%d') if [ "$3" = / ]; then echo 1; else echo 2; fi ;;
+        '%a:%u:%g') echo 700:0:0 ;;
+        '%f:%u:%g:%s:%h') LC_ALL=C ls -ldn "$3" | awk '{print "81ed:0:0:" $5 ":" $2}' ;;
+        *) command stat "$@" ;;
+    esac
+}
 command -v sha256sum >/dev/null || sha256sum() { shasum -a 256 "$@"; }
 """
         command = prelude + script
@@ -274,42 +294,71 @@ command -v sha256sum >/dev/null || sha256sum() { shasum -a 256 "$@"; }
         self.assertEqual(self.upper.read_bytes(), b"new dropin\n")
         self.assertEqual(self.lower.read_bytes(), b"new dropin\n")
 
-    def exercise_appload_links(self, *, failure="", modified=False):
+    def exercise_peer_links(self, *, failure="", modified=False, extra_link=False):
         files = []
-        for name in ("appload.so", "shim.so"):
+        for name in ("peer.so", "peer.qm"):
             data = name.encode()
             path = self.base / name
-            path.write_bytes(b"x" * len(data) if modified and name == "shim.so" else data)
+            path.write_bytes(b"x" * len(data) if modified and name == "peer.qm" else data)
             self.old_tree[name] = path.read_bytes()
             files.append(shared.SharedFileSpec(name, hashlib.sha256(data).hexdigest(), len(data), 0o644))
         if self.LAYOUT != shared.SHARED_LAYOUT:
             with self.assertRaises(ValueError):
-                self.execute(appload_files=files)
+                self.execute(peer_files=files)
             return
-        inode = (self.base / "appload.so").stat().st_ino
-        result = self.execute(failure, appload_files=files)
-        if failure or modified:
+        if extra_link:
+            os.link(self.base / "peer.qm", self.root / "unmanaged")
+        inode = (self.base / "peer.so").stat().st_ino
+        result = self.execute(failure, peer_files=files)
+        if failure or modified or extra_link:
             self.assertNotEqual(result.returncode, 0)
             self.assert_restored()
         else:
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(self.tree(self.base), {**self.new_tree, **{f.path: f.path.encode() for f in files}})
-        self.assertEqual((self.base / "appload.so").stat().st_ino, inode)
+        self.assertEqual((self.base / "peer.so").stat().st_ino, inode)
+        if extra_link:
+            self.assertTrue((self.root / "unmanaged").samefile(self.base / "peer.qm"))
+            (self.root / "unmanaged").unlink()
         self.assertTrue(all((self.base / f.path).stat().st_nlink == 1 for f in files))
 
-    def test_bridge_commits_verified_appload_inodes_without_copying(self):
-        self.exercise_appload_links()
+    def test_switch_commits_verified_peer_inodes_without_copying(self):
+        self.exercise_peer_links()
 
-    def test_bridge_rejects_same_size_changed_content_without_partial_links(self):
-        self.exercise_appload_links(modified=True)
+    def test_switch_rejects_same_size_changed_content_without_partial_links(self):
+        self.exercise_peer_links(modified=True)
 
-    def test_bridge_rollback_drops_verified_links_on_hangup(self):
-        self.exercise_appload_links(failure="hangup")
+    def test_switch_rejects_extra_link_and_undoes_partial_peer_links(self):
+        self.exercise_peer_links(extra_link=True)
+
+    def test_switch_rollback_drops_verified_links_on_hangup(self):
+        self.exercise_peer_links(failure="hangup")
+
+    def test_retained_backup_and_joint_service_transaction_refuse_peer_links(self):
+        files = (shared.SharedFileSpec("peer", "a" * 64, 1, 0o644),)
+        for options in ({"retain_backup": True}, {"pinyin_stage": "/home/root/.local/share/rmtool/"
+                                                                  "pinyin-input.staging-" + self.TOKEN}):
+            with self.assertRaisesRegex(ValueError, "复用文件"):
+                shared.shared_transaction_script("/stage", self.TOKEN, (), enable_dropin=True,
+                                                 layout=self.LAYOUT, peer_files=files, **options)
 
     def test_pinyin_stop_commits_with_shared_state(self):
         result = self.execute(stop_units=("rmtool-pinyin-input.service",))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.root / "sandbox/unit-state").read_text(), "inactive\n")
+
+    def test_disconnect_after_home_publish_rolls_back_entry_and_receiver(self):
+        data = b"verified receiver"
+        receiver = qr_home.Receiver(hashlib.sha256(data).hexdigest(), len(data))
+        prepared = qr_home.Prepared(receiver, qr_home.DIRECTORY + "/.stage-" + self.TOKEN)
+        directory = self.root / "sandbox" / prepared.temporary.lstrip("/")
+        directory.mkdir(parents=True)
+        (directory / "receiver").write_bytes(data)
+        result = self.execute("hangup", qr_receiver=prepared)
+        self.assertNotEqual(result.returncode, 0)
+        self.assert_restored()
+        self.assertFalse((directory / "receiver").exists(), "receiver had not yet been published")
+        self.assertFalse((self.root / "sandbox" / receiver.path.lstrip("/")).exists())
 
     def test_pinyin_stop_rolls_back_with_shared_state(self):
         result = self.execute("stage-move", stop_units=("rmtool-pinyin-input.service",))

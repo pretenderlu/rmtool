@@ -94,10 +94,63 @@ the complete manifest. Preserve existing published packages. The managed receive
 stock xochitl hash before preparing the local importer: .152 and .153 share a
 build number but are not interchangeable. See [five-device checks](../docs/firmware-3.29.0.153.md).
 
-New bridges resolve the receiver below the validated `XOVI_ROOT`: RM1 uses
-`/home/root/.local/share/rmtool/xovi-standalone`; other targets use
-`/data/rmtool/xovi-standalone`. Any other root is rejected. Receiver ownership,
-permissions, file type and pinned digest remain mandatory.
+Only the four exact RM2 targets (3.29.0.153, 3.29.1.0, 3.29.2.1, 3.30.0.109)
+use revision 2. Their package ID and archive member `helpers/rmtool-qr-upload`
+are unchanged. Installation puts that member at
+`/home/root/.local/share/rmtool/qr-upload/receivers/<lowercase-sha256>`.
+Only tapping **开启接收** opens it. The bridge walks no-follow directory FDs
+from root, requires a separately mounted home and root:root directories without
+group/other write, and checks a single-link root:root regular file, exact 0755
+mode, size and pinned SHA-256. It executes the verified FD without a second
+lookup or a fallback. Startup, lock and stop do not inspect the receiver.
+A QMD comment identifies each new revision without changing replay behavior.
+Other models retain revision 1 and the original receiver below their validated
+`XOVI_ROOT` (home for RM1, data for other models).
+
+#### Offline RM2 build and release
+
+Use the repository's Windows-amd64 toolchain, not an arbitrary Linux SDK.
+`tools/native_build.lock.json` pins the binaries and trees. Run
+`tools/native_build.py --zig <zig.exe> --go <go.exe> --qt-host <qt-root>`
+with Python 3.12 / zlib 1.3.1 before the build. This host used the repo's
+Qt 6.10.3 MSVC host tree, Zig 0.16.0, Go 1.27.0,
+`E:/remarkable/tools/qmd-tool.exe` and `build/tools/qmldiff/bin/qmldiff.exe`.
+From the repo root:
+
+1. Run `python qr-upload/build.py --go <go.exe> --output <receiver-dir>`.
+2. Run `python tools/rebuild_native_resources.py --feature qr-upload --platform rm2`
+   with `--receiver-dir`, `--qt-host`, `--zig`, `--qmd-tool`, `--qmldiff`,
+   `--firmware-work`, `--stable-resources`, `--matrix-config`, `--stock-libraries`,
+   `--python-libs` and `--output`. Use the matching native-import carriers in
+   the verified cache. Beta resource trees are under `<firmware-work>/beta-<release>/rm2`;
+   pass `build/resources-3.29.1.0` for stable resources. Stock libraries are
+   selected by `<stock-libraries>/<release>/rm2`. Use `--release` per target if
+   those roots differ. This replays QMD, builds twice, checks stock ABI, verifies
+   extraction, and updates the local catalog/cache; it does not publish.
+3. Stage **all** archives named by the final catalog and the byte-identical
+   `qr-upload/manifest.json` in `<stage>/qr-upload/`. Run
+   `python tools/publish_resources.py verify --release-root <stage> --resource qr-upload`.
+   Run `python tools/validate_build_matrix.py --native-cache .rmtool/cache --go <go.exe>`
+   for the executable identity gates. Do not mark hardware verified from these tests.
+4. For a separately authorized release, upload the four new immutable archives
+   to GitHub fixed release `qr-upload-assets` and the COS `qr-upload/` prefix,
+   verify sizes and hashes from both mirrors, then update each mirror's manifest
+   last and read it back. Retain old digest-named archives for older clients.
+
+To exercise the production FD handoff on Linux with Qt 6 Core development files,
+run from the repository root (use an executable temporary filesystem):
+
+```sh
+c++ -std=c++17 -fPIC qr-upload/native/test_receiver_fd.cpp -o /tmp/rmtool-fd-probe $(pkg-config --cflags --libs Qt6Core)
+/tmp/rmtool-fd-probe
+```
+
+The test replaces the original name before starting a benign ELF, checks the
+executed inode and close-on-exec in the child, and checks parent FD disposal on
+success and failed start without a page object. It passed on x86_64 Linux
+with Qt 6.10.3. It does not establish ARM hardware acceptance: the device
+needs accessible procfs, an executable home mount, and the real xochitl
+security context must permit exec. Failure does not select a second source.
 
 The narrow `QrUpload` QML type exposes only `start()` and `stop()`. It reads a
 single active private wlan0 IPv4, starts the verified foreground child without
@@ -153,7 +206,7 @@ one manual restart after installation; uploads themselves do not restart anythin
 After building the receiver and bridge, `build_assets.py --receiver ...
 --native-dir ... --carrier ... --output-dir ...` creates a deterministic verified
 package, updates the bundled manifest and seeds the local `.rmtool` cache. The
-carrier is the exact current reading-enhancement archive, supplying the same
+carrier is the exact current native-import archive, supplying the same
 shared runtime. This does not publish assets or deploy to a device.
 
 ## Security and limits

@@ -189,9 +189,10 @@ class QrUploadTests(unittest.TestCase):
             qr.FEATURE_ID: shared.SharedFeatureState(feature, True, "token"),
         }
         budget = shared.shared_capacity_budget(runtime, states)
+        reused_native = shared._allocated_sizes(i.size for i in native_feature.files if not i.runtime_path.endswith(".qmd"))
         self.assertEqual(
             raised.exception.recovery_context["required"],
-            budget.required_bytes - budget.runtime_bytes + shared.storage.LEGACY_ROOT_RESERVE,
+            budget.required_bytes - budget.runtime_bytes - reused_native + shared.storage.LEGACY_ROOT_RESERVE,
         )
         download.assert_not_called()
         install.assert_not_called()
@@ -204,6 +205,42 @@ class QrUploadTests(unittest.TestCase):
         self.assertFalse(any(
             token in command for command in device.events for token in mutations
         ), device.events)
+
+    def test_issue27_root_budget_and_standalone_qr_without_appload(self):
+        package = next(p for p in self.catalog if p.platform == "rm2" and p.release_version == "3.29.2.1")
+        for peers in (("native-chinese", "appload", "koreader"), ("native-chinese",)):
+            device = Device(package=package)
+            device.install({fid: shared.SharedFeatureState(device.trusted[fid], True, device.process_token) for fid in peers})
+            with (self.subTest(peers=peers), patch.object(tap, "get_device_identity", return_value=device.identity),
+                  patch.object(tap, "_preflight_device"), patch.object(qr._rmkit_cn, "has_localization_cjk_font", return_value=True),
+                  patch.object(qr._qr_receiver.Receiver, "present", return_value=False),
+                  patch.object(shared.storage, "system_free_bytes", return_value=("/", (17719 - 4096) * 1024)),
+                  patch.object(shared.storage, "require_capacity", wraps=shared.storage.require_capacity) as budget):
+                _, _, feature, plan = qr.preflight(device, package, with_plan=True)
+                self.assertEqual(set(plan.states), {*peers, "qr-upload"})
+                self.assertNotIn(qr.RECEIVER_PAYLOAD_PATH, {f.runtime_path for f in feature.files})
+                self.assertEqual({c.args[0] for c in budget.call_args_list}, {"/home", "/"})
+                root = next(c.args[2] for c in budget.call_args_list if c.args[0] == "/")
+                self.assertLess(root, 10 * 1024**2)
+                self.assertGreater(root, shared.storage.LEGACY_ROOT_RESERVE)
+
+    def test_each_rm2_inline_predecessor_can_be_upgraded_without_trusting_device_hashes(self):
+        for package in (p for p in self.catalog if p.platform == "rm2"):
+            for schema in (1, 2):
+                device = Device(package=package)
+                new = device.trusted["qr-upload"]
+                old = qr._known_shared_predecessor_specs(package, new)[0][1]
+                with self.subTest(release=package.release_version, schema=schema):
+                    self.assertNotEqual(new.sha256, old.sha256)
+                    self.assertIsNone(qr._qr_receiver.matching(device.runtime, old))
+                    self.assertNotIn("receivers/", shared.shared_launcher(device.runtime, (new,)))
+                    device.install({"qr-upload": shared.SharedFeatureState(old, True, device.process_token)}, schema_version=schema)
+                    inspection, chosen, _ = qr._inspect(device, device.identity, device.runtime, device.trusted)
+                    self.assertEqual(chosen["qr-upload"], old)
+                    self.assertEqual(inspection.states["qr-upload"].spec, old)
+                    device.entries[device.layout.remote_base + "/" + qr.RECEIVER_PAYLOAD_PATH].digest = "f" * 64
+                    with self.assertRaises(RuntimeError):
+                        qr._inspect(device, device.identity, device.runtime, device.trusted)
 
     def test_install_uses_verified_shared_transaction_without_restart(self):
         ssh = Mock()

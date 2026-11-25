@@ -17,6 +17,48 @@ ROOT = Path(__file__).resolve().parents[1] / "qr-upload"
 
 
 class QrUploadNativeTests(unittest.TestCase):
+    def test_rm2_only_opens_receiver_on_explicit_start_and_executes_same_fd(self):
+        source = (ROOT / "native/main.cpp").read_text(encoding="utf-8")
+        start = source.split("void QrUpload::start()", 1)[1].split("void QrUpload::stop()", 1)[0]
+        self.assertEqual(source.count("openTrustedReceiver("), 2)  # definition and click handler
+        self.assertIn("if (!openTrustedReceiver(*receiver))", start)
+        self.assertIn("adoptVerifiedReceiver(process, std::move(receiver))", start)
+        launch = (ROOT / "native/ReceiverProcess.h").read_text(encoding="utf-8")
+        self.assertIn('QStringLiteral("/proc/self/fd/%1").arg(receiver->handle())', launch)
+        helper = source.split("bool trustedDir(", 1)[1].split("#else", 1)[0]
+        self.assertNotIn("XOVI_ROOT", helper)
+        for required in ("O_DIRECTORY | O_NOFOLLOW", "openat(dir, part.constData()",
+                         "st.st_dev == rootDevice", "st.st_uid == 0 && st.st_gid == 0",
+                         "!(st.st_mode & 0022)", "S_ISREG(st.st_mode)", "(st.st_mode & 07777) != 0755",
+                         "st.st_nlink != 1", "st.st_size != RMTOOL_QR_RECEIVER_SIZE",
+                         "openat(dir, RMTOOL_QR_RECEIVER_SHA256", "hash.addData(&file)"):
+            self.assertIn(required, helper)
+        qmd = (ROOT / "native/qr-upload-3.28.qmd").read_text(encoding="utf-8")
+        self.assertEqual(qmd.count("rmtoolQrBridge.start()"), 1)
+        self.assertIn("onClicked: rmtoolQrBridge.start()", qmd)
+
+    def test_packager_refuses_mixed_receiver_bridge_or_qmd(self):
+        spec = importlib.util.spec_from_file_location("qr_assets", ROOT / "build_assets.py")
+        assets = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(assets)
+        receiver, stock = b"receiver", "a" * 64
+        pin = hashlib.sha256(receiver).hexdigest().encode()
+        home = b"/home/root/.local/share/rmtool/qr-upload/receivers"
+        legacy = b"".join(s.encode("utf-16le") for s in (
+            "/data/rmtool/xovi-standalone", "/home/root/.local/share/rmtool/xovi-standalone", "/helpers/rmtool-qr-upload"))
+        marker = b"; rmtool RM2 QR revision 2: " + stock.encode() + b"\n"
+        validate = assets.validate_receiver_binding
+        validate("rm2", stock, receiver, pin + home, marker)
+        validate("rm1", stock, receiver, pin + legacy, b"old QMD")
+        for model, data, bridge, qmd in (
+            ("rm2", receiver, pin + legacy, marker), ("rm2", receiver, pin + home + legacy, marker),
+            ("rm2", b"changed", pin + home, marker), ("rm2", receiver, pin + home, b"old QMD"),
+            ("rm2", receiver, pin + home, marker.replace(b"a" * 64, b"b" * 64)),
+            ("rm1", receiver, pin + home, marker), ("rm1", receiver, pin + legacy, marker),
+        ):
+            with self.subTest(model=model, bridge=bridge, qmd=qmd), self.assertRaises(RuntimeError):
+                validate(model, stock, data, bridge, qmd)
+
     def test_receiver_builder_resolves_relative_output_before_changing_cwd(self):
         spec = importlib.util.spec_from_file_location("qr_receiver_builder", ROOT / "build.py")
         module = importlib.util.module_from_spec(spec)

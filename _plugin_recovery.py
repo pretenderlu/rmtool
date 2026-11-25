@@ -21,7 +21,7 @@ import shlex
 import stat
 import tempfile
 import uuid
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
 from enum import Enum
 from itertools import product
@@ -1380,7 +1380,7 @@ def repair(ssh_client, state_dir) -> RecoveryReport:
                 destination.mkdir()
                 extractor = getattr(module, "extract_verified_package", tap.extract_verified_package)
                 roots[feature_id] = Path(extractor(archive, package, destination))
-            with shared._operation_lock(ssh_client):
+            with shared._operation_lock(ssh_client), ExitStack() as resources:
                 current_report, current = _inspect(ssh_client)
                 if not current_report.can_repair or current != plan:
                     raise RuntimeError("下载期间设备或插件状态发生变化，请重新检测后重试。")
@@ -1409,6 +1409,7 @@ def repair(ssh_client, state_dir) -> RecoveryReport:
                     if not final_report.can_repair or final != plan or shared._process_token(ssh_client, allow_stopped=True) != process_token:
                         raise RuntimeError("暂存期间设备或插件状态发生变化，已中止修复。")
                     _check_capacity(ssh_client, plan, staged=True)
+                    receiver_args = shared._qr_transaction_args(resources, ssh_client, plan.runtime, states, roots, token)
                     # A rollback may restore damaged bytes. Never clear this
                     # latch on failure or clear a pre-existing user latch.
                     created_sentinel = shared._set_recovery_sentinel_locked(ssh_client)
@@ -1417,6 +1418,7 @@ def repair(ssh_client, state_dir) -> RecoveryReport:
                         enable_dropin=any(s.enabled for s in states.values()), retain_backup=True,
                         layout=layout,
                         controls_only=plan.controls_only,
+                        **receiver_args,
                     ).encode()
                     if shared._remote_entry_exists(ssh_client, script_path):
                         raise RuntimeError("恢复事务临时路径已存在，拒绝覆盖。")
